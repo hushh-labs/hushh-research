@@ -81,9 +81,34 @@ def safe_answer_drain_result(stage: str, outcomes: object) -> dict[str, Any]:
     }
 
 
-def _owner_earning_cents(gross: int) -> int:
-    """Gross minus the platform commission, floored at zero."""
-    return max(0, gross - (gross * COMMISSION_BPS) // 10_000)
+def answer_payout_amounts(*, gross_cents: int, processing_fee_cents: int) -> dict[str, int]:
+    """Split one delivered answer's gross using Drive's canonical rules.
+
+    An answer is all-or-nothing -- it is delivered with content or it is
+    refunded -- so `confirmed == expected == 1` and the whole gross is
+    retained. Everything else is Drive's:
+    `delivery_amounts` rounds the commission half-up rather than truncating,
+    and `fee_amounts` charges the owner the charge's ACTUAL Stripe processing
+    fee, capped at the proceeds after commission so an earning can never go
+    negative. Hushh absorbs anything above that cap.
+    """
+    from hushh_mcp.services.drive_request_owner_payout_service import (
+        delivery_amounts,
+        fee_amounts,
+    )
+
+    delivery = delivery_amounts(
+        gross_cents=gross_cents, confirmed=1, expected=1, commission_bps=COMMISSION_BPS
+    )
+    return {
+        **delivery,
+        **fee_amounts(
+            gross_cents=gross_cents,
+            retained_cents=delivery["retained_amount_cents"],
+            platform_fee_cents=delivery["platform_fee_cents"],
+            actual_processing_fee_cents=processing_fee_cents,
+        ),
+    }
 
 
 class PkmAnswerWorkWorker(ExternalConnectorLifecycleStore):
@@ -101,6 +126,28 @@ class PkmAnswerWorkWorker(ExternalConnectorLifecycleStore):
         if stage == "refunds":
             return await self.run_refunds(max_jobs=max_jobs)
         return await self.run_payouts(max_jobs=max_jobs)
+
+    def _actual_processing_fee(self, intent_id: object, key: str) -> int:
+        """The charge's real Stripe fee, read the way the Drive lane reads it.
+
+        A missing or unsettled balance transaction raises, which defers the
+        payout rather than guessing a fee and underpaying the owner.
+        """
+        intent = _stripe_dict(
+            self.stripe_api.PaymentIntent.retrieve(str(intent_id or ""), api_key=key)
+        )
+        charge_id = intent.get("latest_charge")
+        if intent.get("status") != "succeeded" or not isinstance(charge_id, str):
+            raise ValueError("unsettled payment intent")
+        charge = _stripe_dict(self.stripe_api.Charge.retrieve(charge_id, api_key=key))
+        balance_id = charge.get("balance_transaction")
+        if not isinstance(balance_id, str):
+            raise ValueError("missing balance transaction")
+        balance = _stripe_dict(self.stripe_api.BalanceTransaction.retrieve(balance_id, api_key=key))
+        fee = balance.get("fee")
+        if type(fee) is not int or fee < 0:
+            raise ValueError("missing processing fee")
+        return fee
 
     # -------------------------------------------------------------- timeouts
 
@@ -215,9 +262,30 @@ class PkmAnswerWorkWorker(ExternalConnectorLifecycleStore):
                 outcomes["awaiting_account"] += 1
                 continue
             try:
+                # The owner bears the charge's ACTUAL processing fee, so the
+                # amount is only knowable from the balance transaction. The
+                # provisional split written at promotion is replaced here,
+                # before anything is transferred.
+                fee = self._actual_processing_fee(row["stripe_payment_intent_id"], key)
+                amounts = answer_payout_amounts(
+                    gross_cents=int(row["gross_amount_cents"]), processing_fee_cents=fee
+                )
+                await self._transaction(
+                    lambda connection, rid=request_id, a=amounts: _record_fee_split(
+                        connection, rid, a
+                    )
+                )
+                if amounts["owner_earning_cents"] <= 0:
+                    # Fees consumed the proceeds. There is nothing to send, and
+                    # a zero-amount Transfer is an error at Stripe.
+                    await self._transaction(
+                        lambda connection, rid=request_id: _settle_payout(connection, rid, None)
+                    )
+                    outcomes["transferred"] += 1
+                    continue
                 transfer = _stripe_dict(
                     self.stripe_api.Transfer.create(
-                        amount=int(row["owner_earning_cents"]),
+                        amount=amounts["owner_earning_cents"],
                         currency=row["currency"],
                         destination=destination,
                         api_key=key,
@@ -242,6 +310,24 @@ class PkmAnswerWorkWorker(ExternalConnectorLifecycleStore):
                 logger.warning("answer_payout.deferred request=%s code=%s", request_id, code)
 
         return outcomes
+
+
+def _record_fee_split(connection, request_id: str, amounts: dict[str, int]) -> None:
+    """Persist the real split before the transfer, so the row is evidence."""
+    connection.execute(
+        text(
+            """UPDATE pkm_answer_owner_payouts
+               SET platform_fee_cents = :fee,
+                   owner_earning_cents = :earning,
+                   updated_at = clock_timestamp()
+               WHERE request_id = :request"""
+        ),
+        {
+            "request": request_id,
+            "fee": amounts["platform_fee_cents"],
+            "earning": amounts["owner_earning_cents"],
+        },
+    )
 
 
 # ------------------------------------------------------------- SQL helpers --
@@ -360,9 +446,14 @@ def _promote_due_payouts(connection) -> None:
             """INSERT INTO pkm_answer_owner_payouts
                (request_id, gross_amount_cents, currency, status,
                 platform_fee_cents, owner_earning_cents, destination_account_id)
+               -- A provisional commission-only split, rounded half-up the
+               -- way Drive rounds it. It is never what gets transferred:
+               -- dispatch retrieves the charge's actual processing fee and
+               -- rewrites both columns before any money moves. The row needs
+               -- an earning here only because 'due' requires one.
                SELECT o.request_id, o.amount_cents, o.currency, 'due',
-                      (o.amount_cents * :bps) / 10000,
-                      o.amount_cents - (o.amount_cents * :bps) / 10000,
+                      (2 * o.amount_cents * :bps + 10000) / 20000,
+                      o.amount_cents - (2 * o.amount_cents * :bps + 10000) / 20000,
                       a.stripe_account_id
                FROM pkm_answer_payment_orders o
                JOIN pkm_answer_deliveries d ON d.request_id = o.request_id AND d.has_content
@@ -406,8 +497,13 @@ def _claim_payouts(connection, max_jobs: int) -> list[dict[str, Any]]:
                             OR lease_expires_at < clock_timestamp())
                      ORDER BY next_check_at
                      LIMIT :limit FOR UPDATE SKIP LOCKED)
-                   RETURNING request_id, attempts, currency, owner_earning_cents,
-                             destination_account_id, transfer_attempt_id"""
+                   RETURNING request_id, attempts, currency, gross_amount_cents,
+                             owner_earning_cents, destination_account_id,
+                             transfer_attempt_id,
+                             (SELECT stripe_payment_intent_id
+                              FROM pkm_answer_payment_orders o
+                              WHERE o.request_id = pkm_answer_owner_payouts.request_id)
+                               AS stripe_payment_intent_id"""
             ),
             {"limit": max(1, min(int(max_jobs), 25)), "lease": LEASE_SECONDS},
         ).mappings()

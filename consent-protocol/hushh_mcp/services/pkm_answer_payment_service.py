@@ -151,14 +151,86 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
 
     # -------------------------------------------------------------- checkout
 
+    def _retire_session(self, session_id: str, key: str) -> str:
+        """Prove a superseded Checkout session can no longer be charged.
+
+        Returns ``"dead"``, ``"paid"`` or ``"unknown"``. The caller must not
+        forget a session it cannot prove is dead: a second live session means
+        the requester can pay into an attempt id settlement will reject, and
+        that payment has no order to land on, no answer owed and no refund
+        filed. An expire call that times out is ``"unknown"``, not success --
+        the outcome at Stripe is genuinely undetermined.
+        """
+
+        def classify(session: object) -> str | None:
+            try:
+                data = _stripe_dict(session)
+            except (AttributeError, TypeError, ValueError):
+                return None
+            if not isinstance(data, dict):
+                return None
+            if data.get("status") == "expired":
+                return "dead"
+            if data.get("status") == "complete" or data.get("payment_status") == "paid":
+                return "paid"
+            return None
+
+        verdict: str | None = None
+        try:
+            verdict = classify(self.stripe_api.checkout.Session.expire(session_id, api_key=key))
+        except Exception:  # noqa: BLE001 - every failure mode is "not proven dead"
+            logger.info("answer_checkout.session_expire_unconfirmed")
+        if verdict is None:
+            # Expiring may have failed because the session was already expired
+            # or already completed. Read the authoritative state rather than
+            # parsing the error.
+            try:
+                verdict = classify(
+                    self.stripe_api.checkout.Session.retrieve(session_id, api_key=key)
+                )
+            except Exception:  # noqa: BLE001
+                logger.info("answer_checkout.session_state_unreadable")
+        return verdict or "unknown"
+
+    @staticmethod
+    def _checkout_decision(request: dict, order: dict | None) -> dict:
+        """Decide reuse / supersede / fresh for one locked request+order pair.
+
+        Pure, so the pre-Stripe and post-Stripe transactions cannot disagree
+        about what they are doing.
+        """
+        if order is None:
+            return {"action": "fresh", "stale": None}
+        if order["status"] == "paid":
+            raise AnswerPaymentError("payment_already_paid")
+        if (
+            order["status"] == "checkout_open"
+            and order["stripe_checkout_session_id"]
+            and order["stripe_checkout_url"]
+            and order["amount_cents"] == request["amount_cents"]
+            and order["terms_digest"] == request["terms_digest"]
+            and order["stripe_checkout_expires_at"] is not None
+            and order["stripe_checkout_expires_at"] > _now()
+        ):
+            # Nothing about the terms changed and the session is still live:
+            # hand back the SAME session. Minting a second one and nulling the
+            # first leaves a payable Stripe session whose attempt id
+            # settlement will reject -- the requester pays and the order never
+            # settles.
+            return {"action": "reuse", "stale": None}
+        stale = order["stripe_checkout_session_id"]
+        if order["status"] == "checkout_open" and stale:
+            # Our own expiry clock is not Stripe's. A session we consider
+            # lapsed can still be sitting open in the requester's browser.
+            return {"action": "supersede", "stale": str(stale)}
+        return {"action": "requote", "stale": None}
+
     async def checkout(self, *, requester_user_id: str, request_id: str) -> dict:
         """Open (or reuse) a hosted Checkout session for one approved question."""
         require_payment_configuration()
         key, _webhook_secret, origin = _config()
 
-        expire_sessions: list[str] = []
-
-        def reserve(connection):
+        def load(connection):
             request = self._row(
                 connection,
                 """SELECT request_id, owner_user_id, requester_user_id, status,
@@ -173,18 +245,63 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                 raise AnswerPaymentError("payment_not_ready")
             if not valid_answer_price_cents(request["amount_cents"]):
                 raise AnswerPaymentError("payment_not_ready")
-
             order = self._row(
                 connection,
                 """SELECT * FROM pkm_answer_payment_orders
                    WHERE request_id = :request FOR UPDATE""",
                 {"request": request_id},
             )
-            if order is not None and order["status"] == "paid":
-                raise AnswerPaymentError("payment_already_paid")
+            return request, order, self._checkout_decision(request, order)
+
+        request, order, decision = await self._transaction(load)
+
+        if decision["action"] == "reuse":
+            return {
+                "checkoutUrl": order["stripe_checkout_url"],
+                "amountCents": order["amount_cents"],
+            }
+
+        if decision["action"] == "supersede":
+            # Done BEFORE the row forgets the session, and outside the
+            # transaction because it is a network call. Until Stripe confirms
+            # the old session is dead the order keeps pointing at it, so every
+            # possible webhook still has an order to settle or refund against.
+            verdict = self._retire_session(decision["stale"], key)
+            if verdict == "paid":
+                # The requester paid the session we were about to discard.
+                # Leave the order bound to it; the webhook settles it.
+                raise AnswerPaymentError("payment_in_flight")
+            if verdict != "dead":
+                raise AnswerPaymentError("checkout_unavailable")
+
+        def reserve(connection):
+            fresh_request = self._row(
+                connection,
+                """SELECT request_id, owner_user_id, requester_user_id, status,
+                          amount_cents, currency, terms_digest
+                   FROM pkm_answer_requests
+                   WHERE request_id = :request FOR UPDATE""",
+                {"request": request_id},
+            )
+            if fresh_request is None or fresh_request["requester_user_id"] != requester_user_id:
+                raise AnswerPaymentError("request_unavailable")
+            if fresh_request["status"] != "approved":
+                raise AnswerPaymentError("payment_not_ready")
+            fresh_order = self._row(
+                connection,
+                """SELECT * FROM pkm_answer_payment_orders
+                   WHERE request_id = :request FOR UPDATE""",
+                {"request": request_id},
+            )
+            again = self._checkout_decision(fresh_request, fresh_order)
+            if again != decision:
+                # A concurrent checkout moved the order while we were talking
+                # to Stripe. Refuse rather than act on the stale decision; the
+                # caller retries and re-reads the committed state.
+                raise AnswerPaymentError("checkout_unavailable")
 
             attempt_id = str(uuid4())
-            if order is None:
+            if again["action"] == "fresh":
                 connection.execute(
                     text(
                         """INSERT INTO pkm_answer_payment_orders
@@ -195,68 +312,37 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                     ),
                     {
                         "request": request_id,
-                        "owner": request["owner_user_id"],
+                        "owner": fresh_request["owner_user_id"],
                         "requester": requester_user_id,
-                        "amount": request["amount_cents"],
-                        "currency": request["currency"],
-                        "digest": request["terms_digest"],
+                        "amount": fresh_request["amount_cents"],
+                        "currency": fresh_request["currency"],
+                        "digest": fresh_request["terms_digest"],
                         "attempt": attempt_id,
                     },
                 )
-            elif (
-                order["status"] == "checkout_open"
-                and order["stripe_checkout_session_id"]
-                and order["stripe_checkout_url"]
-                and order["amount_cents"] == request["amount_cents"]
-                and order["terms_digest"] == request["terms_digest"]
-                and order["stripe_checkout_expires_at"] is not None
-                and order["stripe_checkout_expires_at"] > _now()
-            ):
-                # Nothing about the terms changed and the session is still
-                # live: hand back the SAME session. Minting a second one and
-                # nulling the first leaves a payable Stripe session whose
-                # attempt id settlement will reject -- the requester pays and
-                # the order never settles.
-                return {**request, "reuse": order}
             else:
-                # The terms changed or the session lapsed. Expire the old
-                # session at Stripe before re-quoting, so it cannot be paid
-                # into an attempt that no longer exists.
-                stale_session = order["stripe_checkout_session_id"]
-                if stale_session:
-                    expire_sessions.append(stale_session)
+                # Safe now: either there was no session, or Stripe confirmed
+                # the old one is expired and can never be charged.
                 connection.execute(
                     text(
                         """UPDATE pkm_answer_payment_orders
                            SET amount_cents = :amount, terms_digest = :digest,
                                checkout_attempt_id = :attempt, status = 'awaiting_payment',
                                stripe_checkout_session_id = NULL, stripe_checkout_url = NULL,
+                               stripe_checkout_expires_at = NULL,
                                updated_at = clock_timestamp()
                            WHERE request_id = :request"""
                     ),
                     {
                         "request": request_id,
-                        "amount": request["amount_cents"],
-                        "digest": request["terms_digest"],
+                        "amount": fresh_request["amount_cents"],
+                        "digest": fresh_request["terms_digest"],
                         "attempt": attempt_id,
                     },
                 )
-            return {**request, "checkout_attempt_id": attempt_id}
+            return {**fresh_request, "checkout_attempt_id": attempt_id}
 
         reserved = await self._transaction(reserve)
-
-        if "reuse" in reserved:
-            open_order = reserved["reuse"]
-            return {
-                "checkoutUrl": open_order["stripe_checkout_url"],
-                "amountCents": open_order["amount_cents"],
-            }
-
-        for stale in expire_sessions:
-            try:
-                self.stripe_api.checkout.Session.expire(stale, api_key=key)
-            except Exception:  # noqa: BLE001 - an already-expired session is fine
-                logger.info("answer_checkout.stale_session_expire_skipped")
 
         session = self.stripe_api.checkout.Session.create(
             mode="payment",

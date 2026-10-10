@@ -65,6 +65,12 @@ _STATUS = {
     "terms_changed": 409,
     "payment_not_ready": 409,
     "payment_already_paid": 409,
+    # The requester paid a session we were about to replace; the webhook
+    # settles it. Retrying checkout would double-charge.
+    "payment_in_flight": 409,
+    # Stripe could not confirm the previous session is dead, so we refuse to
+    # mint a second payable one. Retryable.
+    "checkout_unavailable": 503,
     "payment_invalid_event": 409,
     "payment_invalid_signature": 400,
 }

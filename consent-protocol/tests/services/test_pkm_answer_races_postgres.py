@@ -66,6 +66,25 @@ def _orders(engine, request_id):
         )
 
 
+def _stripe_payout_api(fee_cents: int = 0):
+    """A Stripe double that can answer the charge's real processing fee.
+
+    The payout split reads PaymentIntent -> Charge -> BalanceTransaction the
+    way the Drive lane does, so a double that cannot answer that chain makes
+    the worker defer rather than guess the fee.
+    """
+    api = Mock()
+    api.PaymentIntent.retrieve.return_value = {
+        "id": "pi_x",
+        "status": "succeeded",
+        "latest_charge": "ch_x",
+    }
+    api.Charge.retrieve.return_value = {"id": "ch_x", "balance_transaction": "txn_x"}
+    api.BalanceTransaction.retrieve.return_value = {"id": "txn_x", "fee": fee_cents}
+    api.Transfer.create.return_value = {"id": "tr_test_1"}
+    return api
+
+
 class TestRepeatedCheckout:
     async def test_a_second_checkout_reuses_one_order_row(self, answer_engine):  # noqa: F811
         _service, request_id, digest = await _approved(answer_engine)
@@ -128,7 +147,26 @@ class TestRepeatedCheckoutThroughTheService:
             "url": url,
             "expires_at": int(__import__("time").time()) + 1800,
         }
+        # A successful expire returns the session in its final state. The
+        # service treats anything it cannot read as "not proven dead".
+        api.checkout.Session.expire.return_value = {
+            "id": "cs_new",
+            "status": "expired",
+            "payment_status": "unpaid",
+        }
         return api
+
+    @staticmethod
+    def _reprice(engine, request_id):
+        """Change the approved terms so the live session is superseded."""
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE pkm_answer_requests SET amount_cents = 2000,"
+                    " terms_digest = :d WHERE request_id = :r"
+                ),
+                {"r": request_id, "d": "c" * 64},
+            )
 
     async def test_an_unchanged_live_session_is_reused_not_reminted(self, answer_engine):  # noqa: F811
         service, request_id, digest = await _approved(answer_engine)
@@ -171,6 +209,115 @@ class TestRepeatedCheckoutThroughTheService:
         # The superseded session is closed at Stripe, so it cannot be paid.
         api.checkout.Session.expire.assert_called_once()
         assert api.checkout.Session.expire.call_args.args[0] == "cs_new"
+
+    async def test_an_unconfirmed_expiry_refuses_to_mint_a_second_session(
+        self,
+        answer_engine,  # noqa: F811
+    ):
+        """An expire call whose outcome is unknown must not be read as success.
+
+        If Stripe never confirms the old session is dead and we mint a second
+        one anyway, the requester can still pay the first. Settlement rejects
+        that payment -- it carries a superseded attempt id -- so the money is
+        taken with no order to settle, no answer owed and no refund filed.
+        """
+        service, request_id, digest = await _approved(answer_engine)
+        from hushh_mcp.services.pkm_answer_payment_service import (
+            AnswerPaymentError,
+            PkmAnswerPaymentService,
+        )
+
+        api = self._stripe()
+        payments = PkmAnswerPaymentService(_db(answer_engine), stripe_api=api)
+        await payments.checkout(requester_user_id=REQUESTER, request_id=request_id)
+        self._reprice(answer_engine, request_id)
+
+        api.checkout.Session.expire.side_effect = RuntimeError("stripe timeout")
+        api.checkout.Session.retrieve.side_effect = RuntimeError("stripe timeout")
+
+        with pytest.raises(AnswerPaymentError, match="checkout_unavailable"):
+            await payments.checkout(requester_user_id=REQUESTER, request_id=request_id)
+
+        assert api.checkout.Session.create.call_count == 1
+        # The order still points at the only session Stripe might charge, so
+        # a late payment on it still has somewhere to settle.
+        with answer_engine.begin() as connection:
+            row = (
+                connection.execute(
+                    text(
+                        "SELECT status, stripe_checkout_session_id"
+                        " FROM pkm_answer_payment_orders WHERE request_id=:r"
+                    ),
+                    {"r": request_id},
+                )
+                .mappings()
+                .one()
+            )
+        assert row["status"] == "checkout_open"
+        assert row["stripe_checkout_session_id"] == "cs_new"
+
+    async def test_a_timed_out_expiry_is_resolved_by_reading_the_session(
+        self,
+        answer_engine,  # noqa: F811
+    ):
+        """A failed expire is not a verdict: the session's own state is."""
+        service, request_id, digest = await _approved(answer_engine)
+        from hushh_mcp.services.pkm_answer_payment_service import PkmAnswerPaymentService
+
+        api = self._stripe()
+        payments = PkmAnswerPaymentService(_db(answer_engine), stripe_api=api)
+        await payments.checkout(requester_user_id=REQUESTER, request_id=request_id)
+        self._reprice(answer_engine, request_id)
+
+        api.checkout.Session.expire.side_effect = RuntimeError("already expired")
+        api.checkout.Session.retrieve.return_value = {
+            "id": "cs_new",
+            "status": "expired",
+            "payment_status": "unpaid",
+        }
+        await payments.checkout(requester_user_id=REQUESTER, request_id=request_id)
+        assert api.checkout.Session.create.call_count == 2
+
+    async def test_a_session_paid_while_being_superseded_is_left_to_settle(
+        self,
+        answer_engine,  # noqa: F811
+    ):
+        """The requester paid the session we were about to discard.
+
+        Replacing it would charge them twice; discarding it would orphan the
+        payment they already made. Neither: refuse, and let the webhook settle
+        the order that is still bound to that session.
+        """
+        service, request_id, digest = await _approved(answer_engine)
+        from hushh_mcp.services.pkm_answer_payment_service import (
+            AnswerPaymentError,
+            PkmAnswerPaymentService,
+        )
+
+        api = self._stripe()
+        payments = PkmAnswerPaymentService(_db(answer_engine), stripe_api=api)
+        await payments.checkout(requester_user_id=REQUESTER, request_id=request_id)
+        self._reprice(answer_engine, request_id)
+
+        api.checkout.Session.expire.side_effect = RuntimeError("session completed")
+        api.checkout.Session.retrieve.return_value = {
+            "id": "cs_new",
+            "status": "complete",
+            "payment_status": "paid",
+        }
+        with pytest.raises(AnswerPaymentError, match="payment_in_flight"):
+            await payments.checkout(requester_user_id=REQUESTER, request_id=request_id)
+
+        assert api.checkout.Session.create.call_count == 1
+        with answer_engine.begin() as connection:
+            session_id = connection.execute(
+                text(
+                    "SELECT stripe_checkout_session_id FROM pkm_answer_payment_orders"
+                    " WHERE request_id=:r"
+                ),
+                {"r": request_id},
+            ).scalar()
+        assert session_id == "cs_new"
 
     async def test_an_already_paid_order_refuses_another_checkout(self, answer_engine):  # noqa: F811
         # Two guards stand in front of a second charge. This one is the inner
@@ -660,13 +807,12 @@ class TestPayouts:
                 ),
                 {"u": OWNER},
             )
-        api = Mock()
-        api.Transfer.create.return_value = {"id": "tr_test_1"}
+        api = _stripe_payout_api(fee_cents=0)
         outcome = await PkmAnswerWorkWorker(_db(answer_engine), stripe_api=api).run_payouts(
             max_jobs=5
         )
         assert outcome["transferred"] == 1
-        # 300 bps of 10000 is 300; the owner earns 9700.
+        # 300 bps of 10000 is 300, and this charge cost nothing to process.
         assert api.Transfer.create.call_args.kwargs["amount"] == 9_700
         assert api.Transfer.create.call_args.kwargs["destination"] == "acct_test"
 
@@ -712,8 +858,7 @@ class TestStripeModeIsolation:
                 ),
                 {"u": OWNER},
             )
-        api = Mock()
-        api.Transfer.create.return_value = {"id": "tr_1"}
+        api = _stripe_payout_api()
         await PkmAnswerWorkWorker(_db(answer_engine), stripe_api=api).run_payouts(max_jobs=5)
         assert api.Transfer.create.call_args.kwargs["destination"] == "acct_test_mode"
 
@@ -737,6 +882,147 @@ class TestStripeModeIsolation:
         )
         # It waits for a test-mode account rather than paying the live one.
         assert outcome["awaiting_account"] == 1
+        api.Transfer.create.assert_not_called()
+
+
+class TestPayoutFollowsDriveCanonicalRules:
+    """Fees and verified accounts follow the Drive lane, not a local formula."""
+
+    @staticmethod
+    def _stripe_with_fee(fee_cents: int):
+        from unittest.mock import Mock as _Mock
+
+        api = _Mock()
+        api.PaymentIntent.retrieve.return_value = {
+            "id": "pi_x",
+            "status": "succeeded",
+            "latest_charge": "ch_x",
+        }
+        api.Charge.retrieve.return_value = {"id": "ch_x", "balance_transaction": "txn_x"}
+        api.BalanceTransaction.retrieve.return_value = {"id": "txn_x", "fee": fee_cents}
+        api.Transfer.create.return_value = {"id": "tr_x"}
+        return api
+
+    @staticmethod
+    def _ready_account(engine, mode="test"):
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO stripe_owner_payout_accounts"
+                    " (user_id,stripe_mode,stripe_account_id,payouts_enabled,account_ready)"
+                    " VALUES (:u,:m,'acct_ready',TRUE,TRUE)"
+                ),
+                {"u": OWNER, "m": mode},
+            )
+
+    async def test_the_owner_bears_the_actual_processing_fee(self, answer_engine):  # noqa: F811
+        service, request_id, digest = await _approved(answer_engine, amount=10_000)
+        _mark_paid(answer_engine, request_id, digest, amount=10_000)
+        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+        self._ready_account(answer_engine)
+
+        # 10000 gross, 300 bps commission = 300, Stripe fee 320.
+        api = self._stripe_with_fee(320)
+        outcome = await PkmAnswerWorkWorker(_db(answer_engine), stripe_api=api).run_payouts(
+            max_jobs=5
+        )
+
+        assert outcome["transferred"] == 1
+        # 10000 - 300 commission - 320 processing = 9380. The old local
+        # formula ignored the processing fee and would have sent 9700.
+        assert api.Transfer.create.call_args.kwargs["amount"] == 9_380
+
+    def test_the_split_is_drives_arithmetic_not_a_local_formula(self):
+        """No second formula: the helper must return exactly Drive's numbers.
+
+        Driven at a gross where truncation and half-up disagree (150c yields a
+        4.5c commission), which `approve` cannot produce because it only
+        accepts whole dollars. A local `gross * bps // 10000` would answer 4.
+        """
+        from hushh_mcp.services.drive_request_owner_payout_service import (
+            delivery_amounts,
+            fee_amounts,
+        )
+        from hushh_mcp.services.pkm_answer_work_worker import answer_payout_amounts
+
+        amounts = answer_payout_amounts(gross_cents=150, processing_fee_cents=30)
+        delivery = delivery_amounts(gross_cents=150, confirmed=1, expected=1)
+        assert amounts["platform_fee_cents"] == delivery["platform_fee_cents"] == 5
+        assert amounts["retained_amount_cents"] == 150
+        assert amounts == {
+            **delivery,
+            **fee_amounts(
+                gross_cents=150,
+                retained_cents=150,
+                platform_fee_cents=5,
+                actual_processing_fee_cents=30,
+            ),
+        }
+
+    async def test_fees_above_the_proceeds_never_make_the_owner_owe(self, answer_engine):  # noqa: F811
+        service, request_id, digest = await _approved(answer_engine, amount=100)
+        _mark_paid(answer_engine, request_id, digest, amount=100)
+        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+        self._ready_account(answer_engine)
+
+        # A 500c fee on a 100c charge: hushh absorbs the excess.
+        api = self._stripe_with_fee(500)
+        outcome = await PkmAnswerWorkWorker(_db(answer_engine), stripe_api=api).run_payouts(
+            max_jobs=5
+        )
+        assert outcome["transferred"] == 1
+        # Nothing to send, and a zero-amount Transfer is an error at Stripe.
+        api.Transfer.create.assert_not_called()
+        with answer_engine.begin() as connection:
+            earning = connection.execute(
+                text(
+                    "SELECT owner_earning_cents FROM pkm_answer_owner_payouts WHERE request_id=:r"
+                ),
+                {"r": request_id},
+            ).scalar()
+        assert earning == 0
+
+    async def test_an_unverified_account_is_not_paid(self, answer_engine):  # noqa: F811
+        service, request_id, digest = await _approved(answer_engine)
+        _mark_paid(answer_engine, request_id, digest)
+        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+        with answer_engine.begin() as connection:
+            # Enabled but NOT account_ready: Drive requires both.
+            connection.execute(
+                text(
+                    "INSERT INTO stripe_owner_payout_accounts"
+                    " (user_id,stripe_mode,stripe_account_id,payouts_enabled,account_ready)"
+                    " VALUES (:u,'test','acct_unverified',TRUE,FALSE)"
+                ),
+                {"u": OWNER},
+            )
+        api = self._stripe_with_fee(10)
+        outcome = await PkmAnswerWorkWorker(_db(answer_engine), stripe_api=api).run_payouts(
+            max_jobs=5
+        )
+        assert outcome["awaiting_account"] == 1
+        api.Transfer.create.assert_not_called()
+
+    async def test_an_unreadable_fee_defers_rather_than_guessing(self, answer_engine):  # noqa: F811
+        service, request_id, digest = await _approved(answer_engine)
+        _mark_paid(answer_engine, request_id, digest)
+        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+        self._ready_account(answer_engine)
+
+        from unittest.mock import Mock as _Mock
+
+        api = _Mock()
+        api.PaymentIntent.retrieve.return_value = {
+            "id": "pi_x",
+            "status": "succeeded",
+            "latest_charge": "ch_x",
+        }
+        api.Charge.retrieve.return_value = {"id": "ch_x", "balance_transaction": None}
+        outcome = await PkmAnswerWorkWorker(_db(answer_engine), stripe_api=api).run_payouts(
+            max_jobs=5
+        )
+        # Underpaying the owner on a guessed fee is worse than waiting.
+        assert outcome["retried"] == 1
         api.Transfer.create.assert_not_called()
 
 

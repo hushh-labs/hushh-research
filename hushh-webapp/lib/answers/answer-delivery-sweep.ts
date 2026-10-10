@@ -50,6 +50,8 @@ export interface AnswerSweepResult {
   delivered: number;
   empty: number;
   skipped: number;
+  /** Composition failed; left queued for the next unlock, then refunded. */
+  retry: number;
 }
 
 export interface AnswerPayload {
@@ -184,7 +186,7 @@ export async function buildAnswerPayload(
 export async function runAnswerDeliverySweep(
   params: AnswerSweepParams,
 ): Promise<AnswerSweepResult> {
-  const result: AnswerSweepResult = { delivered: 0, empty: 0, skipped: 0 };
+  const result: AnswerSweepResult = { delivered: 0, empty: 0, skipped: 0, retry: 0 };
   if (!params.vaultKey || !params.vaultOwnerToken || !params.firebaseIdToken) return result;
 
   let queue: AnswerableWork[] = [];
@@ -201,6 +203,21 @@ export async function runAnswerDeliverySweep(
         params,
         params.firebaseIdToken,
       );
+
+      // A question the owner's information CAN answer, but which the writer
+      // failed to answer, is not finished work. Delivering the approved
+      // material as `projection` would mark the request answered, pay the
+      // owner, and hand the requester raw records instead of the answer they
+      // bought. Leave it queued instead: the next unlock retries, and if it
+      // never succeeds the deadline sweep expires it and refunds in full.
+      //
+      // An empty answer is different and still delivers: there is genuinely
+      // nothing to say, the delivery records that, and it refunds itself.
+      if (hasContent && payload.answerMode !== "agent") {
+        result.retry += 1;
+        continue;
+      }
+
       const envelope = await encryptSliceForRecipient({
         payload,
         recipientPublicKeyJwk: work.recipientKey.publicKeyJwk,

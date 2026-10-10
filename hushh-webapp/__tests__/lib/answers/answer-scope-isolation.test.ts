@@ -11,7 +11,21 @@ vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
   PkmDomainResourceService: { getStaleFirst: (...a: unknown[]) => getStaleFirst(...a) },
 }));
 
-import { buildAnswerPayload } from "@/lib/answers/answer-delivery-sweep";
+const answerable = vi.fn();
+const compose = vi.fn();
+const deliver = vi.fn();
+vi.mock("@/lib/services/answer-request-service", () => ({
+  AnswerRequestService: {
+    answerable: (...a: unknown[]) => answerable(...a),
+    compose: (...a: unknown[]) => compose(...a),
+    deliver: (...a: unknown[]) => deliver(...a),
+  },
+}));
+vi.mock("@/lib/one-marketplace/encryption", () => ({
+  encryptSliceForRecipient: async () => ({ sealed: "ciphertext" }),
+}));
+
+import { buildAnswerPayload, runAnswerDeliverySweep } from "@/lib/answers/answer-delivery-sweep";
 import { projectApprovedAnswer } from "@/lib/answers/answer-projection";
 import type { AnswerableWork } from "@/lib/services/answer-request-service";
 
@@ -33,6 +47,11 @@ const params = { userId: "owner-A", vaultKey: "key", vaultOwnerToken: "token" };
 beforeEach(() => {
   buildConsentExportForScope.mockReset();
   getStaleFirst.mockReset();
+  answerable.mockReset();
+  compose.mockReset();
+  deliver.mockReset();
+  compose.mockResolvedValue({ answerMode: "projection", answer: null });
+  deliver.mockResolvedValue(undefined);
 });
 
 describe("an approved field cannot expose another field in the same domain", () => {
@@ -148,5 +167,71 @@ describe("the requested period is applied before the answer is sealed", () => {
     const trips = (payload.approvedInformation["attr.travel.trips"] as { trips: { city: string }[] }).trips;
     expect(trips).toHaveLength(1);
     expect(payload.excludedByPeriod).toBe(0);
+  });
+});
+
+describe("a failed answer is retried and refunded, never counted as delivered", () => {
+  it("leaves the request queued when the writer failed but the information exists", async () => {
+    // The owner's information CAN answer the question; the answer gene did
+    // not. Delivering the raw records would mark the request answered and pay
+    // the owner for work the requester never received.
+    buildConsentExportForScope.mockResolvedValue({
+      payload: { trips: [{ city: "Tokyo", amount: 1200 }] },
+      sourceContentRevision: 7,
+    });
+    answerable.mockResolvedValue([work()]);
+    compose.mockRejectedValue(new Error("gene unavailable"));
+
+    const result = await runAnswerDeliverySweep({
+      userId: "owner-A",
+      vaultKey: "key",
+      vaultOwnerToken: "token",
+      firebaseIdToken: "id-token",
+    });
+
+    expect(deliver).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ retry: 1, delivered: 0, empty: 0 });
+  });
+
+  it("still delivers when there is genuinely nothing to say, so the order refunds", async () => {
+    // An empty answer is not a failed answer: the delivery records that there
+    // was nothing in the approved scopes, and the backend refunds it.
+    buildConsentExportForScope.mockResolvedValue({ payload: {}, sourceContentRevision: 7 });
+    answerable.mockResolvedValue([work()]);
+
+    const result = await runAnswerDeliverySweep({
+      userId: "owner-A",
+      vaultKey: "key",
+      vaultOwnerToken: "token",
+      firebaseIdToken: "id-token",
+    });
+
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(deliver.mock.calls[0]![2]).toMatchObject({ hasContent: false });
+    expect(result).toMatchObject({ empty: 1, retry: 0, delivered: 0 });
+  });
+
+  it("delivers a written answer", async () => {
+    buildConsentExportForScope.mockResolvedValue({
+      payload: { trips: [{ city: "Tokyo", amount: 1200 }] },
+      sourceContentRevision: 7,
+    });
+    answerable.mockResolvedValue([work()]);
+    compose.mockResolvedValue({
+      answerMode: "agent",
+      answer: "You spent $1,200 on travel, on one trip to Tokyo.",
+      covers: ["attr.travel.trips"],
+      gaps: [],
+    });
+
+    const result = await runAnswerDeliverySweep({
+      userId: "owner-A",
+      vaultKey: "key",
+      vaultOwnerToken: "token",
+      firebaseIdToken: "id-token",
+    });
+
+    expect(result).toMatchObject({ delivered: 1, retry: 0 });
+    expect(deliver).toHaveBeenCalledTimes(1);
   });
 });
