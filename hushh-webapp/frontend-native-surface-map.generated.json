@@ -2728,7 +2728,7 @@
         "voice_playbook": {
           "playbook_id": "route.one.connected.systems.systemid",
           "purpose": "Help the person understand and use the connected systems screen through its generated controls.",
-          "screen": "app",
+          "screen": "connected_systems",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -2756,8 +2756,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/connected-systems/[systemId]/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.connected_system_list"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -2850,7 +2852,7 @@
         "voice_playbook": {
           "playbook_id": "route.one.email",
           "purpose": "Explain Gmail connection and hand the owner to One for approval-gated email drafting.",
-          "screen": "app",
+          "screen": "email_agent",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -2892,8 +2894,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/email/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.mail_connections"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -4626,7 +4630,7 @@
         "voice_playbook": {
           "playbook_id": "route.one.messages",
           "purpose": "Read and send private messages with accepted connections and circles you belong to.",
-          "screen": "app",
+          "screen": "one_messages",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -4667,8 +4671,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/messages/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.messages_connections"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -7335,7 +7341,7 @@
         "voice_playbook": {
           "playbook_id": "route.one.puppy",
           "purpose": "Let the owner talk to Puppy One, the agent running on their own machine, and see which local model answered.",
-          "screen": "app",
+          "screen": "puppy_one",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -7367,8 +7373,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/puppy/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.puppy_agents"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -8460,7 +8468,7 @@
         "voice_playbook": {
           "playbook_id": "route.one.wallet.card",
           "purpose": "Help the owner review, update, pause, rotate or remove what their Wallet profile shares.",
-          "screen": "app",
+          "screen": "one_wallet_card",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -8501,8 +8509,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/wallet-card/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.wallet_profile_cards"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -10047,5 +10057,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "bb0309acc9f371990027505e8752d252072c01181f1487609693985fc67e33b9"
+  "content_sha256": "94ce949c6e3eed0724e3bd5dc1f73c1f57c1d8d94cfd070d41ce707f06c85668"
 }
