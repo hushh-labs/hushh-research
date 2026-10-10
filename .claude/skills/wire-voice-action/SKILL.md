@@ -153,7 +153,7 @@ client-side, no server round trip needed) or `"kind": "server_only"`
 (the client can never know; don't try).
 
 **Registration is not enforcement — verify separately, don't assume.**
-`evaluateKaiActionAvailability` (`hushh-webapp/lib/voice/kai-action-gateway.ts`)
+`evaluateKaiActionAvailability` (`hushh-webapp/lib/kai/actions/kai-action-gateway.ts`)
 is the actual client-side enforcer, and it only branches on a subset of the
 guards the registry calls "projection": confirmed wired today are
 `auth_signed_in` / `auth_required`, `vault_unlocked`, `portfolio_required`,
