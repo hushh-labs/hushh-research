@@ -220,6 +220,80 @@ device. These are product obligations, not implementation details.
    requester is refunded, mirroring Drive's "no charge when the result is
    empty".
 
+## Concrete 24/7 design, for review
+
+The requirement is a running answer within minutes of payment, without the
+owner opening anything. This is the design I would build, named down to the
+runtime and who holds which key. It is **not implemented**; the lane ships
+unlock-dependent until this is reviewed.
+
+### Runtime: a per-owner answering worker on owner-controlled hardware
+
+One always-on worker per owner, not a shared fleet. Concretely: a per-owner
+container with no shared process memory, no shared filesystem, and no ambient
+credential for any other owner. It does one thing — claim this owner's paid,
+approved, undelivered answers, project the approved scopes, write the answer,
+seal it to the requester's key.
+
+It is the *same code path* the device sweep runs today
+(`lib/answers/answer-delivery-sweep.ts`). Nothing about the projection,
+exclusion or sealing changes; only where it runs.
+
+### Key control: an answering key, not the vault key
+
+The worker never receives the vault key. At enrolment the owner's device
+derives a **separate answering key** and wraps it to the worker's attested
+public key:
+
+```
+answering_key = HKDF-SHA256(ikm = vault_key, info = "hushh-answer-worker-v1")
+```
+
+It is the same construction One chat already uses for its per-request chat key
+(`chat_key = HKDF(vault_key, "hussh-one-chat-v1")`), so the precedent for a
+purpose-scoped derivative exists. Three properties follow:
+
+1. **It cannot recover the vault key.** HKDF is one-way, so a worker
+   compromise does not yield the vault, the recovery key or the passphrase.
+2. **It is revocable without re-keying the vault.** Revocation deletes the
+   wrapped copy and rotates the `info` label; the owner's own data is
+   untouched.
+3. **It is scope-bounded at the data layer, not by politeness.** The worker
+   can only read PKM segments whose scopes appear in a currently-approved,
+   currently-paid `pkm_answer_request_scopes` row. The server enforces that
+   with the existing `require_paid_answer` gate before handing over any
+   ciphertext.
+
+### What this still changes, and why it needs your decision
+
+The backend continues to store ciphertext only, and hushh still never holds a
+key that opens a vault. But a key capable of decrypting *approved scopes* now
+exists outside the owner's devices. That is a real change to
+"decryption happens only on the owner's device", and it is the whole decision:
+
+- **If hushh operates the worker**, this is escrow of a scoped key, however
+  narrow. It should be called that in the trust documentation rather than
+  described as owner-controlled.
+- **If the owner operates it** (their own always-on machine, or the private
+  pod topology AGENTS.md already sanctions), it is not escrow — but it is only
+  available to owners who can run one.
+- **If it runs in an attested enclave** with the device releasing the
+  answering key only against a verified measurement, hushh cannot read it even
+  while operating it — at the cost of trusting a hardware vendor and an
+  attestation chain, and of reproducible enclave builds.
+
+### Staging
+
+1. Ship unlock-dependent (today). Honest, no boundary change.
+2. Device background execution — closes most of the gap for phone owners with
+   no key leaving owner hardware. Needs only the OS-protected key-at-rest
+   change in Option 1 above.
+3. Per-owner answering worker, in whichever of the three custody models is
+   approved.
+
+Each step is independently shippable and independently revocable, and no step
+is required by the one before it.
+
 ## Decision
 
 - Ship the interim device-bound path, explicitly labelled with its unlock
@@ -241,3 +315,11 @@ device. These are product obligations, not implementation details.
    structural "backend cannot decrypt" guarantee?
 4. What timeout window is acceptable to a paying requester, and does it differ
    by price?
+5. For the answering worker above: who operates it, and if hushh does, is a
+   scoped, revocable, HKDF-derived answering key an acceptable thing for hushh
+   to hold — described as such?
+6. Separately: the paid-answer composer sends the owner's approved plaintext
+   to the backend for one request so a model can write the answer, the same
+   owner-present shape One chat uses. Nothing is decrypted or stored
+   server-side. Is that acceptable for this lane, or should the written answer
+   wait for on-device model execution?
