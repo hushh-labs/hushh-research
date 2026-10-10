@@ -273,7 +273,9 @@ describe("exact-file document review", () => {
     expect(changed).toHaveBeenCalledOnce();
     expect(state.approve).toHaveBeenCalledOnce();
     expect(screen.queryByRole("button", { name: "Share files" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Refresh status" }));
+    const refresh = screen.getByRole("button", { name: "Refresh status" });
+    expect(refresh.querySelector("svg")).toHaveClass("size-4");
+    fireEvent.click(refresh);
     await waitFor(() => expect(state.status).toHaveBeenCalledTimes(3));
     expect(state.approve).toHaveBeenCalledOnce();
   });
@@ -940,6 +942,8 @@ describe("exact-file document review", () => {
       expect(screen.getByText("“Statements”")).toBeVisible();
       expect(screen.getByText("2026-01-01 – 2026-06-30")).toBeVisible();
       expect(screen.getByRole("button", { name: "Deny (tap again to confirm)" })).toBeEnabled();
+      expect(allow).toHaveClass("bg-[color:var(--app-success-deep)]", "text-white");
+      expect(screen.getByRole("button", { name: "Deny (tap again to confirm)" })).toHaveClass("h-[50px]");
       expect(screen.queryByRole("button", { name: /Share files|Decline/ })).toBeNull();
       expect(state.startRequestSearch).not.toHaveBeenCalled();
       expect(state.prepareStream).not.toHaveBeenCalled();

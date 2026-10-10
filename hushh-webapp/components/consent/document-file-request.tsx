@@ -303,28 +303,36 @@ export function RequestFilesButton({
           </DialogHeader>
           {created ? (
             <div className="min-w-0 space-y-4">
-              <BodyText role="status">Request sent.</BodyText>
-              <Button asChild size="prominent">
-                <Link
-                  href={buildConsentCenterHref("pending", {
-                    requestId: `document_share_request:${created}`,
-                    requestView: "sent",
-                  })}
-                >
-                  View request
-                </Link>
-              </Button>
-              <Button
-                type="button"
-                size="standard"
-                variant="none"
-                onClick={() => {
-                  setCreated(null);
-                  request.reset();
-                }}
-              >
-                Request more files
-              </Button>
+              <BodyText role="status" className="text-center">
+                Request sent.
+              </BodyText>
+              <FlowActionGroup
+                primary={
+                  <Button asChild size="prominent">
+                    <Link
+                      href={buildConsentCenterHref("pending", {
+                        requestId: `document_share_request:${created}`,
+                        requestView: "sent",
+                      })}
+                    >
+                      View request
+                    </Link>
+                  </Button>
+                }
+                secondary={
+                  <Button
+                    type="button"
+                    size="prominent"
+                    variant="none"
+                    onClick={() => {
+                      setCreated(null);
+                      request.reset();
+                    }}
+                  >
+                    Request more files
+                  </Button>
+                }
+              />
             </div>
           ) : (
             <form
