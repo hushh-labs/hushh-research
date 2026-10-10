@@ -146,7 +146,7 @@
       "route_pattern": "/blog/[slug]",
       "page_file": "app/blog/[slug]/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.blog.slug",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -176,7 +176,13 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "route.connected_system_list",
+        "route.mail_connections",
+        "route.messages_connections",
+        "route.puppy_agents",
+        "route.wallet_profile_cards"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -1150,7 +1156,7 @@
       "route_pattern": "/manishhussh",
       "page_file": "app/manishhussh/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.manishhussh",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -1180,7 +1186,13 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "route.connected_system_list",
+        "route.mail_connections",
+        "route.messages_connections",
+        "route.puppy_agents",
+        "route.wallet_profile_cards"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -1690,7 +1702,6 @@
       "canonical_screen": "connected_systems",
       "voice_contract_file": null,
       "action_ids": [
-        "route.connected_system_list",
         "route.profile_connected_systems"
       ],
       "action_coverage": "inherited",
@@ -1711,13 +1722,11 @@
       "voice_playbook": {
         "playbook_id": "route.one.connected.systems.systemid",
         "purpose": "Help the person understand and use the connected systems screen through its generated controls.",
-        "screen": "connected_systems",
+        "screen": "app",
         "entry_cue": "",
         "proactivity": "ambient",
-        "primary_action_id": "route.connected_system_list",
-        "happy_path_action_ids": [
-          "route.connected_system_list"
-        ],
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
         "required_inputs": [],
         "recoveries": {
           "blocked": "Explain the current guard and retain the goal.",
@@ -1735,11 +1744,14 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "connected_systems",
+      "canonical_screen": "app",
       "voice_contract_file": "app/one/connected-systems/[systemId]/page.voice-action-contract.json",
       "action_ids": [
         "route.connected_system_list",
-        "route.profile_connected_systems"
+        "route.mail_connections",
+        "route.messages_connections",
+        "route.puppy_agents",
+        "route.wallet_profile_cards"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -1810,13 +1822,11 @@
       "voice_playbook": {
         "playbook_id": "route.one.email",
         "purpose": "Explain Gmail connection and hand the owner to One for approval-gated email drafting.",
-        "screen": "email_agent",
+        "screen": "app",
         "entry_cue": "",
         "proactivity": "ambient",
-        "primary_action_id": "route.mail_connections",
-        "happy_path_action_ids": [
-          "route.mail_connections"
-        ],
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
         "required_inputs": [],
         "recoveries": {
           "blocked": "Explain the current guard and retain the goal.",
@@ -1834,10 +1844,14 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "email_agent",
+      "canonical_screen": "app",
       "voice_contract_file": "app/one/email/page.voice-action-contract.json",
       "action_ids": [
-        "route.mail_connections"
+        "route.connected_system_list",
+        "route.mail_connections",
+        "route.messages_connections",
+        "route.puppy_agents",
+        "route.wallet_profile_cards"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -3269,13 +3283,11 @@
       "voice_playbook": {
         "playbook_id": "route.one.messages",
         "purpose": "Read and send private one-to-one messages with accepted connections.",
-        "screen": "one_messages",
+        "screen": "app",
         "entry_cue": "",
         "proactivity": "ambient",
-        "primary_action_id": "route.messages_connections",
-        "happy_path_action_ids": [
-          "route.messages_connections"
-        ],
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
         "required_inputs": [],
         "recoveries": {
           "blocked": "Explain that messaging requires an active connection and retain the current conversation.",
@@ -3293,10 +3305,14 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "one_messages",
+      "canonical_screen": "app",
       "voice_contract_file": "app/one/messages/page.voice-action-contract.json",
       "action_ids": [
-        "route.messages_connections"
+        "route.connected_system_list",
+        "route.mail_connections",
+        "route.messages_connections",
+        "route.puppy_agents",
+        "route.wallet_profile_cards"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -3804,7 +3820,6 @@
       "canonical_screen": "connected_systems",
       "voice_contract_file": null,
       "action_ids": [
-        "route.connected_system_list",
         "route.profile_connected_systems"
       ],
       "action_coverage": "none",
@@ -5109,13 +5124,11 @@
       "voice_playbook": {
         "playbook_id": "route.one.puppy",
         "purpose": "Let the owner talk to Puppy One, the agent running on their own machine, and see which local model answered.",
-        "screen": "puppy_one",
+        "screen": "app",
         "entry_cue": "",
         "proactivity": "ambient",
-        "primary_action_id": "route.puppy_agents",
-        "happy_path_action_ids": [
-          "route.puppy_agents"
-        ],
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
         "required_inputs": [],
         "recoveries": {
           "blocked": "Explain the current guard and retain the goal.",
@@ -5133,10 +5146,14 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "puppy_one",
+      "canonical_screen": "app",
       "voice_contract_file": "app/one/puppy/page.voice-action-contract.json",
       "action_ids": [
-        "route.puppy_agents"
+        "route.connected_system_list",
+        "route.mail_connections",
+        "route.messages_connections",
+        "route.puppy_agents",
+        "route.wallet_profile_cards"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -5797,7 +5814,7 @@
       "route_pattern": "/one/todos",
       "page_file": "app/one/todos/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.todos",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -5827,7 +5844,13 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "route.connected_system_list",
+        "route.mail_connections",
+        "route.messages_connections",
+        "route.puppy_agents",
+        "route.wallet_profile_cards"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -5900,13 +5923,11 @@
       "voice_playbook": {
         "playbook_id": "route.one.wallet.card",
         "purpose": "Help the owner review, update, pause, rotate or remove what their Wallet profile shares.",
-        "screen": "one_wallet_card",
+        "screen": "app",
         "entry_cue": "",
         "proactivity": "ambient",
-        "primary_action_id": "route.wallet_profile_cards",
-        "happy_path_action_ids": [
-          "route.wallet_profile_cards"
-        ],
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
         "required_inputs": [],
         "recoveries": {
           "blocked": "Explain the current guard and retain the goal.",
@@ -5924,9 +5945,13 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "one_wallet_card",
+      "canonical_screen": "app",
       "voice_contract_file": "app/one/wallet-card/page.voice-action-contract.json",
       "action_ids": [
+        "route.connected_system_list",
+        "route.mail_connections",
+        "route.messages_connections",
+        "route.puppy_agents",
         "route.wallet_profile_cards"
       ],
       "action_coverage": "inherited",
@@ -6085,7 +6110,7 @@
       "route_pattern": "/privacy",
       "page_file": "app/privacy/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.privacy.policy",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -6115,7 +6140,13 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "route.connected_system_list",
+        "route.mail_connections",
+        "route.messages_connections",
+        "route.puppy_agents",
+        "route.wallet_profile_cards"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -6354,7 +6385,7 @@
       "route_pattern": "/research/protocol",
       "page_file": "app/research/protocol/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.research.protocol",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -6384,7 +6415,13 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "route.connected_system_list",
+        "route.mail_connections",
+        "route.messages_connections",
+        "route.puppy_agents",
+        "route.wallet_profile_cards"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -6959,7 +6996,7 @@
       "route_pattern": "/terms",
       "page_file": "app/terms/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.terms.of.use",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -6989,7 +7026,13 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "route.connected_system_list",
+        "route.mail_connections",
+        "route.messages_connections",
+        "route.puppy_agents",
+        "route.wallet_profile_cards"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -7002,7 +7045,7 @@
       "route_pattern": "/welcome",
       "page_file": "app/welcome/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.welcome",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -7032,7 +7075,13 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "route.connected_system_list",
+        "route.mail_connections",
+        "route.messages_connections",
+        "route.puppy_agents",
+        "route.wallet_profile_cards"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
