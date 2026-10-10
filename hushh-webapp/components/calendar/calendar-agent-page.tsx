@@ -106,8 +106,6 @@ function CalendarConnectIcon({
 
 type CalendarAgentPageProps = {
   journeyVariant?: "workspace" | "onboarding";
-  /** Only the setup adapter can authorize the first unfinished setup illustration. */
-  showOnboardingIllustration?: boolean;
   onConnectionStateChange?: (connected: boolean) => void;
   onFinishSetup?: () => void;
   onSkipSetup?: () => void;
@@ -124,7 +122,6 @@ type CalendarAgentPageProps = {
  */
 export function CalendarAgentPage({
   journeyVariant = "workspace",
-  showOnboardingIllustration = false,
   onConnectionStateChange,
   onFinishSetup,
   onSkipSetup,
@@ -165,8 +162,6 @@ export function CalendarAgentPage({
         ? value(current.identity === identity ? current.value : null) : value,
     }));
   };
-  const [connectedPresentationIdentity, setConnectedPresentationIdentity] =
-    useState<symbol | null>(null);
   const [busy, setBusy] = useState(false);
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
   // Google's opener policy can sever the popup's WindowProxy, so
@@ -233,12 +228,6 @@ export function CalendarAgentPage({
 
   const connected =
     status?.connected === true && status.status !== "needs_reauth";
-
-  // A deliberate disconnect uses the compact reconnect surface for the rest
-  // of this owner's visit; this presentation latch never writes setup state.
-  useEffect(() => {
-    if (connected) setConnectedPresentationIdentity(identity);
-  }, [connected, identity]);
 
   useEffect(() => {
     onConnectionStateChange?.(connected);
@@ -509,15 +498,9 @@ export function CalendarAgentPage({
     ? "View events and availability with One."
     : "View availability and manage meetings with One.";
   const needsReauth = status?.status === "needs_reauth";
-  const checkingConnection =
-    connectionPending || loading || (!status && !user);
-  const showConnectHero =
-    journeyVariant === "onboarding" &&
-    showOnboardingIllustration &&
-    connectedPresentationIdentity !== identity &&
-    status?.status === "disconnected" &&
-    !connected &&
-    !checkingConnection;
+  const checkingConnection = connectionPending || loading || !status;
+  // Keep the illustration from first paint; only a verified connection swaps it.
+  const showConnectHero = !connected;
 
   const popupWaitingNotice = popupWaiting ? (
     <div className="flex flex-col items-center gap-2 pt-3 text-center">
@@ -572,7 +555,7 @@ export function CalendarAgentPage({
         {showConnectHero ? (
           <CalendarConnectHero
             journeyVariant={journeyVariant}
-            busy={busy}
+            busy={busy || checkingConnection || !user}
             needsReauth={needsReauth}
             onConnect={() => void connect("read")}
           >
