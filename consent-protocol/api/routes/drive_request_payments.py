@@ -9,6 +9,13 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from api.middleware import require_firebase_auth_read_only
 from hushh_mcp.services.drive_request_payment_service import DriveRequestPaymentService
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
+from hushh_mcp.services.pkm_answer_payment_service import (
+    PAYMENT_KIND as PKM_ANSWER_PAYMENT_KIND,
+)
+from hushh_mcp.services.pkm_answer_payment_service import (
+    AnswerPaymentError,
+    PkmAnswerPaymentService,
+)
 from hushh_mcp.services.pkm_packet_order_service import (
     PAYMENT_KIND as PKM_PACKET_PAYMENT_KIND,
 )
@@ -81,9 +88,37 @@ async def stripe_drive_request_webhook(
     payload = await request.body()
     if len(payload) > 128_000:
         raise HTTPException(status_code=413, detail="Payment event is too large.")
-    # One Stripe endpoint, two kinds of payment. Route on the (unverified)
+    # One Stripe endpoint, several kinds of payment. Route on the (unverified)
     # payment_kind; each handler verifies the signature before acting.
-    if webhook_payment_kind(payload) in {
+    #
+    # Every kind MUST have an explicit branch here. The fall-through below
+    # reaches DriveRequestPaymentService.process_webhook, which returns early
+    # for a payment_kind it does not own — so an unregistered kind makes this
+    # endpoint answer Stripe with {"received": true} while never settling the
+    # order. That takes the requester's money and silently delivers nothing.
+    kind = webhook_payment_kind(payload)
+    if kind == PKM_ANSWER_PAYMENT_KIND:
+        try:
+            await PkmAnswerPaymentService().process_webhook(
+                payload=payload, signature=stripe_signature
+            )
+        except AnswerPaymentError as error:
+            code = str(error)
+            status = {
+                "payment_invalid_signature": 400,
+                "payment_invalid_event": 409,
+                "payment_not_ready": 409,
+                "request_unavailable": 404,
+            }.get(code, 503)
+            raise HTTPException(
+                status_code=status,
+                detail="Payment event could not be matched."
+                if status == 409
+                else "Payment is temporarily unavailable.",
+                headers={"Cache-Control": "no-store"},
+            ) from None
+        return {"received": True}
+    if kind in {
         PKM_PACKET_PAYMENT_KIND,
         "pkm_credits",
     } or is_subscription_event(webhook_event_type(payload)):

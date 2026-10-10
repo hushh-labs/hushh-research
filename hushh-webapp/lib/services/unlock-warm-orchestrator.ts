@@ -17,6 +17,9 @@ import { OneLocationService } from "@/lib/one-location/service";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { bootstrapCurrentUserMarketplaceRecipientKey } from "@/lib/one-marketplace/key-bootstrap";
 import { runMarketplaceDeliverySweep } from "@/lib/one-marketplace/delivery-sweep";
+import { runAnswerDeliverySweep } from "@/lib/answers/answer-delivery-sweep";
+import { refreshMemoryDocument, watchMemoryFreshness } from "@/lib/pkm/memory-refresh";
+import { AuthService } from "@/lib/services/auth-service";
 import { warmAgentPkmContext } from "@/lib/agent/agent-pkm-memory";
 import { warmAgentChatHistoryCache } from "@/lib/agent/agent-chat-history-cache";
 import { warmGeminiRuntimeConnection } from "@/lib/connections/gemini-runtime-configuration";
@@ -302,6 +305,69 @@ export class UnlockWarmOrchestrator {
         "[UnlockWarmOrchestrator] Marketplace delivery sweep failed:",
         error,
       );
+    });
+  }
+
+  private static memoryWatchedByUser = new Set<string>();
+
+  // Build the owner's living memory.md once the vault is open, and keep its
+  // freshness honest afterwards. It is a derived view, never persisted as a
+  // new PKM domain: the manifests stay the authority, so a stored document
+  // could not silently disagree with the domains it came from.
+  private static queueMemoryRefresh(params: {
+    userId: string;
+    vaultKey: string;
+    vaultOwnerToken: string;
+  }): void {
+    if (shouldSkipReviewerBackgroundWritesForAutomation()) return;
+    if (!this.memoryWatchedByUser.has(params.userId)) {
+      this.memoryWatchedByUser.add(params.userId);
+      watchMemoryFreshness(params.userId);
+    }
+    void (async () => {
+      const metadata = await PersonalKnowledgeModelService.getMetadata(
+        params.userId,
+        false,
+        params.vaultOwnerToken,
+      );
+      const domains = (metadata?.domains ?? [])
+        .map((domain) => domain.key)
+        .filter((key): key is string => Boolean(key));
+      if (domains.length === 0) return;
+      await refreshMemoryDocument({ ...params, domains });
+    })().catch((error) => {
+      // Never block unlock warming; the view reports its own staleness.
+      console.warn("[UnlockWarmOrchestrator] Memory document refresh failed:", error);
+    });
+  }
+
+  private static answerSweptByUser = new Set<string>();
+
+  // The same shape as the marketplace sweep, for the same reason: the backend
+  // settles a paid answer but has no vault key, so it can only move the
+  // request to `answering`. Producing and sealing the answer needs the owner's
+  // decrypted PKM and WebCrypto, which exist only here.
+  //
+  // INTERIM: this is unlock-dependent, not 24/7. A paid question produces
+  // nothing until the owner opens the app. The requester is told that before
+  // paying and a missed deadline refunds in full. See
+  // docs/reference/architecture/living-memory-freshness-adr.md.
+  private static queueAnswerDeliverySweep(params: {
+    userId: string;
+    vaultKey: string;
+    vaultOwnerToken: string;
+  }): void {
+    if (shouldSkipReviewerBackgroundWritesForAutomation()) return;
+    if (this.answerSweptByUser.has(params.userId)) return;
+    this.answerSweptByUser.add(params.userId);
+    void (async () => {
+      const firebaseIdToken = await AuthService.getIdToken();
+      if (!firebaseIdToken) throw new Error("no id token");
+      return runAnswerDeliverySweep({ ...params, firebaseIdToken });
+    })().catch((error) => {
+      // Never block unlock warming; allow a later retry this session.
+      this.answerSweptByUser.delete(params.userId);
+      console.warn("[UnlockWarmOrchestrator] Answer delivery sweep failed:", error);
     });
   }
 
@@ -886,6 +952,23 @@ export class UnlockWarmOrchestrator {
         vaultKey: params.vaultKey,
         vaultOwnerToken: params.vaultOwnerToken,
       });
+      // Answer any questions that were approved and paid for while away.
+      this.queueAnswerDeliverySweep({
+        userId: params.userId,
+        vaultKey: params.vaultKey,
+        vaultOwnerToken: params.vaultOwnerToken,
+      });
+      // Keep the owner's own memory.md current for this session, but only
+      // where the workspace that shows it is being warmed anyway. memory.md
+      // reads PKM metadata, and the canonical Chat unlock path is contracted
+      // to stay free of unrelated workspace warmups -- it is the hot path.
+      if (shouldWarmMetadata) {
+        this.queueMemoryRefresh({
+          userId: params.userId,
+          vaultKey: params.vaultKey,
+          vaultOwnerToken: params.vaultOwnerToken,
+        });
+      }
       this.queueVaultPlaidRefresh({
         userId: params.userId,
         vaultKey: params.vaultKey,
