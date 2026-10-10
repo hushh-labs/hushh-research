@@ -61,13 +61,16 @@ describe("Wallet card browser", () => {
 
   it("keeps Agent One cards when a payment card is added and keeps payment details protected", () => {
     const card: WalletCardSummary = { cardId: "saved-card", nickname: "My card", brand: "visa", last4: "9876", expiryMonth: 5, expiryYear: 2030, issuingRegion: "IN", createdAt: "" };
-    const { props, dock, host, unmount } = setup([card]);
+    const { props, dock, host, unmount, rerender } = setup([card], card.cardId);
     expect(dock.getByRole("button", { name: "Open Agent One Profile" })).toBeInTheDocument();
     fireEvent.click(dock.getByRole("button", { name: "Open My card, ending 9876" }));
     expect(props.onSelect).toHaveBeenCalledWith("saved-card");
     expect(screen.getByTestId("wallet-card-face")).toHaveAttribute("data-revealed", "false");
     expect(screen.getByText("Protected details action")).toBeVisible();
     expect(screen.getByText("Card recipients")).toBeVisible();
+    fireEvent.click(dock.getByRole("button", { name: "Open Agent One Profile" }));
+    rerender(<WalletCardBrowser {...props} selectedCardId={null} />);
+    expect(screen.getByText("Live profile controls")).toBeVisible();
     fireEvent.click(dock.getByRole("button", { name: "All (4)" }));
     expect(screen.queryByText("Protected details action")).toBeNull();
     expect(screen.queryByText("Live profile controls")).toBeNull();

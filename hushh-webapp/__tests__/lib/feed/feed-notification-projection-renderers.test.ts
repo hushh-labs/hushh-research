@@ -34,6 +34,12 @@ describe("notification-backed Feed projection renderers", () => {
     expect(result.description).toBe("View card");
     expect(result.domainLabel).toBe("Wallet");
     expect(result.href).toContain("messages");
+    const legacy = presentFeedItem(feedItem("direct_message_received", {
+      counterpart_label: "Divya",
+      message_preview: "[wallet-access:11111111-1111-4111-8111-111111111111]",
+    }, "connections"));
+    expect(legacy.description).toBe("Shared payment card");
+    expect(legacy.domainLabel).toBe("Messages");
   });
   it("shows only authoritative owner net earnings and distinguishes Stripe transfer from bank deposit", () => {
     const pending = presentFeedItem(feedItem("document_share_outcome", {

@@ -223,6 +223,9 @@ def _direct_message_preview(value: object) -> str | None:
     cleaned = " ".join(value.split())
     if not cleaned:
         return None
+    if cleaned.startswith("[wallet-access:") and cleaned.endswith("]"):
+        if _direct_message_source_id(cleaned[len("[wallet-access:") : -1]):
+            return "Shared payment card"
     if len(cleaned) <= _DIRECT_MESSAGE_FEED_PREVIEW_MAX_LENGTH:
         return cleaned
     return f"{cleaned[: _DIRECT_MESSAGE_FEED_PREVIEW_MAX_LENGTH - 1].rstrip()}…"
@@ -1109,7 +1112,11 @@ class FeedService:
             grant_id = _direct_message_source_id(row.get("_wallet_card_grant_id"))
             if grant_id:
                 metadata["wallet_card_grant_id"] = grant_id
-                metadata.pop("message_preview", None)
+                actor = _bounded_text(
+                    metadata.get("counterpart_label") or row.get("actor_label"),
+                    limit=_MAX_ACTOR_LABEL_LENGTH,
+                )
+                metadata["message_preview"] = f"{actor or 'Someone'} shared their card with you"
         if (
             row.get("event_type") == "document_share_outcome"
             and metadata.get("feed_audience") == "recipient"
