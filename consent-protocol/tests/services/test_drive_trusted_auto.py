@@ -36,8 +36,7 @@ from tests.services.test_drive_sharing_store import (
     sharing,
 )
 
-# Both PostgreSQL and in-memory callers in this suite are explicitly Shared.
-# Keep the actual content-admission guard and all Trusted/approval checks.
+# Callers are explicitly Shared; real content and Trusted guards stay active.
 pytestmark = pytest.mark.usefixtures("shared_hub_owner")
 
 
@@ -146,8 +145,7 @@ def _auto_job(bulk, *, request_id):
 
 async def _frozen_auto_batch(sharing, bulk, *, payment_status=None):
     request_id = (await _request(sharing))["requestId"]
-    # Real search startup moves a trusted request from queued to active;
-    # the synthetic search rows below must preserve that scheduler gate.
+    # Preserve the real per-owner search scheduler gate in the synthetic fixture.
     context = await sharing.request_bulk_context(user_id="owner", request_id=request_id, start=True)
     assert context["searchStarted"] is True
     job_id = _auto_job(bulk, request_id=request_id)
@@ -167,8 +165,7 @@ async def _frozen_auto_batch(sharing, bulk, *, payment_status=None):
         excluded=[],
         selected_positions=[1],
     )
-    # The frozen review survives search completion. Release the per-owner
-    # active-search slot before constructing another independent request.
+    # Frozen reviews survive search; release the slot for independent requests.
     with sharing.db.engine.begin() as connection:
         connection.execute(
             text("""UPDATE drive_owner_search_jobs SET status='completed',
@@ -569,8 +566,7 @@ async def test_removed_trust_stops_search_and_grant_authority(request_bulk, shar
 async def test_auto_rechecks_need_the_owner_allow_or_current_trust(
     request_bulk, sharing, authority
 ):
-    # The fixture's Trusted circle holds only another member, so an allowed
-    # request passes each automatic recheck without Trusted membership.
+    # A connected Allowed peer can pass rechecks without Trusted membership.
     if authority == "trusted":
         _membership(sharing, "active")
     created = await _request(sharing)
