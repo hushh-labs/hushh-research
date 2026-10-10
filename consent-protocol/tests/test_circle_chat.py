@@ -525,6 +525,8 @@ async def test_wait_reauthorizes_and_releases_disconnected_subscriptions(chat_db
         "readChanged": True,
         "receiptsChanged": False,
         "photoChanged": False,
+        "membershipChanged": False,
+        "reactionsChanged": False,
     }
     assert removed == [queue, queue, queue] and "bob" not in chat_routes._waiting
 
