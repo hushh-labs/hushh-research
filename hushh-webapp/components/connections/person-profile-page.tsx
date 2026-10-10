@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/dialog";
 import { InformationRequestReviewFields } from "@/components/consent/information-request-review-fields";
 import { DocumentRequestButton } from "@/components/consent/document-request-button";
+import { RequestScopeButton } from "@/components/consent/request-scope-button";
 import { usePersonInformationRequest } from "@/lib/consent/use-person-information-request";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { FCM_MESSAGE_EVENT } from "@/lib/notifications";
@@ -824,6 +825,16 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                   </Button>
                 ) : null}
                 {viewerProfile.relationship.status === "connected" ? <DocumentRequestButton personRef={resolvedPersonRef} personName={profile.displayName || "this person"} /> : null}
+                {/* An active connection is the whole gate: no connector setup
+                    and no Trusted-circle membership, unlike the Drive file
+                    actions above, which also wait on a staged connector flag. */}
+                {viewerProfile.relationship.status === "connected" ? (
+                  <RequestScopeButton
+                    personRef={resolvedPersonRef}
+                    personName={profile.displayName || "this person"}
+                    className={styles.requestScope}
+                  />
+                ) : null}
               </>
             ) : null}
 
