@@ -118,7 +118,7 @@
   transform: translate(-50%, -50%) scale(calc(var(--intro-art-height) / 360px * 0.9));
 }
 
-/* Keep the original image crop and separate light emoji inside a decorative
+/* Keep the original image crop and separate brand mark inside a decorative
    canvas. No text, control, or interactive ancestor is scaled. */
 :global(html:not(.dark)) .illustration {
   position: absolute;
@@ -154,12 +154,15 @@
   left: 182px;
   width: 45px;
   height: 53px;
-  font-family: var(--font-app-emoji);
-  font-size: 44.7px;
-  line-height: 53px;
 }
 
-:global(.dark) .quietMark { display: none; }
+/* Cover the older baked-in mark with the same canonical artwork as light mode. */
+:global(.dark) .quietMark {
+  top: 250px;
+  left: 170px;
+  width: 56px;
+  height: 60px;
+}
 
 .hero { width: 100%; }
 
