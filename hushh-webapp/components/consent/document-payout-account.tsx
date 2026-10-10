@@ -36,7 +36,7 @@ function payoutErrorCopy(error: unknown, fallback: string): string {
 }
 
 /** Coalesces live invalidations and fences every response to its vault session. */
-function usePayoutSnapshot<T>(load: (token: string) => Promise<T>, {
+export function usePayoutSnapshot<T>(load: (token: string) => Promise<T>, {
   active = true, refreshKey = "", bankOnly = false, refreshOnFeedChange = true, ignoreReadyEvent = false,
 }: { active?: boolean; refreshKey?: string; bankOnly?: boolean; refreshOnFeedChange?: boolean; ignoreReadyEvent?: boolean } = {}) {
   const { vaultOwnerToken } = useVault();
@@ -94,8 +94,8 @@ function usePayoutSnapshot<T>(load: (token: string) => Promise<T>, {
 }
 
 /** One Connect account serves packet and document earnings; each keeps its ledger. */
-export function DocumentPayoutAccountCard({ active = true, compact = false, handleReturn = false, disabled = false }: {
-  active?: boolean; compact?: boolean; handleReturn?: boolean; disabled?: boolean;
+export function DocumentPayoutAccountCard({ active = true, compact = false, handleReturn = false, disabled = false, showHistory = true }: {
+  active?: boolean; compact?: boolean; handleReturn?: boolean; disabled?: boolean; showHistory?: boolean;
 }) {
   const searchParams = useSearchParams();
   const returnState = handleReturn ? searchParams.get("documentPayouts") : null;
@@ -181,13 +181,16 @@ export function DocumentPayoutAccountCard({ active = true, compact = false, hand
       {resource.failed ? <div><HelperText role="alert" className="profile-account-note">{payoutErrorCopy(resource.error, "Couldn't check your bank. Try again.")}</HelperText>
         {canManage ? <Button type="button" size="sm" effect="fade" variant="none" onClick={resource.retry}>Retry</Button> : null}</div> : null}
       {actionError?.scope === scope ? <HelperText role="alert" className="profile-account-note">{actionError.text}</HelperText> : null}
-      {!compact ? <DocumentEarningsHistory /> : null}
+      {!compact && showHistory ? <DocumentEarningsHistory /> : null}
     </section>
   );
 }
 
 function earningStatus(item: DocumentEarning, activeMode?: "test" | "live"): string {
   if (item.stripeMode === "legacy") return "Under review";
+  if (item.status === "hashcoins_credited") return "Hussh Coins credited";
+  if (item.status === "hashcoins_held") return "Hussh Coins under review";
+  if (item.status === "hashcoins_reversed") return "Hussh Coins reversed";
   if (item.stripeMode === "test" && activeMode === "live") return "No bank deposit";
   switch (item.status) {
     case "awaiting_delivery": return "Awaiting delivery";
@@ -203,7 +206,7 @@ function earningStatus(item: DocumentEarning, activeMode?: "test" | "live"): str
   }
 }
 
-function DocumentEarningsHistory() {
+export function DocumentEarningsHistory() {
   const resource = usePayoutSnapshot(DocumentPayoutService.earnings);
   const { data, token, scope } = resource;
   const [pages, setPages] = useState<{ base: DocumentEarningsResponse; value: DocumentEarningsResponse } | null>(null);
@@ -241,7 +244,7 @@ function DocumentEarningsHistory() {
               <SettingsRow icon={ProfileSecondaryReceiptIcon} iconTone="capability" title={item.description}
                 description={[item.stripeMode === "test" ? "Test payment" : item.stripeMode === "legacy" ? "Payment mode unconfirmed" : null,
                   earningStatus(item, history.stripeMode), shortDate(item.createdAt)].filter(Boolean).join(" · ")}
-                trailing={<span className="flex shrink-0 items-center gap-2 tabular-nums">{money(item.netAmountCents)}<ChevronDown aria-hidden="true" className="size-4 text-muted-foreground group-open:rotate-180" /></span>} />
+                trailing={<span className="flex shrink-0 items-center gap-2 tabular-nums">{item.status === "hashcoins_credited" && item.creditedCoins != null ? `${item.creditedCoins.toLocaleString()} coins` : money(item.netAmountCents)}<ChevronDown aria-hidden="true" className="size-4 text-muted-foreground group-open:rotate-180" /></span>} />
             </summary>
             <dl className="profile-account-details space-y-1 px-4 pb-3 text-sm">
               {([ ["Paid", item.grossAmountCents], ["Refund", item.refundAmountCents],
@@ -285,22 +288,24 @@ export function DocumentBankPayoutStatusCard({ compact = false, refreshOnFeedCha
 }) {
   const resource = usePayoutSnapshot(DocumentPayoutService.bankPayouts, { bankOnly: true, refreshOnFeedChange });
   const payouts = resource.data?.payouts;
+  const test = resource.data?.stripeMode === "test";
   const latest = payouts?.[0] ?? null;
   useEffect(() => { onVisibleChange?.(Boolean(latest)); }, [latest, onVisibleChange]);
   if (!resource.token || (compact && !latest)) return null;
   return (
     <section aria-label="Bank payout status" className={compact ? "rounded-xl border border-border/60 px-4 py-3" : "space-y-2"}>
       {compact ? <><p className="text-sm font-semibold">Bank payout</p>
-        <HelperText className="mt-1">{bankPayoutCopy(latest!)}</HelperText></> :
-        <SettingsGroup title="Bank deposits" density="compact">
+        <HelperText className="mt-1">{test ? "Test · " : ""}{bankPayoutCopy(latest!)}</HelperText></> :
+        <SettingsGroup title={test ? "Test bank deposits" : "Bank deposits"} density="compact">
           {payouts?.map((payout) => <SettingsRow key={payout.id} icon={ProfileAccountBankIcon} iconTone="capability"
-            title={bankPayoutCopy(payout)}
+            title={`${test ? "Test · " : ""}${bankPayoutCopy(payout)}`}
             description={payout.expectedArrivalAt && ["pending", "in_transit"].includes(payout.status)
               ? `Expected ${shortDate(payout.expectedArrivalAt)}` : undefined} />)}
           {resource.loading ? <HelperText role="status" className="p-4">Loading deposits…</HelperText> : null}
           {payouts?.length === 0 ? <HelperText className="p-4">No bank deposits yet.</HelperText> : null}
         </SettingsGroup>}
       {resource.failed ? <HelperText role="alert">Couldn't check bank payouts right now.</HelperText> : null}
+      {test ? <HelperText className="profile-account-note">Simulated deposits. No real money moves.</HelperText> : null}
       {latest ? <HelperText className="profile-account-note">Bank payouts may combine earnings from multiple requests.</HelperText> : null}
     </section>
   );

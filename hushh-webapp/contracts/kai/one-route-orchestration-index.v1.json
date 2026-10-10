@@ -3529,6 +3529,7 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.payouts.test_redeem",
         "profile.reset_account",
         "profile.set_contact_discoverable",
         "profile.sign_out",
@@ -3553,7 +3554,7 @@
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "auth",
+      "trust_boundary": "vault",
       "native_surface_id": "native-route-profile"
     },
     {
@@ -3680,6 +3681,7 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.payouts.test_redeem",
         "profile.reset_account",
         "profile.set_contact_discoverable",
         "profile.sign_out",
@@ -3745,6 +3747,7 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.payouts.test_redeem",
         "profile.reset_account",
         "profile.set_contact_discoverable",
         "profile.sign_out",
@@ -4287,6 +4290,7 @@
       "canonical_screen": "profile_payouts",
       "voice_contract_file": null,
       "action_ids": [
+        "profile.payouts.test_redeem",
         "route.profile_payouts"
       ],
       "action_coverage": "inherited",
@@ -4294,7 +4298,7 @@
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "auth",
+      "trust_boundary": "vault",
       "native_surface_id": "native-route-profile"
     },
     {

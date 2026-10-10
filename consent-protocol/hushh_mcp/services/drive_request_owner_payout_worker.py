@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections import Counter
 
 from hushh_mcp.services.drive_request_owner_payout_service import (
@@ -25,6 +26,12 @@ class DriveRequestOwnerPayoutWorker:
             await self.service.reconcile_reversals(max_orders=max_jobs),
         ):
             outcomes.update(result)
+        # Separate sandbox credentials never replace the live payment client.
+        # Continue already reserved redemptions even if new earning is paused.
+        if os.getenv("STRIPE_CONNECT_SECRET_KEY"):
+            from hushh_mcp.services.hashcoin_redemption_service import HashcoinRedemptionService
+
+            outcomes.update(await HashcoinRedemptionService().reconcile_due(max_items=max_jobs))
         if not payout_enabled() and not any(
             outcomes.get(key) for key in ("checked", "claimed", "reversal_due")
         ):

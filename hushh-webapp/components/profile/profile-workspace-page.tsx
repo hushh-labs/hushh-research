@@ -107,7 +107,7 @@ import {
   PkmDomainDetailPanel,
 } from "@/components/profile/pkm-data-manager";
 import { SharedWithYouGroup } from "@/components/profile/shared-with-you-group";
-import { DocumentBankPayoutStatusCard, DocumentPayoutAccountCard } from "@/components/consent/document-payout-account";
+import { DocumentHashcoinPayouts } from "@/components/consent/document-hashcoins";
 import { DocumentRequestPricingCard } from "@/components/consent/document-request-pricing-card";
 import { SecretsListGroup } from "@/components/secrets/secrets-list-group";
 import {
@@ -4371,8 +4371,7 @@ function ProfilePageContent({
       title: "Payouts",
       content: (
         <div className={cn("space-y-4", isPanePresentation && "profile-account-content", isPanePresentation && accountStyles.paneAccountContent, isPanePresentation && accountStyles.managedContent)}>
-          <DocumentPayoutAccountCard handleReturn />
-          <DocumentBankPayoutStatusCard refreshOnFeedChange />
+          <DocumentHashcoinPayouts />
         </div>
       ),
     });

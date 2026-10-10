@@ -832,3 +832,18 @@ Local Android release signing:
 `hushh-webapp/lib/vault/passkey-domain-aliases.json` owns the exact dev, UAT and production pairs for `hushh.ai` and `hussh.ai`. Browser registration keeps the current host RP; unlock uses the stored RP, credential and PRF salt unchanged. Each RP serves `/.well-known/webauthn` over HTTPS with only its own environment origins. Native unlock also retains the stored RP; existing OS associations remain required.
 
 Related Origin Requests requires browser support. Keep passphrase/recovery available for unsupported browsers; do not replace or reset an existing vault. Firebase sign-in and HttpOnly cookies are origin-bound, and vault keys remain memory-only. A cross-domain navigation requires sign-in and unlock again; account-owned history is restored through the existing authenticated APIs. Never transfer tokens, keys or decrypted information in redirect URLs or browser storage.
+
+### Document Hussh Coins and sandbox Connect
+
+`DRIVE_REQUEST_HASHCOINS_ENABLED` enrolls only new document requests in coin
+settlement. Existing obligations retain their immutable method. UAT deploy reads
+`DRIVE_REQUEST_HASHCOINS_UAT_ENABLED` and `STRIPE_CONNECT_UAT_MODE` separately
+from `STRIPE_UAT_MODE`. The live payment mode must remain live.
+
+`STRIPE_CONNECT_SECRET_KEY` is server-only and must match `STRIPE_CONNECT_MODE`.
+UAT sandbox binds the existing test `STRIPE_SECRET_KEY` secret to that runtime
+name. `STRIPE_CONNECT_TEST_WEBHOOK_SECRET` binds the existing test Connect signing
+secret for `/api/one/payouts/connect/sandbox-webhook`; the live Connect webhook
+secret remains bound separately. API and worker retain required credentials for
+already reserved obligations even if new enrollment is disabled. Never print
+secret values or copy test balances/account IDs into live state.

@@ -85,3 +85,6 @@ assets/
 # deploy/
 *.sh
 *.ps1
+
+# Cloud Build sources this preflight before deploying the backend.
+!deploy/drive/verify_hashcoin_config.sh
