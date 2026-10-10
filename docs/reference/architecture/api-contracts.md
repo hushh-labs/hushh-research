@@ -156,7 +156,7 @@ name, CVV, PIN or vault key enters grants or notification metadata. Removing the
 card revokes access. Explicit owner-added Trusted Circle members skip additional
 verification; ordinary connection mirror records do not grant this exemption.
 
-Rollout requires migration `300_wallet_temporary_card_access.sql`, the existing
+Rollout requires migration `302_wallet_temporary_card_access.sql`, the existing
 direct-message encryption key and `WALLET_CARD_ACCESS_ENABLED=true` (default off).
 The PKM commit derives an encrypted sharing projection from validated card
 summaries after client metadata normalization. It binds each envelope to the

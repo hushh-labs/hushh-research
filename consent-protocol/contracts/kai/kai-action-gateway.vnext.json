@@ -19224,6 +19224,116 @@
       }
     },
     {
+      "action_id": "people.profile.request_scope",
+      "surface_id": "one_person_profile",
+      "label": "Request scope",
+      "aliases": [
+        "request scope",
+        "ask them a question",
+        "ask about their information"
+      ],
+      "search_keywords": [
+        "question",
+        "ask",
+        "scope",
+        "request",
+        "answer",
+        "paid"
+      ],
+      "meaning": "Opens the Request scope composer to ask this person's private agent a question. It does not send the question until the person confirms in the dialog, and the owner still approves the exact question, the exact information it would use, and a price before any payment.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/people/[personRef]"
+        ],
+        "screens": [
+          "one_person_profile"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "An active connection with this person."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "people.profile.request_scope"
+      },
+      "control_ids": [
+        "person-profile-request-scope"
+      ],
+      "state_exposure": [
+        "connection status"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.people.profile.request_scope",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "people.profile.request_scope",
+            "label": "Request scope",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "phone_mandate.select_country",
       "surface_id": "phone_mandate",
       "label": "Choose Country Code",

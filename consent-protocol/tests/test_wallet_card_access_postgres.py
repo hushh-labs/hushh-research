@@ -38,8 +38,8 @@ INSERT INTO one_location_circles VALUES('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','
 INSERT INTO one_location_circle_memberships VALUES('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','charu','active','{"addedVia":"direct_add","addedBy":"alice"}');
 """)
         )
-    projection_db.apply_migrations(["300_wallet_temporary_card_access.sql"])
-    projection_db.apply_migrations(["300_wallet_temporary_card_access.sql"])
+    projection_db.apply_migrations(["302_wallet_temporary_card_access.sql"])
+    projection_db.apply_migrations(["302_wallet_temporary_card_access.sql"])
     return projection_db, WalletCardAccessService(db=projection_db)
 
 
@@ -222,12 +222,12 @@ def test_rollback_refuses_history_and_empty_schema_can_be_reinstalled(cards_db):
     db, service = cards_db
     rollback = (
         Path(__file__).resolve().parents[1]
-        / "db/migrations/rollback/300_wallet_temporary_card_access.rollback.sql"
+        / "db/migrations/rollback/302_wallet_temporary_card_access.rollback.sql"
     ).read_text()
     # Empty-only rollback is safe; the same forward migration restores the schema.
     with db.engine.connect() as conn:
         conn.exec_driver_sql(rollback)
-    db.apply_migrations(["300_wallet_temporary_card_access.sql"])
+    db.apply_migrations(["302_wallet_temporary_card_access.sql"])
     service.reserve("alice", str(uuid.uuid4()))
     with pytest.raises(DBAPIError, match="wallet_card_access_rollback_requires_empty_tables"):
         with db.engine.connect() as conn:

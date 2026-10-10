@@ -699,4 +699,13 @@ tests/test_pkm_packets_and_directory_claims.py
 tests/test_pkm_packet_orders.py
 tests/test_pkm_credits.py
 tests/test_pkm_payouts.py
+# Answer scope, encrypted delivery, payments and disabled-drain boundaries.
+# The PostgreSQL suites run in the existing serial database lane.
+tests/test_answer_scope_resolution.py
+tests/test_answer_scope_resolver.py
+tests/test_answer_composer.py
+tests/test_pkm_answer_payment.py
+tests/test_answer_work_drain.py
+tests/services/test_pkm_answer_requests_postgres.py
+tests/services/test_pkm_answer_races_postgres.py
 tests/test_one_career_routes.py

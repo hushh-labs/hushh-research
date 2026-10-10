@@ -6081,6 +6081,7 @@
         "people.profile.connect",
         "people.profile.manage_consent",
         "people.profile.remove_connection",
+        "people.profile.request_scope",
         "people.profile.review_information_request",
         "route.person_profile"
       ],

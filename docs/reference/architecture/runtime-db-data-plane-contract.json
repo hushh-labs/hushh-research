@@ -1674,6 +1674,70 @@
       "expected_row_growth": "one_registration_per_manual_card_and_one_grant_per_selected_recipient"
     },
     {
+      "id": "pkm_answer_requests",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "pkm_answer_requests",
+        "pkm_answer_request_scopes"
+      ],
+      "primary_access_path": "Paid answers on a connected person's profile: any active connection submits a question through Request scope; the required semantic resolver stage proposes scopes, deterministic fail-closed validation drops anything the owner does not hold or that another person may never request, and the owner approves the exact question, the exact scopes and a whole-dollar price. The approved terms are fixed by a terms_digest covering question, scopes, both participants and the quote.",
+      "retention_policy": "Retained while the request is open and for bounded consent-audit review after it is answered, declined, cancelled or expired; default expiry 30 days from creation.",
+      "deletion_behavior": "Delete every row for either participant on account reset and account deletion; scopes cascade with the request.",
+      "trust_boundary": "Holds the requester's own question text and scope references only. No PKM value, no answer content, and no vault or key material. A scope absent from the approved set was never paid for and must never reach an answer.",
+      "plaintext_posture": "metadata_and_requester_authored_text",
+      "expected_row_growth": "low_per_user"
+    },
+    {
+      "id": "pkm_answer_payment_authority",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "pkm_answer_payment_orders",
+        "pkm_answer_payment_obligations",
+        "pkm_answer_payment_webhook_events"
+      ],
+      "primary_access_path": "Sibling of drive_request_payment_authority for the question lane. A USD Stripe Checkout order opens only after the owner approves a question at a whole-dollar price from 100 to 50000 cents. The signed Stripe webhook, routed on payment_kind 'pkm_answer', settles only when the session, attempt, amount, currency and terms_digest all match the locked order; a per-lane event table makes a replayed event a no-op. Refunds cover owner decline, requester cancellation, fulfilment timeout and an empty answer.",
+      "retention_policy": "Retained while payment or refund is unsettled and for bounded financial and consent-audit review afterwards; the obligation mirror is identity-free and survives erasure so a late charge can still settle.",
+      "deletion_behavior": "Orders delete with the request on account reset and deletion; the identity-free obligation row is retained to reconcile an outstanding charge or refund.",
+      "trust_boundary": "Stores amounts, Stripe references and the terms digest. No question text, no answer content, no card data: the card is handled entirely by Stripe Checkout. The obligation mirror carries a salted request/payer hash instead of a user id.",
+      "plaintext_posture": "financial_references_only",
+      "expected_row_growth": "low_per_user"
+    },
+    {
+      "id": "pkm_answer_deliveries",
+      "owner": "vault-pkm-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "pkm_answer_deliveries"
+      ],
+      "primary_access_path": "The owner's unlocked device produces the answer from decrypted PKM within the approved scopes, seals it to the requester's ECDH P-256 recipient key and posts the envelope; the requester fetches and decrypts it on their own device. The server is a blind relay, exactly as in the marketplace delivery sweep.",
+      "retention_policy": "Retained while the requester may still read the delivered answer; removed with the request.",
+      "deletion_behavior": "Hard-delete with the request on account reset and account deletion for either participant.",
+      "trust_boundary": "Ciphertext only. The backend holds no key that can read an answer, consistent with the vault-keys-client-side invariant. Alongside the envelope it stores only source revision numbers, never values.",
+      "plaintext_posture": "ciphertext_or_hash_only",
+      "expected_row_growth": "low_per_user"
+    },
+    {
+      "id": "pkm_answer_settlement",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "pkm_answer_payment_refunds",
+        "pkm_answer_owner_payouts"
+      ],
+      "primary_access_path": "Durable settlement for the paid-answer lane, on the existing Drive work drain. A refund obligation is written in the same transaction as the decline, cancellation, empty answer or deadline expiry that caused it, then claimed under a lease and retried on its own backoff with a stable per-request idempotency key. An owner earning becomes due only when an answer is delivered with content, pays gross minus 300 bps commission to the owner's Stripe Connect account, and is voided if the order is refunded.",
+      "retention_policy": "Retained while a refund or transfer is unsettled and for bounded financial review afterwards; terminal rows stay as settlement evidence.",
+      "deletion_behavior": "Keyed to pkm_answer_payment_obligations rather than the order, so a refund or transfer can still reconcile after the request and both accounts are erased.",
+      "trust_boundary": "Amounts, Stripe references and a closed safe_error_code set only. No provider message is copied into the database, and no user id, question text or answer content is stored.",
+      "plaintext_posture": "financial_references_only",
+      "expected_row_growth": "low_per_user"
+    },
+    {
       "id": "hashcoin_owner_earnings",
       "owner": "iam-consent-governance",
       "data_class": "audit_regulated",
