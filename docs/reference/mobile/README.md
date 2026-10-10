@@ -36,12 +36,14 @@ each tap is confirmed against native privacy generation and current visibility.
 Presentation-only revisions (selection, theme or badge changes) do not discard
 the final tap. Failed provisional loads do not retire the surviving document.
 
-Established wrappers hide native controls under mounted shared overlays.
-The opt-in content-backed iPhone candidate instead negotiates reserved shell
-regions: ordinary web overlays retain visible native presentation but revoke
-touch and accessibility eligibility. Moving drawer controls stay React, bounded
-inside the remaining region. See the [adoption inventory](../../../hushh-webapp/docs/ios-native-surface-adoption.md)
-for current source scope and separate physical qualification. Session/vault
+The recovery wrapper hides native bottom navigation under mounted shared
+overlays and the keyboard. Profile and History remain full-height React
+drawers; custom dock, shell controls and selectors select React before first
+paint. Experimental reserved-region and asynchronous native-clipping paths
+are disabled together, not accepted presentation-continuity mechanisms.
+See the [adoption inventory](../../../hushh-webapp/docs/ios-native-surface-adoption.md)
+for the current renderer scope, qualification-only native composition study
+and separate physical evidence. Session/vault
 gates, keyboard navigation hiding and the full-window privacy shield retain
 their concealment contracts.
 The native bar and web voice slot stay pinned together without per-frame

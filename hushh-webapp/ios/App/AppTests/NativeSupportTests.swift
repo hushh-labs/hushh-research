@@ -4,6 +4,72 @@ import WebKit
 @testable import App
 
 final class NativeSupportTests: XCTestCase {
+    #if DEBUG
+    func testNativeHistoryQualificationNeverReactivatesExperimentalProductControls() {
+        XCTAssertTrue(NativeHistoryQualification.admits(arguments: [NativeHistoryQualification.argument], phone: true, supported: true))
+        for arguments in [[], ["-UITestMode"], ["--hushh-native-compositor", "--hushh-native-drawer-clip"]] {
+            XCTAssertFalse(NativeHistoryQualification.admits(arguments: arguments, phone: true, supported: true))
+        }
+        XCTAssertFalse(NativeHistoryQualification.admits(arguments: [NativeHistoryQualification.argument], phone: false, supported: true))
+        XCTAssertFalse(NativeHistoryQualification.admits(arguments: [NativeHistoryQualification.argument], phone: true, supported: false))
+        XCTAssertFalse(HushhNativePresentationPolicy.customControlsEnabled)
+    }
+
+    func testNativeHistoryQualificationCancellationAndRegrabRejectOldSettlement() {
+        var state = NativeHistoryQualificationMotion()
+        let opening = state.begin(at: 0)
+        state.move(to: 0.7)
+        XCTAssertFalse(state.destination(velocity: 1000, cancelled: true), "Cancellation must not commit an opening drag")
+        XCTAssertTrue(state.commit(open: true, generation: opening))
+        let closing = state.begin(at: 0.6)
+        state.move(to: 0.2)
+        XCTAssertTrue(state.destination(velocity: -1000, cancelled: true), "Cancellation preserves the last committed open state")
+        let regrab = state.begin(at: 0.3)
+        XCTAssertFalse(state.commit(open: false, generation: closing), "An interrupted close cannot finish a new drag")
+        state.move(to: 0.8)
+        XCTAssertTrue(state.commit(open: true, generation: regrab))
+        state.retire()
+        XCTAssertFalse(state.commit(open: false, generation: regrab))
+        state.move(to: 0)
+        XCTAssertEqual(state.progress, 1, "Retired callbacks cannot mutate or re-admit the fixture")
+    }
+
+    @MainActor
+    func testNativeHistoryQualificationRetainsHostsAndActuallyDetachesOnRetirement() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Glass composition requires iOS 26") }
+        let fixture = NativeHistoryQualificationController()
+        fixture.loadViewIfNeeded()
+        fixture.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        fixture.view.layoutIfNeeded()
+        let base = try XCTUnwrap(fixture.baseHost)
+        let drawer = try XCTUnwrap(fixture.drawerHost)
+        XCTAssertEqual(fixture.children.count, 2)
+        XCTAssertTrue(fixture.view.accessibilityViewIsModal)
+        fixture.appearance.dark = true
+        fixture.appearance.gold = true
+        fixture.beginDrag()
+        XCTAssertTrue(fixture.baseHost === base)
+        XCTAssertTrue(fixture.drawerHost === drawer)
+        XCTAssertEqual(fixture.overrideUserInterfaceStyle, .dark)
+        let shield = HushhSessionPrivacyShield.shared.snapshot()
+        var detached = false
+        fixture.onRetired = {
+            detached = fixture.children.isEmpty && base.view.superview == nil && drawer.view.superview == nil
+        }
+        fixture.retire()
+        XCTAssertTrue(detached, "A retirement receipt must follow actual owned-view removal")
+        XCTAssertTrue(fixture.view.accessibilityElementsHidden)
+        XCTAssertFalse(fixture.view.isUserInteractionEnabled)
+        XCTAssertNil(fixture.appearance.changed)
+        fixture.beginDrag()
+        fixture.settle(open: true)
+        XCTAssertTrue(fixture.children.isEmpty)
+        XCTAssertEqual(HushhSessionPrivacyShield.shared.snapshot().generation, shield.generation)
+        XCTAssertEqual(HushhSessionPrivacyShield.shared.snapshot().shielded, shield.shielded,
+            "Fixture retirement must not release or invalidate the product's privacy authority")
+    }
+    #endif
+
     @MainActor
     func testContentBackedBaseHasNoCanvasBetweenGlassAndPageAndPreservesHitIsolation() {
         let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))

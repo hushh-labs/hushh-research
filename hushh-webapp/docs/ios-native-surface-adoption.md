@@ -108,6 +108,49 @@ navigation fallback, rather than reserving an unready native bar. The recovery
 wrapper retains standard native navigation and its safe modal/keyboard hiding;
 that behavior is not represented as glass continuity beneath a React drawer.
 
+### Bounded native History composition study — 2026-10-10
+
+The owner confirmed the installed recovery controls look stable. Recovery remains
+the default; this checkpoint does not qualify new native controls.
+
+`NativeHistoryQualification.swift` provides an iOS 26+ iPhone **Debug-only**
+public fixture under the explicit `--hushh-native-history-qualification` argument.
+It does not imply `-UITestMode`, reviewer login, reset or a cold route. Ordinary
+Debug and Release launches retain recovery. The historical custom-native flags
+remain disabled and NativeChrome v2 / NativeDock v1 are unchanged.
+
+One owned UIKit presentation retains native base and History hosting controllers,
+the local pan and scrim. Public content continues behind one regular-glass dock
+preview. History moves as a full-height native panel; no React pose/clipping bridge
+is involved. Theme/accent fixture choices retain those hosts; interrupted settles,
+cancellation and retirement are generation-fenced. UIKit modal isolation, not a
+captured restoration of WK eligibility, owns the temporary input boundary. Privacy
+retirement waits for presentation completion and actual owned-child detachment;
+the fixture never releases the product privacy cover.
+
+The dock is deliberately a **nonoperational preview**, not the private editor.
+Rows and backdrop are fixed public content. There are no real history identifiers,
+Send/Mic actions, routing decisions, credential replicas or persistence. The two
+fixture appearance/accents exercise material only, not product theme authority.
+This native-on-native composition cannot certify a native overlay on React content,
+real draft/IME/attachment/voice continuity, Profile parity or Release performance.
+
+Physical transition, touch/accessibility isolation and performance acceptance of
+this fixture remain outstanding. Do not enable a product family from support-test
+counts, a build or the recovery's separate device receipts.
+
+Focused source verification: the three new admission/cancellation/retirement cases
+and all 54 `NativeSupportTests` pass on the simulator. Removing the settlement
+generation guard makes the interrupted-close negative control fail; the guard is
+restored. Signed iPhone Debug build-for-testing, typecheck, plugin parity and
+design-system/static-performance checks pass. This is not a Release device result.
+
+Wireless transport was separately re-established using the existing paired UDID;
+CoreDevice reports a connected `localNetwork` TCP tunnel. Credential-free attach-only
+XCTest admission passed on the **installed recovery**, with Chat still unlocked.
+No service restart, unpairing, product reinstall or vault reset was performed.
+That receipt is not a device test of this new qualification fixture.
+
 ## Historical experiments (not current renderer qualification)
 
 ### Drawer admission regression repair — 2026-10-09

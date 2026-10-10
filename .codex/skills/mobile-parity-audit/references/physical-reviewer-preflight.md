@@ -13,6 +13,14 @@ another reviewer store or a privileged app-unlock route.
    `xcrun devicectl device info lockState --device <udid>`. Pairing does not prove
    unlocked transport; a connection reset is not a vault rejection. Recheck once
    after reconnection, not in an unbounded retry loop.
+   For Wi-Fi, inspect live Bonjour discovery and the current network rather than
+   reusing an earlier IP. A reachable endpoint or an `available (paired)` row is
+   not an authenticated tunnel. Inspect this version's `devicectl manage pair
+   --help`; reconnect the existing paired UDID without unpairing or clearing app
+   state, then require a successful details/service probe with `Transport Type:
+   localNetwork`. Hostname lookup and paired-UDID lookup can differ. Separate a
+   failed tunnel handshake from DDI compatibility and XCTest admission. Do not
+   restart shared CoreDevice/Xcode services while another session owns work.
 3. Inspect this Xcode version's `devicectl device settings --help` before claiming
    a supported authorization or unlock command. Do not infer one from permission
    to operate the device or from the possession of its passcode.
