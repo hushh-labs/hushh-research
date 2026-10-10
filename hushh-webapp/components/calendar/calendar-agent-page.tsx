@@ -56,52 +56,6 @@ import { waitForOAuthPopup } from "@/lib/profile/drive-oauth-popup";
 
 const CALENDAR_OAUTH_POPUP_TIMEOUT_MS = 120_000;
 
-function CalendarConnectIcon({
-  className = "size-10 mb-2.5",
-  style = { color: "#FF3B30" },
-}: {
-  className?: string;
-  style?: React.CSSProperties;
-}) {
-  return (
-    <svg
-      viewBox="0 0 48 48"
-      fill="none"
-      aria-hidden="true"
-      className={className}
-      style={style}
-    >
-      <rect
-        x="8.5"
-        y="11.5"
-        width="31"
-        height="29"
-        rx="4.5"
-        stroke="currentColor"
-        strokeWidth="3"
-      />
-      <path
-        d="M9.5 20.5h29M16 7.5v8M32 7.5v8"
-        stroke="currentColor"
-        strokeWidth="3"
-        strokeLinecap="round"
-      />
-      {[16, 24, 32].flatMap((x) =>
-        [27, 35].map((y) => (
-          <rect
-            key={`${x}-${y}`}
-            x={x - 2}
-            y={y - 2}
-            width="4"
-            height="4"
-            rx="1"
-            fill="currentColor"
-          />
-        )),
-      )}
-    </svg>
-  );
-}
 
 type CalendarAgentPageProps = {
   journeyVariant?: "workspace" | "onboarding";
@@ -564,8 +518,14 @@ export function CalendarAgentPage({
           </CalendarConnectHero>
         ) : (
           <div className="flex flex-col items-center text-center space-y-1 pb-4 pt-8 max-w-sm mx-auto">
-            <div className="mb-6 flex size-24 items-center justify-center rounded-[24px] bg-[#FFF0F1] dark:bg-red-950/40">
-              <CalendarConnectIcon className="size-11" style={{ color: "#FF3B30" }} />
+            <div className="mb-6 flex size-24 items-center justify-center rounded-[24px] border border-border/60 bg-card shadow-sm dark:bg-[#0A0A0C]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/icons/connectors/calendar.svg"
+                alt=""
+                data-connector-brand="calendar"
+                className="size-14 object-contain"
+              />
             </div>
 
             <h2 className="text-2xl sm:text-[26px] font-bold tracking-tight text-foreground">
