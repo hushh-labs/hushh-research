@@ -562,7 +562,18 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
         "candidate"
     ]
     assert prod_candidate["workers_per_instance"] == gunicorn_workers
-    assert prod_total * 3 <= budget["admission_limit"] - budget["administrative_reserve"]
+    prod_policy = budget["environments"]["production"]["connection_policy"]
+    assert prod_policy == {
+        "database_max_connections": 400,
+        "admission_limit": 300,
+        "administrative_reserve": 30,
+    }
+    # Serving + retained rollback + candidate, optional worker and overlapping
+    # readiness jobs all fit without inheriting UAT's larger database ceiling.
+    assert (
+        prod_total * 3 + 6 + 16 + prod_policy["administrative_reserve"]
+        <= prod_policy["admission_limit"]
+    )
 
     for workflow in (uat_workflow, production_workflow):
         assert 'BACKEND_REVISION_RETENTION: "2"' in workflow

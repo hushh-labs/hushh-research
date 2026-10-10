@@ -20,7 +20,37 @@ Incident purpose is authored in each policy template. Backend 5xx, sustained
 short-read latency, acquisition timeout, critical SQL capacity, account-mail
 failure and information-health anomalies remain enabled at ERROR severity,
 with the configured recipients and opening/recovery notifications. No reminder
-strategy is installed. Genuine-failure thresholds are unchanged.
+strategy is installed. Request-failure thresholds are unchanged.
+
+SQL thresholds derive from `config/runtime-capacity.json`: warning at 70% and
+critical at 85% of the selected environment's connection ceiling. Production's
+complete `connection_policy` is 400 maximum, 300 admission and 30 administrative
+reserve; UAT retains 1000/800/100. An absent override inherits the complete root
+policy; an incomplete override fails closed. Both setup entrypoints use the same
+reconciler. Unprofiled projects and mismatched SQL instances fail before any
+cloud call. Production warning/critical thresholds are 280/340, with warning
+remaining diagnostic only; UAT remains 700/850.
+
+Before a production release, retire obsolete zero-traffic tags and revisions with
+the existing healthy-release retention helper, preserving serving and rollback
+revisions. Deletion must wait for its recorded request-timeout drain deadline;
+tag removal alone does not prove that admitted requests have stopped.
+The capacity check still requires an explicit live SQL flag matching the profile,
+and counts every retained database revision, candidate, workers and overlapping
+jobs in both environments. With the
+current production pools, three backend revisions, one worker candidate and the
+readiness job require 292 connections including reserve. Additional reachable
+revisions or jobs can block admission and must not be ignored.
+
+A connection ceiling is not a throughput or memory guarantee. Check recent CPU,
+memory, active connections and query memory before changing SQL flags; retain a
+fresh backup and record restart readiness and rollback. The 2026-10-10 candidate
+uses the existing 3.75 GiB tier, whose prior 24-hour peaks were 48% CPU and 49%
+memory. At 292 budgeted connections, idle connection overhead alone can approach
+876 MB; complex concurrent queries consume additional memory. Observe serving
+traffic after the change and halt further scaling if headroom deteriorates.
+See Google's [memory guidance](https://docs.cloud.google.com/sql/docs/postgres/manage-memory-usage-best-practices)
+and [restart requirements for flags](https://docs.cloud.google.com/sql/docs/postgres/flags).
 
 Unexpected-error count duplicates backend 5xx coverage. Early pool wait and SQL
 connection warnings have no separate operator action. These three policies are
