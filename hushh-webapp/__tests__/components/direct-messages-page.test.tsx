@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => {
     },
     conversation,
     listConversations: vi.fn(),
+    listConnectionsPage: vi.fn(),
     getConversationWithPerson: vi.fn(),
     getConversationMessages: vi.fn(),
     markConversationRead: vi.fn(),
@@ -42,6 +43,7 @@ const mocks = vi.hoisted(() => {
     editMessage: vi.fn(),
     deleteMessage: vi.fn(),
     reactToMessage: vi.fn(),
+    removeReaction: vi.fn(),
     morphyToast: { error: vi.fn(), info: vi.fn(), promise: vi.fn() },
     requestAgentConversationAfterRoute: vi.fn(),
   };
@@ -115,7 +117,12 @@ vi.mock("@/lib/services/direct-messages-service", async (importOriginal) => ({
     editMessage: (...args: unknown[]) => mocks.editMessage(...args),
     deleteMessage: (...args: unknown[]) => mocks.deleteMessage(...args),
     reactToMessage: (...args: unknown[]) => mocks.reactToMessage(...args),
+    removeReaction: (...args: unknown[]) => mocks.removeReaction(...args),
   },
+}));
+
+vi.mock("@/lib/services/connections-service", () => ({
+  ConnectionsService: { listConnectionsPage: (...args: unknown[]) => mocks.listConnectionsPage(...args) },
 }));
 
 const messageIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -173,6 +180,11 @@ describe("DirectMessagesPage", () => {
       items: [mocks.conversation],
       unreadCount: 0,
     });
+    mocks.listConnectionsPage.mockResolvedValue({
+      items: [{ connectionId: "connection-new", userId: "viewer-2", publicPersonRef: "person-new",
+        displayName: "Divya", photoUrl: null, createdAt: null }],
+      page: 1, hasMore: false, totalCount: 1, audience: "all",
+    });
     mocks.getConversationWithPerson.mockResolvedValue({
       conversation: mocks.conversation,
       peerPersonRef: "person-1",
@@ -222,7 +234,12 @@ describe("DirectMessagesPage", () => {
       content: "Hello Ankit",
       createdAt: "2026-10-06T10:01:00.000Z",
       readAt: null,
-      reactions: [{ emoji: "😀", count: 1, reactedByViewer: true }],
+      reactions: [{ emoji: "❤️", count: 1, reactedByViewer: true }],
+    });
+    mocks.removeReaction.mockResolvedValue({
+      id: "message-1", conversationId: "conversation-1", senderIsViewer: true,
+      content: "Hello Ankit", createdAt: "2026-10-06T10:01:00.000Z",
+      readAt: null, reactions: [],
     });
     });
 
@@ -263,18 +280,27 @@ describe("DirectMessagesPage", () => {
     expect(await screen.findByRole("heading", { name: "Chat" })).toBeVisible();
     expect(screen.getByLabelText("Search conversations")).toBeVisible();
     expect(screen.getByText("Select a conversation to see the chat here.")).toBeVisible();
-    expect(screen.getByRole("textbox", { name: "Message" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Talk to One" }));
-    expect(mocks.requestAgentConversationAfterRoute).toHaveBeenCalledWith(ROUTES.HOME);
-    expect(mocks.router.push).toHaveBeenCalledWith(ROUTES.HOME);
+    expect(screen.queryByRole("textbox", { name: "Message" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("shared-chat-dock")).not.toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: /Ankit Kumar Singh/ }));
     expect(mocks.navigateSelection).toHaveBeenCalledWith({ conversationId: "conversation-1" });
     expect(mocks.router.push).toHaveBeenCalledWith("/one/messages?token=dm1.fixture");
   });
 
-  it.each(["voice", "command", "command-result"] as const)("keeps an active %s surface visible on the inbox", async (owner) => {
+  it("starts a chat with an accepted connection that has no conversation yet", async () => {
+    mocks.query = "";
+    renderConnectionThread();
+    fireEvent.click(await screen.findByRole("button", { name: "New chat" }));
+    const picker = await screen.findByRole("dialog", { name: "New chat" });
+    expect(mocks.listConnectionsPage).toHaveBeenCalledWith({
+      idToken: "test-token", page: 1, limit: 50, query: "",
+    });
+    fireEvent.click(await within(picker).findByRole("button", { name: "Message Divya" }));
+    expect(mocks.navigateSelection).toHaveBeenCalledWith({ personRef: "person-new" });
+  });
+
+  it.each(["voice", "command", "command-result"] as const)("keeps the inbox free of an active %s composer", async (owner) => {
     mocks.query = "";
     mocks.voiceActive = owner === "voice";
     mocks.commandActive = owner === "command";
@@ -282,7 +308,7 @@ describe("DirectMessagesPage", () => {
     renderConnectionThread();
 
     expect(await screen.findByRole("heading", { name: "Chat" })).toBeVisible();
-    expect(screen.getByText("Talk to One", { exact: true })).toBeVisible();
+    expect(screen.getByTestId("shared-chat-dock")).not.toBeVisible();
     expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
     expect(mocks.sendMessage).not.toHaveBeenCalled();
   });
@@ -303,10 +329,8 @@ describe("DirectMessagesPage", () => {
       message: { id: "late-message", conversationId: "conversation-1", senderIsViewer: true,
         content: "Hello Ankit", createdAt: "2026-10-06T10:01:00.000Z", readAt: null },
     }));
-    const inboxInput = screen.getByRole("textbox", { name: "Message" });
-    expect(inboxInput).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
-    fireEvent.submit(inboxInput.closest("form")!);
+    expect(screen.queryByRole("textbox", { name: "Message" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("shared-chat-dock")).not.toBeVisible();
     expect(mocks.sendMessage).toHaveBeenCalledTimes(1);
   });
 
@@ -446,9 +470,13 @@ describe("DirectMessagesPage", () => {
       screen.queryByLabelText("Video calls are not available in Messages yet"),
     ).not.toBeInTheDocument();
 
+    fireEvent.click(screen.getByRole("button", { name: "Talk to One" }));
+    expect(mocks.requestAgentConversationAfterRoute).toHaveBeenCalledWith(ROUTES.HOME);
+    expect(mocks.router.push).toHaveBeenCalledWith(ROUTES.HOME);
+
     fireEvent.click(screen.getByRole("button", { name: "Choose emoji" }));
     expect(screen.getByLabelText("Emoji picker")).toBeVisible();
-    expect(screen.getAllByRole("tab")).toHaveLength(8);
+    expect(within(screen.getByRole("tablist", { name: "Emoji categories" })).getAllByRole("tab")).toHaveLength(8);
     expect(
       screen.getByRole("tab", { name: "Animals and nature" }),
     ).toBeInTheDocument();
@@ -458,12 +486,8 @@ describe("DirectMessagesPage", () => {
     fireEvent.change(emojiSearch, { target: { value: "" } });
     fireEvent.click(screen.getAllByRole("button", { name: "Use 😀" })[0]!);
     expect(composer).toHaveValue("😀");
-
-    fireEvent.click(screen.getByRole("button", { name: "Talk to One" }));
-    expect(mocks.requestAgentConversationAfterRoute).toHaveBeenCalledWith(
-      ROUTES.HOME,
-    );
-    expect(mocks.router.push).toHaveBeenCalledWith(ROUTES.HOME);
+    expect(screen.queryByRole("button", { name: "Talk to One" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
   });
 
   it("keeps day separators and delivery state inside the conversation bubbles", async () => {
@@ -576,16 +600,20 @@ describe("DirectMessagesPage", () => {
     renderConnectionThread();
     fireEvent.click(await screen.findByText("Hello Ankit"));
 
-    fireEvent.click(screen.getByRole("button", { name: "Choose a reaction" }));
-    fireEvent.click(screen.getAllByRole("button", { name: "Use 😀" })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: "React to message" }));
+    fireEvent.click(screen.getByRole("button", { name: "React ❤️" }));
     await waitFor(() =>
       expect(mocks.reactToMessage).toHaveBeenCalledWith({
         idToken: "test-token",
         conversationId: "conversation-1",
         messageId: "message-1",
-        emoji: "😀",
+        emoji: "❤️",
       }),
     );
+    fireEvent.click(await screen.findByRole("button", { name: "❤️ reaction, 1" }));
+    await waitFor(() => expect(mocks.removeReaction).toHaveBeenCalledWith({
+      idToken: "test-token", conversationId: "conversation-1", messageId: "message-1", emoji: "❤️",
+    }));
     expect(mocks.morphyToast.promise).not.toHaveBeenCalled();
 
     fireEvent.keyDown(screen.getByRole("button", { name: "Message options" }), { key: "Enter" });

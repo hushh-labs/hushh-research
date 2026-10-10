@@ -116,7 +116,7 @@ describe("Navbar bottom utilities", () => {
     expect(
       (onNavigationRequest.mock.calls[0][0] as CustomEvent).detail,
     ).toMatchObject({
-      href: ROUTES.ONE_HOME,
+      href: ROUTES.HOME,
       source: "tap",
     });
     window.removeEventListener(

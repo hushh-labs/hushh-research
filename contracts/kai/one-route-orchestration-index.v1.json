@@ -3282,7 +3282,7 @@
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.one.messages",
-        "purpose": "Read and send private one-to-one messages with accepted connections.",
+        "purpose": "Read and send private messages with accepted connections and circles you belong to.",
         "screen": "app",
         "entry_cue": "",
         "proactivity": "ambient",
@@ -3297,10 +3297,10 @@
           "callback_error": "Keep the message screen open and explain that the update could not be verified.",
           "route_mismatch": "Use only the verified private message route and its generated controls."
         },
-        "completion_boundary": "A send completes only after the server accepts the message for the active connection.",
+        "completion_boundary": "A send completes only after the server accepts the message for the selected connection or circle.",
         "next_route": null,
         "return_policy": "stay",
-        "out_of_scope_behavior": "Do not infer a connection or reveal another person's message history."
+        "out_of_scope_behavior": "Do not infer a connection or circle membership or reveal another person's message history."
       },
       "interaction_layer_policy": {
         "allowed_families": []

@@ -2389,7 +2389,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.messages",
-      "purpose": "Read and send private one-to-one messages with accepted connections.",
+      "purpose": "Read and send private messages with accepted connections and circles you belong to.",
       "screen": "app",
       "entryCue": "",
       "proactivity": "ambient",
@@ -2404,10 +2404,10 @@
         "callbackError": "Keep the message screen open and explain that the update could not be verified.",
         "routeMismatch": "Use only the verified private message route and its generated controls."
       },
-      "completionBoundary": "A send completes only after the server accepts the message for the active connection.",
+      "completionBoundary": "A send completes only after the server accepts the message for the selected connection or circle.",
       "nextRoute": null,
       "returnPolicy": "stay",
-      "outOfScopeBehavior": "Do not infer a connection or reveal another person's message history."
+      "outOfScopeBehavior": "Do not infer a connection or circle membership or reveal another person's message history."
     },
     "backVerification": {
       "cases": [
@@ -2417,7 +2417,7 @@
         }
       ],
       "kind": "root",
-      "reason": "Messages owns thread-level navigation inside its workspace."
+      "reason": "Messages owns thread-level navigation inside its workspace through route-scoped Back layers."
     }
   },
   {

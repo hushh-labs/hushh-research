@@ -1,7 +1,13 @@
 import { ApiService } from "@/lib/services/api-service";
+import { validateChatAttachmentBytes, MAX_CHAT_IMAGE_BYTES } from "@/lib/circle-chat/crypto";
 
-/** Text-only for now; keep the record shape extensible for future attachments. */
-export type DirectMessageKind = "text";
+export type DirectMessageKind = "text" | "photo" | "video" | "document";
+export type DirectMessageAttachment = {
+  kind: "photo" | "video" | "document";
+  name: string;
+  mimeType: string;
+  size: number;
+};
 
 export type DirectMessageReaction = {
   emoji: string;
@@ -16,7 +22,7 @@ export type DirectMessageReplyPreview = {
   deletedForEveryoneAt: string | null;
 };
 
-export const DIRECT_MESSAGE_MAX_LENGTH = 2_000;
+export const DIRECT_MESSAGE_MAX_LENGTH = 4_000;
 
 export type DirectMessage = {
   id: string;
@@ -31,6 +37,7 @@ export type DirectMessage = {
   replyTo?: DirectMessageReplyPreview | null;
   reactions?: DirectMessageReaction[];
   kind?: DirectMessageKind;
+  attachment?: DirectMessageAttachment | null;
 };
 
 export type DirectMessageConversation = {
@@ -154,6 +161,18 @@ function parseReplyPreview(value: unknown): DirectMessageReplyPreview | null {
   };
 }
 
+function parseAttachment(value: unknown): DirectMessageAttachment | null {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Record<string, unknown>;
+  const name = asTrimmedString(source.name);
+  const mimeType = asTrimmedString(source.mimeType);
+  const kind = source.kind;
+  const size = Number(source.size);
+  if (!name || !mimeType || !["photo", "video", "document"].includes(String(kind))
+      || !Number.isSafeInteger(size) || size < 1 || size > MAX_CHAT_IMAGE_BYTES) return null;
+  return { name, mimeType, kind: kind as DirectMessageAttachment["kind"], size };
+}
+
 function parseMessage(value: unknown): DirectMessage | null {
   if (!value || typeof value !== "object") return null;
   const source = value as Record<string, unknown>;
@@ -176,6 +195,7 @@ function parseMessage(value: unknown): DirectMessage | null {
     replyTo: parseReplyPreview(source.replyTo),
     reactions: parseReactions(source.reactions),
     kind: source.kind === "text" ? "text" : undefined,
+    attachment: parseAttachment(source.attachment),
   };
 }
 
@@ -213,15 +233,23 @@ function parseMessages(value: unknown): DirectMessage[] {
 }
 
 /** Normalizes input before a network call so blank/oversize sends never leave the device. */
-export function normalizeDirectMessageContent(value: string): string {
+export function normalizeDirectMessageContent(value: string, allowEmpty = false): string {
   const content = String(value ?? "").trim();
-  if (!content) throw new Error("Write a message before sending.");
+  if (!content && !allowEmpty) throw new Error("Write a message before sending.");
   if (content.length > DIRECT_MESSAGE_MAX_LENGTH) {
     throw new Error(
       `Messages can be up to ${DIRECT_MESSAGE_MAX_LENGTH.toLocaleString()} characters.`,
     );
   }
   return content;
+}
+
+function encodeBase64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 8192) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 8192));
+  }
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
 }
 
 /**
@@ -337,15 +365,26 @@ export class DirectMessagesService {
     recipientPersonRef: string;
     replyToMessageId?: string | null;
     clientMessageId?: string;
+    attachment?: File;
   }): Promise<DirectMessageSendResult> {
     const recipientPersonRef = String(input.recipientPersonRef || "").trim();
     if (!recipientPersonRef) throw new Error("Choose one connected recipient before sending.");
+    let attachment: { name: string; mimeType: string; data: string } | undefined;
+    if (input.attachment) {
+      if (!input.attachment.size || input.attachment.size > MAX_CHAT_IMAGE_BYTES) {
+        throw new Error("Choose a file up to 5 MB.");
+      }
+      const bytes = new Uint8Array(await input.attachment.arrayBuffer());
+      validateChatAttachmentBytes(bytes, input.attachment.type);
+      attachment = { name: input.attachment.name, mimeType: input.attachment.type, data: encodeBase64Url(bytes) };
+    }
     const response = await ApiService.apiFetch("/api/one/messages", {
       method: "POST",
       headers: authHeaders(input.idToken),
       body: JSON.stringify({
-        content: normalizeDirectMessageContent(input.content),
+        content: normalizeDirectMessageContent(input.content, Boolean(attachment)),
         recipientPersonRef,
+        ...(attachment ? { attachment } : {}),
         ...(input.replyToMessageId?.trim()
           ? { replyToMessageId: input.replyToMessageId.trim() }
           : {}),
@@ -361,6 +400,22 @@ export class DirectMessagesService {
       throw new Error("The sent message could not be verified.");
     }
     return { conversation, message };
+  }
+
+  static async getAttachment(input: {
+    idToken: string;
+    conversationId: string;
+    messageId: string;
+  }): Promise<Blob> {
+    const conversationId = String(input.conversationId || "").trim();
+    const messageId = String(input.messageId || "").trim();
+    if (!conversationId || !messageId) throw new Error("This attachment is no longer available.");
+    const response = await ApiService.apiFetch(
+      `/api/one/messages/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/attachment`,
+      { method: "GET", cache: "no-store", headers: authHeaders(input.idToken) },
+    );
+    if (!response.ok) await jsonOrThrow(response);
+    return response.blob();
   }
 
   static async editMessage(input: {
@@ -428,6 +483,28 @@ export class DirectMessagesService {
         headers: authHeaders(input.idToken),
         body: JSON.stringify({ emoji }),
       },
+    );
+    const payload = await jsonOrThrow<{ message?: unknown }>(response);
+    const message = parseMessage(payload.message);
+    if (!message || message.id !== messageId || message.conversationId !== conversationId) {
+      throw new Error("The reaction could not be verified.");
+    }
+    return message;
+  }
+
+  static async removeReaction(input: {
+    idToken: string;
+    conversationId: string;
+    messageId: string;
+    emoji: string;
+  }): Promise<DirectMessage> {
+    const conversationId = String(input.conversationId || "").trim();
+    const messageId = String(input.messageId || "").trim();
+    const emoji = String(input.emoji || "").trim();
+    if (!conversationId || !messageId || !emoji) throw new Error("This message is no longer available.");
+    const response = await ApiService.apiFetch(
+      `/api/one/messages/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/reaction`,
+      { method: "DELETE", headers: authHeaders(input.idToken), body: JSON.stringify({ emoji }) },
     );
     const payload = await jsonOrThrow<{ message?: unknown }>(response);
     const message = parseMessage(payload.message);
