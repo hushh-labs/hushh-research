@@ -1,23 +1,26 @@
 "use client";
 
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 import { InputGroup, InputGroupTextarea } from "@/components/ui/input-group";
 import { Loader2, Send } from "@/components/icons";
 import { ShellActionSurface } from "./shell-action-surface";
 
 /** Shared text-entry behavior for connection and Circle conversations. */
 export function ConversationComposer({ value, onChange, onSend, maxLength, label = "Message", placeholder = "Message…",
-  busy = false, locked = false, sendDisabled = false, sendLabel = "Send message", visible = true, leadingAction }: {
+  busy = false, locked = false, sendDisabled = false, sendLabel = "Send message", visible = true, leadingAction,
+  trailingAction, emptyAction, showSend = true, editorRef }: {
   value: string; onChange: (value: string) => void; onSend: () => void; maxLength: number;
   label?: string; placeholder?: string; busy?: boolean; locked?: boolean; sendDisabled?: boolean;
-  sendLabel?: string; visible?: boolean; leadingAction?: ReactNode;
+  sendLabel?: string; visible?: boolean; leadingAction?: ReactNode; trailingAction?: ReactNode;
+  emptyAction?: ReactNode; showSend?: boolean; editorRef?: RefObject<HTMLTextAreaElement | null>;
 }) {
-  const editor = useRef<HTMLTextAreaElement>(null);
+  const internalEditor = useRef<HTMLTextAreaElement>(null);
+  const editor = editorRef ?? internalEditor;
   useLayoutEffect(() => {
     if (!editor.current || !visible) return;
     editor.current.style.height = "auto";
     editor.current.style.height = `${Math.min(128, Math.max(44, editor.current.scrollHeight))}px`;
-  }, [value, visible]);
+  }, [editor, value, visible]);
   return <form data-conversation-composer className="flex min-w-0 items-end gap-2" onSubmit={(event) => {
     event.preventDefault();
     if (busy || sendDisabled) return;
@@ -36,9 +39,10 @@ export function ConversationComposer({ value, onChange, onSend, maxLength, label
           }
         }} />
     </InputGroup>
-    <ShellActionSurface type="submit" rippleEffect="fill" className="size-11 border-0 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] shadow-none hover:bg-[color:var(--app-accent-hover)] hover:text-[color:var(--app-accent-fg)]"
+    {trailingAction}
+    {showSend ? <ShellActionSurface type="submit" rippleEffect="fill" className="size-11 border-0 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] shadow-none hover:bg-[color:var(--app-accent-hover)] hover:text-[color:var(--app-accent-fg)]"
       aria-label={sendLabel} disabled={busy || sendDisabled}>
       {busy ? <Loader2 aria-hidden="true" className="size-5 animate-spin motion-reduce:animate-none" /> : <Send aria-hidden="true" className="size-5" />}
-    </ShellActionSurface>
+    </ShellActionSurface> : emptyAction}
   </form>;
 }

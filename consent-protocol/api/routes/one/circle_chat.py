@@ -271,6 +271,8 @@ async def chat_wait(
     changed = False
     read_changed = False
     receipts_changed = False
+    reactions_changed = False
+    membership_changed = False
     photo_changed = False
     try:
         queue = await subscribe_consent_queue(user)
@@ -289,6 +291,10 @@ async def chat_wait(
                             changed = True
                             read_changed = event.get("type") == "location_circle_chat_read"
                             receipts_changed = event.get("type") == "location_circle_chat_receipts"
+                            reactions_changed = event.get("type") == "location_circle_chat_reaction"
+                            membership_changed = (
+                                event.get("type") == "location_circle_chat_membership"
+                            )
                             photo_changed = event.get("type") == "location_circle_photo_updated"
                             break
             except TimeoutError:
@@ -298,6 +304,8 @@ async def chat_wait(
             "changed": changed,
             "readChanged": read_changed,
             "receiptsChanged": receipts_changed,
+            "reactionsChanged": reactions_changed,
+            "membershipChanged": membership_changed,
             "photoChanged": photo_changed,
         }
     finally:
@@ -331,6 +339,32 @@ def chat_image(
     owner: dict = Depends(require_vault_owner_token),
 ):
     return _call(response, "image", owner, circle, str(message))
+
+
+@router.put("/{circle}/chat/messages/{message}/reactions/{emoji}")
+@limiter.limit("60/minute")
+def chat_react(
+    request: Request,
+    response: Response,
+    circle: UUID,
+    message: UUID,
+    emoji: str,
+    owner: dict = Depends(require_vault_owner_token),
+):
+    return _call(response, "react", owner, circle, str(message), emoji, True)
+
+
+@router.delete("/{circle}/chat/messages/{message}/reactions/{emoji}")
+@limiter.limit("60/minute")
+def chat_unreact(
+    request: Request,
+    response: Response,
+    circle: UUID,
+    message: UUID,
+    emoji: str,
+    owner: dict = Depends(require_vault_owner_token),
+):
+    return _call(response, "react", owner, circle, str(message), emoji, False)
 
 
 @router.get("/{circle}/chat/keys/{key}")

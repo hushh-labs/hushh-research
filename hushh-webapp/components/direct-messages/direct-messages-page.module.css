@@ -1110,11 +1110,13 @@ article[data-message-role="user"] .messageActionError {
   .composer { width: calc(100% - 1rem); margin-inline: 0.5rem; }
 }
 @layer base {
-  .shell[data-app-shell-width] .page .inboxHeading h1,
-  .shell[data-app-shell-width] .page .threadTitle h2 { font-size: 1.375rem !important; line-height: 1.3 !important; font-weight: 650 !important; font-family: inherit !important; letter-spacing: normal !important; }
-  @media (max-width: 767px) {
-    .shell[data-app-shell-width] .page .inboxHeading h1,
-  .shell[data-app-shell-width] .page .threadTitle h2 { font-size: 1.0625rem !important; }
+  .shell[data-app-shell-width] .page .inboxHeading h1 {
+    font-size: 20px !important; line-height: 1.2 !important; font-weight: 700 !important;
+    font-family: var(--font-app-heading) !important;
+  }
+  .shell[data-app-shell-width] .page .threadTitle h2 {
+    font-size: 16px !important; line-height: 1.25 !important; font-weight: 700 !important;
+    font-family: var(--font-app-body) !important;
   }
 }
 
@@ -1156,7 +1158,7 @@ article[data-message-role="user"] .messageActionError {
 /* Bound the transcript above the shared app chrome and keyboard. */
 .page { --direct-message-keyboard-inset: var(--kb-height, 0px); }
 :global(html.kb-resizes) .page { --direct-message-keyboard-inset: 0px; }
-.page, .page[data-chat-open="true"] { height: max(0px, calc(100dvh - var(--app-top-content-offset, 6rem) - var(--app-safe-area-top-effective, 0px) - max(var(--app-scroll-bottom-pad, 8rem), calc(var(--direct-message-keyboard-inset) + var(--direct-message-dock-height, 0px))) - .5rem)); min-height: 0; max-height: none; }
+.page, .page[data-chat-open="true"] { height: max(0px, calc(100dvh - var(--app-top-content-offset, 6rem) - var(--app-safe-area-top-effective, 0px) - max(var(--app-scroll-bottom-pad, 8rem), calc(var(--direct-message-keyboard-inset) + var(--direct-message-dock-height, 0px))) - 1rem)); min-height: 0; max-height: none; }
 .thread { position: relative; }
 .inboxHeader, .threadHeaderContent { min-height: 4.25rem; }
 .backButton, .headerAction, .refreshButton, .voiceButton, .sendButton, .threadSearchClear, .messageActionButton, .composerReplyPreview button, .messageEditActions button, .reactionChip { min-width: 44px; min-height: 44px; height: 44px; }
@@ -1363,4 +1365,232 @@ article[data-message-role="user"] .messageActions {
 .messageCluster { max-width: min(86%, 38rem, calc(100% - 94px)); }
 article[data-message-role="peer"] .messageCluster {
   max-width: min(86%, 38rem, calc(100% - 132px));
+}
+
+/* Chat uses the profile font and the supplied iOS blue palette. The shared
+   bottom shell still owns the navbar and the centered composer material. */
+.page[data-theme="light"] {
+  --chat-accent: var(--chat-ios-accent);
+  --chat-surface: #ffffff;
+  --chat-text: #1c1c1e;
+  --chat-muted: #8e8e93;
+  --chat-incoming: #ffffff;
+  --chat-glass: rgba(255, 255, 255, .68);
+  --chat-glass-edge: rgba(255, 255, 255, .65);
+  --chat-row-active: rgba(0, 122, 255, .1);
+  background: linear-gradient(180deg, #f7f7fa, #eef0f4);
+}
+.page[data-theme="dark"] {
+  --chat-accent: var(--chat-ios-accent);
+  --chat-surface: #1b1b20;
+  --chat-text: #f5f5f7;
+  --chat-muted: #9a9aa2;
+  --chat-incoming: #2a2a31;
+  --chat-glass: rgba(30, 30, 36, .62);
+  --chat-glass-edge: rgba(255, 255, 255, .14);
+  --chat-row-active: rgba(10, 132, 255, .16);
+  background: linear-gradient(180deg, #141419, #0b0b0e);
+}
+.page {
+  grid-template-columns: 380px minmax(0, 1fr);
+  font-family: var(--font-app-body);
+  color: var(--chat-text);
+  transition: background .25s ease, color .25s ease;
+}
+.page[data-chat-open="true"] { grid-template-columns: 380px minmax(0, 1fr); }
+.page[data-chat-lane="circles"] > .inbox,
+.page[data-chat-lane="circles"] > .thread { display: none; }
+.page :global([data-circle-messages-pane]) {
+  grid-column: 1 / -1;
+  min-height: 0;
+  font-family: var(--font-app-body);
+}
+.inbox, .thread, .messageList { background: transparent; }
+.inbox { border-right: 1px solid color-mix(in srgb, var(--chat-text) 8%, transparent); }
+.inboxHeader {
+  min-height: 68px;
+  height: 68px;
+  padding: 12px 18px;
+  border-bottom: 0;
+}
+.inboxHeaderActions { display: flex; align-items: center; gap: 2px; }
+.inboxHeading h1,
+.shell[data-app-shell-width] .page .inboxHeading h1 {
+  font-family: var(--font-app-heading) !important;
+  font-size: 20px !important;
+  font-weight: 700 !important;
+  line-height: 1.2 !important;
+  letter-spacing: -.02em !important;
+  color: var(--chat-text);
+}
+.refreshButton { color: var(--chat-muted); }
+.refreshButton:hover, .refreshButton:focus-visible {
+  color: var(--chat-accent);
+  background: var(--chat-row-active);
+}
+.inboxSearch { padding: 4px 16px 10px; }
+.inboxSearchField {
+  min-height: 42px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--chat-text) 5%, var(--chat-surface));
+  color: var(--chat-muted);
+}
+.inboxSearchField input { font-size: 13px; }
+.laneSwitcher {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0 16px 12px;
+  padding: 4px;
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--chat-text) 5%, var(--chat-surface));
+}
+.laneSwitcher button {
+  min-height: 34px;
+  border-radius: 10px;
+  color: var(--chat-muted);
+  font-size: 13px;
+  font-weight: 600;
+  transition: background-color .15s ease, color .15s ease;
+}
+.laneSwitcher button[aria-selected="true"] {
+  background: var(--chat-surface);
+  color: var(--chat-accent);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, .08);
+}
+.circleLaneSwitcher { display: flex; align-items: center; }
+.circleLaneSwitcher .laneSwitcher { flex: 1; margin-right: 4px; }
+.circleLaneSwitcher .refreshButton { margin: 0 14px 12px 0; }
+.conversationList { padding: 0 8px 1rem; }
+.conversationRow {
+  min-height: 70px;
+  border-radius: 16px;
+  padding: 10px 11px;
+}
+.conversationRow[data-active="true"] { background: var(--chat-row-active); }
+.conversationName { font-size: 14px; font-weight: 600; color: var(--chat-text); }
+.conversationPreview { font-size: 13px; color: var(--chat-muted); }
+.conversationMeta { font-size: 12px; color: var(--chat-muted); }
+.threadHeader,
+.threadHeaderContent {
+  min-height: 68px;
+  height: 68px;
+}
+.threadHeader {
+  border-bottom: 1px solid var(--chat-glass-edge);
+  background: var(--chat-glass);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .08), inset 0 1px var(--chat-glass-edge);
+  backdrop-filter: blur(22px) saturate(180%);
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+}
+.threadTitle h2,
+.shell[data-app-shell-width] .page .threadTitle h2 {
+  font-family: var(--font-app-body) !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  line-height: 1.25 !important;
+  color: var(--chat-text);
+}
+.messageList { background: transparent; }
+.messageDateMarker { font-size: 12px; color: var(--chat-muted); }
+.messageBubble, article[data-message-role="user"] .messageBubble {
+  background: var(--chat-accent) !important;
+  color: #fff !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .06) !important;
+  font-size: 15px;
+}
+.peerMessageBubble,
+article[data-message-role="peer"] .messageBubble {
+  background: var(--chat-incoming) !important;
+  color: var(--chat-text) !important;
+  border: 0;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .06) !important;
+}
+.messageBubbleMeta { font-size: 12px; }
+.reactionChip { font-size: 11px; }
+.reactionChip[data-reacted-by-viewer="true"] {
+  border-color: var(--chat-accent);
+  box-shadow: 0 0 0 1px var(--chat-accent);
+}
+.reactionPicker {
+  --chat-glass: rgba(255, 255, 255, .68);
+  --chat-glass-edge: rgba(255, 255, 255, .65);
+  --chat-row-active: rgba(0, 122, 255, .1);
+  display: flex;
+  width: max-content;
+  min-width: 0;
+  gap: 2px;
+  padding: 5px;
+  border: 1px solid var(--chat-glass-edge);
+  border-radius: 999px;
+  background: var(--chat-glass);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .12), inset 0 1px var(--chat-glass-edge);
+  backdrop-filter: blur(22px) saturate(180%);
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  animation: chatPickerIn .15s ease-out;
+}
+:global(.dark) .reactionPicker {
+  --chat-glass: rgba(30, 30, 36, .62);
+  --chat-glass-edge: rgba(255, 255, 255, .14);
+  --chat-row-active: rgba(10, 132, 255, .16);
+}
+.reactionPicker button { width: 34px; height: 34px; border-radius: 50%; font-size: 19px; }
+.reactionPicker button:hover { background: var(--chat-row-active); }
+@keyframes chatPickerIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+.sendButton { background: var(--chat-accent); transition: transform .15s ease, opacity .15s ease; }
+.sendButton:active { transform: scale(.92); }
+.composer { --chat-accent: var(--chat-ios-accent); font-family: var(--font-app-body); }
+.attachmentMenu { min-width: 160px; }
+.attachmentMenu [role="menuitem"] { min-height: 40px; gap: 8px; }
+.attachmentLimit { padding: 5px 8px 2px; color: var(--muted-foreground); font-size: 11px; }
+.attachButton {
+  display: grid;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--muted-foreground);
+}
+.attachButton:hover, .attachButton:focus-visible {
+  background: color-mix(in srgb, var(--chat-accent) 10%, transparent);
+  color: var(--chat-accent);
+  outline: none;
+}
+.attachButton:disabled { opacity: .45; cursor: not-allowed; }
+.attachmentPreview { display: flex; width: 100%; align-items: center; gap: 8px; padding: 4px 8px; color: var(--foreground); font-size: 12px; }
+.attachmentPreview span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attachmentPreview button { flex: none; min-width: 32px; min-height: 32px; }
+.messageAttachment { display: grid; gap: 4px; margin-top: 5px; }
+.messageAttachment img, .messageAttachment video { display: block; max-width: min(320px, 100%); max-height: 260px; border-radius: 10px; }
+.messageAttachment a, .messageAttachment button { font-size: 13px; color: inherit; text-decoration: underline; text-align: left; }
+.newChatAction { margin-top: 8px; min-height: 40px; padding: 0 14px; border-radius: 999px; background: var(--chat-ios-accent); color: #fff; font-size: 13px; font-weight: 600; }
+.newChatDialog { width: min(440px, calc(100vw - 32px)); border: 1px solid var(--chat-glass-edge); background: var(--chat-glass); color: var(--chat-text); box-shadow: 0 8px 30px rgba(0,0,0,.1), inset 0 1px var(--chat-glass-edge); backdrop-filter: blur(22px) saturate(180%); }
+.newChatSearch { width: 100%; min-height: 44px; padding: 0 14px; border: 1px solid var(--chat-glass-edge); border-radius: 14px; background: var(--chat-glass); color: var(--chat-text); font-size: 15px; outline-color: var(--chat-ios-accent); }
+.newChatSearch::placeholder { color: var(--chat-muted); }
+.newChatResults { max-height: min(50dvh, 420px); overflow-y: auto; display: grid; gap: 2px; }
+.newChatResults > p { padding: 16px; color: var(--chat-muted); font-size: 13px; }
+.newChatPerson { width: 100%; min-height: 56px; display: flex; align-items: center; gap: 12px; padding: 7px 10px; border-radius: 12px; text-align: left; font-size: 14px; font-weight: 600; }
+.newChatPerson:hover, .newChatPerson:focus-visible { background: color-mix(in srgb, var(--chat-ios-accent) 9%, transparent); outline: none; }
+.newChatPerson:disabled { opacity: .5; cursor: not-allowed; }
+.newChatMore { min-height: 44px; color: var(--chat-ios-accent); font-size: 13px; font-weight: 600; }
+@media (max-width: 959px) {
+  .page, .page[data-chat-open="true"] { grid-template-columns: minmax(0, 1fr); }
+  .page[data-chat-lane="people"]:not([data-chat-open="true"]) > .thread { display: none; }
+  .page[data-chat-lane="people"][data-chat-open="true"] > .inbox { display: none; }
+  .inbox { border-right: 0; }
+  .threadHeaderContent { min-width: 0; }
+  .backButton { display: inline-grid; }
+  .messageList { padding-inline: 12px; }
+}
+@media (max-height: 500px) {
+  .threadHeader, .threadHeaderContent { min-height: 44px; height: 44px; }
+  .threadHeaderContent { padding-block: 0; }
+}
+@media (hover: none) {
+  article[data-message-role] .messageActions { opacity: 1; pointer-events: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .page, .laneSwitcher button, .sendButton { transition: none; }
+  .reactionPicker { animation: none; }
 }
