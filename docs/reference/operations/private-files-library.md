@@ -1,10 +1,12 @@
 # Private Files library
 
-**Dev status — 2026-10-02:** the personal owner completed exact Files setup and
-encrypted transfer. The qualified correction is published; live organization on
-that image also passed opt-in, exclusions, authenticated queue completion and
-cancellation with originals preserved. Production and broad rollout remain gated. Read the
-[readiness audit](../quality/adk-orchestration-docs-audit.md#journey-matrix)
+**Dev status — 2026-10-10:** the personal Azure owner completed the exact approved
+Dev 12 installation on the same pod. Live encrypted upload/download resume,
+byte-exact integrity, move/undo, trash/restore and opted-in queue organization
+passed; cancellation retained the original. Initial analysis-off preferences
+were restored. Prior Google qualification remains dated evidence. Production and
+broad rollout remain gated. Read the
+[readiness audit](../quality/adk-orchestration-docs-audit.md#acceptance-matrix)
 and [private-agent north star](../architecture/private-agent-north-star.md) together.
 
 ## Visual Map
@@ -70,7 +72,18 @@ results remain unresolved. Never apply a bucket-wide cleanup rule to remove File
 ## Files Agent and background organization
 
 Files is a development-only agent in One's `/one` roster and shared navigation catalog;
-its dedicated `/one/files` explorer owns the library and analysis preferences.
+its dedicated `/one/files` explorer owns the library. File settings holds storage,
+retention and analysis preferences; Activity holds organization history. The local
+explorer uses the shared Files top-bar title and reading-width container. Rename
+and folder creation are inline; Move uses a bounded destination picker. Back
+closes the active editor or overlay, then Trash or the current folder, then
+returns to One. Activity identifies files on demand through the admitted pod.
+Vault lock closes private settings and activity rather than retaining an open pane.
+Storage usage is an owner-requested scan, not a billing total. Retention is a
+provider observation; there is no unsaved warning or cost-calculator setting.
+Analysis withdrawal and stricter exclusions remain available after model-provider
+loss. A committed upload reports organization failure separately. These local
+corrections await their own verified deployment.
 Hosting contains hosting controls, not a Files launcher or embedded explorer.
 Discovery does not establish installed capability or consent; the workspace
 checks the owner's admitted pod and Files setup before enabling library tools.

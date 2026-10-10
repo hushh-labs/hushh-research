@@ -1,16 +1,18 @@
 """Direct Files scopes remain separate; devices cannot enter the library."""
 
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from api.routes.one import pod_files
-from hushh_mcp.services.pod_files import runtime
-from hushh_mcp.services.pod_files.library import FilesLibrary
+from hushh_mcp.services.pod_files import jobs, runtime
+from hushh_mcp.services.pod_files.library import FilesLibrary, FilesRefused
 from hushh_mcp.services.pod_files.storage import FilesLocalStore
+from tests.test_pod_files_jobs import queued_library as queued_library
 from tests.test_pod_session_authority import Subject, World, _binding
 from tests.test_pod_session_authority import hub_key as hub_key
 
@@ -162,3 +164,89 @@ def test_files_offer_checks_bucket_privacy_before_approval(monkeypatch):
     assert asyncio.run(update_offer.inspect_files_offer(repo, row, image)).digest == plan.digest
     session.request.assert_not_called()
     repo.approve_upgrade.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_provider_loss_never_blocks_restrictive_analysis_changes(queued_library, monkeypatch):
+    library, entry = queued_library
+
+    @asynccontextmanager
+    async def operation(**kwargs):
+        yield library
+
+    def unavailable():
+        raise FilesRefused("FILES_MODEL_UNAVAILABLE", 503)
+
+    monkeypatch.setattr(pod_files, "operation", operation)
+    monkeypatch.setattr(pod_files, "organization_model_binding", unavailable)
+    # Existing automatic consent can be narrowed without a working provider.
+    settings = await library.settings()
+    excluded = await pod_files.update_settings(
+        pod_files.AnalysisSettings(
+            revision=settings["revision"], analysis=True, automatic=True, excluded=[entry["id"]]
+        ),
+        {},
+    )
+    assert excluded["excluded"] == [entry["id"]]
+    # Removing that exclusion would broaden access and must still be refused.
+    with pytest.raises(HTTPException) as refused:
+        await pod_files.update_settings(
+            pod_files.AnalysisSettings(
+                revision=excluded["revision"], analysis=True, automatic=True, excluded=[]
+            ),
+            {},
+        )
+    assert refused.value.detail == {"code": "FILES_MODEL_UNAVAILABLE"}
+    assert (await library.settings())["excluded"] == [entry["id"]]
+    paused = await pod_files.update_settings(
+        pod_files.AnalysisSettings(
+            revision=excluded["revision"], analysis=True, automatic=False, excluded=[entry["id"]]
+        ),
+        {},
+    )
+    assert not paused["automatic"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["prepare", "deliver"])
+@pytest.mark.parametrize(
+    "code",
+    ["FILES_WORKER_DESTINATION_UNAVAILABLE", "FILES_AUTHORITY_UNAVAILABLE", "FILES_TAMPERED"],
+)
+async def test_upload_remains_complete_when_organization_setup_becomes_unavailable(
+    queued_library, monkeypatch, code, phase
+):
+    library, _ = queued_library
+    content = b"Synthetic accepted upload"
+    entry = await library.create(
+        name="original.txt", parent="root", size=len(content), request_id="setup-lost-upload"
+    )
+    await library.put_chunk(entry["id"], 0, content)
+
+    @asynccontextmanager
+    async def operation(**kwargs):
+        yield library
+
+    def unavailable():
+        raise FilesRefused(code, 503)
+
+    monkeypatch.setattr(pod_files, "operation", operation)
+    if phase == "prepare":
+        monkeypatch.setattr(jobs, "require_background_delivery", unavailable)
+    else:
+        monkeypatch.setattr(jobs, "deliver", AsyncMock(side_effect=FilesRefused(code, 503)))
+    if code == "FILES_WORKER_DESTINATION_UNAVAILABLE":
+        result = await pod_files.complete_file(pod_files.EntryRequest(file_id=entry["id"]), {})
+        assert result["state"] == "ready"
+        assert result["organization"] == (
+            {"state": "unconfirmed", "code": code}
+            if phase == "prepare"
+            else {"state": "pending_delivery", "code": "FILES_JOB_DELIVERY_UNCONFIRMED"}
+        )
+    else:
+        # Authority and integrity failures must never become a successful response.
+        with pytest.raises(HTTPException) as refused:
+            await pod_files.complete_file(pod_files.EntryRequest(file_id=entry["id"]), {})
+        assert refused.value.detail["code"] == code
+    assert await library.read_chunk(entry["id"], 0) == content
+    assert (await library.stat(entry["id"]))["state"] == "ready"

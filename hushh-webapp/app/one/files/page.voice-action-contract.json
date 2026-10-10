@@ -1,44 +1,39 @@
 {
   "schema_version": "kai.local_action_contract.v1",
-  "surface_id": "one_wallet",
-  "surface_title": "One Cards",
+  "surface_id": "one_files",
+  "surface_title": "Files",
   "docs_references": [
-    "docs/reference/one/one-agent-hierarchy.md"
+    "docs/reference/operations/private-files-library.md"
   ],
   "defaults": {
     "reachability": {
       "routes": [
-        "/one/wallet"
+        "/one/files"
       ],
       "screens": [
-        "one_wallet"
+        "one_files"
       ],
       "hidden_navigable": false,
       "navigation_prerequisites": [
-        "signed-in vault owner; the card list decrypts only after vault unlock"
+        "signed-in owner; library access requires an unlocked vault and admitted Files-capable owner pod"
       ]
     }
   },
   "actions": [
     {
-      "action_id": "route.one_wallet",
-      "label": "Open Wallet",
-      "meaning": "Navigates to the owner's private wallet cards surface.",
+      "action_id": "route.one_files",
+      "label": "Open Files",
+      "meaning": "Navigates to the owner's private Files workspace. Setup and consent are verified by the workspace; navigation does not authorize library operations.",
       "aliases": [
-        "open my wallet",
-        "go to wallet",
-        "show my wallet",
-        "open my cards",
-        "show my cards page"
+        "open my files",
+        "go to files",
+        "show my file library"
       ],
       "search_keywords": [
-        "cards",
-        "credit card",
-        "debit card",
-        "wallet",
-        "wallet cards"
+        "files",
+        "folders",
+        "private file library"
       ],
-      "delegate_agent_id": "agent_wallet",
       "guard_ids": [
         "auth_signed_in"
       ],
@@ -47,7 +42,7 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "/one/wallet"
+        "target": "/one/files"
       },
       "control_ids": [],
       "state_exposure": [],
@@ -55,11 +50,11 @@
         "workflow_steps": [
           {
             "type": "navigate",
-            "label": "Open the Wallet surface",
+            "label": "Open the Files workspace",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/one/wallet",
-              "screen": "one_wallet"
+              "route": "/one/files",
+              "screen": "one_files"
             }
           }
         ]

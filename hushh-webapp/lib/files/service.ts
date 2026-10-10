@@ -1,5 +1,6 @@
 "use client";
 import { ApiService } from "@/lib/services/api-service";
+import { FilesLocalError } from "./local-error";
 
 export type FileEntry = {
   id: string;
@@ -21,7 +22,7 @@ export type FilesPage = {
 };
 export type FilesSettings = {
   retention?: {
-    retentionSeconds: number;
+    retentionSeconds?: number | null;
     retentionLocked: boolean;
     softDeleteSeconds: number;
     versioning: boolean;
@@ -37,6 +38,7 @@ export type FilesSettings = {
 export type OrganizationJob = {
   id: string;
   state: string;
+  file?: string;
   result?: { state: string; explanation: string };
   history?: Array<{ state: string; result?: { explanation: string } }>;
 };
@@ -63,6 +65,13 @@ async function json<T>(
 }
 
 export const FilesService = {
+  entry: (fileId: string, signal?: AbortSignal) =>
+    json<FileEntry>(
+      `entry?${new URLSearchParams({ file_id: fileId })}`,
+      undefined,
+      "GET",
+      signal,
+    ),
   history: (cursor = "", signal?: AbortSignal) =>
     json<{ entries: OrganizationJob[]; cursor: string }>(
       `jobs?${new URLSearchParams({ cursor })}`,
@@ -142,7 +151,7 @@ export const FilesService = {
         signal,
       ));
     if (entry.size !== file.size || entry.originalName !== file.name)
-      throw new Error("Choose the original file to resume this upload.");
+      throw new FilesLocalError("Choose the original file to resume this upload.");
     const chunkBytes = 4 * 1024 * 1024;
     // Verify the accepted prefix locally without retransmitting stored bytes.
     let chain = new Uint8Array(32);
@@ -166,7 +175,7 @@ export const FilesService = {
         "",
       ) !== entry.receivedHash
     )
-      throw new Error(
+      throw new FilesLocalError(
         "This file does not match the uploaded portion. Choose the original file.",
       );
     onProgress(entry.received);
@@ -187,10 +196,8 @@ export const FilesService = {
       );
       if (!response.ok) {
         const result = await response.json().catch(() => ({}));
-        throw new Error(
-          result?.detail?.code ??
-            "Upload paused. Select the same file to resume.",
-        );
+        if (result?.detail?.code) throw new Error(result.detail.code);
+        throw new FilesLocalError("Upload paused. Select the same file to resume.");
       }
       onProgress(Math.min(file.size, offset + chunkBytes));
     }
@@ -209,7 +216,7 @@ export const FilesService = {
       }
     ).showSaveFilePicker;
     if (!picker && entry.size > 32 * 1024 * 1024)
-      throw new Error(
+      throw new FilesLocalError(
         "Use a browser with direct file saving for this large download.",
       );
     if (
@@ -218,7 +225,7 @@ export const FilesService = {
         resume.size !== entry.size ||
         resume.contentHash !== entry.receivedHash)
     )
-      throw new Error("The download no longer matches this file.");
+      throw new FilesLocalError("The download no longer matches this file.");
     const handle =
       resume?.handle ??
       (picker ? await picker({ suggestedName: entry.name }) : null);
@@ -227,7 +234,7 @@ export const FilesService = {
     if (resume) {
       const saved = await resume.handle.getFile();
       if (saved.size !== offset)
-        throw new Error("The partial download changed. Start a new download.");
+        throw new FilesLocalError("The partial download changed. Start a new download.");
       for (let position = 0; position < offset; position += CHUNK_BYTES) {
         signal.throwIfAborted();
         chain = await hashChunk(
@@ -238,7 +245,7 @@ export const FilesService = {
         );
       }
       if (hex(chain) !== resume.prefixHash)
-        throw new Error("The partial download changed. Start a new download.");
+        throw new FilesLocalError("The partial download changed. Start a new download.");
     }
     const writer = handle
       ? await handle.createWritable({ keepExistingData: Boolean(resume) })
@@ -253,10 +260,10 @@ export const FilesService = {
           { signal },
         );
         if (!response.ok)
-          throw new Error("Download interrupted. Resume to continue.");
+          throw new FilesLocalError("Download interrupted. Resume to continue.");
         const bytes = await response.arrayBuffer();
         if (bytes.byteLength !== Math.min(CHUNK_BYTES, entry.size - offset))
-          throw new Error("The download chunk was incomplete.");
+          throw new FilesLocalError("The download chunk was incomplete.");
         const nextHash = await hashChunk(chain, bytes);
         if (writer) await writer.write(new Uint8Array(bytes));
         else chunks.push(bytes);
@@ -264,7 +271,7 @@ export const FilesService = {
         offset += bytes.byteLength;
       }
       if (hex(chain) !== entry.receivedHash)
-        throw new Error("The downloaded file failed its integrity check.");
+        throw new FilesLocalError("The downloaded file failed its integrity check.");
       if (writer) await writer.close();
       else {
         const url = URL.createObjectURL(
@@ -320,7 +327,7 @@ export type DownloadCheckpoint = {
   offset: number;
   prefixHash: string;
 };
-export class DownloadPaused extends Error {
+export class DownloadPaused extends FilesLocalError {
   constructor(public readonly checkpoint: DownloadCheckpoint) {
     super(
       "Download paused. Keep this page open and choose Resume download to continue.",

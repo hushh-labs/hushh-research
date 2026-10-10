@@ -142,17 +142,37 @@ async def complete_file(body: EntryRequest, owner: Owner):
                             library, file_id=body.file_id, automatic=True
                         )
                     except FilesRefused as exc:
-                        if exc.code != "FILES_EXCLUDED":
+                        if exc.code not in {
+                            "FILES_EXCLUDED",
+                            "FILES_BACKGROUND_NOT_CONFIGURED",
+                            "FILES_WORKER_DESTINATION_UNAVAILABLE",
+                        }:
                             raise
-                        result["organization"] = {"state": "not_requested", "code": exc.code}
+                        # The upload is already committed. Report organization
+                        # separately; a later setup refusal is not a failed upload.
+                        result["organization"] = {
+                            "state": "not_requested"
+                            if exc.code == "FILES_EXCLUDED"
+                            else "unconfirmed",
+                            "code": exc.code,
+                        }
             if prepared is not None:
                 try:
                     result["organization"] = await deliver(library, prepared)
-                except FilesRefused:
+                except FilesRefused as exc:
+                    if exc.code not in {
+                        "FILES_BACKGROUND_NOT_CONFIGURED",
+                        "FILES_WORKER_DESTINATION_UNAVAILABLE",
+                        "FILES_QUEUE_UNAVAILABLE",
+                        "FILES_JOB_DELIVERY_UNCONFIRMED",
+                        "FILES_JOB_DELIVERY_FAILED",
+                    }:
+                        raise
                     result["organization"] = {
                         "state": "pending_delivery",
                         "code": "FILES_JOB_DELIVERY_UNCONFIRMED",
                     }
+            await library.check()
             return result
     except FilesRefused as exc:
         raise refusal(exc) from exc
@@ -193,9 +213,18 @@ async def read_settings(owner: Owner):
 @router.put("/settings")
 async def update_settings(body: AnalysisSettings, owner: Owner):
     try:
-        if body.automatic:
-            organization_model_binding()
         async with operation(mutation=True) as library:
+            if body.analysis and body.automatic:
+                current = await library.settings()
+                # Withdrawing access must work even after provider loss. Keeping
+                # automatic analysis may only preserve or tighten an existing grant.
+                restrictive = (
+                    current["analysis"]
+                    and current["automatic"]
+                    and set(body.excluded).issuperset(current["excluded"])
+                )
+                if not restrictive:
+                    organization_model_binding()
             return await library.configure(**body.model_dump())
     except FilesRefused as exc:
         raise refusal(exc) from exc

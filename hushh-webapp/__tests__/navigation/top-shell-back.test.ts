@@ -9,20 +9,42 @@ import {
 import { registerBackLayer } from "@/lib/navigation/back-layers";
 
 describe("top shell back action", () => {
+  it("gives Files a shared title and an authored parent at the root", () => {
+    expect(resolveTopShellBreadcrumb("/one/files")).toEqual({
+      backHref: "/one",
+      width: "profile",
+      align: "center",
+      suppressFallbackTitle: false,
+      items: [{ label: "One", href: "/one" }, { label: "Files" }],
+    });
+    expect(resolveTopShellBackAction({ pathname: "/one/files" })?.href).toBe(
+      "/one",
+    );
+  });
+
   it("consumes a non-dismissible top overlay before any feature or route parent", () => {
     const overlay = document.createElement("div");
     overlay.setAttribute("role", "dialog");
     overlay.setAttribute("data-state", "open");
-    overlay.addEventListener("keydown", event => event.preventDefault());
+    overlay.addEventListener("keydown", (event) => event.preventDefault());
     document.body.appendChild(overlay);
     const feature = vi.fn(() => true);
-    const release = registerBackLayer({ pathname: "/one/pkm", depth: 2, back: feature });
+    const release = registerBackLayer({
+      pathname: "/one/pkm",
+      depth: 2,
+      back: feature,
+    });
     const navigate = vi.fn();
     try {
-      expect(navigateTopShellBack({ pathname: "/one/pkm", navigate })).toBe(true);
+      expect(navigateTopShellBack({ pathname: "/one/pkm", navigate })).toBe(
+        true,
+      );
       expect(feature).not.toHaveBeenCalled();
       expect(navigate).not.toHaveBeenCalled();
-    } finally { overlay.remove(); release(); }
+    } finally {
+      overlay.remove();
+      release();
+    }
   });
 
   it("unwinds the deepest current layer once and ignores other routes and stale query states", () => {
@@ -33,7 +55,12 @@ describe("top shell back action", () => {
       registerBackLayer({ pathname: "/one/pkm", depth: 1, back: shallow }),
       registerBackLayer({ pathname: "/one/pkm", depth: 3, back: deep }),
       registerBackLayer({ pathname: "/one/location", depth: 100, back: stale }),
-      registerBackLayer({ pathname: "/one/pkm", depth: 100, query: { action: "old" }, back: stale }),
+      registerBackLayer({
+        pathname: "/one/pkm",
+        depth: 100,
+        query: { action: "old" },
+        back: stale,
+      }),
     ];
     const navigate = vi.fn();
     try {
@@ -42,7 +69,9 @@ describe("top shell back action", () => {
       expect(shallow).not.toHaveBeenCalled();
       expect(stale).not.toHaveBeenCalled();
       expect(navigate).not.toHaveBeenCalled();
-    } finally { releases.forEach(release => release()); }
+    } finally {
+      releases.forEach((release) => release());
+    }
     navigateTopShellBack({ pathname: "/one/pkm", navigate });
     expect(navigate).toHaveBeenCalledOnce();
   });
@@ -52,10 +81,18 @@ describe("top shell back action", () => {
     const parents: string[] = [];
     for (let i = 0; i < 3; i++) {
       const url = new URL(href, "https://app.test");
-      href = resolveTopShellBackAction({ pathname: url.pathname, searchParams: url.searchParams, sectionOrigin: null })!.href;
+      href = resolveTopShellBackAction({
+        pathname: url.pathname,
+        searchParams: url.searchParams,
+        sectionOrigin: null,
+      })!.href;
       parents.push(href);
     }
-    expect(parents).toEqual(["/one/profile/security?from=%2Fone%2Flocation", "/one/profile?from=%2Fone%2Flocation", "/one/location"]);
+    expect(parents).toEqual([
+      "/one/profile/security?from=%2Fone%2Flocation",
+      "/one/profile?from=%2Fone%2Flocation",
+      "/one/location",
+    ]);
   });
   it("uses the authored route parent instead of browser history", () => {
     expect(resolveTopShellBackAction({ pathname: "/ria/onboarding" })).toEqual({
@@ -95,9 +132,11 @@ describe("top shell back action", () => {
     });
 
     // No origin → historic default (One dashboard).
-    expect(
-      resolveTopShellBackAction({ pathname: "/one/profile" }),
-    ).toEqual({ href: "/one", mode: "push", transitionMode: "full" });
+    expect(resolveTopShellBackAction({ pathname: "/one/profile" })).toEqual({
+      href: "/one",
+      mode: "push",
+      transitionMode: "full",
+    });
   });
 
   it("returns a Connect-opened person profile directly to Connect", () => {

@@ -2745,6 +2745,154 @@
     },
     {
       "aliases": [
+        "Open Files",
+        "open my files",
+        "go to files",
+        "show my file library"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "route.one_files",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Navigates to the owner's private Files workspace. Setup and consent are verified by the workspace; navigation does not authorize library operations.",
+      "execution": {
+        "binding_ref": "route:/one/files",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/files"
+        }
+      },
+      "goal_id": "goal.route.one_files",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Open Files",
+      "navigation": {
+        "fallback": "/one/files",
+        "routes": [
+          "/one/files"
+        ],
+        "screens": [
+          "one_files"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": false,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "files",
+        "folders",
+        "private file library"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open Receipts Page",
         "open receipts",
         "open gmail receipts"
@@ -37762,7 +37910,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "04232693cf369ad998d468f97098a636058be11a5f4f89dffdc6b21dc36fb5a2",
+      "projection_digest": "741b9f4169cd89e09b79170243dc9bbb221f8c0b68a168e50f2bbce2acdb073b",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -37781,7 +37929,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
       },
-      "source_revision": "88e31099f30c9858",
+      "source_revision": "8d1dc13adad76696",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -39299,7 +39447,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "88e31099f30c9858",
+    "source_revision": "8d1dc13adad76696",
     "web": {
       "actions": [
         {
@@ -39342,7 +39490,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "846398bf93f6189fd29c90bb3144bb5879ad0c33b3cf98ef698832bfd832b975",
+      "projection_digest": "163691e61d5839cf01f1d740cad50b02f6410554a28546253f24f71026dffa60",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -39361,7 +39509,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
       },
-      "source_revision": "88e31099f30c9858",
+      "source_revision": "8d1dc13adad76696",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -40918,7 +41066,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "88e31099f30c9858",
+  "revision": "8d1dc13adad76696",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -40954,7 +41102,9 @@
       "version": 1
     },
     {
-      "action_ids": [],
+      "action_ids": [
+        "route.one_files"
+      ],
       "capability_id": "screen:/blog/[slug]",
       "kind": "screen",
       "label": "app",
@@ -41172,7 +41322,9 @@
       "version": 1
     },
     {
-      "action_ids": [],
+      "action_ids": [
+        "route.one_files"
+      ],
       "capability_id": "screen:/manishhussh",
       "kind": "screen",
       "label": "app",
@@ -41305,7 +41457,9 @@
       "version": 1
     },
     {
-      "action_ids": [],
+      "action_ids": [
+        "route.one_files"
+      ],
       "capability_id": "screen:/one/connected-systems/[systemId]",
       "kind": "screen",
       "label": "app",
@@ -41327,7 +41481,9 @@
       "version": 1
     },
     {
-      "action_ids": [],
+      "action_ids": [
+        "route.one_files"
+      ],
       "capability_id": "screen:/one/email",
       "kind": "screen",
       "label": "app",
@@ -41345,7 +41501,9 @@
       "version": 1
     },
     {
-      "action_ids": [],
+      "action_ids": [
+        "route.one_files"
+      ],
       "capability_id": "screen:/one/files",
       "kind": "screen",
       "label": "app",
@@ -41761,7 +41919,9 @@
       "version": 1
     },
     {
-      "action_ids": [],
+      "action_ids": [
+        "route.one_files"
+      ],
       "capability_id": "screen:/one/messages",
       "kind": "screen",
       "label": "app",
@@ -42251,7 +42411,9 @@
       "version": 1
     },
     {
-      "action_ids": [],
+      "action_ids": [
+        "route.one_files"
+      ],
       "capability_id": "screen:/one/puppy",
       "kind": "screen",
       "label": "app",
@@ -42447,7 +42609,9 @@
       "version": 1
     },
     {
-      "action_ids": [],
+      "action_ids": [
+        "route.one_files"
+      ],
       "capability_id": "screen:/one/wallet-card",
       "kind": "screen",
       "label": "app",
@@ -42490,7 +42654,9 @@
       "version": 1
     },
     {
-      "action_ids": [],
+      "action_ids": [
+        "route.one_files"
+      ],
       "capability_id": "screen:/privacy",
       "kind": "screen",
       "label": "app",
@@ -42549,7 +42715,9 @@
       "version": 1
     },
     {
-      "action_ids": [],
+      "action_ids": [
+        "route.one_files"
+      ],
       "capability_id": "screen:/research/protocol",
       "kind": "screen",
       "label": "app",
@@ -42695,7 +42863,9 @@
       "version": 1
     },
     {
-      "action_ids": [],
+      "action_ids": [
+        "route.one_files"
+      ],
       "capability_id": "screen:/terms",
       "kind": "screen",
       "label": "app",
@@ -42704,7 +42874,9 @@
       "version": 1
     },
     {
-      "action_ids": [],
+      "action_ids": [
+        "route.one_files"
+      ],
       "capability_id": "screen:/welcome",
       "kind": "screen",
       "label": "app",
@@ -42715,6 +42887,7 @@
   ],
   "semantic_diff": {
     "added": [
+      "actions:route.one_files",
       "actions:setup.finish_cloud",
       "actions:setup.open_cloud",
       "screens:screen:/one/files",
@@ -42728,7 +42901,18 @@
     ],
     "breaking": [],
     "changed": [
-      "screens:screen:/one/setup"
+      "screens:screen:/blog/[slug]",
+      "screens:screen:/manishhussh",
+      "screens:screen:/one/connected-systems/[systemId]",
+      "screens:screen:/one/email",
+      "screens:screen:/one/messages",
+      "screens:screen:/one/puppy",
+      "screens:screen:/one/setup",
+      "screens:screen:/one/wallet-card",
+      "screens:screen:/privacy",
+      "screens:screen:/research/protocol",
+      "screens:screen:/terms",
+      "screens:screen:/welcome"
     ],
     "compatible": [],
     "deprecated": [],
@@ -45020,18 +45204,18 @@
     "capability_graph_evolution": "b99e70e7a502fc76b70c9d2d010c8be01fb93aba6972bd6d4e1fab938b7b6b59",
     "capability_runtime_compiler": "465de0a7294d6b0733e422548f9ed9c087fc41fd5b2632431d0f120136da819f",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "c41f69af6c86b012fbb4b659ac9be1dd5c485a188e88e8c410444f2d1de093ac",
+    "kai_action_gateway": "62dbdb46e15d98116c1f23498939ab44a12af09d65e39da092ac00db1d14638e",
     "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
     "location_knowledge_package": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "39fccd758b05033a07ce46f89e7a36fa006f51e284836264ed72e66ff658428d",
-    "route_orchestration_index": "20d422a49c4c98ad150545ad1fde4b442ee8217ce25235fb394de7dd896e13b1",
+    "route_orchestration_index": "a3951e15aa22612ae8b15d61e3199a5fa6001e5178cdb49b5ddf099d2ff0aa7c",
     "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
   },
-  "source_revision": "88e31099f30c9858",
+  "source_revision": "8d1dc13adad76696",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "88e31099f30c9858",
+    "current_graph_revision": "8d1dc13adad76696",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {

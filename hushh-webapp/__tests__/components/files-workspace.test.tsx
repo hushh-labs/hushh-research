@@ -1,44 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { files, fileEntry } from "../fixtures/files-workspace";
 import { FilesWorkspace } from "@/components/files/files-workspace";
 import type { FileEntry } from "@/lib/files/service";
+import { FilesLocalError } from "@/lib/files/local-error";
 import { toast } from "sonner";
-
-const files = vi.hoisted(() => ({
-  list: vi.fn(async () => ({ entries: [] as FileEntry[], cursor: "" })),
-  settings: vi.fn(async () => ({
-    revision: 1,
-    analysis: false,
-    automatic: false,
-    excluded: [],
-  })),
-  createFolder: vi.fn(async () => ({})),
-  mutate: vi.fn(async () => ({})),
-  upload: vi.fn(),
-  organize: vi.fn(),
-}));
-vi.mock("@/lib/files/service", () => ({ FilesService: files }));
-vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: { uid: "synthetic-owner" } }),
-}));
-vi.mock("@/lib/vault/vault-context", () => ({
-  useVault: () => ({ vaultKey: "synthetic-memory-only" }),
-}));
-vi.mock("@/components/profile/pkm-settings-shell", () => ({
-  PkmSettingsShell: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-}));
-vi.mock("@/components/files/files-settings-panel", () => ({
-  FilesSettingsPanel: () => null,
-}));
-vi.mock("@/components/files/files-organization-history", () => ({
-  FilesOrganizationHistory: () => null,
-}));
-vi.mock("@/lib/services/api-service", () => ({
-  ApiService: { getPersonalAgentStatus: vi.fn(async () => ({ filesActivationAvailable: false })) },
-}));
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+import { ApiService } from "@/lib/services/api-service";
 
 describe("Files form submission", () => {
   beforeEach(() => {
@@ -48,14 +15,32 @@ describe("Files form submission", () => {
     files.mutate.mockResolvedValue({});
     files.upload.mockReset();
     files.organize.mockReset();
+    files.settings.mockResolvedValue({
+      revision: 1,
+      analysis: false,
+      automatic: false,
+      excluded: [],
+    });
+    vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({
+      filesActivationAvailable: false,
+    });
   });
   it("waits for the initial library read before enabling file actions", async () => {
-    let completeRead!: (value: { entries: FileEntry[]; cursor: string }) => void;
+    let completeRead!: (value: {
+      entries: FileEntry[];
+      cursor: string;
+    }) => void;
     files.list.mockImplementationOnce(
-      () => new Promise((resolve) => { completeRead = resolve; }),
+      () =>
+        new Promise((resolve) => {
+          completeRead = resolve;
+        }),
     );
     render(<FilesWorkspace />);
-    const create = screen.getByRole("button", { name: "New folder", exact: true });
+    const create = screen.getByRole("button", {
+      name: "New folder",
+      exact: true,
+    });
     expect(create).toBeDisabled();
     fireEvent.click(create);
     expect(files.createFolder).not.toHaveBeenCalled();
@@ -63,9 +48,15 @@ describe("Files form submission", () => {
     await waitFor(() => expect(create).toBeEnabled());
   });
   it("serializes the two initial reads for a one-slot owner pod", async () => {
-    let completeRead!: (value: { entries: FileEntry[]; cursor: string }) => void;
+    let completeRead!: (value: {
+      entries: FileEntry[];
+      cursor: string;
+    }) => void;
     files.list.mockImplementationOnce(
-      () => new Promise((resolve) => { completeRead = resolve; }),
+      () =>
+        new Promise((resolve) => {
+          completeRead = resolve;
+        }),
     );
     render(<FilesWorkspace />);
     expect(files.settings).not.toHaveBeenCalled();
@@ -86,7 +77,11 @@ describe("Files form submission", () => {
   it("shows the connection action after bounded transient retries fail", async () => {
     files.list.mockRejectedValue(new TypeError("Cold connection"));
     render(<FilesWorkspace />);
-    await screen.findByText(/Your private Files library is not connected/, {}, { timeout: 5000 });
+    await screen.findByText(
+      /Your private Files library is not connected/,
+      {},
+      { timeout: 5000 },
+    );
     expect(files.list).toHaveBeenCalledTimes(3);
     expect(screen.getByRole("button", { name: "New folder" })).toBeDisabled();
   });
@@ -99,7 +94,9 @@ describe("Files form submission", () => {
   it("explains when an existing pod has not enabled Files", async () => {
     files.list.mockRejectedValueOnce(new Error("FILES_NOT_ENABLED"));
     render(<FilesWorkspace />);
-    await screen.findByText("Files is not enabled on this pod. Review setup below.");
+    await screen.findByText(
+      "Files is not enabled on this pod. Review setup below.",
+    );
     expect(files.list).toHaveBeenCalledTimes(1);
   });
   it("submits a new folder from Save using the shared button's real behavior", async () => {
@@ -130,19 +127,28 @@ describe("Files form submission", () => {
   });
 
   it("moves into a nested folder discovered after an empty cursor page", async () => {
-    const source: FileEntry = {
-      id: "source-file", name: "source.txt", originalName: "source.txt",
-      parent: "root", kind: "file", size: 8, received: 8,
-      receivedHash: "synthetic-hash", state: "ready", revision: 3,
-    };
-    const later: FileEntry = {
-      ...source, id: "later-folder", name: "Later", originalName: "Later",
-      kind: "folder", size: 0, received: 0,
-    };
-    const nested: FileEntry = {
-      ...later, id: "nested-folder", name: "Nested", originalName: "Nested",
+    const source: FileEntry = fileEntry({
+      id: "source-file",
+      name: "source.txt",
+      receivedHash: "synthetic-hash",
+      revision: 3,
+    });
+    const later: FileEntry = fileEntry({
+      ...source,
+      id: "later-folder",
+      name: "Later",
+      originalName: "Later",
+      kind: "folder",
+      size: 0,
+      received: 0,
+    });
+    const nested: FileEntry = fileEntry({
+      ...later,
+      id: "nested-folder",
+      name: "Nested",
+      originalName: "Nested",
       parent: later.id,
-    };
+    });
     files.list
       .mockResolvedValueOnce({ entries: [source], cursor: "" })
       .mockResolvedValueOnce({ entries: [], cursor: "next-page" })
@@ -151,10 +157,14 @@ describe("Files form submission", () => {
       .mockResolvedValueOnce({ entries: [], cursor: "" });
 
     render(<FilesWorkspace />);
-    const actions = await screen.findByRole("button", { name: "Actions for source.txt" });
+    const actions = await screen.findByRole("button", {
+      name: "Actions for source.txt",
+    });
     fireEvent.keyDown(actions, { key: "Enter" });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Move" }));
-    const more = await screen.findByRole("button", { name: "Load more folders" });
+    const more = await screen.findByRole("button", {
+      name: "Load more folders",
+    });
     expect(screen.getByRole("button", { name: "Move here" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Open Later" })).toBeNull();
     fireEvent.click(more);
@@ -164,68 +174,120 @@ describe("Files form submission", () => {
     await waitFor(() => expect(moveHere).toBeEnabled());
     fireEvent.click(moveHere);
 
-    await waitFor(() => expect(files.mutate).toHaveBeenCalledExactlyOnceWith(
-      source, "move", { parent: nested.id }, expect.any(AbortSignal),
-    ));
-    expect(files.list).toHaveBeenCalledWith("root", "next-page", false, expect.any(AbortSignal));
-    expect(files.list).toHaveBeenCalledWith(later.id, "", false, expect.any(AbortSignal));
-    expect(files.list).toHaveBeenCalledWith(nested.id, "", false, expect.any(AbortSignal));
+    await waitFor(() =>
+      expect(files.mutate).toHaveBeenCalledExactlyOnceWith(
+        source,
+        "move",
+        { parent: nested.id },
+        expect.any(AbortSignal),
+      ),
+    );
+    expect(files.list).toHaveBeenCalledWith(
+      "root",
+      "next-page",
+      false,
+      expect.any(AbortSignal),
+    );
+    expect(files.list).toHaveBeenCalledWith(
+      later.id,
+      "",
+      false,
+      expect.any(AbortSignal),
+    );
+    expect(files.list).toHaveBeenCalledWith(
+      nested.id,
+      "",
+      false,
+      expect.any(AbortSignal),
+    );
   });
 
   it.each([
     ["completed", "Organization already finished"],
     ["cancelled", "Cancellation requested"],
-  ])("reports the server's %s result after organization cancellation", async (state, message) => {
-    const entry: FileEntry = {
-      id: "synthetic-job", name: "notes.txt", originalName: "notes.txt",
-      parent: "root", kind: "file", size: 8, received: 8,
-      receivedHash: "synthetic-hash", state: "ready", revision: 1,
-      organization: { state: "queued" },
-    };
-    files.list.mockResolvedValue({ entries: [entry], cursor: "" });
-    files.organize.mockResolvedValue({ id: entry.id, state });
+  ])(
+    "reports the server's %s result after organization cancellation",
+    async (state, message) => {
+      const entry: FileEntry = fileEntry({
+        id: "synthetic-job",
+        name: "notes.txt",
+        receivedHash: "synthetic-hash",
+        organization: { state: "queued" },
+      });
+      files.list.mockResolvedValue({ entries: [entry], cursor: "" });
+      files.organize.mockResolvedValue({ id: entry.id, state });
+      render(<FilesWorkspace />);
+      const cancel = await screen.findByRole("button", {
+        name: "Cancel organization",
+      });
+      await waitFor(() => expect(cancel).toBeEnabled());
+      fireEvent.click(cancel);
+      await waitFor(() => expect(toast.success).toHaveBeenCalledWith(message));
+      expect(files.organize).toHaveBeenCalledExactlyOnceWith(
+        entry.id,
+        true,
+        expect.any(AbortSignal),
+      );
+      expect(toast.success).not.toHaveBeenCalledWith("Organization cancelled");
+    },
+  );
+
+  it("keeps a committed upload distinct from unconfirmed organization", async () => {
+    files.upload.mockResolvedValue({ organization: { state: "unconfirmed" } });
     render(<FilesWorkspace />);
-    const cancel = await screen.findByRole("button", { name: "Cancel organization" });
-    await waitFor(() => expect(cancel).toBeEnabled());
-    fireEvent.click(cancel);
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith(message));
-    expect(files.organize).toHaveBeenCalledExactlyOnceWith(entry.id, true, expect.any(AbortSignal));
-    expect(toast.success).not.toHaveBeenCalledWith("Organization cancelled");
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Upload", exact: true }),
+      ).toBeEnabled(),
+    );
+    fireEvent.change(screen.getByLabelText("Choose a file to upload"), {
+      target: { files: [new File(["synthetic"], "notes.txt")] },
+    });
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith(
+        "Upload complete; organization could not be confirmed",
+      ),
+    );
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
-  it("discovers an interrupted upload and resumes its retained file identity", async () => {
-    const entry: FileEntry = {
-      id: "synthetic-file",
-      name: "upload.txt",
-      originalName: "upload.txt",
-      parent: "root",
-      kind: "file",
-      size: 8,
-      received: 4,
-      receivedHash: "synthetic-hash",
-      state: "uploading",
-      revision: 2,
-    };
-    files.upload
-      .mockImplementationOnce(async () => {
-        files.list.mockResolvedValue({ entries: [entry], cursor: "" });
-        throw new TypeError("Connection interrupted");
-      })
-      .mockResolvedValueOnce({ ...entry, state: "ready" });
-    render(<FilesWorkspace />);
-    await waitFor(() => expect(files.list).toHaveBeenCalled());
-    const input = screen.getByLabelText("Choose a file to upload");
-    const file = new File(["12345678"], "upload.txt");
-    fireEvent.change(input, { target: { files: [file] } });
-    const resume = await screen.findByRole("button", {
-      name: "Resume upload",
-      exact: true,
-    });
-    await waitFor(() => expect(resume).not.toBeDisabled());
-    fireEvent.click(resume);
-    fireEvent.change(input, { target: { files: [file] } });
-    await waitFor(() => expect(files.upload).toHaveBeenCalledTimes(2));
-    expect(files.upload.mock.calls[1][4]).toEqual(entry);
-    expect(files.createFolder).not.toHaveBeenCalled();
-  });
+  it.each([
+    new TypeError("Connection interrupted"),
+    new FilesLocalError("Upload paused. Select the same file to resume."),
+  ])(
+    "discovers an interrupted upload and resumes its retained file identity (%s)",
+    async (failure) => {
+      const entry: FileEntry = fileEntry({
+        id: "synthetic-file",
+        name: "upload.txt",
+        received: 4,
+        receivedHash: "synthetic-hash",
+        state: "uploading",
+        revision: 2,
+      });
+      files.upload
+        .mockImplementationOnce(async () => {
+          files.list.mockResolvedValue({ entries: [entry], cursor: "" });
+          throw failure;
+        })
+        .mockResolvedValueOnce({ ...entry, state: "ready" });
+      render(<FilesWorkspace />);
+      await waitFor(() => expect(files.list).toHaveBeenCalled());
+      const input = screen.getByLabelText("Choose a file to upload");
+      const file = new File(["12345678"], "upload.txt");
+      fireEvent.change(input, { target: { files: [file] } });
+      const resume = await screen.findByRole("button", {
+        name: "Resume upload",
+        exact: true,
+      });
+      await waitFor(() => expect(resume).not.toBeDisabled());
+      if (failure instanceof FilesLocalError)
+        expect(toast.error).toHaveBeenCalledWith(failure.message);
+      fireEvent.click(resume);
+      fireEvent.change(input, { target: { files: [file] } });
+      await waitFor(() => expect(files.upload).toHaveBeenCalledTimes(2));
+      expect(files.upload.mock.calls[1][4]).toEqual(entry);
+      expect(files.createFolder).not.toHaveBeenCalled();
+    },
+  );
 });

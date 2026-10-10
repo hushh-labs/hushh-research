@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { RefreshCw } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { FilesService, type OrganizationJob } from "@/lib/files/service";
 
 /** Paginated encrypted job records survive navigation and pod restarts. */
 export function FilesOrganizationHistory({ ownerId }: { ownerId: string }) {
   const [entries, setEntries] = useState<OrganizationJob[]>([]);
+  const [names, setNames] = useState<Record<string, string>>({});
   const [cursor, setCursor] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -16,8 +18,26 @@ export function FilesOrganizationHistory({ ownerId }: { ownerId: string }) {
     const operation = new AbortController();
     setController(operation);
     setEntries([]);
+    setNames({});
     setCursor("");
     setMessage("");
+    setBusy(true);
+    void FilesService.history("", operation.signal)
+      .then((result) => {
+        operation.signal.throwIfAborted();
+        setEntries(result.entries);
+        setCursor(result.cursor);
+        setMessage(
+          result.entries.length ? "" : "No organization jobs recorded.",
+        );
+      })
+      .catch(() => {
+        if (!operation.signal.aborted)
+          setMessage("Activity could not load. Try refreshing.");
+      })
+      .finally(() => {
+        if (!operation.signal.aborted) setBusy(false);
+      });
     return () => operation.abort();
   }, [ownerId]);
 
@@ -45,22 +65,19 @@ export function FilesOrganizationHistory({ ownerId }: { ownerId: string }) {
     }
   }
   return (
-    <section className="space-y-3 rounded-2xl border p-5">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="font-semibold">Organization history</h2>
+    <section className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <Button
-          variant="outline"
+          variant="ghost"
+          size="icon-touch"
+          aria-label="Refresh activity"
           disabled={busy}
           onClick={() => void act(() => load())}
         >
-          Refresh history
+          <RefreshCw className="size-4" />
         </Button>
       </div>
-      <p className="text-sm text-muted-foreground">
-        Jobs remain available after you close the app. A paused delivery can be
-        retried without creating a duplicate task. Uncertain completed work
-        requires review.
-      </p>
+
       {message ? (
         <p role="status" className="text-sm">
           {message}
@@ -68,15 +85,35 @@ export function FilesOrganizationHistory({ ownerId }: { ownerId: string }) {
       ) : null}
       {entries.map((job) => (
         <article className="rounded-xl bg-muted/40 p-3 text-sm" key={job.id}>
-          <p className="font-medium">{job.state.replaceAll("_", " ")}</p>
+          {names[job.id] ? (
+            <p className="truncate font-medium">{names[job.id]}</p>
+          ) : (
+            <Button
+              variant="ghost"
+              size="compact"
+              disabled={busy}
+              onClick={() =>
+                void act(async () => {
+                  const file = await FilesService.entry(
+                    job.file ?? job.id,
+                    controller.signal,
+                  );
+                  controller.signal.throwIfAborted();
+                  setNames((current) => ({ ...current, [job.id]: file.name }));
+                })
+              }
+            >
+              Show file name
+            </Button>
+          )}
+          <p className="text-muted-foreground">
+            {job.state.replaceAll("_", " ")}
+          </p>
           {job.result ? (
             <p className="mt-1 text-muted-foreground">
               {job.result.explanation}
             </p>
           ) : null}
-          <p className="mt-1 text-xs text-muted-foreground">
-            File reference {job.id.slice(0, 8)}
-          </p>
           {job.state === "pending_delivery" ? (
             <Button
               variant="ghost"
@@ -104,6 +141,12 @@ export function FilesOrganizationHistory({ ownerId }: { ownerId: string }) {
             >
               Cancel organization
             </Button>
+          ) : null}
+          {job.state === "review_required" ? (
+            <p className="mt-2 text-muted-foreground">
+              Review this file before requesting organization again; the
+              previous outcome is uncertain.
+            </p>
           ) : null}
           {job.history?.length ? (
             <details className="mt-2">

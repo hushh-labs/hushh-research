@@ -1,14 +1,23 @@
 "use client";
+
 import { useState } from "react";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { FilesService, type FilesSettings } from "@/lib/files/service";
-import { estimatePodSubtotal } from "@/lib/files/economics";
+
 export type FilesAction = (
   operation: () => Promise<unknown>,
   success: string | (() => string),
   refresh?: boolean,
 ) => Promise<void>;
+
+function reportedDays(seconds: number | null | undefined): number | null {
+  return typeof seconds === "number" && Number.isFinite(seconds) && seconds >= 0
+    ? Math.ceil(seconds / 86400)
+    : null;
+}
+
 export function FilesSettingsPanel({
   settings,
   signal,
@@ -23,171 +32,157 @@ export function FilesSettingsPanel({
   act: FilesAction;
 }) {
   const [usage, setUsage] = useState<number | null>(null);
-  const [hours, setHours] = useState(10);
-  const [warningGiB, setWarningGiB] = useState(100);
+  const disabled = busy || unavailable || !settings;
+  const retention = settings?.retention;
+  const retentionDays = reportedDays(retention?.retentionSeconds);
+  const softDeleteDays = reportedDays(retention?.softDeleteSeconds);
+
   return (
-    <>
-      <section className="rounded-2xl border p-5 space-y-2">
-        <h2 className="font-semibold">Trash and retention</h2>
-        <p className="text-sm text-muted-foreground">
-          Trash is reversible and retains your stored files. Moving a file to
-          Trash does not request physical deletion or reduce storage charges.
-        </p>
-        {settings?.retention ? (
-          <p className="text-sm text-muted-foreground">
-            Your bucket currently has a{" "}
-            {Math.ceil(settings.retention.retentionSeconds / 86400)}-day minimum
-            retention
-            {settings.retention.retentionLocked ? " (locked)" : ""},{" "}
-            {Math.ceil(settings.retention.softDeleteSeconds / 86400)}-day
-            soft-delete retention, and object versioning{" "}
-            {settings.retention.versioning ? "enabled" : "disabled"}. Retained
-            versions can remain after a cloud deletion request.
-          </p>
-        ) : null}
-      </section>
-      <section className="rounded-2xl border p-5 space-y-3">
-        <h2 className="font-semibold">Storage and cost estimate</h2>
-        <Button
-          variant="outline"
-          disabled={busy || unavailable}
-          onClick={() =>
-            void act(
-              async () => {
-                let next = "",
-                  bytes = 0;
-                do {
-                  const page = await FilesService.usagePage(next, signal);
-                  bytes += page.bytes;
-                  next = page.cursor;
-                  signal.throwIfAborted();
-                } while (next);
-                setUsage(bytes);
-              },
-              "Storage checked",
-              false,
-            )
-          }
-        >
-          Check storage
-        </Button>
-        {usage !== null ? (
-          <p className="text-sm">
-            {(usage / 1024 ** 3).toFixed(2)} GiB uploaded, including Trash.
-            Retained cloud versions and incomplete orphan chunks are additional.
-          </p>
-        ) : null}
-        <div className="flex flex-wrap gap-4">
-          <label className="text-sm">
-            Estimated active hours/month
-            <Input
-              type="number"
-              min="0"
-              value={hours}
-              onChange={(event) =>
-                setHours(Math.max(0, Number(event.target.value) || 0))
-              }
-            />
-          </label>
-          <label className="text-sm">
-            Storage warning (GiB)
-            <Input
-              type="number"
-              min="1"
-              value={warningGiB}
-              onChange={(event) =>
-                setWarningGiB(Math.max(1, Number(event.target.value) || 1))
-              }
-            />
-          </label>
-        </div>
-        {usage !== null ? (
-          <p className="font-medium">
-            Illustrative subtotal: $
-            {estimatePodSubtotal(usage, hours).subtotal.toFixed(2)}/month
-          </p>
-        ) : null}
-        {usage !== null && usage / 1024 ** 3 >= warningGiB ? (
-          <p role="status" className="text-sm">
-            Your selected storage warning threshold has been reached. Service
-            continues normally.
-          </p>
-        ) : null}
-        <p className="text-xs text-muted-foreground">
-          Estimate includes regional Standard storage, 1 vCPU/1 GiB active
-          compute and one KMS key version. It excludes model usage, downloads,
-          retained versions, operations and other cloud services. Active time
-          includes background work and open connections. This warning applies to
-          this view; it is not a spending cap.
-        </p>
-      </section>
+    <div className="space-y-4">
       {settings ? (
-        <section className="rounded-2xl border p-5 space-y-3">
-          <h2 className="font-semibold">Files Agent</h2>
-          <p className="text-sm text-muted-foreground">
-            Allow your private agent to read and organize this library.
-            Interactive requests use your selected model provider. You can pause
-            analysis at any time.
-          </p>
-          <p className="text-sm text-muted-foreground">
-            {settings.backgroundAvailable && settings.backgroundProvider
-              ? `Background organization uses ${settings.backgroundProvider}.`
-              : "Background organization is unavailable until its cloud configuration is verified."}
-          </p>
-          <label className="flex items-center gap-3 text-sm">
-            <input
-              type="checkbox"
-              checked={settings.analysis}
-              disabled={busy}
-              onChange={(event) =>
-                void act(
-                  () =>
-                    FilesService.configure(
-                      {
-                        ...settings,
-                        analysis: event.target.checked,
-                        automatic: event.target.checked && settings.automatic,
-                      },
-                      signal,
-                    ),
-                  "Analysis preference saved",
-                )
-              }
-            />
-            Allow library analysis
-          </label>
-          <label className="flex items-center gap-3 text-sm">
-            <input
-              type="checkbox"
-              checked={settings.automatic}
-              disabled={
-                busy || !settings.analysis || !settings.backgroundAvailable
-              }
-              onChange={(event) =>
-                void act(
-                  () =>
-                    FilesService.configure(
-                      { ...settings, automatic: event.target.checked },
-                      signal,
-                    ),
-                  "Organization preference saved",
-                )
-              }
-            />
-            Automatically organize new uploads using Vertex AI
-          </label>
-          {!settings.backgroundAvailable ? (
-            <p className="text-xs text-muted-foreground">
-              Background organization requires the Files worker setup in your
-              cloud.
-            </p>
-          ) : null}
-          <p className="text-xs text-muted-foreground">
-            Storage grows with your cloud configuration. Trash and retained
-            versions can still incur storage charges.
-          </p>
-        </section>
+        <SettingsGroup title="Files Agent" embedded headingClassName="mt-0">
+          <SettingsRow
+            title="Allow library analysis"
+            description="Allow your model provider to analyze file content."
+            trailing={
+              <Switch
+                size="ios"
+                aria-label="Allow library analysis"
+                checked={settings.analysis}
+                disabled={disabled}
+                onCheckedChange={(analysis) =>
+                  void act(
+                    () =>
+                      FilesService.configure(
+                        {
+                          ...settings,
+                          analysis,
+                          automatic: analysis && settings.automatic,
+                        },
+                        signal,
+                      ),
+                    "Analysis preference saved",
+                  )
+                }
+              />
+            }
+          />
+          <SettingsRow
+            title="Organize new uploads"
+            description={
+              settings.backgroundAvailable && settings.backgroundProvider
+                ? "New uploads only. View provider details below."
+                : "Unavailable. You can still turn it off."
+            }
+            trailing={
+              <Switch
+                size="ios"
+                aria-label="Automatically organize new uploads"
+                checked={settings.automatic}
+                disabled={
+                  disabled ||
+                  (!settings.automatic &&
+                    (!settings.analysis || !settings.backgroundAvailable))
+                }
+                onCheckedChange={(automatic) =>
+                  void act(
+                    () =>
+                      FilesService.configure(
+                        { ...settings, automatic },
+                        signal,
+                      ),
+                    "Organization preference saved",
+                  )
+                }
+              />
+            }
+          />
+        </SettingsGroup>
       ) : null}
-    </>
+      <p className="text-xs text-muted-foreground">
+        Folder exclusions also protect everything inside. Use the file or folder
+        menu.
+      </p>
+      <SettingsGroup title="Storage" embedded>
+        <SettingsRow
+          title={
+            usage === null
+              ? "Library usage"
+              : `${(usage / 1024 ** 3).toFixed(2)} GiB uploaded`
+          }
+          description="Includes partial uploads and Trash."
+          trailing={
+            <Button
+              variant="ghost"
+              size="compact"
+              aria-label="Check storage"
+              disabled={disabled}
+              onClick={() =>
+                void act(
+                  async () => {
+                    let next = "",
+                      bytes = 0;
+                    do {
+                      const page = await FilesService.usagePage(next, signal);
+                      signal.throwIfAborted();
+                      bytes += page.bytes;
+                      next = page.cursor;
+                    } while (next);
+                    setUsage(bytes);
+                  },
+                  "Storage checked",
+                  false,
+                )
+              }
+            >
+              Check
+            </Button>
+          }
+        />
+      </SettingsGroup>
+      <details className="text-sm">
+        <summary className="min-h-11 cursor-pointer py-3 font-medium">
+          Storage details
+        </summary>
+        <div className="space-y-2 pb-1 text-muted-foreground">
+          <p>
+            Trash is reversible. It does not physically delete files or reduce
+            storage charges.
+          </p>
+          <p>Cloud versions and storage overhead are additional.</p>
+          {settings?.backgroundProvider ? (
+            <p>Background organization: {settings.backgroundProvider}.</p>
+          ) : null}
+          {retention ? (
+            <dl className="space-y-2">
+              <div className="flex flex-wrap justify-between gap-2">
+                <dt>Minimum retention</dt>
+                <dd>
+                  {retentionDays === null
+                    ? retention.retentionLocked
+                      ? "Restricted; duration is unavailable"
+                      : "Not reported"
+                    : `${retentionDays} days${retention.retentionLocked ? " (locked)" : ""}`}
+                </dd>
+              </div>
+              <div className="flex flex-wrap justify-between gap-2">
+                <dt>Soft-delete retention</dt>
+                <dd>
+                  {softDeleteDays === null
+                    ? "Not reported"
+                    : `${softDeleteDays} days`}
+                </dd>
+              </div>
+              <div className="flex flex-wrap justify-between gap-2">
+                <dt>Object versioning</dt>
+                <dd>{retention.versioning ? "Enabled" : "Disabled"}</dd>
+              </div>
+            </dl>
+          ) : (
+            <p>Retention settings have not been reported by your storage.</p>
+          )}
+        </div>
+      </details>
+    </div>
   );
 }

@@ -384,16 +384,16 @@ function resolveTopShellBreadcrumbInner(
     };
   }
 
-  // Wallet is reached from the One home roster tile; the way out is One.
+  // Wallet and Files return to the One roster.
   if (pathname === ROUTES.ONE_WALLET || pathname === ROUTES.ONE_FILES) {
     return {
       backHref: ROUTES.ONE_HOME,
-      width: "content",
+      width: pathname === ROUTES.ONE_FILES ? "profile" : "content",
       align: "center",
-      suppressFallbackTitle: true,
-      // Wallet and Files each own their visible PageHeader, so keep the top
-      // shell focused on the back action instead of repeating the route name.
-      items: [{ label: "One", href: ROUTES.ONE_HOME }],
+      suppressFallbackTitle: pathname !== ROUTES.ONE_FILES,
+      items: pathname === ROUTES.ONE_FILES
+        ? [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Files" }]
+        : [{ label: "One", href: ROUTES.ONE_HOME }],
     };
   }
 

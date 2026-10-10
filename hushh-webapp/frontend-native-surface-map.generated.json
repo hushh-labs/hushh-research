@@ -3018,8 +3018,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/files/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.one_files"
+      ],
       "api_dependencies": [
         {
           "service_file": "lib/files/service.ts",
@@ -10239,5 +10241,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "1a358d03f3c574fc442c41ec29c59c21c9e7814e55d8604b1ca3bdedc90b26cf"
+  "content_sha256": "f794550643a87c09f2cb17b81476920284a87f7cf574516816ce3ae4a449f0f2"
 }
