@@ -27,9 +27,9 @@
 .meta span { display: inline-flex; }
 :global([data-circle-chat-lane]) .outgoing .seen { color: #fff; }
 .reactionControl { position: absolute; right: -16px; top: -13px; z-index: 5; }
-.addReaction { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--chat-line, var(--border)); background: var(--chat-surface, var(--card)); color: var(--chat-muted, var(--muted-foreground)); box-shadow: 0 2px 9px rgba(0,0,0,.1); font-size: 20px; line-height: 1; opacity: 0; transition: opacity 150ms ease, transform 150ms ease; }
+.addReaction { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--chat-line, var(--border)); background: var(--chat-surface, var(--card)); color: var(--chat-muted, var(--muted-foreground)); box-shadow: 0 2px 9px rgba(0,0,0,.1); font-size: 20px; line-height: 1; opacity: 0; transition: opacity 150ms ease; }
 .bubbleWrap:hover .addReaction, .bubbleWrap:focus-within .addReaction { opacity: 1; }
-.addReaction:active { transform: scale(.92); }
+.addReaction:active { opacity: .8; }
 .picker { position: absolute; bottom: 34px; right: 0; display: flex; gap: 1px; padding: 5px; border: 1px solid var(--chat-line, var(--border)); border-radius: 999px; background: var(--chat-glass, var(--card)); box-shadow: 0 8px 22px rgba(0,0,0,.13); backdrop-filter: blur(22px) saturate(180%); animation: pickerIn 150ms ease both; }
 .picker button { display: grid; place-items: center; width: 36px; height: 36px; flex: none; border-radius: 50%; font-size: 19px; }
 .picker button:hover, .picker button:focus-visible { background: var(--chat-incoming, var(--muted)); }

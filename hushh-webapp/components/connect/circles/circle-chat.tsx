@@ -179,11 +179,18 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
   </>;
 }
 
+function ChatLaneMicAction() {
+  const router = useRouter();
+  return <ShellActionSurface className="size-11" aria-label="Talk to One" onClick={() => {
+    requestAgentConversationAfterRoute(ROUTES.HOME);
+    router.push(ROUTES.HOME);
+  }}><Mic aria-hidden="true" className="size-5" /></ShellActionSurface>;
+}
+
 function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked, chatLane, chatLaneTheme }: {
   session: CircleChatSession; visible: boolean; onRead: (sequence: number) => void; onRevoked: () => void;
   readingBlocked: boolean; chatLane: boolean; chatLaneTheme: "light" | "dark";
 }) {
-  const router = useRouter();
   const blockingLayer = useVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions;
   const [messages, setMessages] = useState<OpenMessage[]>([]);
   const [membershipEvents, setMembershipEvents] = useState<CircleMembershipEvent[]>([]);
@@ -485,10 +492,7 @@ function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked,
         setText((current) => `${current.slice(0, start)}${emoji}${current.slice(end)}`);
         requestAnimationFrame(() => { editor?.focus(); editor?.setSelectionRange(start + emoji.length, start + emoji.length); });
       }} /> : undefined}
-      emptyAction={chatLane ? <ShellActionSurface className="size-11" aria-label="Talk to One" onClick={() => {
-        requestAgentConversationAfterRoute(ROUTES.HOME);
-        router.push(ROUTES.HOME);
-      }}><Mic aria-hidden="true" className="size-5" /></ShellActionSurface> : undefined}
+      emptyAction={chatLane ? <ChatLaneMicAction /> : undefined}
       leadingAction={<ShellActionSurface className="size-11" aria-label="Attach photo, video, or document" disabled={sending || Boolean(pending)} onClick={() => fileInput.current?.click()}><ImageIcon aria-hidden="true" className="size-5" /></ShellActionSurface>} />
     {pending && !sending ? <p className="text-xs text-muted-foreground">Delivery is unconfirmed. Retry sends the same message safely.</p> : null}
     <p className="text-center text-[11px] leading-4 text-muted-foreground">Only circle members can read these messages.</p>

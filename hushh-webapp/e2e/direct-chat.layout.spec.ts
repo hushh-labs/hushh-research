@@ -146,8 +146,8 @@ test("inbox search keyboard keeps a completed command visible and dismissible", 
     document.documentElement.classList.remove("kb-open", "native-keyboard-inset");
     document.documentElement.style.removeProperty("--kb-height");
   });
-  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeDisabled();
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeHidden();
+  await expect(page.locator("[data-bottom-shell-navigation-slot]")).toBeVisible();
   expect(errors).toEqual([]);
 });
 for (const [width, height] of [[320, 568], [393, 844], [430, 932], [768, 852], [1440, 1000], [844, 390]]) {
@@ -160,7 +160,7 @@ for (const [width, height] of [[320, 568], [393, 844], [430, 932], [768, 852], [
         const row = page.locator(`[data-chat-message="${id}"]`);
         await expect(row).toContainText("with details.");
         await row.hover();
-        for (const label of ["Choose a reaction", "Message options"]) {
+        for (const label of ["React to message", "Message options"]) {
           const box = (await row.getByRole("button", { name: label }).boundingBox())!;
           expect(box.x).toBeGreaterThanOrEqual(0);
           expect(box.x + box.width).toBeLessThanOrEqual(width!);
@@ -183,12 +183,12 @@ for (const [width, height] of [[320, 568], [393, 844], [430, 932], [768, 852], [
     const geometry = await editor.boundingBox(); const target = await send.boundingBox();
     expect(geometry!.height).toBeGreaterThanOrEqual(44); expect(target!.width).toBeGreaterThanOrEqual(44); expect(target!.height).toBeGreaterThanOrEqual(44);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width! + 1);
-    if (width! < 768) {
+    if (width! < 960) {
       const workspace = (await page.locator('[data-direct-message-page]').boundingBox())!;
       const thread = (await page.locator('[data-direct-message-page] > main').boundingBox())!;
       expect(Math.abs(thread.width - workspace.width)).toBeLessThanOrEqual(1);
     }
-    if (width! >= 700) await expect(page.getByRole("complementary", { name: "Conversations" })).toBeVisible();
+    if (width! >= 960) await expect(page.getByRole("complementary", { name: "Conversations" })).toBeVisible();
     else { await page.getByRole("button", { name: "Back to messages" }).click(); await expect(page.getByRole("complementary", { name: "Conversations" })).toBeVisible(); }
     expect(errors).toEqual([]);
   });
@@ -251,7 +251,7 @@ test("hover actions do not shift messages or the centered composer", async ({ pa
   for (const role of ["user", "peer"]) {
     const row = page.locator(`[data-message-role="${role}"]`).last();
     await row.hover();
-    const emoji = row.getByRole("button", { name: "Choose a reaction" });
+    const emoji = row.getByRole("button", { name: "React to message" });
     const iconBox = (await emoji.boundingBox())!;
     const menuBox = (await row.getByRole("button", { name: "Message options" }).boundingBox())!;
     expect(Math.abs(iconBox.y - menuBox.y)).toBeLessThanOrEqual(1);
@@ -391,9 +391,9 @@ test("preserves replies, edits and delete actions with a short phone keyboard", 
   await expect(page.locator('[data-chat-message]').filter({ hasText: "Edited reply" })).toHaveCount(1);
   await page.evaluate(() => { document.documentElement.classList.remove('kb-open', 'native-keyboard-inset'); document.documentElement.style.removeProperty("--kb-height"); });
   const edited = page.locator('[data-chat-message]').filter({ hasText: "Edited reply" });
-  await edited.locator("[data-chat-bubble]").click(); await edited.getByRole("button", { name: "Choose a reaction" }).click();
-  await page.getByRole("button", { name: "Use 😀", exact: true }).click();
-  await expect(edited.getByRole("button", { name: "😀 reaction, 1", exact: true })).toBeVisible();
+  await edited.locator("[data-chat-bubble]").click(); await edited.getByRole("button", { name: "React to message" }).click();
+  await page.getByRole("button", { name: "React ❤️", exact: true }).click();
+  await expect(edited.getByRole("button", { name: "❤️ reaction, 1", exact: true })).toBeVisible();
   await edited.locator("[data-chat-bubble]").click(); await edited.getByRole("button", { name: "Message options" }).click();
   await page.getByRole("menuitem", { name: "Delete for everyone", exact: true }).click();
   await page.getByRole("button", { name: "Yes, delete", exact: true }).click();

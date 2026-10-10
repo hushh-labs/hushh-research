@@ -1158,7 +1158,7 @@ article[data-message-role="user"] .messageActionError {
 /* Bound the transcript above the shared app chrome and keyboard. */
 .page { --direct-message-keyboard-inset: var(--kb-height, 0px); }
 :global(html.kb-resizes) .page { --direct-message-keyboard-inset: 0px; }
-.page, .page[data-chat-open="true"] { height: max(0px, calc(100dvh - var(--app-top-content-offset, 6rem) - var(--app-safe-area-top-effective, 0px) - max(var(--app-scroll-bottom-pad, 8rem), calc(var(--direct-message-keyboard-inset) + var(--direct-message-dock-height, 0px))) - .5rem)); min-height: 0; max-height: none; }
+.page, .page[data-chat-open="true"] { height: max(0px, calc(100dvh - var(--app-top-content-offset, 6rem) - var(--app-safe-area-top-effective, 0px) - max(var(--app-scroll-bottom-pad, 8rem), calc(var(--direct-message-keyboard-inset) + var(--direct-message-dock-height, 0px))) - 1rem)); min-height: 0; max-height: none; }
 .thread { position: relative; }
 .inboxHeader, .threadHeaderContent { min-height: 4.25rem; }
 .backButton, .headerAction, .refreshButton, .voiceButton, .sendButton, .threadSearchClear, .messageActionButton, .composerReplyPreview button, .messageEditActions button, .reactionChip { min-width: 44px; min-height: 44px; height: 44px; }
@@ -1582,6 +1582,10 @@ article[data-message-role="peer"] .messageBubble {
   .threadHeaderContent { min-width: 0; }
   .backButton { display: inline-grid; }
   .messageList { padding-inline: 12px; }
+}
+@media (max-height: 500px) {
+  .threadHeader, .threadHeaderContent { min-height: 44px; height: 44px; }
+  .threadHeaderContent { padding-block: 0; }
 }
 @media (hover: none) {
   article[data-message-role] .messageActions { opacity: 1; pointer-events: auto; }
