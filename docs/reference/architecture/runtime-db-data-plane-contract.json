@@ -1656,6 +1656,24 @@
       "trust_boundary": "Verified recipient, active connection/current Circle membership, block/mute/read/deletion checks, installation owner/key lifecycle fences. No plaintext message or avatar persists in these tables."
     },
     {
+      "id": "wallet_temporary_card_access",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "wallet_card_registrations",
+        "wallet_card_share_requests",
+        "wallet_card_access_grants",
+        "wallet_card_access_audit"
+      ],
+      "primary_access_path": "Owner-confirmed canonical Wallet commits register saved payment cards automatically, including older cards refreshed by the owner's Share action. Owner grants bind individual active connections; authenticated recipients read only their current grant.",
+      "retention_policy": "Reservations have a 24-hour original Add window; a later confirmed owner Wallet write can register them as saved cards. Removed registrations remain terminal. Grants authorize reads for exactly 5, 10 or 15 minutes. Expiry ends access, not storage. Registration, idempotency and audit history remain until account erasure; no scheduled history purge is claimed.",
+      "deletion_behavior": "Card or Wallet-domain removal marks provenance removed and revokes grants. Account erasure removes owner and recipient grants and dependent request/audit records through the account deletion table map and foreign keys. Historical message references contain no card credentials.",
+      "trust_boundary": "Server-only provenance and recipient binding. Approved masked fields are encrypted with owner/card or owner/recipient/grant purpose binding. PAN, cardholder name, CVV, PIN and vault keys never enter these tables. Postgres enforces expiry/revocation; ordinary connections require fresh same-user verification. Explicit owner-added Trusted Circle membership alone exempts additional verification.",
+      "plaintext_posture": "encrypted_masked_projection_with_opaque_authorization_and_audit_metadata",
+      "expected_row_growth": "one_registration_per_manual_card_and_one_grant_per_selected_recipient"
+    },
+    {
       "id": "hashcoin_owner_earnings",
       "owner": "iam-consent-governance",
       "data_class": "audit_regulated",

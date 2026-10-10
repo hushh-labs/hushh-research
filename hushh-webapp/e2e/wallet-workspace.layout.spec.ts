@@ -687,6 +687,21 @@ for (const width of [390, 1440]) {
     await expect(page.getByTestId("wallet-selected-card").getByTestId("wallet-card-face")).toHaveAttribute("data-revealed", "true");
     await expect(details.getByRole("button", { name: "Copy card number" })).toBeVisible();
     await expect(details.getByText("Hidden", { exact: true })).toBeVisible();
+    const icons = details.locator('[data-slot="settings-row-icon"] svg');
+    await expect(icons).toHaveCount(8);
+    expect(await icons.evaluateAll(elements => elements.slice(0, 7).every(icon => {
+      const accent = icon.querySelector('.profile-pane-icon-accent');
+      return accent && getComputedStyle(accent).stroke !== getComputedStyle(icon).stroke;
+    }))).toBe(true);
+    const sharing = page.getByRole("region", { name: "Card sharing", exact: true });
+    expect(await sharing.evaluate((el) => {
+      const details = document.querySelector('[aria-label="Saved card details"]')!;
+      const a = details.querySelector('[data-slot="settings-group-shell"]')!.getBoundingClientRect();
+      return [...el.querySelectorAll('[data-slot="settings-group-shell"]')].every(group => {
+        const b = group.getBoundingClientRect();
+        return Math.abs(a.left - b.left) < 1 && Math.abs(a.width - b.width) < 1;
+      });
+    })).toBe(true);
     const remove = details.getByRole("button", { name: "Remove card", exact: true });
     await remove.evaluate(el => {
       const root = el.closest<HTMLElement>('[data-app-scroll-root="true"]')!;
@@ -711,7 +726,7 @@ for (const width of [390, 1440]) {
     await expect(details).toBeVisible();
   });
 
-  test(`Encrypted card sharing: logos and recipient confirmation fit at ${width}px`, async ({ page }) => {
+  test(`Temporary card sharing: logos and recipient selection fit at ${width}px`, async ({ page }) => {
     const errors = await open(page, width, "light", { networkCards: true }, { height: 844, shell: true, secure: true });
     await mount(page);
     await page.getByRole("button", { name: "Search cards" }).click();
@@ -723,22 +738,17 @@ for (const width of [390, 1440]) {
     await expect.poll(() => logo.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0)).toBe(true);
     expect(await logo.evaluate(el => { const box = el.getBoundingClientRect(), card = el.closest('[data-testid="wallet-card-face"]')!.getBoundingClientRect(); return box.left >= card.left && box.right <= card.right && box.top >= card.top && box.bottom <= card.bottom; })).toBe(true);
     await face.screenshot({ path: test.info().outputPath("wallet-rupay-card.png") });
-    await page.getByRole("button", { name: "Share card", exact: true }).click();
+    await page.getByRole("button", { name: "Share card Temporary access for your connections.", exact: true }).click();
     const dialog = page.getByRole("dialog");
-    await expect(dialog.getByRole("tab", { name: "Anyone", exact: true })).toHaveAttribute("data-state", "active");
-    await expect.poll(() => dialog.evaluate(el => Math.abs(el.getBoundingClientRect().width - document.querySelector('[data-testid="wallet-card-browser"]')!.getBoundingClientRect().width))).toBeLessThan(1);
-    expect(await dialog.locator("input").first().evaluate(el => getComputedStyle(el).fontSize)).toBe("12px");
-    await dialog.getByLabel("Password", { exact: true }).fill("synthetic-long-password");
-    await dialog.getByLabel("Confirm password", { exact: true }).fill("synthetic-long-password");
-    await dialog.getByRole("button", { name: "Prepare encrypted file" }).click();
-    await expect(dialog.getByRole("button", { name: "Share encrypted file" })).toBeEnabled();
-    expect(await dialog.locator("input").count()).toBe(0);
-    await dialog.getByRole("tab", { name: "Hushh Chat" }).click();
-    await dialog.getByRole("button", { name: "Test Recipient", exact: true }).click();
-    await expect(dialog.getByRole("button", { name: "Share securely" })).toBeEnabled();
-    await expect(dialog).toContainText("ending 4242, with Test Recipient");
-    await dialog.getByRole("textbox", { name: "Find a Hushh person" }).fill("Changed query");
-    await expect(dialog.getByRole("button", { name: "Share securely" })).toBeDisabled();
+    await expect(dialog.getByRole("textbox", { name: "Search connections" })).toBeVisible();
+    expect(await dialog.getByRole("tab", { name: "Anyone", exact: true }).count()).toBe(0);
+    await dialog.getByRole("checkbox", { name: "Share with Test Recipient", exact: true }).check();
+    await dialog.getByRole("checkbox", { name: "Share with Trusted Recipient", exact: true }).check();
+    await expect(dialog.getByRole("button", { name: "Share with 2", exact: true })).toBeEnabled();
+    await expect(dialog).toContainText("Trusted Circle");
+    await dialog.getByRole("button", { name: "5 minutes", exact: true }).click();
+    await expect(dialog.getByRole("button", { name: "5 minutes", exact: true })).toHaveAttribute("aria-pressed", "true");
+    expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
     await page.screenshot({ path: test.info().outputPath("wallet-encrypted-card-sharing.png") });
     await page.keyboard.press("Escape");
     await expect(dialog).not.toBeVisible();

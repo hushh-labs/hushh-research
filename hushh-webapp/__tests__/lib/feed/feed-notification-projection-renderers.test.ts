@@ -25,6 +25,16 @@ function feedItem(
 }
 
 describe("notification-backed Feed projection renderers", () => {
+  it("announces the actual card sender and offers View card without payment details", () => {
+    const result = presentFeedItem(feedItem("direct_message_received", {
+      wallet_card_grant_id: "11111111-1111-4111-8111-111111111111",
+      counterpart_label: "Divya",
+    }, "connections"));
+    expect(result.label).toBe("Divya shared their card with you");
+    expect(result.description).toBe("View card");
+    expect(result.domainLabel).toBe("Wallet");
+    expect(result.href).toContain("messages");
+  });
   it("shows only authoritative owner net earnings and distinguishes Stripe transfer from bank deposit", () => {
     const pending = presentFeedItem(feedItem("document_share_outcome", {
       request_id: "11111111-1111-4111-8111-111111111111",

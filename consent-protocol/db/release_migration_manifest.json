@@ -270,7 +270,8 @@
     "296_circle_chat_reactions_events.sql",
     "297_document_commerce_readiness.sql",
     "298_stripe_mode_isolation.sql",
-    "299_hashcoin_wallet.sql"
+    "299_hashcoin_wallet.sql",
+    "300_wallet_temporary_card_access.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -563,6 +564,7 @@
     "296_circle_chat_reactions_events.sql": "rollback/296_circle_chat_reactions_events.rollback.sql",
     "297_document_commerce_readiness.sql": "rollback/297_document_commerce_readiness.rollback.sql",
     "298_stripe_mode_isolation.sql": "rollback/298_stripe_mode_isolation.rollback.sql",
-    "299_hashcoin_wallet.sql": "rollback/299_hashcoin_wallet.rollback.sql"
+    "299_hashcoin_wallet.sql": "rollback/299_hashcoin_wallet.rollback.sql",
+    "300_wallet_temporary_card_access.sql": "rollback/300_wallet_temporary_card_access.rollback.sql"
   }
 }

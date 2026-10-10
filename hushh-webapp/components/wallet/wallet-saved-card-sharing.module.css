@@ -1,3 +1,11 @@
+.accessSurface {
+  --type-input-value-size: 12px;
+  --type-button-label-size: 13px;
+  font-family: var(--font-app-body);
+  font-size: 13px;
+}
+.accessSurface input { font-size: 12px; }
+
 .dialog {
   --type-card-title-size: 18px;
   --type-form-label-size: 13px;
