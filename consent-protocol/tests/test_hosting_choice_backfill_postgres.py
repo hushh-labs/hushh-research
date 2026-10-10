@@ -285,6 +285,10 @@ async def test_release_only_first_run_observes_absent_pods_and_records_shared(pg
 def test_canonical_reader_and_continuity_sequence_preserves_placements_and_replay(pg):
     foundation = MIGRATION.parent.parent / "303_one_placement_reader_foundation.sql"
     continuity = MIGRATION.parent.parent / "304_one_legacy_shared_continuity.sql"
+    # The canonical placement migration reinstalls the account-erasure guards.
+    # Exercise that real predecessor, rather than inventing a no-op installer.
+    pg.execute("CREATE TABLE actor_profiles (user_id TEXT PRIMARY KEY)")
+    pg.apply_file(MIGRATION.parent.parent / "201_account_deletion_tombstones.sql")
     for uid in ("legacy", "assigned", "pending", "explicit", "unfinished"):
         _person(pg, uid, json.dumps(["connections"]))
     pg.execute("UPDATE vault_keys SET setup_completed=TRUE WHERE user_id <> 'unfinished'")

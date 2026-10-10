@@ -136,7 +136,7 @@ def connector_postgres_url():
 
 
 @pytest.fixture
-def lifecycle(connector_postgres_url):
+def lifecycle(connector_postgres_url, shared_hub_owner):
     # Identifier generated here, never from configuration or user input.
     schema = f"connector_test_{uuid.uuid4().hex}"
     admin = create_engine(connector_postgres_url)

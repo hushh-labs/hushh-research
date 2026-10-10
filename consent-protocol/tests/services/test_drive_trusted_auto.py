@@ -36,6 +36,10 @@ from tests.services.test_drive_sharing_store import (
     sharing,
 )
 
+# Both PostgreSQL and in-memory callers in this suite are explicitly Shared.
+# Keep the actual content-admission guard and all Trusted/approval checks.
+pytestmark = pytest.mark.usefixtures("shared_hub_owner")
+
 
 async def _request(sharing, *, owner_initiated=False):
     today = datetime.now(UTC).date()
