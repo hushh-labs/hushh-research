@@ -2160,13 +2160,53 @@ and the completion/zero-gap assertions remain intact; the recorded save and
 private-routing files pass together (30 tests). A new exact candidate must pass
 core and hosted CI before shared Dev deployment.
 
-The founder subsequently authorized reuse of the recorded phone. At 02:07Z the
+The founder subsequently requested reuse of the recorded test challenge. At 02:07Z the
 dedicated temporary transport was re-enabled with its original expiry and owner/
-Sandbox binding. Canonical verified-phone ownership remains unique; reuse goes
-through its existing transactional claim flow. No phone claim, vault creation or
+Sandbox binding. Canonical verified-phone ownership remains unique; a claim would
+clear the previous owner's binding. Reusable test OTPs do not permit simultaneous
+verified ownership, so no transfer is inferred from the request. No phone claim, vault creation or
 owner Azure OAuth is implied by configuring the transport. The task-owned empty
 restore database was verified empty and without other sessions, deleted and
 confirmed absent at 02:12Z. The retained recovery backup and application records
 were preserved. Reconciliation remains enabled with timestamped healthy aggregate
 observations. Host plugin discovery still reports official Stripe as uninstalled;
 application SDK credentials do not replace that OAuth connection.
+
+### Dev DNS interruption and baseline admission — 2026-10-10 UTC
+
+Candidate `c3fc60c2cb7cfa13d1bf6808b3cff088ae41a3e7` passed the full local core
+bundle and [full hosted CI 38017527116](https://github.com/hushh-labs/hushh-research/actions/runs/38017527116),
+including all frontend shards, browser contracts, protocol, iOS and Android.
+[Shared Dev release 38019021921](https://github.com/hushh-labs/hushh-research/actions/runs/38019021921)
+failed its frontend semantic check because `dev.one.hushh.ai` returned NXDOMAIN.
+The resource, migration, candidate, provenance and schema checks passed. Governed
+rollback retained the new backend and restored the previous frontend; independent
+03:26Z Cloud Run readback verified backend `consent-protocol-00155-ld6` at `c3fc60c2cb`
+and frontend `hushh-webapp-00132-7mn` at `2349b160`, each Ready with 100% traffic.
+This partial release does not establish hosted acceptance of the new interface.
+
+The existing Cloud Run domain mapping is Ready and specifies a DNS-only CNAME
+`dev.one.hushh.ai` to `ghs.googlehosted.com`. Cloudflare's authoritative nameserver
+returns NXDOMAIN. Restore that exact record through the owning DNS account before
+retrying the governed Dev release; do not bypass health checks or create another
+preview. Google ADC and application Stripe keys cannot authorize the DNS change.
+The current operator reviewer contract admits the exact Dev custom origin; a
+Cloud Run service alias cannot substitute for authenticated reviewer acceptance.
+
+The source baseline function now refuses shared Dev's unresolved release deferrals
+before reading evidence or acquiring its connection. Missing target/database binding
+also refuses. An explicit empty deferral list is a valid reviewed state, but the
+current manifest retains migration 249's deferral. Resolving it still requires
+fresh backup/restoration, complete writer and command drain, bounded write freeze,
+exact zero-target cutover and preservation evidence. No baseline, per-file receipt,
+canonical checksum or accepted history was rewritten. Parked 944's tests do not
+prove canonical 249 admission; their SQL guards differ.
+
+Reconciliation and provider observations were current at 03:26Z with zero journal
+imbalance, backing shortfall and receipt failures. Paid/provider/live admission
+remains off. No reviewer funding, purchase, activation, refund, transfer or payout
+receipt exists. Preserve the other reviewer's verified phone and choose an unbound
+synthetic fixture before primary enrollment. Owner Azure OAuth and official Stripe
+host/owner OAuth remain separate interactive prerequisites. Physical iOS acceptance
+remains deferred to the separately operating device session; Android physical
+acceptance remains a follow-up. Keep issue #7587 In Progress.

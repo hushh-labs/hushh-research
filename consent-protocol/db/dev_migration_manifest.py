@@ -4,7 +4,32 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
+
+# Exact equality keeps production and UAT outside the Dev lane.
+DEV_GCP_PROJECT_ID = "hushh-pda-dev"
+
+
+def dev_extra_active(*, explicit: bool = False, project_id: str | None = None) -> bool:
+    """Validate shared Dev or a release-only preview before connecting."""
+    resolved = str(
+        project_id if project_id is not None else os.getenv("GCP_PROJECT_ID") or ""
+    ).strip()
+    target = os.getenv("DEV_TARGET", "shared-dev")
+    if target == "scope-commerce-sandbox":
+        if (
+            explicit
+            or resolved != DEV_GCP_PROJECT_ID
+            or os.getenv("DB_NAME") != "scope_commerce_sandbox"
+        ):
+            raise ValueError(
+                "Isolated preview requires its fixed project/database and release-only lane"
+            )
+        return False
+    if target != "shared-dev":
+        raise ValueError("Unknown development migration target")
+    return explicit or resolved == DEV_GCP_PROJECT_ID
 
 
 def load_dev_manifest(path: Path, release_filenames: tuple[str, ...]) -> tuple[str, ...]:
@@ -57,11 +82,7 @@ def deferred_release_migrations(
         return ()
     payload = json.loads(path.read_text(encoding="utf-8"))
     entries = payload.get("deferred_release_migrations")
-    if (
-        payload.get("target_gcp_project_id") != expected_project
-        or not isinstance(entries, list)
-        or not entries
-    ):
+    if payload.get("target_gcp_project_id") != expected_project or not isinstance(entries, list):
         raise RuntimeError("Invalid shared-dev release deferral manifest")
     deferred: list[str] = []
     for entry in entries:
@@ -81,3 +102,16 @@ def deferred_release_migrations(
             raise RuntimeError("Shared-dev deferred migration checksum changed")
         deferred.append(filename)
     return tuple(deferred)
+
+
+def assert_dev_baseline_target(
+    *, project_id: str | None, target: str | None, database: str | None, expected_project: str
+) -> bool:
+    """Require explicit shared-Dev binding before checking unresolved deferrals."""
+    if project_id != expected_project:
+        return False
+    if target == "scope-commerce-sandbox" and database == "scope_commerce_sandbox":
+        return False
+    if target != "shared-dev" or database != "postgres":
+        raise RuntimeError("Shared-dev baseline requires its explicit project/target/database")
+    return True

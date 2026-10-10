@@ -15,7 +15,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -347,7 +347,8 @@ async def test_real_release_handler_preserves_shared_tail_and_preview_release_on
         ("reason", migrate.MigrationMode.REPLAY, False, True),
         ("project_manifest", migrate.MigrationMode.REPLAY, False, True),
         ("missing_deferral", migrate.MigrationMode.REPLAY, False, True),
-        ("empty_deferral", migrate.MigrationMode.REPLAY, False, True),
+        ("empty_deferral", migrate.MigrationMode.REPLAY, False, False),
+        ("invalid_deferral", migrate.MigrationMode.REPLAY, False, True),
     ],
 )
 async def test_shared_dev_replay_defers_only_pinned_history_cleanup(
@@ -377,6 +378,8 @@ async def test_shared_dev_replay_defers_only_pinned_history_cleanup(
         del payload["deferred_release_migrations"]
     elif mutation == "empty_deferral":
         payload["deferred_release_migrations"] = []
+    elif mutation == "invalid_deferral":
+        payload["deferred_release_migrations"] = None
     elif mutation == "checksum":
         entry["checksum_sha256"] = "0" * 64
     elif mutation == "duplicate":
@@ -408,3 +411,47 @@ async def test_shared_dev_replay_defers_only_pinned_history_cleanup(
     # The baseline and production/UAT truth remain canonical, even in Dev.
     assert migrate.release_migration_files("production") == canonical
     assert cleanup in migrate.release_migration_files("uat")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("binding", ["deferred", "missing_target", "wrong_database", "resolved"])
+async def test_shared_dev_baseline_refuses_unresolved_history_before_io(
+    monkeypatch, tmp_path, binding
+):
+    for key, value in {
+        "GCP_PROJECT_ID": "hushh-pda-dev",
+        "DEV_TARGET": "shared-dev",
+        "DB_NAME": "postgres",
+    }.items():
+        monkeypatch.setenv(key, value)
+    if binding == "missing_target":
+        monkeypatch.delenv("DEV_TARGET")
+    elif binding == "wrong_database":
+        monkeypatch.setenv("DB_NAME", "unqualified")
+    payload = json.loads(migrate.DEV_MANIFEST_PATH.read_text())
+    if binding == "resolved":
+        payload["deferred_release_migrations"] = []
+    manifest = tmp_path / "dev_migration_manifest.json"
+    manifest.write_text(json.dumps(payload))
+    monkeypatch.setattr(migrate, "DEV_MANIFEST_PATH", manifest)
+    evidence = MagicMock(return_value={"synthetic": True})
+    baseline = AsyncMock(return_value="baseline:synthetic")
+    monkeypatch.setattr(migrate, "load_preservation_evidence", evidence)
+    monkeypatch.setattr(migrate, "establish_baseline", baseline)
+    pool = MagicMock()
+    if binding != "resolved":
+        with pytest.raises(RuntimeError, match="Shared-dev baseline"):
+            await migrate.establish_release_baseline(pool, tmp_path / "not-read.json")
+        evidence.assert_not_called()
+        pool.acquire.assert_not_called()
+        baseline.assert_not_awaited()
+        return
+    connection = AsyncMock()
+    pool.acquire.return_value.__aenter__ = AsyncMock(return_value=connection)
+    pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+    await migrate.establish_release_baseline(pool, tmp_path / "synthetic.json")
+    baseline.assert_awaited_once()
+    assert baseline.await_args.args[0] is connection
+    assert tuple(
+        entry.filename for entry in baseline.await_args.args[1]
+    ) == migrate.release_migration_files("production")

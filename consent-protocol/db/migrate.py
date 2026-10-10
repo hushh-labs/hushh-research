@@ -39,7 +39,13 @@ load_dotenv()
 
 # Use same DB_* as runtime (db/connection.py)
 from db.connection import get_database_ssl, get_database_url  # noqa: E402
-from db.dev_migration_manifest import deferred_release_migrations, load_dev_manifest  # noqa: E402
+from db.dev_migration_manifest import (  # noqa: E402
+    DEV_GCP_PROJECT_ID,
+    assert_dev_baseline_target,
+    deferred_release_migrations,
+    dev_extra_active,
+    load_dev_manifest,
+)
 from db.migration_authority import (  # noqa: E402
     MigrationAuthorityError,
     MigrationManifestEntryV2,
@@ -251,35 +257,9 @@ DEV_MANIFEST_PATH = Path(__file__).resolve().parent / "dev_migration_manifest.js
 PARKED_MIGRATIONS_DIR = MIGRATIONS_DIR / "parked"
 LEDGER_SCHEMA_PATH = Path(__file__).resolve().parent / "foundations" / "schema_migrations_v2.sql"
 
-# Exact match ONLY. Production is "hushh-pda", which is a PREFIX of
-# "hushh-pda-dev" — any startswith/substring test would fire in production.
-# UAT is "hushh-pda-uat". See .github/workflows/deploy-{dev,uat,production}.yml.
-DEV_GCP_PROJECT_ID = "hushh-pda-dev"
-
 
 def _load_dev_manifest(path: Path) -> tuple[str, ...]:
     return load_dev_manifest(path, RELEASE_MIGRATION_FILES)
-
-
-def dev_extra_active(*, explicit: bool = False, project_id: str | None = None) -> bool:
-    """Validate shared Dev or a release-only preview before connecting."""
-    resolved = str(
-        project_id if project_id is not None else os.getenv("GCP_PROJECT_ID") or ""
-    ).strip()
-    target = os.getenv("DEV_TARGET", "shared-dev")
-    if target == "scope-commerce-sandbox":
-        if (
-            explicit
-            or resolved != DEV_GCP_PROJECT_ID
-            or os.getenv("DB_NAME") != "scope_commerce_sandbox"
-        ):
-            raise ValueError(
-                "Isolated preview requires its fixed project/database and release-only lane"
-            )
-        return False
-    if target != "shared-dev":
-        raise ValueError("Unknown development migration target")
-    return explicit or resolved == DEV_GCP_PROJECT_ID
 
 
 def deferred_dev_release_migrations() -> tuple[str, ...]:
@@ -1452,8 +1432,18 @@ async def establish_release_baseline(
     *,
     release_environment: str = "production",
 ) -> None:
-    """Record an explicit UAT/local baseline without replaying historical SQL."""
+    """Record an explicitly qualified baseline without replaying historical SQL."""
     release_environment = assert_uat_release_target(release_environment)
+    if (
+        assert_dev_baseline_target(
+            project_id=os.getenv("GCP_PROJECT_ID"),
+            target=os.getenv("DEV_TARGET"),
+            database=os.getenv("DB_NAME"),
+            expected_project=DEV_GCP_PROJECT_ID,
+        )
+        and deferred_dev_release_migrations()
+    ):
+        raise RuntimeError("Shared-dev baseline cannot cover unresolved release deferrals")
     evidence = load_preservation_evidence(evidence_path)
     entries = build_manifest_entries(MIGRATIONS_DIR, release_migration_files(release_environment))
     async with pool.acquire() as conn:
@@ -1694,7 +1684,8 @@ Examples:
         type=Path,
         metavar="PRESERVATION_REPORT",
         help=(
-            "UAT/local only: record a release baseline from a fresh status=ok preservation "
+            "Qualified non-production targets only: record a release baseline from a fresh "
+            "status=ok preservation "
             "report without executing historical migrations."
         ),
     )
