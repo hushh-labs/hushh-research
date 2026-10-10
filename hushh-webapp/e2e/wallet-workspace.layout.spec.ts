@@ -303,11 +303,15 @@ for (const [width, count] of [[320, 10], [375, 10], [390, 10], [430, 10], [1440,
         await expect(stack).toHaveAttribute("data-expanded", "true");
         // Exercise a saved payment record independently of the system cards.
         const last = stack.locator("li[data-gesture-card^=card_]").last().getByRole("button").first();
+        const maskedNumber = (await last.locator('[data-slot="wallet-card-number"] > [aria-hidden="true"]').allTextContents()).join(" ");
+        // Keep the details consistent with the face across network groupings,
+        // while independently requiring only the final four digits to appear.
+        expect(maskedNumber).toMatch(/^(?:•+ )+•?\d{4}$/);
         await last.click();
         await expect(page.getByTestId("wallet-selected-card")).toBeVisible();
         const details = page.getByRole("region", { name: "Saved card details", exact: true });
         await expect(details).toBeVisible();
-        await expect(details.getByText(/^•••• •••• •••• \d{4}$/)).toBeVisible();
+        await expect(details.getByText(maskedNumber, { exact: true })).toBeVisible();
         await expect(details.getByText("Hidden", { exact: true })).toBeVisible();
         expect(await page.evaluate(() => window.__walletEvents ?? [])).toEqual([]);
         await page.getByRole("button", { name: "All cards", exact: true }).click();
