@@ -45,6 +45,10 @@ second route registry: 126 route entries, 102 native-required at this baseline.
 Query tabs, Profile panel/detail queries, overlays and legacy/callback boundaries
 must be accounted for by the families above. Source coverage is not device proof.
 iPad, Android, web and older iOS retain their established fallbacks.
+The current join accounts for all 126 inventory entries and 19 additional layout
+boundaries (dynamic paths, redirects, callbacks and guarded entry states). Calendar
+is explicitly recorded as a parity gap, not permanently web-only; its existing
+native Google authorization does not establish a complete workspace rehearsal.
 
 **Qualification boundary:** first install and review the recovery candidate.
 Only then prototype a synthetic complete native History body/scrim/gesture plus
@@ -62,12 +66,39 @@ checks, 51 host-native support cases and the canonical core at `b912ddcf0f`
 pass. Later harness/documentation changes require their own final-head core;
 these results are not exact-head CI or release acceptance.
 
-### Installed recovery checkpoint — 2026-10-10
+### Current installed recovery — 2026-10-10
 
-The physical iPhone 16e runs the recovery implementation `b5e8e9783f`,
+The exact replacement product was installed separately from its runner and public
+study. Native source is `4524868f66` (compiled from that identical source tree
+before its commit), exported web source is `b5fc73b5c6`, Debug 1.4.0 (69),
+bundled UAT runtime, iPhone 16e/iOS 27.2. Executable:
+`5714db7993da2ec4c69a3e767fdf3a36924377ba414813b8211f8917a322bf99`;
+packaged index: `9f1bd2a52f41cc0f4366365b201700c94291ed34bac95e30603936007341da5c`;
+runtime contract: `aa822769e2547459e63e38784b039f3b80ed905c1d426cb7834606fab1fc3f69`.
+No experimental native-family flags, reviewer bootstrap, reset or cold test route
+were enabled. Normal passphrase unlock succeeded once; its credential-run artifacts
+were destroyed. Subsequent tests carried no credential and retained the warm session.
+
+The four-case recovery batch passed with zero failures or skips: ten Profile and ten
+History cycles, bidirectional gestures, fixed WebView frame, single composer,
+keyboard restoration, native tab/Search isolation, seven nested Profile families
+and in-memory status/header canvas matching. Viewing Vault methods and Support did
+not modify a method or send a report. These are functional and sampled-geometry
+receipts, not rendered frame-performance or exact JavaScript object-identity proof.
+The subsequent theme test passed all sixteen Light/Dark × Blue/Molten Gold ×
+Chat/One/Connect/Feed combinations with zero failures or skips, then restored
+the original preferences and unlocked Chat. All private-run diagnostics were
+destroyed; no private screenshots, credentials or content were retained.
+The final attach-only admission test passed: experimental native editor and
+History/Profile controls were absent, the React composer was present, no privacy
+cover or vault gate remained, and unlocked Chat was left visible.
+
+### Historical installed recovery checkpoint — 2026-10-10
+
+At this earlier checkpoint, the iPhone 16e ran recovery implementation `b5e8e9783f`,
 `com.hushh.app` 1.4.0 (69), Debug configuration, iOS 27.2, UAT backend.
 Product installation and runner-only preparation were separate. Subsequent
-runner builds relinked a local application product; they did **not** reinstall
+runner builds then relinked a local application product; they did **not** reinstall
 that product or change the installed-candidate identity below.
 
 | Installed artifact | SHA-256 |
@@ -113,43 +144,88 @@ that behavior is not represented as glass continuity beneath a React drawer.
 The owner confirmed the installed recovery controls look stable. Recovery remains
 the default; this checkpoint does not qualify new native controls.
 
-`NativeHistoryQualification.swift` provides an iOS 26+ iPhone **Debug-only**
-public fixture under the explicit `--hushh-native-history-qualification` argument.
+`NativeHistoryQualification.swift` provides an iOS 26+ iPhone public fixture in
+Debug or an explicitly compiled `HUSHH_NATIVE_HISTORY_STUDY` Release qualification
+build, under the `--hushh-native-history-qualification` argument.
 It does not imply `-UITestMode`, reviewer login, reset or a cold route. Ordinary
 Debug and Release launches retain recovery. The historical custom-native flags
 remain disabled and NativeChrome v2 / NativeDock v1 are unchanged.
 
 One owned UIKit presentation retains native base and History hosting controllers,
-the local pan and scrim. Public content continues behind one regular-glass dock
-preview. History moves as a full-height native panel; no React pose/clipping bridge
+the local pan and scrim. Public content continues behind the existing native
+editor in one regular-glass dock. History moves as a full-height native panel; no React pose/clipping bridge
 is involved. Theme/accent fixture choices retain those hosts; interrupted settles,
 cancellation and retirement are generation-fenced. UIKit modal isolation, not a
 captured restoration of WK eligibility, owns the temporary input boundary. Privacy
 retirement waits for presentation completion and actual owned-child detachment;
 the fixture never releases the product privacy cover.
 
-The dock is deliberately a **nonoperational preview**, not the private editor.
-Rows and backdrop are fixed public content. There are no real history identifiers,
-Send/Mic actions, routing decisions, credential replicas or persistence. The two
+The study reuses `NativeAgentDockView`, its retained `UITextView`, and shared
+44-point `NativeChromeButton`; it does not add another editor implementation.
+Its local sample model has no emission or submission authority. Rows, text and
+backdrop are public samples, with no real history identifiers, provider calls,
+routing decisions, credential replicas or persistence. Retirement clears the
+sample editor. A public landing remains over the WebView after fixture retirement
+so recording cannot expose the private product session. Explicit re-entry after
+runner preparation respects existing privacy admission. The two
 fixture appearance/accents exercise material only, not product theme authority.
 This native-on-native composition cannot certify a native overlay on React content,
-real draft/IME/attachment/voice continuity, Profile parity or Release performance.
+product draft/IME/attachment/voice continuity or Profile parity. Those retain
+their coherent recovery implementation; study acceptance cannot enable them.
 
-Physical transition, touch/accessibility isolation and performance acceptance of
-this fixture remain outstanding. Do not enable a product family from support-test
-counts, a build or the recovery's separate device receipts.
+The closing-animation input boundary is completion-based. Applying the target
+transform immediately does not make the still-visible drawer retired. The nearest
+support test fails on both touch and accessibility admission with the old
+progress-only rule; the completion-fenced rule passes. The study owns its status
+bar style through Light/Dark changes without altering the product status owner.
 
-Focused source verification: the three new admission/cancellation/retirement cases
-and all 54 `NativeSupportTests` pass on the simulator. Removing the settlement
-generation guard makes the interrupted-close negative control fail; the guard is
-restored. Signed iPhone Debug build-for-testing, typecheck, plugin parity and
-design-system/static-performance checks pass. This is not a Release device result.
+#### Physical Release study evidence — 2026-10-10
 
-Wireless transport was separately re-established using the existing paired UDID;
-CoreDevice reports a connected `localNetwork` TCP tunnel. Credential-free attach-only
-XCTest admission passed on the **installed recovery**, with Chat still unlocked.
-No service restart, unpairing, product reinstall or vault reset was performed.
-That receipt is not a device test of this new qualification fixture.
+Native source: `4524868f66` (identical pre-commit source compiled for this study);
+exported web source: `b5fc73b5c6`.
+Packaged web index: `9f1bd2a52f41cc0f4366365b201700c94291ed34bac95e30603936007341da5c`.
+Runtime contract: `aa822769e2547459e63e38784b039f3b80ed905c1d426cb7834606fab1fc3f69`.
+The iPhone 16e ran the signed, optimized Release study on iOS 27.2 over an
+authenticated CoreDevice `localNetwork` connection. Preparation/install and
+attach-only execution were separate; no sign-out, fixture reset or vault erasure.
+
+| Evidence | Result and boundary |
+| --- | --- |
+| Whole native composition | Ten warm Open/Close cycles with alternating control-edge taps, held partial closing drags, spring-back, base input isolation and rest alignment within one point completed. A subsequent measured run completed another twelve short cycles, including its warm-up. This does not prove an uninterrupted reversed drag or rendered transition-frame continuity. |
+| Retained shared editor | One real native text view accepted multiline Unicode in one insertion, preserved it across Talk/Message and drawer changes, stayed capped at 144 points and above the software keyboard. No product submission, attachment, IME or voice parity is inferred from this public sample. |
+| Appearance/accessibility | The final focused test passed all four Light/Dark × Blue/Molten Gold states, with contrast, hit-region, description, trait, clipping and Dynamic Type audits. Initial audits caught two public-label contrast failures; both were repaired with semantic foregrounds, not waived. Public captures were visually inspected. Actual VoiceOver navigation and system reduced-transparency acceptance are separate from this automated audit. |
+| Closing regression | Restoring the old progress-only isolation rule failed two touch/accessibility assertions. The completion-fenced repair passes; all 54 nearest native support cases passed. |
+| Frame cadence | A Release run recorded 184 positive display callbacks, maximum interval 19.672 ms and no interval above 50 ms. Another recorded 485 callbacks, maximum 19.555 ms and none above 50 ms. These are callback cadence, not rendered hitch measurements. |
+| Rendered performance | XCTest returned zero frame counts together with positive frame rates. Its zero hitch values are therefore unusable for acceptance. Instruments could not attach to the positively identified, still-running debuggable process; device screen recording explicitly reported unsupported. No three-run rendered-hitch qualification or transition-video claim is made. |
+| Normal Release boundary | The normal signed Release build passes without the study flag; neither study symbols nor its launch argument occur in its executable (`22a93ae5e0adcdd80f9e74a80fe1fb391ac0f3ea7057f7e40cc29159220fc8a1`). |
+
+Final study executable: `ba40f99f3c3f810182682849af0f2039a7d8514daf0802c9f74cd074f181f295`.
+Authoritative local result bundles are `hushh-native-composition-release-qualified-4.xcresult`
+(functional/editor completion followed by a real contrast failure) and
+`hushh-native-composition-release-appearance.xcresult` (final four-state audit passed).
+An earlier long run lost XCTest accessibility service after 36 cycles while the
+app stayed alive; it is not counted as a completed acceptance run.
+
+**Disposition:** keep all custom product-native families disabled. The study
+demonstrates the coherent native hierarchy and catches concrete regressions; it
+does not supply the missing rendered-motion evidence or a private History port.
+Product History requires a separately typed, owner/document/revision/privacy-bound
+memory-only projection and React-owned search/rename/delete/navigation operations;
+public NativeChrome must never carry private titles or identifiers. Profile and
+rich families retain the coherent React implementation. Physical iPad remains
+unqualified. No product family is enabled by a study receipt.
+
+Focused typecheck, native plugin parity, design-system/static-performance checks,
+fresh Capacitor web export/sync and signed native builds pass. The canonical core
+mirror passed this candidate in 399 seconds (including 9,794 protocol, 201
+shared-database and 377 PKM upgrade cases); final documentation checks are
+independent. Existing environment-dependent skips are not physical acceptance.
+Core reports 36 existing Dependabot alerts, including critical Capacitor findings;
+the lane's nonblocking advisory is not release security clearance.
+Release integration
+is a separate recorded boundary: the existing feature PR is at an older remote
+head, and a read-only merge of current `main` reported 50 conflicts. This native
+repair does not silently overwrite those unrelated product/protocol changes.
 
 ## Historical experiments (not current renderer qualification)
 

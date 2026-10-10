@@ -94,15 +94,25 @@ another reviewer store or a privileged app-unlock route.
 
 ## Native drawer continuity
 
-When the requested behavior keeps native controls visible in uncovered areas,
-hold a real partial drag before release, then cancel, re-grab and close through
-the authored controls. Settled open/close checks and retained-host identities
-cannot prove exposed material stayed visible. Inspect current clipping geometry
-separately from touch/accessibility admission; covered controls must not paint
-over or act through the drawer. Verify any required opt-in public probes during
-candidate preparation. Missing probes are a harness failure, not a gesture result.
+Use the current renderer boundaries in `hushh-webapp/docs/ios-native-surface-adoption.md`.
+A React drawer and asynchronous native clipping do not share a display transaction;
+retained hosts or pose receipts cannot qualify that composition. Keep recovery
+drawers coherently React; a native study owns its entire overlapping presentation.
 
-Bound numeric held-pose receipts prove only sampled presentation state. Use
-synthetic transition frames for actual material/alignment evidence; never capture
-protected content. Record initial-ack gaps, retirement gaps, pose age and scrim
-composition separately rather than calling one passing hold full qualification.
+Hold a partial drag before release, then cancel, re-grab and close through authored
+controls. Inspect synthetic transition frames, not only settled screenshots or
+host identities. Keep underlying input and accessibility isolated until visible
+exit completion: an animator's target property is not a retirement receipt.
+
+Runner preparation may interrupt and legitimately retire an owned study. Re-enter
+only through its explicit opt-in public action after privacy admission; never
+remove the shield or automatically resurrect a retired popup. Account separately
+for harness admission, visual composition, interaction, privacy and frame pacing.
+Keep recordings public-only throughout their lifetime, including exit/background.
+
+Reject unusable performance evidence: a zero rendered-frame count alongside a
+positive frame rate does not establish zero hitches. Keep display-link cadence
+separate from compositor metrics. An unsupported recording capability is not a
+transition-frame pass. Check the installed executable's debugger entitlement and
+the current process identity after installation before diagnosing attach failure;
+an alive app does not establish an available XCTest accessibility server.
