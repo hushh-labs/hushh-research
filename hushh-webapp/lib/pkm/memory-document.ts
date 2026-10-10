@@ -25,6 +25,7 @@
  * changed information.
  */
 
+import { reservedEntryFor } from "@/lib/pkm/reserved-branches";
 import {
   shouldSkipPkmAgentContextKey,
   shouldSkipPkmMemoryKey,
@@ -104,10 +105,46 @@ function newestUpdatedAt(cards: readonly PkmMemoryCard[]): string | null {
   return newest;
 }
 
-function excludeForAudience(audience: MemoryDocumentAudience, key: string): boolean {
-  return audience === "agent"
-    ? shouldSkipPkmAgentContextKey(key)
-    : shouldSkipPkmMemoryKey(key);
+/**
+ * Whether the reserved-branch registry forbids this branch's *values* leaving
+ * for a model or another person.
+ *
+ * `contracts/pkm/reserved-branches.v1.json` is `enforce` and declares
+ * `send_to_model` per branch. Anything but `full` means the value may not be
+ * reproduced: `wallet` and `secrets` are `label_only`, so is
+ * `identity.identity_documents`; `kyc_connector`, `kyc_workflow` and
+ * `runtime_secrets` are `never`.
+ *
+ * This document withholds `label_only` branches entirely rather than rendering
+ * their labels. A memory document is bulk material that can travel to another
+ * person, and the registry routes those branches out through their own
+ * consent path instead — `shareable` is `policy` for wallet and
+ * `per_item_grant` for secrets. Labels belong in the agent's live context
+ * (`lib/agent/agent-pkm-context-store.ts`), not in a shareable artifact.
+ *
+ * `shouldSkipPkmAgentContextKey` alone is not sufficient here: it does not
+ * cover `wallet` or `identity_documents`, so without this check their values
+ * would be rendered into a document built for another person.
+ */
+function restrictedByReservedRegistry(domain: string, branch: string): boolean {
+  const entry = reservedEntryFor(domain, branch);
+  return entry ? entry.sendToModel !== "full" : false;
+}
+
+function excludeForAudience(
+  audience: MemoryDocumentAudience,
+  key: string,
+  branch = "",
+): boolean {
+  if (audience !== "agent") return shouldSkipPkmMemoryKey(key);
+  return shouldSkipPkmAgentContextKey(key) || restrictedByReservedRegistry(key, branch);
+}
+
+/** The card's path below its domain, as the reserved registry expects it. */
+function cardBranch(card: PkmMemoryCard): string {
+  const segments = card.pathSegments || [];
+  // pathSegments start at the domain; the registry matches what follows it.
+  return segments.slice(1).map((segment) => String(segment)).join(".");
 }
 
 function compareCards(a: PkmMemoryCard, b: PkmMemoryCard): number {
@@ -159,7 +196,7 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
   const excludedDomains = new Set<string>();
 
   for (const card of snapshot.cards || []) {
-    if (excludeForAudience(audience, card.domain)) {
+    if (excludeForAudience(audience, card.domain, cardBranch(card))) {
       excludedDomains.add(card.domain);
       continue;
     }

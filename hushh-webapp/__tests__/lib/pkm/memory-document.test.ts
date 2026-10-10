@@ -69,6 +69,34 @@ describe("memory.md audience exclusion", () => {
     expect(forSelf.markdown).toContain("raw extract");
   });
 
+  // Regression: shouldSkipPkmAgentContextKey does NOT cover `wallet` or
+  // `identity.identity_documents`, but reserved-branches.v1.json marks both
+  // send_to_model: label_only. Without the registry check their values render
+  // into a document built to travel to another person.
+  it("withholds every branch the reserved registry does not mark send_to_model: full", () => {
+    const walletCard = {
+      ...card("wallet", "Card", "Visa ending 4242"),
+      pathSegments: ["wallet", "summary", "card_1"],
+    };
+    const documentsCard = {
+      ...card("identity", "Passport", "P<IND1234567"),
+      pathSegments: ["identity", "identity_documents", "passport"],
+    };
+    const openCard = card("personal_data", "Home city", "Bengaluru");
+
+    const forAgent = build([walletCard, documentsCard, openCard], "agent", [
+      { domain: "wallet", contentRevision: 1 },
+      { domain: "identity", contentRevision: 1 },
+      { domain: "personal_data", contentRevision: 1 },
+    ]);
+
+    expect(forAgent.markdown).not.toContain("Visa ending 4242");
+    expect(forAgent.markdown).not.toContain("P<IND1234567");
+    expect(forAgent.excludedDomains).toEqual(["identity", "wallet"]);
+    // The open domain is unaffected, so the rule is not just "withhold everything".
+    expect(forAgent.markdown).toContain("Bengaluru");
+  });
+
   it("withholds a regulated identifier branch from an agent document", () => {
     const cards = [card("identity", "Value", "shown"), card("passport_number", "Value", "X1234567")];
     const sources = [
