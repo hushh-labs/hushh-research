@@ -33,15 +33,11 @@ OUTBOX_TABLES = frozenset({"drive_share_events", "drive_query_events"})
 # Trusted circle the owner prices the request on Allow in its review, so that
 # request keeps the review. Metadata only, with the Consent Center's own
 # predicates; no request envelope is opened.
-_OWNER_SETUP_STEP = (
-    """SELECT CASE
-  WHEN NOT """
-    + _OWNER_DRIVE_READY
-    + """ THEN 'drive'
+_OWNER_SETUP_STEP = """SELECT CASE
+  WHEN NOT {owner_drive_ready} THEN 'drive'
   WHEN drive_share_requests.preparation_error_code='owner_payout_required' THEN 'payouts'
-  WHEN drive_share_requests.preparation_error_code='owner_price_required' AND """
-    + _TRUSTED_RECIPIENT
-    + """ THEN 'price'
+  WHEN drive_share_requests.preparation_error_code='owner_price_required'
+    AND {trusted_recipient} THEN 'price'
 END
 FROM drive_share_requests
 WHERE drive_share_requests.request_id=:request AND drive_share_requests.user_id=:user
@@ -52,7 +48,8 @@ WHERE drive_share_requests.request_id=:request AND drive_share_requests.user_id=
     SELECT 1 FROM drive_request_payment_orders pay
     WHERE pay.request_id=drive_share_requests.request_id
       AND pay.status IN ('paid','refunded')
-  )"""
+  )""".replace("{owner_drive_ready}", _OWNER_DRIVE_READY).replace(
+    "{trusted_recipient}", _TRUSTED_RECIPIENT
 )
 
 
