@@ -153,6 +153,11 @@ vi.mock("@/components/feed/feed-actionable-row", () => ({
   FeedActionableRow: () => null,
 }));
 
+vi.mock("@/components/consent/document-payout-account", () => ({
+  DocumentBankPayoutStatusCard: () => null,
+  DocumentPayoutAccountCard: () => null,
+}));
+
 vi.mock("@/components/app-ui/app-page-shell", () => ({
   AppPageShell: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>

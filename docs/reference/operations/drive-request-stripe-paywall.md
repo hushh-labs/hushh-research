@@ -260,13 +260,41 @@ unit checks cannot prove the absence of a database deadlock. Payment order,
 webhook, and refund paths follow the same graph-first rule before identity
 writes.
 
-## Decisions for launch
+## Owner settlement (new orders only)
 
-Hussh is the merchant account. Manish sets the price for a request he allows,
-but receives no payout: that would require Stripe Connect and a separate payout
-contract. The implemented policy is an automatic full refund for a paid request
-that ultimately delivers zero files, and Stripe test-mode UAT before live
-production charging.
+Hussh charges the requester through its US Stripe platform account. With
+`DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED=true`, a **new** payment order also enrolls
+in the owner settlement ledger. Earlier orders are not backfilled. The document
+owner must complete Stripe Connect onboarding for a US account before Checkout
+is offered. Plaid is not involved in owner settlement.
+
+The private worker transfers the owner's share to their connected Stripe balance
+only after the request reaches a terminal delivery outcome and Google confirms
+access to the delivered files. A Stripe transfer is **not** proof that money has
+arrived in the owner's bank; Stripe's connected-account payout schedule controls
+that later step. No files delivered means a full requester refund and no owner
+transfer. When only part of the approved set is delivered, the requester receives
+a proportional refund before any owner transfer. Uncertain grant, refund or
+transfer outcomes remain held for reconciliation; the worker never guesses that
+delivery or a refund succeeded.
+
+Hussh keeps **3% of the retained charge**. The owner bears the **actual Stripe
+payment processing fee** on that charge, with the deduction capped at the
+remaining retained proceeds. For example, on a fully delivered $10 order with a
+$0.59 Stripe processing fee, Hussh keeps $0.30 and $9.11 is transferred to the
+owner's Stripe balance. Stripe's actual balance transaction, rather than this
+example fee, is authoritative. If retained proceeds cannot cover the fee, Hussh
+absorbs the difference. Refunds, disputes and transfer reversals are reconciled
+separately; a refund does not automatically reverse a Stripe Connect transfer.
+
+Deploy migration 292 with the flag off first. The UAT API and private Drive
+worker both read GitHub variable `DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED`,
+defaulting to `false`; set it to `true` only with Stripe test credentials, a
+completed US owner Connect account and the payment acceptance checks above.
+The UAT release refuses an enabled rollout if Stripe secrets are absent.
+Production API and worker keep this payout flag off in this release. Turning the
+flag off stops enrollment of new orders, while already enrolled paid obligations
+remain subject to delivery, refund and transfer reconciliation.
 
 ## Refund reconciliation
 
@@ -277,15 +305,18 @@ idempotency key only during the first 20 hours. Stripe may prune an idempotency
 key after 24 hours, so a later create could issue a second refund if the first
 response was lost. The worker stops creating after its shorter window and sets
 `manual_review`; it continues read-only Stripe checks once per hour and will
-record a full refund made through Stripe. [Stripe idempotency reference](https://docs.stripe.com/api/idempotent_requests).
+record a matching refund made through Stripe. [Stripe idempotency reference](https://docs.stripe.com/api/idempotent_requests).
 
 Monitor `drive_request_payment_refunds` for `manual_review` or `failed`, joined
 to `drive_request_payment_obligations` by `request_id`. For `manual_review`, inspect
 the stored PaymentIntent and its refunds in the same Stripe account. If Stripe
-has no full refund of the obligation's `amount_cents`, issue one manually for
-that PaymentIntent; the worker will observe it. If the request still exists, it emits Chris's refund Feed
-event after Stripe confirms success; after account erasure, the retained obligation
-and Stripe refund are the operational evidence. Resolve a mismatched, failed, or canceled provider refund with payment
-operations before changing a local order. Keep the order's
-`reconciliation_required` hold in place until confirmation; a browser return or
-an operator assumption must not restore document grants.
+has no refund matching `drive_request_payment_refunds.amount_cents` (or the full
+obligation amount for a legacy null amount), issue that exact amount manually
+for the PaymentIntent; the worker will observe it. If the request still exists,
+it emits the refund Feed event after Stripe confirms success; after account
+erasure, the retained obligation and Stripe refund are the operational evidence.
+Resolve a mismatched, failed, or canceled provider refund with payment operations
+before changing a local order. A full refund keeps the order's
+`reconciliation_required` hold until confirmation; a partial refund preserves the
+paid order for files that were actually delivered. A browser return or operator
+assumption is never payment or refund proof.
