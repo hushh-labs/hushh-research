@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 300,
+  "expected_migration_version": 301,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -67,7 +67,12 @@
     "preserve_drive_request_owner_payout",
     "notify_document_owner_earning_changed",
     "mirror_drive_request_stripe_mode",
-    "bind_stripe_checkout_mode"
+    "bind_stripe_checkout_mode",
+    "bind_drive_settlement_method",
+    "guard_hashcoin_direct_transfer",
+    "reject_hashcoin_ledger_mutation",
+    "detach_hashcoin_wallet_owner",
+    "guard_hashcoin_redemption"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -970,7 +975,11 @@
       "safe_error_code",
       "created_at",
       "updated_at",
-      "stripe_mode"
+      "stripe_mode",
+      "settlement_method",
+      "wallet_id",
+      "sandbox_wallet_id",
+      "credited_at"
     ],
     "drive_request_owner_pricing": [
       "user_id",
@@ -996,7 +1005,8 @@
       "delivery_unsettled_at_erasure",
       "created_at",
       "updated_at",
-      "stripe_mode"
+      "stripe_mode",
+      "settlement_method"
     ],
     "drive_request_payment_orders": [
       "request_id",
@@ -1016,7 +1026,8 @@
       "reconciliation_at",
       "created_at",
       "updated_at",
-      "stripe_mode"
+      "stripe_mode",
+      "settlement_method"
     ],
     "drive_request_payment_refunds": [
       "request_id",
@@ -1125,7 +1136,8 @@
       "access_stop_requested_at",
       "owner_allowed_at",
       "quoted_amount_cents",
-      "quote_version"
+      "quote_version",
+      "settlement_method"
     ],
     "drive_share_reviews": [
       "request_id",
@@ -1361,6 +1373,38 @@
       "disconnected_at",
       "created_at",
       "updated_at"
+    ],
+    "hashcoin_ledger_entries": [
+      "entry_id",
+      "wallet_id",
+      "entry_kind",
+      "source_ref",
+      "amount_coins",
+      "created_at"
+    ],
+    "hashcoin_redemptions": [
+      "redemption_id",
+      "wallet_id",
+      "request_key",
+      "amount_coins",
+      "stripe_mode",
+      "destination_account_id",
+      "status",
+      "stripe_transfer_id",
+      "first_dispatch_at",
+      "lease_expires_at",
+      "attempt_id",
+      "created_at",
+      "updated_at"
+    ],
+    "hashcoin_wallets": [
+      "wallet_id",
+      "user_id",
+      "stripe_mode",
+      "currency",
+      "held",
+      "erased_at",
+      "created_at"
     ],
     "hushh_tech_account_links": [
       "link_id",

@@ -18,6 +18,7 @@ from sqlalchemy import text
 
 from hushh_mcp.services.drive_request_payment_service import _config, _stripe_dict
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
+from hushh_mcp.services.hashcoin_wallet_service import HashcoinWalletService, hashcoins_enabled
 from hushh_mcp.services.stripe_mode import configured_stripe_mode, stripe_environment
 
 _SAFE_RETRY_WINDOW = timedelta(hours=20)
@@ -155,7 +156,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                     text("""SELECT p.request_id,p.status,p.stripe_mode,p.gross_amount_cents,
                   p.refund_amount_cents,p.platform_fee_cents,p.allocated_processing_fee_cents,
                   p.owner_earning_cents,p.reversal_amount_cents,p.created_at,p.transferred_at,
-                  p.expected_files,p.confirmed_files,r.user_id,r.request_envelope
+                  p.expected_files,p.confirmed_files,p.settlement_method,p.credited_at,r.user_id,r.request_envelope
                   FROM drive_request_owner_payouts p
                   JOIN drive_share_requests r ON r.request_id=p.request_id
                   JOIN drive_request_payment_orders o ON o.request_id=p.request_id
@@ -201,6 +202,9 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                     "description": description,
                     "stripeMode": row["stripe_mode"],
                     "status": row["status"],
+                    "settlementMethod": row["settlement_method"],
+                    "creditedCoins": row["owner_earning_cents"] if row["credited_at"] else None,
+                    "creditedAt": row["credited_at"].isoformat() if row["credited_at"] else None,
                     "grossAmountCents": row["gross_amount_cents"],
                     "refundAmountCents": row["refund_amount_cents"],
                     "platformFeeCents": row["platform_fee_cents"],
@@ -223,16 +227,25 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         }
 
     @staticmethod
-    def record_order(connection, *, request_id: str, owner_user_id: str, amount_cents: int) -> bool:
+    def record_order(
+        connection,
+        *,
+        request_id: str,
+        owner_user_id: str,
+        amount_cents: int,
+        settlement_method: str = "stripe_transfer",
+    ) -> bool:
         """Enroll only a new, unpaid order in the same transaction as its INSERT."""
-        if not payout_enabled():
+        if settlement_method not in {"stripe_transfer", "hashcoins"}:
+            raise ValueError("invalid settlement method")
+        if not payout_enabled() and not (settlement_method == "hashcoins" and hashcoins_enabled()):
             raise RuntimeError("owner_payouts_disabled")
         request = str(UUID(str(request_id)))
         if not owner_user_id or type(amount_cents) is not int or not 100 <= amount_cents <= 50000:
             raise ValueError("invalid payout order")
         order = (
             connection.execute(
-                text("""SELECT user_id,amount_cents,status,paid_at,stripe_mode FROM drive_request_payment_orders
+                text("""SELECT user_id,amount_cents,status,paid_at,stripe_mode,settlement_method FROM drive_request_payment_orders
               WHERE request_id=:request FOR UPDATE"""),
                 {"request": request},
             )
@@ -246,16 +259,35 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             or order["status"] not in {"awaiting_payment", "checkout_open"}
             or order["paid_at"] is not None
             or order["stripe_mode"] != configured_stripe_mode()
+            or order.get("settlement_method", "stripe_transfer") != settlement_method
         ):
             raise ValueError("payout_order_not_new")
+        wallet_id = sandbox_wallet_id = None
+        if settlement_method == "hashcoins":
+            wallet_id = HashcoinWalletService.ensure_wallet(
+                connection, user_id=owner_user_id, stripe_mode=order["stripe_mode"]
+            )
+            if order["stripe_mode"] == "live":
+                sandbox_wallet_id = HashcoinWalletService.ensure_wallet(
+                    connection, user_id=owner_user_id, stripe_mode="test"
+                )
         inserted = connection.execute(
-            text("""INSERT INTO drive_request_owner_payouts(request_id,gross_amount_cents,stripe_mode)
-              VALUES (:request,:amount,:stripe_mode) ON CONFLICT (request_id) DO NOTHING"""),
-            {"request": request, "amount": amount_cents, "stripe_mode": configured_stripe_mode()},
+            text("""INSERT INTO drive_request_owner_payouts
+              (request_id,gross_amount_cents,stripe_mode,settlement_method,wallet_id,sandbox_wallet_id)
+              VALUES (:request,:amount,:stripe_mode,:method,:wallet,:sandbox)
+              ON CONFLICT (request_id) DO NOTHING"""),
+            {
+                "request": request,
+                "amount": amount_cents,
+                "stripe_mode": configured_stripe_mode(),
+                "method": settlement_method,
+                "wallet": wallet_id,
+                "sandbox": sandbox_wallet_id,
+            },
         )
         ledger = (
             connection.execute(
-                text("""SELECT gross_amount_cents,commission_bps FROM drive_request_owner_payouts
+                text("""SELECT gross_amount_cents,commission_bps,settlement_method FROM drive_request_owner_payouts
               WHERE request_id=:request"""),
                 {"request": request},
             )
@@ -266,6 +298,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             ledger is None
             or ledger["gross_amount_cents"] != amount_cents
             or ledger["commission_bps"] != 300
+            or ledger.get("settlement_method", "stripe_transfer") != settlement_method
         ):
             raise ValueError("payout_order_mismatch")
         return inserted.rowcount == 1
@@ -278,7 +311,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             connection.execute(
                 text("""SELECT p.request_id,p.currency,p.gross_amount_cents,
                 p.retained_amount_cents,p.platform_fee_cents,
-                p.allocated_processing_fee_cents,p.owner_earning_cents,p.status
+                p.allocated_processing_fee_cents,p.owner_earning_cents,p.status,p.settlement_method
               FROM drive_request_owner_payouts p
               JOIN drive_request_payment_orders o ON o.request_id=p.request_id
               WHERE p.request_id=:request AND o.user_id=:owner AND p.erased_at IS NULL"""),
@@ -297,6 +330,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             "platformFeeCents": row["platform_fee_cents"],
             "processingFeeCents": row["allocated_processing_fee_cents"],
             "ownerEarningCents": row["owner_earning_cents"],
+            "settlementMethod": row["settlement_method"],
             "status": row["status"],
         }
 
@@ -307,13 +341,15 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             raise ValueError("invalid reversal reason")
         row = (
             connection.execute(
-                text("""SELECT status,owner_earning_cents,stripe_transfer_id FROM drive_request_owner_payouts
+                text("""SELECT status,owner_earning_cents,stripe_transfer_id,settlement_method FROM drive_request_owner_payouts
               WHERE request_id=:request FOR UPDATE"""),
                 {"request": str(UUID(str(request_id)))},
             )
             .mappings()
             .first()
         )
+        if row is not None and row.get("settlement_method") == "hashcoins":
+            return HashcoinWalletService.reverse_earning(connection, request_id=request_id)
         if row is None or row["status"] in {"reversal_due", "reversal_unknown", "reversed", "void"}:
             return False
         if row["stripe_transfer_id"] is None or not row["owner_earning_cents"]:
@@ -563,6 +599,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                 )
         fee_count = await self.resolve_processing_fees(max_orders=max_orders)
         outcomes["fees_resolved"] = fee_count
+        outcomes["coin_sources_checked"] = await self.reconcile_coin_sources(max_orders=max_orders)
         return outcomes
 
     async def resolve_processing_fees(self, *, max_orders: int = 20) -> int:
@@ -736,7 +773,11 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             platform_fee_cents=payout["platform_fee_cents"],
             actual_processing_fee_cents=balance["fee"],
         )
-        target = "due" if amounts["owner_earning_cents"] > 0 else "void"
+        target = (
+            ("hashcoins_credited" if payout.get("settlement_method") == "hashcoins" else "due")
+            if amounts["owner_earning_cents"] > 0
+            else "void"
+        )
         connection.execute(
             text("""UPDATE drive_request_owner_payouts SET
               stripe_payment_intent_id=:intent,stripe_charge_id=:charge,
@@ -744,6 +785,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
               actual_processing_fee_cents=:actual,
               allocated_processing_fee_cents=:allocated,
               owner_earning_cents=:earning,status=:status,
+              credited_at=CASE WHEN :status='hashcoins_credited' THEN clock_timestamp() ELSE credited_at END,
               next_check_at=clock_timestamp(),updated_at=clock_timestamp()
               WHERE request_id=:request AND status='awaiting_fee'"""),
             {
@@ -757,7 +799,153 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                 "status": target,
             },
         )
+        if target == "hashcoins_credited":
+            HashcoinWalletService.credit_earning(connection, request_id=str(claim["request_id"]))
         return True
+
+    async def reconcile_coin_sources(self, *, max_orders: int = 20) -> int:
+        if type(max_orders) is not int or not 1 <= max_orders <= 100:
+            raise ValueError("invalid coin reconciliation bound")
+        claims = await self._transaction(
+            lambda c: [
+                dict(row)
+                for row in c.execute(
+                    text("""
+          SELECT * FROM drive_request_owner_payouts WHERE settlement_method='hashcoins'
+          AND stripe_mode=:mode AND status IN ('hashcoins_credited','hashcoins_held')
+          AND next_check_at<=clock_timestamp() ORDER BY next_check_at,request_id LIMIT :limit
+          """),
+                    {"mode": configured_stripe_mode(), "limit": max_orders},
+                )
+                .mappings()
+                .all()
+            ]
+        )
+        if not claims:
+            return 0
+        key, _, _ = _config()
+        for claim in claims:
+            try:
+                charge = _stripe_dict(
+                    await asyncio.to_thread(
+                        self.stripe_api.Charge.retrieve, claim["stripe_charge_id"], api_key=key
+                    )
+                )
+                intent = _stripe_dict(
+                    await asyncio.to_thread(
+                        self.stripe_api.PaymentIntent.retrieve,
+                        claim["stripe_payment_intent_id"],
+                        api_key=key,
+                    )
+                )
+                dispute = None
+                dispute_id = charge.get("dispute")
+                if charge.get("disputed") is True and isinstance(dispute_id, str):
+                    dispute = _stripe_dict(
+                        await asyncio.to_thread(
+                            self.stripe_api.Dispute.retrieve, dispute_id, api_key=key
+                        )
+                    )
+                outcome = self._coin_source_outcome(claim, charge, intent, key, dispute)
+            except Exception:
+                outcome = "provider_unavailable"
+            await self._transaction(
+                lambda c, claim=claim, outcome=outcome: self._finish_coin_source_check(
+                    c, str(claim["request_id"]), outcome
+                )
+            )
+        return len(claims)
+
+    @staticmethod
+    def _coin_source_outcome(
+        claim: dict, charge: dict, intent: dict, key: str, dispute: dict | None = None
+    ) -> str:
+        if (
+            charge.get("id") != claim["stripe_charge_id"]
+            or charge.get("payment_intent") != claim["stripe_payment_intent_id"]
+            or charge.get("amount") != claim["gross_amount_cents"]
+            or charge.get("currency") != "usd"
+            or charge.get("livemode") is not _provider_mode(key)
+            or intent.get("id") != claim["stripe_payment_intent_id"]
+            or intent.get("livemode") is not _provider_mode(key)
+        ):
+            return "provider_mismatch"
+        if (
+            charge.get("paid") is not True
+            or intent.get("status") != "succeeded"
+            or charge.get("amount_refunded") == claim["gross_amount_cents"]
+        ):
+            return "reverse"
+        if charge.get("amount_refunded") != claim["refund_amount_cents"]:
+            return "refund_mismatch"
+        if charge.get("disputed") is True:
+            if (
+                dispute is None
+                or dispute.get("id") != charge.get("dispute")
+                or dispute.get("charge") != charge.get("id")
+                or dispute.get("livemode") is not _provider_mode(key)
+            ):
+                return "dispute_pending"
+            if dispute.get("status") == "lost":
+                return "reverse"
+            if dispute.get("status") not in {"won", "warning_closed"}:
+                return "dispute_pending"
+        return "clear"
+
+    def _finish_coin_source_check(self, connection, request_id: str, outcome: str) -> None:
+        row = self._row(
+            connection,
+            """SELECT * FROM drive_request_owner_payouts
+          WHERE request_id=:request FOR UPDATE""",
+            {"request": request_id},
+        )
+        if row is None or row["status"] not in {"hashcoins_credited", "hashcoins_held"}:
+            return
+        if outcome == "reverse":
+            HashcoinWalletService.reverse_earning(connection, request_id=request_id)
+            return
+        held = outcome in {"provider_mismatch", "refund_mismatch", "dispute_pending"}
+        release = (
+            outcome == "clear"
+            and row["status"] == "hashcoins_held"
+            and row["safe_error_code"] == "charge_unavailable"
+        )
+        hold_error = "charge_unavailable" if outcome == "dispute_pending" else outcome
+        if row["status"] == "hashcoins_held" and row["safe_error_code"] in {
+            "provider_mismatch",
+            "refund_mismatch",
+        }:
+            # A later dispute poll must not overwrite a manual-review fence.
+            hold_error = row["safe_error_code"]
+        if held:
+            connection.execute(
+                text("""UPDATE hashcoin_wallets SET held=TRUE
+              WHERE wallet_id IN (:wallet,:sandbox)"""),
+                {"wallet": row["wallet_id"], "sandbox": row["sandbox_wallet_id"]},
+            )
+        connection.execute(
+            text("""UPDATE drive_request_owner_payouts
+          SET status=CASE WHEN :held THEN 'hashcoins_held'
+              WHEN :release THEN 'hashcoins_credited' ELSE status END,
+            safe_error_code=CASE WHEN :held THEN :error WHEN :release THEN NULL ELSE safe_error_code END,
+            next_check_at=clock_timestamp()+interval '1 hour',updated_at=clock_timestamp()
+          WHERE request_id=:request"""),
+            {
+                "request": request_id,
+                "held": held,
+                "release": release,
+                "error": hold_error if held else None,
+            },
+        )
+        if release:
+            connection.execute(
+                text("""UPDATE hashcoin_wallets w SET held=FALSE
+              WHERE w.wallet_id IN (:wallet,:sandbox) AND w.erased_at IS NULL
+              AND NOT EXISTS (SELECT 1 FROM drive_request_owner_payouts p
+                WHERE p.status='hashcoins_held' AND
+                  (p.wallet_id=w.wallet_id OR p.sandbox_wallet_id=w.wallet_id))"""),
+                {"wallet": row["wallet_id"], "sandbox": row["sandbox_wallet_id"]},
+            )
 
     async def _adopt_production_transfer_accounts(self, request_ids: list[str]) -> None:
         """Existing live earnings must not wait for the owner to reopen Profile.
@@ -808,7 +996,8 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                 str(row[0])
                 for row in c.execute(
                     text("""SELECT request_id FROM drive_request_owner_payouts
-              WHERE stripe_mode=:stripe_mode AND (status IN ('dispatching','unknown') OR
+              WHERE stripe_mode=:stripe_mode AND settlement_method='stripe_transfer'
+                AND (status IN ('dispatching','unknown') OR
                 (:allow_new AND status IN ('due','awaiting_account')))
                 AND next_check_at<=clock_timestamp()
                 AND (lease_expires_at IS NULL OR lease_expires_at<=clock_timestamp())
@@ -877,7 +1066,11 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             "SELECT *, (lease_expires_at > clock_timestamp()) AS lease_active FROM drive_request_owner_payouts WHERE request_id=:request FOR UPDATE",
             {"request": request_id},
         )
-        if payout is None or payout.get("stripe_mode") != configured_stripe_mode():
+        if (
+            payout is None
+            or payout.get("stripe_mode") != configured_stripe_mode()
+            or payout.get("settlement_method", "stripe_transfer") != "stripe_transfer"
+        ):
             return None
         prior_attempt = bool(payout and payout["status"] in {"dispatching", "unknown"})
         live_source = bool(

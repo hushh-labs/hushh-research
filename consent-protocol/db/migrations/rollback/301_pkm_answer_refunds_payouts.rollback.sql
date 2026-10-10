@@ -1,4 +1,4 @@
--- Rollback 300_pkm_answer_refunds_payouts.
+-- Rollback 301_pkm_answer_refunds_payouts.
 --
 -- Drops the paid-answer lane's durable refund and payout tables. Touches
 -- nothing in the Drive lane (262/292) or the packet lane (278/280).

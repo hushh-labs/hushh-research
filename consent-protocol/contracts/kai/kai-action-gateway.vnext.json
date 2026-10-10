@@ -15514,6 +15514,112 @@
       }
     },
     {
+      "action_id": "profile.payouts.test_redeem",
+      "surface_id": "profile_account",
+      "label": "Test Hussh Coins redemption",
+      "aliases": [
+        "test redeem",
+        "test my payout"
+      ],
+      "search_keywords": [
+        "Hussh Coins",
+        "sandbox redemption",
+        "test payout"
+      ],
+      "meaning": "Redeems the available sandbox balance to a test Stripe account. Real Hussh Coins and real money remain unchanged.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/payouts"
+        ],
+        "screens": [
+          "profile_payouts"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Unlocked vault; test balance available; Stripe test payout account linked."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "profile.payouts.test_redeem"
+      },
+      "control_ids": [
+        "profile_payouts_test_redeem"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "components/consent/document-hashcoins.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.payouts.test_redeem",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.payouts.test_redeem",
+            "label": "Test Hussh Coins redemption",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.puppy_agents",
       "surface_id": "puppy_one",
       "label": "Back to Agents",

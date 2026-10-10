@@ -128,6 +128,9 @@ export type OwnerDocumentPayoutStatus =
   | "unknown"
   | "manual_review"
   | "transferred"
+  | "hashcoins_credited"
+  | "hashcoins_held"
+  | "hashcoins_reversed"
   | "reversal_due"
   | "reversal_unknown"
   | "reversed"
@@ -795,7 +798,7 @@ function optionalPrice(value: unknown): number | null | undefined {
 
 const OWNER_PAYOUT_STATUSES = new Set<OwnerDocumentPayoutStatus>([
   "awaiting_delivery", "awaiting_refund", "awaiting_fee", "awaiting_account",
-  "due", "dispatching", "unknown", "manual_review", "transferred",
+  "due", "dispatching", "unknown", "manual_review", "transferred", "hashcoins_credited", "hashcoins_held", "hashcoins_reversed",
   "reversal_due", "reversal_unknown", "reversed", "void",
 ]);
 

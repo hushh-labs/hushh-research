@@ -472,3 +472,50 @@ def test_bank_routes_sanitize_storage_failure(monkeypatch, method, path, detail)
     assert response.status_code == 503
     assert response.json() == {"detail": detail}
     assert "no-store" in response.headers.get("Cache-Control", "")
+
+
+@pytest.mark.parametrize("world", ["live"], indirect=True)
+async def test_sandbox_webhook_uses_separate_signature_key_and_account_mode(world, monkeypatch):
+    live, fake, engine = world
+    test_secret = "whsec_" + "s" * 30
+    monkeypatch.setenv("STRIPE_CONNECT_MODE", "test")
+    monkeypatch.setenv("STRIPE_CONNECT_SECRET_KEY", "sk_test_" + "t" * 30)
+    monkeypatch.setenv("STRIPE_CONNECT_TEST_WEBHOOK_SECRET", test_secret)
+    sandbox = StripeConnectBankPayouts(db=live.db, stripe_api=fake, connect_mode=True)
+    sandbox._transaction = live._transaction
+    fake.livemode = False
+    payload = event(account="acct_owner_inactive", kind="account.updated")
+    with pytest.raises(ConnectBankPayoutError, match="invalid_signature"):
+        await sandbox.process_webhook(payload=payload, signature=signature(payload))
+    assert (
+        await sandbox.process_webhook(
+            payload=payload, signature=signature(payload, secret=test_secret)
+        )
+        == "updated"
+    )
+    assert fake.retrieve_calls[-1][1]["api_key"].startswith("sk_test_")
+    with engine.begin() as connection:
+        accounts = dict(
+            connection.execute(
+                text(
+                    "SELECT stripe_mode,account_ready FROM stripe_owner_payout_accounts WHERE user_id='owner'"
+                )
+            ).all()
+        )
+    assert accounts == {"live": 0, "test": 1}
+    # Correctly signed but wrong-mode events still cannot mutate either ledger.
+    wrong = event(
+        event_id="evt_wrong_mode", account="acct_owner", kind="account.updated", live=True
+    )
+    assert (
+        await sandbox.process_webhook(payload=wrong, signature=signature(wrong, secret=test_secret))
+        == "ignored_mode"
+    )
+
+
+@pytest.mark.parametrize("world", ["test", "live"], indirect=True)
+async def test_bank_summary_exposes_mode_for_both_empty_and_existing_accounts(world):
+    service, fake, _ = world
+    expected = "live" if fake.livemode else "test"
+    for owner in ("owner", "absent"):
+        assert (await service.owner_summary(user_id=owner))["stripeMode"] == expected

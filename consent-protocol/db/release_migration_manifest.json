@@ -270,8 +270,9 @@
     "296_circle_chat_reactions_events.sql",
     "297_document_commerce_readiness.sql",
     "298_stripe_mode_isolation.sql",
-    "299_pkm_answer_requests.sql",
-    "300_pkm_answer_refunds_payouts.sql"
+    "299_hashcoin_wallet.sql",
+    "300_pkm_answer_requests.sql",
+    "301_pkm_answer_refunds_payouts.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -455,8 +456,8 @@
       "142_source_library_scope_retirement.sql",
       "161_atomic_pkm_scope_exposure.sql",
       "226_pkm_manifest_path_repair.sql",
-      "299_pkm_answer_requests.sql",
-      "300_pkm_answer_refunds_payouts.sql"
+      "300_pkm_answer_requests.sql",
+      "301_pkm_answer_refunds_payouts.sql"
     ],
     "developer": [
       "070_developer_registry.sql",
@@ -566,7 +567,8 @@
     "296_circle_chat_reactions_events.sql": "rollback/296_circle_chat_reactions_events.rollback.sql",
     "297_document_commerce_readiness.sql": "rollback/297_document_commerce_readiness.rollback.sql",
     "298_stripe_mode_isolation.sql": "rollback/298_stripe_mode_isolation.rollback.sql",
-    "299_pkm_answer_requests.sql": "rollback/299_pkm_answer_requests.rollback.sql",
-    "300_pkm_answer_refunds_payouts.sql": "rollback/300_pkm_answer_refunds_payouts.rollback.sql"
+    "299_hashcoin_wallet.sql": "rollback/299_hashcoin_wallet.rollback.sql",
+    "300_pkm_answer_requests.sql": "rollback/300_pkm_answer_requests.rollback.sql",
+    "301_pkm_answer_refunds_payouts.sql": "rollback/301_pkm_answer_refunds_payouts.rollback.sql"
   }
 }
