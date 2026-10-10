@@ -33,7 +33,7 @@ OUTBOX_TABLES = frozenset({"drive_share_events", "drive_query_events"})
 # Trusted circle the owner prices the request on Allow in its review, so that
 # request keeps the review. Metadata only, with the Consent Center's own
 # predicates; no request envelope is opened.
-_OWNER_SETUP_STEP = """SELECT CASE
+_OWNER_SETUP_STEP_TEMPLATE = """SELECT CASE
   WHEN NOT {owner_drive_ready} THEN 'drive'
   WHEN drive_share_requests.preparation_error_code='owner_payout_required' THEN 'payouts'
   WHEN drive_share_requests.preparation_error_code='owner_price_required'
@@ -48,9 +48,13 @@ WHERE drive_share_requests.request_id=:request AND drive_share_requests.user_id=
     SELECT 1 FROM drive_request_payment_orders pay
     WHERE pay.request_id=drive_share_requests.request_id
       AND pay.status IN ('paid','refunded')
-  )""".replace("{owner_drive_ready}", _OWNER_DRIVE_READY).replace(
-    "{trusted_recipient}", _TRUSTED_RECIPIENT
-)
+  )"""
+
+
+def _owner_setup_step_sql() -> str:
+    return _OWNER_SETUP_STEP_TEMPLATE.replace("{owner_drive_ready}", _OWNER_DRIVE_READY).replace(
+        "{trusted_recipient}", _TRUSTED_RECIPIENT
+    )
 
 
 class DriveShareNotificationStore(ExternalConnectorLifecycleStore):
@@ -112,7 +116,7 @@ class DriveShareNotificationStore(ExternalConnectorLifecycleStore):
             return cast(
                 str | None,
                 connection.execute(
-                    text(_OWNER_SETUP_STEP),
+                    text(_owner_setup_step_sql()),
                     {"request": request_id, "user": user_id, "live_policy_hash": LIVE_POLICY_HASH},
                 ).scalar_one_or_none(),
             )
