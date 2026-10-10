@@ -34,6 +34,9 @@ regexes = [
   '''abcb54b58f01f2eb99ac4bda811187a21dd4a368987a8e570b43847b7a2a8bb2''',
   # Reproducible workflow API contract digest after the command repair.
   '''4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383''',
+  # Reproducible workflow contract digest after documenting Circle setup.
+  # Exact generated metadata only; future contract digests remain scanned.
+  '''e8b5f1471a8ff3a3c44313dd7c8347d4dd3d3fec40c54f72a65743b02c0fb8a9''',
   # Python enum constant passed to token validation, never token material.
   '''ConsentScope\.VAULT_OWNER''',
   # Public algorithm identifier used by Location recipient-key fixtures.
