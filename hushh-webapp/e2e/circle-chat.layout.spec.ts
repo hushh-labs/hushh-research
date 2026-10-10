@@ -167,6 +167,9 @@ for (const width of [320, 393, 1440]) {
 test("incoming messages preserve reading position and your reply returns to the latest message", async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 844 }); await mount(page);
   const list = page.getByLabel("Circle messages", { exact: true });
+  // The initial history load pins the transcript on a frame. Wait until its
+  // readable-bottom receipt confirms that setup before simulating a scroll.
+  await expect.poll(() => page.evaluate(() => (window as any).chatFixture.read.includes(45))).toBe(true);
   await list.evaluate((node) => { node.scrollTop = 0; });
   await expect(page.getByRole("button", { name: "Go to latest messages" })).toBeVisible();
   const jump = await page.getByRole("button", { name: "Go to latest messages" }).boundingBox();
