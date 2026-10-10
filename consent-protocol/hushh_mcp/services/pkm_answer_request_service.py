@@ -629,10 +629,14 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                            updated_at = clock_timestamp()
                        WHERE request_id IN (
                          SELECT r.request_id FROM pkm_answer_requests r
-                         LEFT JOIN pkm_answer_deliveries d ON d.request_id = r.request_id
-                         WHERE r.status = 'answering' AND d.request_id IS NULL
+                         WHERE r.status = 'answering'
                            AND r.answer_deadline_at IS NOT NULL
                            AND r.answer_deadline_at < clock_timestamp()
+                           -- NOT EXISTS, not a LEFT JOIN: Postgres refuses
+                           -- FOR UPDATE on the nullable side of an outer join.
+                           AND NOT EXISTS (
+                             SELECT 1 FROM pkm_answer_deliveries d
+                             WHERE d.request_id = r.request_id)
                          ORDER BY r.answer_deadline_at
                          LIMIT :limit FOR UPDATE SKIP LOCKED)
                        RETURNING request_id"""
