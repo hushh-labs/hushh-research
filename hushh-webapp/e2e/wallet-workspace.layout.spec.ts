@@ -654,11 +654,37 @@ for (const width of [390, 1440]) {
       const indicator = document.querySelector('[data-testid="top-shell-tab-indicator"]')!.getBoundingClientRect();
       return Math.abs(selected.x + selected.width / 2 - indicator.x - indicator.width / 2);
     });
+    const expectAligned = async () => {
+      try {
+        await expect.poll(alignment).toBeLessThan(2);
+      } catch (error) {
+        // Only synthetic fixture geometry is logged; assertions stay strict.
+        console.error("Wallet tab alignment geometry", await page.evaluate(() => {
+          const geometry = (selector: string) => [...document.querySelectorAll<HTMLElement>(selector)].map(el => {
+            const bounds = el.getBoundingClientRect();
+            const style = getComputedStyle(el);
+            return { id: el.id, selected: el.getAttribute("aria-selected"),
+              x: bounds.x, width: bounds.width, scrollLeft: el.scrollLeft,
+              transform: style.transform, transition: style.transition };
+          });
+          const strip = document.querySelector<HTMLElement>('[data-top-shell-tab-set="wallet"]');
+          return {
+            position: strip?.style.getPropertyValue("--top-shell-tab-swipe-wallet-position"),
+            tabs: geometry('[role="tab"]'),
+            indicator: geometry('[data-testid="top-shell-tab-indicator"]'),
+            pager: geometry('[data-swipe-views-root="true"]'),
+            panels: geometry('[role="tabpanel"]'),
+            visibility: document.visibilityState,
+          };
+        }));
+        throw error;
+      }
+    };
     for (const [switchIndex, name] of ["Add", "Sharing", "Cards", "Add", "Sharing", "Add"].entries()) {
       await test.step(`Switch ${switchIndex + 1}: ${name} and form presses`, async () => {
         await page.getByRole("tab", { name, exact: true }).click();
         await expect(page.getByRole("tab", { name, exact: true })).toHaveAttribute("aria-selected", "true");
-        await expect.poll(alignment).toBeLessThan(2);
+        await expectAligned();
         if (name === "Add") {
           for (const label of ["Show", "Hide", "Show", "Hide"]) {
             const button = page.getByRole("button", { name: `${label} CVV and PIN`, exact: true });
@@ -673,7 +699,7 @@ for (const width of [390, 1440]) {
             expect(await alignment()).toBeLessThan(2);
             await page.mouse.up();
             await expect(page.getByRole("button", { name: `${label === "Show" ? "Hide" : "Show"} CVV and PIN`, exact: true })).toBeVisible();
-            await expect.poll(alignment).toBeLessThan(2);
+            await expectAligned();
             expect(await page.locator('[data-swipe-views-root="true"]').evaluate(el => el.scrollLeft)).toBe(0);
           }
         }
