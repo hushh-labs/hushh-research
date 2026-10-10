@@ -31,6 +31,11 @@ another reviewer store or a privileged app-unlock route.
    entering the named secure field; submit normal Unlock once. A device passcode
    is not a vault passphrase. Persist neither in skills, env files, launch
    arguments, xctestrun files, screenshots, traces or diagnostics.
+7. Check that the native privacy cover has actually retired before private
+   input. XCTest can report an underlying WebKit control as hittable while
+   UIKit still covers it. Use only the authored recovery action or cancel a
+   positively identified authenticator prompt; never remove the shield, tap
+   an unrelated system alert or interpret blocked input as credential rejection.
 
 ## Preserve the session and classify the result
 

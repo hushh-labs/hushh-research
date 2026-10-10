@@ -150,6 +150,38 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue(hosts.firstMatch.waitForExistence(timeout: 15), "NATIVE_ADMISSION_HOST_UNAVAILABLE")
         XCTAssertEqual(hosts.count, 1, "NATIVE_ADMISSION_HOST_COUNT_INVALID")
         let web = hosts.firstMatch
+        if ProcessInfo.processInfo.environment["HUSHH_REHEARSAL_RETRY_PRIVACY"] == "true" {
+            // An automatic authenticator prompt can keep the app inactive and
+            // cover its fallback. Cancel only a recognized system prompt;
+            // never select an unrelated alert or submit a device passcode.
+            let system = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+            let biometric = system.descendants(matching: .any).matching(NSPredicate(
+                format: "label CONTAINS[c] %@ OR label == %@", "Face ID", "Unlock One"
+            )).firstMatch.exists
+            let passkey = system.descendants(matching: .any).matching(NSPredicate(
+                format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@", "Scan QR Code", "passkey"
+            )).firstMatch.exists
+            let cancel = system.buttons["Cancel"].firstMatch
+            print("NATIVE_SYSTEM_METHOD biometric=\(biometric) passkey=\(passkey) cancel_hittable=\(cancel.exists && cancel.isHittable)")
+            if (biometric || passkey) && cancel.exists && cancel.isHittable {
+                cancel.tap()
+                print("NATIVE_SYSTEM_METHOD_CANCELLED")
+            }
+            let cover = app.otherElements["session-privacy-shield"].firstMatch
+            if cover.exists {
+                let retry = app.buttons["session-privacy-retry"].firstMatch
+                print("NATIVE_PRIVACY_RECOVERY_ENTRY cover_hittable=\(cover.isHittable) retry_present=\(retry.exists)")
+                guard waitForAdmittedControl(retry) else {
+                    XCTFail("PRIVACY_RECOVERY_UNAVAILABLE"); return
+                }
+                retry.tap()
+                let released = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: cover)
+                guard XCTWaiter.wait(for: [released], timeout: 20) == .completed else {
+                    XCTFail("PRIVACY_RECOVERY_NOT_SETTLED"); return
+                }
+            }
+            print("NATIVE_PRIVACY_RECOVERY_COMPLETED")
+        }
         printNativeControlStatuses(web)
         for identifier in ["native-dock-editor", "chat-history-toggle", "chat-history-close", "profile-close"] {
             let control = app.descendants(matching: .any).matching(identifier: identifier).firstMatch
@@ -213,6 +245,14 @@ final class AppUITests: XCTestCase {
             format: "label CONTAINS %@", "Vault opened, but we could not complete access setup. Please try again."
         )).firstMatch.exists
         print("VAULT_GATE_NOTICE unlock_count=\(web.buttons.matching(NSPredicate(format: "label == %@", "Unlock")).count) access_setup_failure=\(accessSetupFailure)")
+        // Public hit geometry separates a blocked fallback tap from credential
+        // rejection. Never inspect field values or dump the private hierarchy.
+        print("VAULT_GATE_ISOLATION privacy_cover=\(app.otherElements["session-privacy-shield"].exists)")
+        for (name, control) in [("method", web.buttons["Passphrase"].firstMatch),
+                                ("entry", web.secureTextFields["Vault passphrase"].firstMatch)] {
+            let bounds = control.exists ? control.frame : .zero
+            print("VAULT_GATE_CONTROL name=\(name) present=\(control.exists) hittable=\(control.exists && control.isHittable) x=\(Int(bounds.minX.rounded())) y=\(Int(bounds.minY.rounded())) width=\(Int(bounds.width.rounded())) height=\(Int(bounds.height.rounded()))")
+        }
         let publicReceipt = app.buttons["native-vault-layout"]
         if let raw = publicReceipt.exists ? publicReceipt.value as? String : nil,
            let data = raw.data(using: .utf8),
@@ -616,6 +656,7 @@ final class AppUITests: XCTestCase {
             let profileOpen = app.buttons["Open Profile"].firstMatch
             let profileClose = app.buttons["Close Profile"].firstMatch
             let bar = app.descendants(matching: .any).matching(identifier: "one-native-navigation").firstMatch
+            XCTAssertTrue(waitForAdmittedControl(bar), "Recovery did not admit the standard native navigation")
             XCTAssertFalse(app.textViews["native-dock-editor"].exists,
                            "Recovery must never activate a second composer")
             for _ in 0..<10 {
@@ -623,10 +664,12 @@ final class AppUITests: XCTestCase {
                 XCTAssertTrue(waitForAdmittedControl(close))
                 XCTAssertFalse(bar.exists && bar.isHittable, "Native navigation escaped full-height History")
                 close.tap()
+                XCTAssertTrue(waitForAdmittedControl(bar), "Native navigation did not return after History")
                 XCTAssertTrue(waitForAdmittedControl(profileOpen)); profileOpen.tap()
                 XCTAssertTrue(waitForAdmittedControl(profileClose))
                 XCTAssertFalse(bar.exists && bar.isHittable, "Native navigation escaped full-height Profile")
                 profileClose.tap()
+                XCTAssertTrue(waitForAdmittedControl(bar), "Native navigation did not return after Profile")
                 XCTAssertTrue(waitForAdmittedControl(composer))
                 XCTAssertEqual(webView.frame, hostFrame, "Recovery replaced or shifted the WebView")
                 XCTAssertEqual(composer.frame.minX, composerFrame.minX, accuracy: 1)
@@ -639,6 +682,7 @@ final class AppUITests: XCTestCase {
             XCTAssertTrue(waitForAdmittedControl(profileClose)); profileClose.tap()
             dismissRehearsalChatKeyboard(app)
             XCTAssertTrue(waitForAdmittedControl(composer))
+            XCTAssertTrue(waitForAdmittedControl(bar), "Native navigation did not return after the keyboard")
             XCTAssertEqual(webView.frame, hostFrame)
             print("REACT_RECOVERY_CONTINUITY ten_profile_ten_history_keyboard_single_composer_warm_host")
         }
@@ -3448,6 +3492,13 @@ final class AppUITests: XCTestCase {
     private func attemptVaultPassphraseUnlock(app: XCUIApplication) -> Bool {
         guard !vaultUnlockSubmitted else {
             return false
+        }
+        // UIKit's modal privacy cover can leave underlying WebKit elements
+        // reported as hittable. Never target a credential through that cover.
+        let privacyCover = app.otherElements["session-privacy-shield"].firstMatch
+        let uncovered = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: privacyCover)
+        guard XCTWaiter.wait(for: [uncovered], timeout: 15) == .completed else {
+            print("VAULT_METHOD_ADMISSION stage=privacy_covered"); return false
         }
         let vaultCreationControls = [
             app.buttons["Create Vault"],
