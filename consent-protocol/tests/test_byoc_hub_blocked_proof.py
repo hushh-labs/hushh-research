@@ -146,6 +146,32 @@ async def test_calendar_tool_calls_answer_with_the_hub_shut(shut_hub):
     assert {r.url.host for r in google.requests} == {"www.googleapis.com"}
 
 
+async def test_calendar_refuses_a_replaced_grant_before_releasing_events(shut_hub):
+    from dataclasses import replace
+
+    from hushh_mcp.services import pod_connector_credentials as credentials
+
+    google, hub_reads = shut_hub
+    original = credentials.active_connector_credential("calendar")
+    assert original is not None
+
+    def replace_during_read(_request):
+        credentials.set_active_connector_credentials(
+            {
+                "calendar": replace(original, credential_id="new-owner-approved-grant"),
+            }
+        )
+        return {"items": [{"id": "e1", "summary": "Must not escape"}]}
+
+    google.on("GET", EVENTS, replace_during_read)
+    result = await calendar_tools.calendar_events(
+        h.tool_context(), start_at="2026-10-07T00:00:00Z", end_at="2026-10-08T00:00:00Z"
+    )
+    assert result["status"] != "ok"
+    assert not result.get("events")
+    assert hub_reads == []
+
+
 async def test_a_hub_admitted_turn_gets_no_mail_from_the_agents_own_login(shut_hub):
     google, hub_reads = shut_hub
     runtime = _email_runtime("hub-verified-consent-token", None)

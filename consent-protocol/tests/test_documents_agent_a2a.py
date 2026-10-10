@@ -369,7 +369,7 @@ async def test_live_profile_uses_mcp_without_selected_index_or_fallback(monkeypa
     ],
 )
 async def test_never_connected_drive_asks_to_connect_not_reconnect(
-    monkeypatch, connection_row, expected
+    monkeypatch, connection_row, expected, shared_hub_owner
 ):
     """A person who never connected Drive gets Connect, not Reconnect.
 

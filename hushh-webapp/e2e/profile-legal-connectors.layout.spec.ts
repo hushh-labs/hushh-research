@@ -169,7 +169,6 @@ test("Profile chrome and Preferences keep their grid while the panel follows a p
     };
     dispatch("touchstart", 120, 100); dispatch("touchmove", 170, 220);
     const after = [title.getBoundingClientRect().x, controls.getBoundingClientRect().x, body.getBoundingClientRect().x];
-    const frameTransform = frame.style.transform;
     dispatch("touchcancel", 170, 240);
     return { before, after, settledRight, hasDuplicatedAppearance: frame.querySelectorAll('[data-profile-appearance-preferences]').length };
   });

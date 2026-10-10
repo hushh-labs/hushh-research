@@ -8,7 +8,7 @@ import pytest
 from hushh_mcp.services.drive_document_worker import DriveDocumentWorker
 
 
-async def test_worker_requires_explicit_rollout_for_each_owner(monkeypatch):
+async def test_worker_requires_explicit_rollout_for_each_owner(monkeypatch, shared_hub_owner):
     monkeypatch.setenv("ENVIRONMENT", "test")
     monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
     monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "approved-owner")

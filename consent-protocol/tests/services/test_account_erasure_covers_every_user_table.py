@@ -41,6 +41,7 @@ _DROP = re.compile(r'DROP TABLE (?:IF EXISTS )?"?([a-z_0-9]+)"?', re.I)
 # Every edge is checked against the creating migration below. The parent must
 # itself be deleted or lead to another checked cascade edge.
 _CASCADE_PARENT = {
+    "circle_chat_reactions": "actor_profiles",
     "one_referral_circle_contributions": "actor_profiles",
     "one_referral_circle_selections": "actor_profiles",
     "one_referral_display_handles": "actor_profiles",

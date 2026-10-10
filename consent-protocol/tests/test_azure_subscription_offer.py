@@ -249,9 +249,11 @@ async def test_a_failed_offer_read_never_fails_the_setup():
 
 
 def test_the_setup_route_hands_the_job_the_offer_note(spawned, monkeypatch):  # noqa: F811
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "true")
     _redeems_as(monkeypatch)
     _listing(monkeypatch, (_SUB, "Enabled"))
     response = _client().post(_COMPLETE, json={"code": "c", "state": _state()})
+    assert response.status_code == 200
     assert response.json()["status"] == "setup_started"
     kind, kwargs = spawned[0]
     assert kind == "setup" and kwargs["note_offer"] is offer_mod.note_subscription_offer

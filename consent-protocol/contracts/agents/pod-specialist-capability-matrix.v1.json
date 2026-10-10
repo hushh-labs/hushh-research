@@ -16,6 +16,8 @@
         "hub_doors": [],
         "one_tool_names": [
           "calendar_availability",
+          "calendar_calendars",
+          "calendar_event_detail",
           "calendar_events",
           "calendar_free_slots",
           "calendar_summary",
@@ -186,7 +188,8 @@
         ],
         "one_tool_names": [
           "ask_email_agent",
-          "propose_gmail_mailbox_change"
+          "propose_gmail_mailbox_change",
+          "propose_gmail_todo"
         ],
         "pod_agent_tool": false,
         "pod_dispatchable": true,

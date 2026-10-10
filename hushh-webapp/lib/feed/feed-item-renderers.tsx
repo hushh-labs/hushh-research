@@ -2,7 +2,6 @@ import type { ComponentType } from "react";
 import {
   AlertTriangle,
   Bot,
-  CalendarDays,
   Database,
   FileText,
   Mail,

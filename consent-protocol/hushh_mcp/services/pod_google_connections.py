@@ -21,7 +21,11 @@ from typing import Any, Literal, Optional
 
 from hushh_mcp.services import pod_connector_credentials as credentials
 from hushh_mcp.services.google_calendar_service import GoogleCalendarService
-from hushh_mcp.services.google_connection_service import GoogleConnectionError
+from hushh_mcp.services.google_connection_service import (
+    _SERVICE_SCOPES,
+    GoogleConnectionError,
+    _scopes_cover,
+)
 from hushh_mcp.services.pod_action_proposals import PodActionProposalStore, pod_action_proposals
 from hushh_mcp.services.pod_connector_tokens import (
     CREDENTIALS_UNAVAILABLE,
@@ -63,6 +67,52 @@ class PodGoogleConnections:
             raise GoogleConnectionError("Google connection changed; review again", status_code=409)
         self.credential_id = held.credential_id
         return held
+
+    def _owner_credential(
+        self, user_id: str, service: str
+    ) -> credentials.ConnectorCredential | None:
+        if not user_id or user_id != (self._owner or _pod_owner()) or service not in _SERVICES:
+            return None
+        try:
+            return credentials.active_connector_credential(service)
+        except credentials.ConnectorCredentialsUnavailable:
+            raise GoogleConnectionError("Google connection unavailable", status_code=503) from None
+
+    async def read_grant_binding(
+        self, *, user_id: str, service: Literal["drive", "calendar"]
+    ) -> tuple[str, ...] | None:
+        held = self._owner_credential(user_id, service)
+        required = set(_SERVICE_SCOPES.get(service, {}).get("read", ()))
+        if (
+            held is None
+            or held.status != credentials.STATUS_CONNECTED
+            or not required
+            or not _scopes_cover(set(held.granted_scopes), required)
+        ):
+            return None
+        # Refresh rotates generation without changing the approved account/grant.
+        # Reconnect, revocation or scope changes must invalidate an in-flight read.
+        return (
+            user_id,
+            service,
+            held.credential_id,
+            held.account_subject,
+            str(held.connected_at_ms),
+            *sorted(held.granted_scopes),
+        )
+
+    async def has_service_scope(self, *, user_id: str, service: str, scope: str) -> bool:
+        held = self._owner_credential(user_id, service)
+        return bool(
+            held
+            and held.status == credentials.STATUS_CONNECTED
+            and _scopes_cover(set(held.granted_scopes), {scope})
+        )
+
+    async def status(self, *, user_id: str, service: str) -> dict[str, Any]:
+        held = self._owner_credential(user_id, service)
+        connected = bool(held and held.status == credentials.STATUS_CONNECTED)
+        return {"connected": connected, "status": held.status if held else "disconnected"}
 
     async def access_token(
         self, *, user_id: str, service: Any, access_level: Literal["read", "manage"]

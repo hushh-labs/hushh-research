@@ -287,6 +287,8 @@ function AppShellFrame({ children }: ProvidersProps) {
     () => resolveProfilePaneUrlState(searchParams),
     [searchParams],
   );
+  const profilePaneResumeLocation = profilePaneResume.ownerId === userId
+    ? profilePaneResume.location : PROFILE_PANE_ROOT_LOCATION;
   const profilePaneOpen = profilePaneEnabled && profilePaneUrlState.open;
   const isFullscreenTopFlow = routeLayoutMode === "flow";
   const shouldLockFullscreenRoot = isFullscreenTopFlow || hidesPersistentChrome;
@@ -469,6 +471,17 @@ function AppShellFrame({ children }: ProvidersProps) {
   }, [topShellScrollResetKey]);
 
   useEffect(() => {
+    setProfilePaneResume((current) => {
+      if (current.ownerId !== userId) return {
+        ownerId: userId, location: profilePaneUrlState.open
+          ? profilePaneUrlState.location : PROFILE_PANE_ROOT_LOCATION,
+      };
+      return profilePaneUrlState.open
+        ? { ownerId: userId, location: profilePaneUrlState.location } : current;
+    });
+  }, [profilePaneUrlState, userId]);
+
+  useEffect(() => {
     if (authLoading || isAuthenticated || !profilePaneUrlState.open) return;
     clearProfilePaneQuery(pathname || ROUTES.ONE_HOME, searchParams);
   }, [
@@ -498,7 +511,7 @@ function AppShellFrame({ children }: ProvidersProps) {
       openProfilePane(
         pathname || ROUTES.ONE_HOME,
         searchParams,
-        PROFILE_PANE_ROOT_LOCATION,
+        profilePaneResumeLocation,
       );
       if (detail?.source === "tap") appHaptic("light");
       else if (detail?.source === "native_swipe") appHaptic("selection");
@@ -515,6 +528,7 @@ function AppShellFrame({ children }: ProvidersProps) {
     pathname,
     profilePaneEnabled,
     profilePaneUrlState.open,
+    profilePaneResumeLocation,
     searchParams,
     userId,
   ]);
@@ -527,14 +541,14 @@ function AppShellFrame({ children }: ProvidersProps) {
           openProfilePane(
             pathname || ROUTES.ONE_HOME,
             searchParams,
-            PROFILE_PANE_ROOT_LOCATION,
+            profilePaneResumeLocation,
           );
         }
         return;
       }
       closeProfilePane(pathname || ROUTES.ONE_HOME, searchParams);
     },
-    [profilePaneIsOpen, pathname, searchParams],
+    [profilePaneIsOpen, pathname, searchParams, profilePaneResumeLocation],
   );
 
   useEffect(() => {

@@ -1,5 +1,6 @@
 "use client";
 
+import { formatMessageTime, formatMessageFeedMarker, formatConversationTime } from "@/lib/direct-messages/message-timestamps";
 import { replaceMessageHistory } from "@/lib/direct-messages/message-history";
 import { writeLastMessagesSelection, type LastMessagesSelection } from "@/lib/direct-messages/last-selection";
 
@@ -173,45 +174,6 @@ function MessageAttachment({ message, getIdToken }: {
         {attachment.kind === "document" ? "Download" : "View"} {attachment.name}
       </button>}
   </div>;
-}
-
-/** Per-message metadata always uses a clock time. Repeating a calendar date
- * below every historical bubble makes a thread much harder to scan. */
-function formatMessageTime(value: string | null | undefined): string {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
-
-function formatMessageFeedMarker(value: string | null | undefined): string {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const now = new Date();
-  if (date.toDateString() === now.toDateString()) return "Today";
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
-  return date.toLocaleDateString([], {
-    month: "short",
-    day: "numeric",
-    year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
-  });
-}
-
-function formatConversationTime(value: string | null | undefined): string {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const now = new Date();
-  if (date.toDateString() === now.toDateString()) {
-    return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  }
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
-  return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
 function conversationLabel(conversation: DirectMessageConversation): string {
@@ -510,6 +472,11 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     loadGeneration.current++;
   }, []);
 
+  // Read the current render only when selection changes; later history
+  // settlement must not reset the selected conversation or its draft.
+  const selectionRead = useRef({ requestedConversationId, readScope, conversationId: storedThread.conversation?.id });
+  selectionRead.current = { requestedConversationId, readScope, conversationId: storedThread.conversation?.id };
+
   useLayoutEffect(() => {
     ownerRef.current = user?.uid; invalidateSelection();
     selectionRef.current = routeSelection;
@@ -523,9 +490,10 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     setLoadingOlder(false);
     // An accepted send admits only this owner's exact destination before
     // encrypted navigation. Preserve it until the destination history settles.
-    const acceptedHandoff = Boolean(requestedConversationId && readScope
-      && loadedReadScopes.current.includes(readScope)
-      && storedThread.conversation?.id === requestedConversationId);
+    const observed = selectionRead.current;
+    const acceptedHandoff = Boolean(observed.requestedConversationId && observed.readScope
+      && loadedReadScopes.current.includes(observed.readScope)
+      && observed.conversationId === observed.requestedConversationId);
     if (!acceptedHandoff) { setMessages([]); setThread(EMPTY_THREAD); }
     return invalidateSelection;
   }, [invalidateSelection, routeSelection, user?.uid]);

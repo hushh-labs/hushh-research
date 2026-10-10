@@ -377,6 +377,23 @@ the signed endpoint; the browser pins it only after its own admission succeeds.
 Puppy access still requires the owner's explicit per-device choice in Trusted
 devices.
 
+**Changing the app domain.** Read the exact owner's registry assignment and
+installed image before touching its origin policy. For an existing service,
+use authenticated maintenance prepare/idle handoff and capture recovery and
+service identity. Append only the approved app origin to the existing CORS list;
+preserve the image, keys, storage, worker count and selected resource/scale
+configuration. Verify the replacement revision, recovered public key, approved
+and foreign-origin preflights, anonymous machine-route refusal and renewed
+signed admission. Remove any bounded operator impersonation grant afterward.
+This is same-image configuration maintenance, not software-update approval.
+Record its receipt separately from the owner's durable update operation.
+
+For a standalone Hermes relay, an HTTPS admission success does not prove WSS
+trust configuration. Use the relay's verified CA context (configured trust store
+or its pinned certificate bundle); never disable certificate or hostname checks.
+Run the existing Hermes profile with its own dependency-complete environment.
+Keep admission, sealed connection and local-model completion timings separate.
+
 Direct setup must bind the authenticated owner to this exact pod before issuing
 its local app session. Connector/AI setup then uses that owner session with the
 required scope and held incarnation; hub consent alone cannot open a credential

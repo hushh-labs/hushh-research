@@ -8885,7 +8885,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     }).catch(() => undefined);
     return () => { active = false; };
   }, [user, isVaultUnlocked, tokenIsFresh, getVaultOwnerToken]);
-  const nativeComposerContext = useRef(crypto.randomUUID());
   const editorPurpose = `${composerExpanded}:${longPromptAttachment?.isExpanded ?? false}`;
   const nativeEditor = useRef({ text: input, purpose: editorPurpose, revision: 0, echo: null as string | null });
   if (nativeEditor.current.text !== input || nativeEditor.current.purpose !== editorPurpose) {

@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from api.hub_route_inventory import CONNECTOR_INVENTORY, parse_inventory
+from api.hub_route_inventory import CONNECTOR_INVENTORY, NETWORK_INVENTORY, parse_inventory
 
 HUB_ROUTE_PREFIXES = ("/api/one", "/api/kai", "/api/pkm", "/api/connectors")
 WEBSOCKET = "WS"
@@ -152,6 +152,7 @@ POST /api/pkm/agent-lab/structure
 POST /api/pkm/get-context
 POST /api/pkm/memory/proposals
 [AUTHORITY]
+POST /api/one/email/send/status/{action_id}
 GET /api/one/email/send/status/{action_id}
 GET /api/one/pod/owner-feed/{kind}
 POST /api/one/pod/owner-feed/command
@@ -175,170 +176,8 @@ POST /api/one/webauthn/register/verify
 POST /api/pkm/domains/{domain}/scope-exposure
 GET /api/pkm/memory/mutation-impact/{user_id}/{domain}
 GET /api/pkm/scopes/{user_id}
-[NETWORK]
-GET /api/one/business/suggestion
-GET /api/one/credits
-POST /api/one/credits/subscribe
-POST /api/one/credits/cancel
-GET /api/one/directory-claims/me
-POST /api/one/directory-claims
-DELETE /api/one/directory-claims/me
-PATCH,DELETE /api/one/messages/conversations/{conversation_id}/messages/{message_id}
-PUT /api/one/messages/conversations/{conversation_id}/messages/{message_id}/reaction
-POST /api/one/packet-orders
-POST /api/one/packet-orders/credits
-GET /api/one/packet-orders/{order_id}
-GET /api/one/payouts
-POST /api/one/payouts/onboard
-GET,POST /api/one/packets
-PATCH,DELETE /api/one/packets/{packet_id}
-GET,POST /api/one/referrals/circle
-GET,POST /api/one/referrals/handle
-GET /api/one/referrals/leaderboard
-GET /api/one/referrals/circles/leaderboard
-GET /api/one/referrals/milestones
-GET /api/one/referrals/engagement
-POST /api/one/capabilities/execute
-GET /api/one/commands/location/circle-name/active
-POST /api/one/commands/location/circle-name/{run_id}/submit
-GET /api/one/connections
-POST /api/one/connections/contact-sync
-GET /api/one/connections/directory
-POST /api/one/connections/link-circle-invite
-GET,POST /api/one/connections/requests
-POST /api/one/connections/requests/{request_id}/accept
-POST /api/one/connections/requests/{request_id}/cancel
-POST /api/one/connections/requests/{request_id}/reject
-GET /api/one/connections/requests/{request_id}/scopes
-DELETE /api/one/connections/{connection_id}
-GET /api/one/connections/{counterpart_user_id}/context
-GET /api/one/connections/{counterpart_user_id}/information-scopes
-GET /api/one/connections/{counterpart_user_id}/scope-catalog
-GET /api/one/feed
-POST /api/one/feed/read
-GET /api/one/feed/unread-count
-POST /api/one/information-requests
-GET /api/one/information-requests/shared-with-me
-GET /api/one/information-requests/{bundle_id}
-POST /api/one/information-requests/{bundle_id}/cancel
-GET /api/one/location/activity
-PATCH /api/one/location/auto-approve-preference
-POST /api/one/location/circle-codes/join
-POST /api/one/location/circle-codes/preview
-POST /api/one/location/circle-codes/public-preview
-POST /api/one/location/circle-codes/resolve
-POST /api/one/location/circle-invites
-DELETE /api/one/location/circle-invites/{invite_id}
-GET /api/one/location/circle-invites/{public_token}
-POST /api/one/location/circle-invites/{public_token}/claim
-GET,POST /api/one/location/circle-member-invites
-DELETE /api/one/location/circle-member-invites/{invite_id}
-POST /api/one/location/circle-member-invites/{invite_id}/accept
-POST /api/one/location/circle-member-invites/{invite_id}/decline
-GET,POST /api/one/location/circles
-POST /api/one/location/circles/bootstrap
-POST /api/one/location/circles/sms-system
-POST /api/one/location/circles/trusted
-DELETE,GET,PATCH /api/one/location/circles/{circle_id}
-GET /api/one/location/circles/{circle_id}/eligible-connections
-DELETE,POST /api/one/location/circles/{circle_id}/invite-code
-GET /api/one/location/circles/{circle_id}/members
-DELETE /api/one/location/circles/{circle_id}/members/me
-DELETE /api/one/location/circles/{circle_id}/members/{member_user_id}
-GET /api/one/location/circles/{circle_id}/overview
-POST /api/one/location/grants
-DELETE /api/one/location/grants/{grant_id}
-PATCH /api/one/location/grants/{grant_id}/duration
-POST /api/one/location/grants/{grant_id}/refer
-PATCH /api/one/location/grants/{grant_id}/shorten
-GET,PATCH /api/one/location/map-preferences
-GET /api/one/location/map-state
-POST /api/one/location/maps/autocomplete
-POST /api/one/location/maps/nearby-places
-POST /api/one/location/maps/place-details
-POST /api/one/location/maps/reverse-geocode
-POST /api/one/location/maps/route-eta
-GET,PATCH /api/one/location/nearby-check-in-preferences
-DELETE,GET,PATCH /api/one/location/nearby-presence
-POST /api/one/location/nearby-presence/check-in
-POST /api/one/location/nearby-presence/connection-request
-DELETE,GET,POST /api/one/location/place-ratings
-GET /api/one/location/place-ratings/pending
-POST /api/one/location/place-ratings/summaries
-POST /api/one/location/public-invites
-DELETE /api/one/location/public-invites/{invite_id}
-POST /api/one/location/public-invites/{invite_id}/location
-GET /api/one/location/public-invites/{public_token}
-POST /api/one/location/public-invites/{public_token}/submit
-POST /api/one/location/recipient-keys
-GET /api/one/location/recipients
-POST /api/one/location/requests
-POST /api/one/location/requests/{request_id}/approve
-POST /api/one/location/requests/{request_id}/deny
-POST /api/one/location/requests/{request_id}/withdraw
-POST /api/one/location/retention/purge
-GET,POST /api/one/location/sms-contacts
-DELETE /api/one/location/sms-contacts/{recipient_user_id}
-POST /api/one/location/sos-email-recipients
-GET,PATCH /api/one/location/sos-voice-preference
-GET /api/one/location/state
-GET /api/one/marketplace/available
-POST /api/one/marketplace/available/{listing_id}/request
-GET,POST /api/one/marketplace/opportunities
-POST /api/one/marketplace/opportunities/{signal_id}/dismiss
-POST /api/one/marketplace/opportunities/{signal_id}/publish
-POST /api/one/marketplace/opportunities/{signal_id}/snooze
-POST /api/one/marketplace/recipient-keys
-GET,POST /api/one/marketplace/requests
-POST /api/one/marketplace/requests/{request_id}/approve
-POST /api/one/marketplace/requests/{request_id}/deny
-GET /api/one/marketplace/requests/{request_id}/recipient-key
-POST /api/one/marketplace/requests/{request_id}/revoke
-POST /api/one/messages
-POST /api/one/messages/route-token
-DELETE,POST /api/one/messages/blocks
-GET /api/one/messages/conversations
-GET /api/one/messages/conversations/{conversation_id}/messages
-POST /api/one/messages/conversations/{conversation_id}/read
-GET /api/one/messages/events
-GET /api/one/messages/stream
-GET /api/one/messages/with/person/{person_ref}
-GET /api/one/messages/with/{recipient_user_id}
-GET /api/one/people/{person_ref}
-DELETE,POST /api/one/people/{person_ref}/connection
-POST /api/one/people/{person_ref}/connection/cancel
-GET /api/one/people/{person_ref}/request-history
-GET /api/one/people/{person_ref}/scope-catalog
-POST /api/one/places/details
-POST /api/one/places/search
-POST /api/one/places/stream
-GET /api/one/profile-discovery
-POST /api/one/profile-discovery/anchors
-POST /api/one/profile-discovery/cancel
-POST /api/one/profile-discovery/claim
-POST /api/one/profile-discovery/claim/prepare
-GET /api/one/profile-discovery/review
-POST /api/one/profile-discovery/start
-POST /api/one/referrals/bind
-GET /api/one/referrals/events
-POST /api/one/referrals/resolve
-GET /api/one/referrals/summary
-DELETE,GET,POST /api/one/wallet-card
-POST /api/one/wallet-card/ensure
-GET /api/one/wallet-card/pass/{share_token}.pkpass
-POST /api/one/wallet-card/pause
-GET /api/one/wallet-card/preview
-GET /api/one/wallet-card/public/{share_token}
-POST /api/one/wallet-card/resume
-POST /api/one/wallet-card/rotate
-POST /api/one/workflows/location/onboarding/runs
-GET /api/one/workflows/location/onboarding/runs/active
-GET /api/one/workflows/location/onboarding/runs/{run_id}
-POST /api/one/workflows/location/onboarding/runs/{run_id}/cancel
-POST /api/one/workflows/location/onboarding/runs/{run_id}/interactions/{directive_id}
-DELETE,POST /api/pkm/domains/{domain}/public-profile-projection
-GET /api/pkm/domains/{domain}/public-profile-projections
 [CIPHERTEXT]
+DELETE,PUT /api/one/circles/{circle}/chat/messages/{message}/reactions/{emoji}
 GET /api/one/circles/{circle}/chat
 GET /api/one/circles/{circle}/chat/keys/{key}
 GET,POST /api/one/circles/{circle}/chat/messages
@@ -469,7 +308,9 @@ def _parse(text: str) -> tuple[dict[RouteKey, RouteClass], dict[RouteKey, str]]:
     return parse_inventory(text, RouteClass)
 
 
-ROUTE_CLASSES, CONTENT_GUARD_PENDING = _parse(_INVENTORY + "\n" + CONNECTOR_INVENTORY)
+ROUTE_CLASSES, CONTENT_GUARD_PENDING = _parse(
+    _INVENTORY + "\n" + CONNECTOR_INVENTORY + "\n" + NETWORK_INVENTORY
+)
 
 
 def is_hub_route(path: str) -> bool:

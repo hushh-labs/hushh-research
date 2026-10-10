@@ -16,6 +16,8 @@ Edge cases are the point, not the happy path.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from hushh_mcp.services import pod_data_door as door
@@ -352,7 +354,7 @@ async def test_pod_mail_suppresses_answer_when_observed_grant_changes(
         return {"answer": "Synthetic answer", "source_refs": ["mail:1"]}
 
     result = await run_delegated_mail_read(
-        gmail=object(),
+        gmail=SimpleNamespace(assert_read_ready=AsyncMock()),
         user_id="owner",
         consent_token="synthetic",
         conversation_id="thread",

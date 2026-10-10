@@ -76,4 +76,5 @@ ALTER TABLE public.byoc_setup_jobs ADD COLUMN IF NOT EXISTS error_code TEXT;
 ALTER TABLE public.byoc_setup_jobs ADD COLUMN IF NOT EXISTS error_message TEXT;
 ALTER TABLE public.byoc_setup_jobs ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ;
 ALTER TABLE public.byoc_setup_jobs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+SELECT public.install_account_deletion_write_guards();
 COMMIT;

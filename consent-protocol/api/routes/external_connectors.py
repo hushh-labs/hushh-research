@@ -591,9 +591,10 @@ async def pending_native_drive_picker(
     response.headers["Cache-Control"] = "no-store"
     response.headers["Pragma"] = "no-cache"
     try:
+        owner = _user_id(token_data)
         return await _content_result(
-            token_data,
-            {"pending": await DriveNativePickerService().pending(user_id=_user_id(token_data))},
+            owner,
+            {"pending": await DriveNativePickerService().pending(user_id=owner)},
         )
     except _DRIVE_ERRORS as error:
         raise _drive_selection_error(error) from None

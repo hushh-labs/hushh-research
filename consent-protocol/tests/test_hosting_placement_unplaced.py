@@ -313,6 +313,7 @@ async def test_an_intent_write_failure_is_reported_to_the_begin_route():
 async def test_google_begin_needs_durable_pending_authority_before_publishing_url(
     monkeypatch, mode
 ):
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "true")
     from hushh_mcp.services import byoc_oauth_authorizer as oauth
 
     async def unassigned(_owner):
@@ -354,6 +355,7 @@ async def test_only_an_untouched_intent_is_ever_cleared():
 
 
 async def test_google_begin_records_the_intent_after_the_url_is_built(monkeypatch):
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "true")
     from hushh_mcp.services import byoc_oauth_authorizer as oauth
 
     recorded: list[tuple] = []

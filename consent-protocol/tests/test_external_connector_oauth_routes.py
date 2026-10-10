@@ -627,7 +627,11 @@ def test_native_picker_routes_keep_candidates_owner_bound_and_processing_opt_in(
     assert start_response.headers["cache-control"] == "no-store"
     native.start.assert_awaited_once_with(user_id="verified-owner", redirect_uri=redirect)
 
+    result_admission = AsyncMock()
+    monkeypatch.setattr(routes, "admit_hub_content", result_admission)
     pending_response = client.get("/api/connectors/google_drive/picker/native/pending")
+    result_admission.assert_awaited_once_with("verified-owner", "connector_result")
+    native.pending.assert_awaited_once_with(user_id="verified-owner")
     assert pending_response.status_code == 200
     assert pending_response.headers["cache-control"] == "no-store"
     assert pending_response.json()["pending"]["files"][0].keys() == {

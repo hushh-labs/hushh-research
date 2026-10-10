@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2327,
+  "finding_count": 2328,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -16448,7 +16448,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_external_connector_oauth_routes.py",
       "symbol": null,
-      "value": 1525
+      "value": 1529
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19877,7 +19877,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts",
       "symbol": null,
-      "value": 1433
+      "value": 1447
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20949,6 +20949,15 @@
       "path": "scripts/ops/verify-env-secrets-parity.py",
       "symbol": null,
       "value": 1305
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_commerce_preview_target.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_commerce_preview_target.py",
+      "symbol": null,
+      "value": 503
     }
   ],
   "inspected_files": 6625,
@@ -23647,7 +23656,36 @@
       "reviewed_at": "2026-10-08T19:51:43.522523+00:00",
       "source_sha256": "ede48565225ee7a9f7e9b739f774bb80a1f3ee1a95de91a3d8e7650fc7033186"
     },
-    "source_revision": "27375a3d27ff39506cc33949b09a386d8e87cb7d"
+    "source_revision": "27375a3d27ff39506cc33949b09a386d8e87cb7d",
+    "final_repair_review": {
+      "date": "2026-10-10",
+      "candidate_base": "2bd5b0b0ba2810c7c1997ddd77a052460c991524",
+      "reviewer": "merge_backend_evidence",
+      "scope": "Three independently reviewed fixture/generated spans only; budgets, scanner and exclusions unchanged. Existing preview assertions are preserved. Duplicate provider-secret test consolidation is owned by quality-contracts after this frozen release.",
+      "entries": [
+        {
+          "path": "consent-protocol/tests/test_external_connector_oauth_routes.py",
+          "before": 1525,
+          "after": 1529,
+          "reason": "Four exact-owner assertions protect native pending-code lookup.",
+          "sha256": "677a361518c0c154a3d2628952db04a761b876d34b3f1a648562d5398bdd4c9c"
+        },
+        {
+          "path": "hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts",
+          "before": 1433,
+          "after": 1447,
+          "reason": "Fourteen generated compatibility lines from reviewed owning sources; no additional authored runtime authority.",
+          "sha256": "bbd53be2e4b43832d723592bbad678364ae7f8468d696153c16858f9b80b392d"
+        },
+        {
+          "path": "consent-protocol/tests/test_commerce_preview_target.py",
+          "before": 492,
+          "after": 503,
+          "reason": "Existing verified secret-binding fixture repair, including three mandatory Ruff-formatting lines; independent review accepts this exact span without changing checks.",
+          "sha256": "257bb62e7d3446a92bfbe958cefba61df0799c90dec501c087d2aa510fb03942"
+        }
+      ]
+    }
   },
   "review": {
     "account_service_deprovision_fix": "Reviewed 2026-10-06: 2793 to 2797, the account erasure deprovision built as the route builds it (registry + backend); a bare constructor raised TypeError since 2026-09-08.",

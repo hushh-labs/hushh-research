@@ -279,9 +279,11 @@ def test_flag_off_payment_helper_keeps_default_and_isolated_provider_mounts() ->
                 **os.environ,
                 "PREFIX": prefix,
                 "_DRIVE_REQUEST_PAYMENTS_ENABLED": "false",
+                "_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED": "false",
                 "SCOPE_COMMERCE_ENABLED": "false",
                 "_STRIPE_SECRET_KEY_SECRET": "STRIPE_SECRET_KEY",
                 "_STRIPE_WEBHOOK_SECRET_SECRET": "STRIPE_WEBHOOK_SECRET",
+                "_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET": "STRIPE_CONNECT_WEBHOOK_SECRET",
             },
             text=True,
             capture_output=True,
@@ -290,6 +292,7 @@ def test_flag_off_payment_helper_keeps_default_and_isolated_provider_mounts() ->
         names = (
             "STRIPE_SECRET_KEY",
             "STRIPE_WEBHOOK_SECRET",
+            "STRIPE_CONNECT_WEBHOOK_SECRET",
             "SCOPE_COMMERCE_STRIPE_SECRET_KEY",
             "SCOPE_COMMERCE_STRIPE_WEBHOOK_SECRET",
             "SCOPE_COMMERCE_STRIPE_CONNECT_WEBHOOK_SECRET",
@@ -303,14 +306,22 @@ def test_stripe_secret_bindings_survive_payment_rollout_switch_off() -> None:
     backend_deploy = (ROOT / "scripts/deploy/backend-deploy.sh").read_text()
     for lane in ("dev", "uat", "production"):
         workflow = (ROOT / f".github/workflows/deploy-{lane}.yml").read_text()
-        assert "_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY" in workflow
-        assert "_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET" in workflow
+        if lane == "uat":
+            assert "source deploy/drive/uat_stripe_bindings.sh" in workflow
+            assert "_STRIPE_SECRET_KEY_SECRET=${STRIPE_UAT_KEY_SECRET}" in workflow
+            assert "_STRIPE_WEBHOOK_SECRET_SECRET=${STRIPE_UAT_WEBHOOK_SECRET}" in workflow
+        else:
+            assert "_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY" in workflow
+            assert "_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET" in workflow
         assert "_STRIPE_SECRET_KEY_SECRET=${{" not in workflow
         assert "_STRIPE_WEBHOOK_SECRET_SECRET=${{" not in workflow
 
     # The build binds optional existing secrets, but refuses an enabled
     # new-request rollout unless both names resolve in the deploy project.
-    assert 'if [[ "${_DRIVE_REQUEST_PAYMENTS_ENABLED}" == "true" ]]; then' in backend_deploy
+    assert (
+        'if [[ "${_DRIVE_REQUEST_PAYMENTS_ENABLED}" == "true" || "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED}" == "true" ]]; then'
+        in backend_deploy
+    )
     assert (
         'for required_secret in "${_STRIPE_SECRET_KEY_SECRET}" "${_STRIPE_WEBHOOK_SECRET_SECRET}"; do'
         in backend_deploy
