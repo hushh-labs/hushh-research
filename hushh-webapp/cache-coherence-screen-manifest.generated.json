@@ -10,15 +10,15 @@
     "cache_reference": "../docs/reference/architecture/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 149,
-    "physical_page_count": 148,
-    "route_contract_count": 149,
-    "surface_map_count": 149,
+    "total_screens": 150,
+    "physical_page_count": 149,
+    "route_contract_count": 150,
+    "surface_map_count": 150,
     "class_counts": {
       "public/auth-split": 1,
       "redirect/alias": 48,
       "vault-backed": 58,
-      "hidden flow": 20,
+      "hidden flow": 21,
       "auth/pre-vault": 5,
       "RIA/provider": 8,
       "realtime/SSE": 2,
@@ -6646,6 +6646,51 @@
       ]
     },
     {
+      "route": "/wallet/open",
+      "page_file": "app/wallet/open/page.tsx",
+      "route_contract_mode": "hidden",
+      "screen_class": "hidden flow",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/wallet/open",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
       "route": "/welcome",
       "page_file": "app/welcome/page.tsx",
       "route_contract_mode": "standard",
@@ -6691,5 +6736,5 @@
       ]
     }
   ],
-  "content_sha256": "027b3e646f42a450aa212c829d7d4f7f8990685680af33b62eb3b0fd7ac973e4"
+  "content_sha256": "ef7111322e161203ccac50ac0df9e426ab6d26a1ed30106c5e1616bc8471c105"
 }

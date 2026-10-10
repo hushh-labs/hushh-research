@@ -24,6 +24,8 @@ test.beforeAll(async () => {
         { find: "@/hooks/use-auth", replacement: path.join(root, "e2e/fixtures/direct-chat-auth.ts") },
         { find: "@/lib/services/direct-messages-service", replacement: path.join(root, "e2e/fixtures/direct-chat-boundary.ts") },
         { find: "@/lib/services/connections-service", replacement: path.join(root, "e2e/fixtures/direct-chat-connections.ts") },
+        { find: "@/components/vault/vault-unlock-dialog", replacement: path.join(root, "e2e/fixtures/wallet-workspace-boundaries.tsx") },
+        { find: "@/lib/one-location/service", replacement: path.join(root, "e2e/fixtures/wallet-workspace-boundaries.tsx") },
         { find: "@/lib/firebase/config", replacement: path.join(root, "e2e/fixtures/direct-chat-auth.ts") },
         { find: "@/components/connect/circles/circle-messages-pane", replacement: path.join(root, "e2e/fixtures/bottom-shell-boundaries.tsx") },
         { find: "next/navigation", replacement: path.join(root, "e2e/fixtures/direct-chat-navigation.tsx") },

@@ -1,0 +1,20 @@
+.dialog {
+  --type-card-title-size: 18px;
+  --type-form-label-size: 13px;
+  --type-input-value-size: 12px;
+  --type-helper-text-size: 12px;
+  --type-button-label-size: 14px;
+  width: calc(100% - 32px);
+  max-width: 820px;
+  padding: 20px;
+  font-family: var(--font-app-body);
+  font-size: 13px;
+}
+.dialog [data-slot='dialog-title'] { font-size: 18px; }
+.dialog [data-slot='dialog-description'], .hint { font-size: 12px; line-height: 1.5; color: var(--muted-foreground); }
+.dialog input { font-family: var(--font-app-body); font-size: 12px; background-color: var(--app-card-surface-default-solid); }
+.dialog button { font-family: var(--font-app-body); font-size: 14px; }
+.dialog [data-slot='tabs-trigger'] { font-size: 13px; }
+.field { display: grid; gap: 8px; }
+.field label { font-size: 13px; font-weight: 500; }
+@media (min-width: 640px) { .dialog { padding: 28px; } }

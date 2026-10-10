@@ -68,6 +68,24 @@ describe("WalletService", () => {
     expect(JSON.stringify(summaries)).not.toContain("A Person");
   });
 
+  it("keeps acknowledged recipients only in encrypted secrets and preserves other cards", async () => {
+    const receipt = { messageId: "message", conversationId: "conversation", recipientPersonRef: "person", recipientName: "Recipient", sentAt: "2026-10-10T10:00:00Z" };
+    const mayPublish = () => true;
+    await WalletService.recordCardShareReceipt({ ...CONTEXT, cardId: CARD_ID, receipt, mayPublish });
+    const params = mockStoreWalletDomain.mock.calls[0][0];
+    expect(params.scopePath).toBe("secrets"); expect(params.mayPublish).toBe(mayPublish);
+    const base = { ...DOMAIN_DATA, secrets: { ...DOMAIN_DATA.secrets, other: { pan: "4242424242424242" } } };
+    const next = params.applyMutation(base);
+    expect(next.summary).toEqual(base.summary); expect(next.secrets.other).toEqual(base.secrets.other);
+    expect(next.secrets[CARD_ID].share_receipts).toEqual([receipt]);
+    expect(params.applyMutation(next).secrets[CARD_ID].share_receipts).toEqual([receipt]);
+    mockLoadDomainData.mockResolvedValue(next);
+    expect(await WalletService.listCardShareReceipts({ ...CONTEXT, cardId: CARD_ID })).toEqual([receipt]);
+    expect(await WalletService.listCardShareReceipts({ ...CONTEXT, cardId: "other" })).toEqual([]);
+    expect(JSON.stringify(await WalletService.listCardSummaries(CONTEXT))).not.toContain(receipt.recipientName);
+    expect(JSON.stringify(await WalletService.getCard({ ...CONTEXT, cardId: CARD_ID }))).not.toContain(receipt.recipientName);
+  });
+
   it("projects the owner's cardholder name without projecting payment credentials", async () => {
     const [card] = await WalletService.listCardPresentations(CONTEXT);
     expect(card.cardholderName).toBe("A Person");

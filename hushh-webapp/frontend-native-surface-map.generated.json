@@ -10004,6 +10004,59 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/wallet/open",
+      "page_file": "app/wallet/open/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": "Anonymous encrypted-file reader outside the signed-in shell; all card decryption stays on the recipient device.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.wallet.encrypted_file.open",
+          "purpose": "Let the recipient choose an encrypted card file and decrypt it locally without an account or upload.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain that the file and its password are required without asking for their contents.",
+            "cancelled": "Respect cancellation and keep decrypted card information hidden.",
+            "failed": "Offer a local retry without claiming the card opened.",
+            "timeout": "Keep the card hidden and offer one safe retry.",
+            "callback_error": "Keep private values out of recovery messages.",
+            "route_mismatch": "Use only the verified encrypted-file reader route."
+          },
+          "completion_boundary": "The card is open only after authenticated decryption completes locally for the current file and password. No recipient delivery is inferred.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Never ask for, interpret, log or transmit the chosen file, password or decrypted card."
+        }
+      },
+      "native": {
+        "route": "/wallet/open",
+        "classification": "excluded-web-only",
+        "reason": "Anonymous browser reader for externally shared encrypted files; no app installation or signed-in native route is required."
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/welcome",
       "page_file": "app/welcome/page.tsx",
       "physical_page_exists": true,
@@ -10057,5 +10110,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "883c9d8255d8e7cef2e39ab1637e3aa68a42a48f4d113170cd2b26683af1260e"
+  "content_sha256": "83b711ab30031b4d20075042fdc440a11f3dcbfb08b03544d9b38e42b09db5b6"
 }

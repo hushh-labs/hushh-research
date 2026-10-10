@@ -185,6 +185,8 @@ export const ROUTES = {
   /** Owner setup and management for the Apple Wallet profile pass. */
   ONE_WALLET_CARD: "/one/wallet-card",
   ONE_WALLET: "/one/wallet",
+  /** Anonymous, local-only reader for password-encrypted payment-card files. */
+  WALLET_CARD_OPEN: "/wallet/open",
   /** Puppy One: the agent running on the owner's own machine. */
   ONE_PUPPY: "/one/puppy",
   CONNECTED_SYSTEMS: "/one/connected-systems",
@@ -565,6 +567,7 @@ export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
     // verified is on an SEC filing, before any capability is active.
     normalizedPathname === ROUTES.RIA_CLAIM ||
     normalizedPathname === ROUTES.LOGOUT ||
+    normalizedPathname === ROUTES.WALLET_CARD_OPEN ||
     normalizedPathname === ROUTES.PROFILE ||
     normalizedPathname.startsWith(`${ROUTES.PROFILE}/`) ||
     normalizedPathname.startsWith("/people/") ||
@@ -868,6 +871,7 @@ export function isPublicRoute(pathname: string): boolean {
     normalizedPathname === ROUTES.TERMS ||
     normalizedPathname === ROUTES.PHONE_MANDATE ||
     normalizedPathname === ROUTES.LOGOUT ||
+    normalizedPathname === ROUTES.WALLET_CARD_OPEN ||
     normalizedPathname === ROUTES.RESEARCH ||
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
@@ -896,6 +900,7 @@ export function isPublicRoute(pathname: string): boolean {
 export function isAnalyticsExemptRoute(pathname: string): boolean {
   const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
+    normalizedPathname === ROUTES.WALLET_CARD_OPEN ||
     normalizedPathname === WALLET_CARD_PUBLIC_PREFIX ||
     normalizedPathname.startsWith(`${WALLET_CARD_PUBLIC_PREFIX}/`)
   );
