@@ -9,6 +9,7 @@ export const ROUTE_ID_VALUES = [
   "chat",
   "one_dashboard",
   "one_messages",
+  "one_todos",
   "getting_started",
   "delete_account",
   "privacy_policy",
@@ -228,7 +229,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
     return "profile_gmail_connection";
   if (pathname === ROUTES.PROFILE_GMAIL_ACTIONS) return "profile_gmail_actions";
   if (/^\/r\/[^/]+$/.test(pathname)) return "referral_landing";
-  if (pathname === ROUTES.PROFILE_REFERRALS) return "profile_referrals";
+  if (pathname === ROUTES.PROFILE_REFERRALS || pathname === ROUTES.ONE_REFERRALS) return "profile_referrals";
   if (pathname === ROUTES.PROFILE_SUPPORT) return "profile_support";
   if (pathname === ROUTES.PROFILE_SUPPORT_ROUTING)
     return "profile_support_routing";
@@ -265,6 +266,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
     return "consents";
   }
   if (pathname === ROUTES.ONE_MESSAGES) return "one_messages";
+  if (pathname === ROUTES.ONE_TODOS) return "one_todos";
   if (pathname === ROUTES.ONE_FEED) return "feed";
   if (pathname === ROUTES.LEGACY_AGENT) return "chat";
   if (pathname === ROUTES.ONE_PUPPY) return "puppy_one";

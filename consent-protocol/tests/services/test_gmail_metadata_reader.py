@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -11,6 +12,7 @@ from datetime import datetime, timezone
 import httpx
 import pytest
 
+import hushh_mcp.services.gmail_metadata_reader as metadata_reader_module
 from hushh_mcp.services.gmail_metadata_reader import GmailMetadataError, GmailMetadataReader
 from hushh_mcp.services.gmail_receipts_service import GmailApiError, GmailReceiptsService
 from mcp_modules.log_redaction import SensitiveLogFilter, redact_log_value
@@ -478,6 +480,108 @@ async def test_provider_failure_is_not_empty_success(status, code):
         await reader.read("search_inbox", {"query": "invoice"})
     assert str(failure.value) == code
     assert bool(gmail.marked) == (status == 401)
+
+
+@pytest.mark.parametrize("reason", ["rateLimitExceeded", "userRateLimitExceeded"])
+async def test_documented_gmail_403_rate_limit_retries_one_get(reason, monkeypatch):
+    monkeypatch.setattr(metadata_reader_module, "_RETRY_DELAY_SECONDS", 0)
+    calls = []
+    gmail = _Gmail()
+
+    def respond(request):
+        calls.append(request)
+        if len(calls) == 1:
+            return _response(
+                {"error": {"errors": [{"reason": reason, "message": "PRIVATE provider text"}]}},
+                403,
+            )
+        return _response({"messages": []})
+
+    result = await _reader(gmail, respond).read("list_recent", {})
+
+    assert result["untrusted_external_content"] == []
+    assert len(calls) == 2
+    assert all(request.method == "GET" for request in calls)
+    assert gmail.marked == []
+
+
+@pytest.mark.parametrize(
+    ("reasons", "code"),
+    [
+        (["dailyLimitExceeded"], "quota_exceeded"),
+        (["domainPolicy"], "domain_policy"),
+        (["insufficientPermissions"], "reconnect_required"),
+        (["rateLimitExceeded", "domainPolicy"], "permission_denied"),
+        (["otherReason"], "permission_denied"),
+    ],
+)
+async def test_gmail_403_reason_is_classified_without_provider_text_or_replay(reasons, code):
+    calls = []
+    gmail = _Gmail()
+
+    def respond(request):
+        calls.append(request)
+        return _response(
+            {"error": {"errors": [{"reason": reason, "message": "PRIVATE"} for reason in reasons]}},
+            403,
+        )
+
+    with pytest.raises(GmailMetadataError, match=f"^{code}$") as caught:
+        await _reader(gmail, respond).read("list_recent", {})
+
+    assert "PRIVATE" not in str(caught.value)
+    assert len(calls) == 1
+    assert gmail.marked == []
+
+
+@pytest.mark.parametrize("mode", ["message_only", "oversized", "compressed"])
+async def test_untrusted_403_error_body_cannot_claim_rate_limit(mode):
+    calls = []
+    payload = {"error": {"errors": [{"message": "PRIVATE rateLimitExceeded"}]}}
+
+    def respond(request):
+        calls.append(request)
+        if mode == "oversized":
+            return httpx.Response(
+                403,
+                stream=_Bytes(
+                    json.dumps({"error": {"errors": [{"reason": "rateLimitExceeded"}]}}).encode()
+                    + b" " * metadata_reader_module._ERROR_BUDGET
+                ),
+            )
+        return _response(
+            {"error": {"errors": [{"reason": "rateLimitExceeded"}]}}
+            if mode == "compressed"
+            else payload,
+            403,
+            headers={"Content-Encoding": "gzip"} if mode == "compressed" else None,
+        )
+
+    with pytest.raises(GmailMetadataError, match="^permission_denied$"):
+        await _reader(_Gmail(), respond).read("list_recent", {})
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("short_deadline,retry_after", [(True, None), (False, "30")])
+async def test_gmail_get_does_not_retry_past_session_deadline(
+    monkeypatch, short_deadline, retry_after
+):
+    monkeypatch.setattr(metadata_reader_module, "_RETRY_DELAY_SECONDS", 0)
+    if short_deadline:
+        monkeypatch.setattr(metadata_reader_module, "_DEADLINE", 1.0)
+    calls = []
+
+    def respond(request):
+        calls.append(request)
+        return _response(
+            {"error": {"errors": [{"reason": "rateLimitExceeded"}]}},
+            403,
+            headers={"Retry-After": retry_after} if retry_after else None,
+        )
+
+    with pytest.raises(GmailMetadataError, match="^retryable$"):
+        await _reader(_Gmail(), respond).read("list_recent", {})
+    assert len(calls) == 1
 
 
 async def test_stale_provider_rejection_does_not_disable_new_connection():
@@ -967,6 +1071,103 @@ async def test_trash_moves_each_reviewed_message_to_trash_and_never_deletes():
     assert all(w.method == "POST" for w in writes)
 
 
+@pytest.mark.parametrize(
+    "failure_status,expected_status",
+    [(400, "partially_executed"), (503, "outcome_unknown")],
+)
+async def test_trash_failure_reports_confirmed_prefix_and_consumes_review(
+    failure_status, expected_status
+):
+    writes = []
+    db = _ProposalDb()
+    listing = _mailbox_provider([], [])
+
+    def provider(request):
+        if request.method != "POST":
+            return listing(request)
+        writes.append(request)
+        return httpx.Response(200 if len(writes) == 1 else failure_status)
+
+    service = _mailbox(_ModifyGmail(), db, provider)
+    proposal = await service.propose(
+        user_id="owner",
+        action="trash",
+        query="",
+        mailbox="inbox",
+        limit=2,
+        label="",
+        require_access=_allowed,
+    )
+    result = await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
+    assert result == {"status": expected_status, "action": "trash", "count": 1, "total": 2}
+    assert db.rows[proposal["proposal_id"]]["status"] == "executing"
+    with pytest.raises(GmailApiError, match="already used"):
+        await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
+    assert len(writes) == 2
+
+
+async def test_batch_modify_503_is_unknown_and_cannot_be_replayed():
+    writes = []
+    db = _ProposalDb()
+    listing = _mailbox_provider([], [])
+
+    def provider(request):
+        if request.method != "POST":
+            return listing(request)
+        writes.append(request)
+        return httpx.Response(503)
+
+    service = _mailbox(_ModifyGmail(), db, provider)
+    proposal = await service.propose(
+        user_id="owner",
+        action="archive",
+        query="",
+        mailbox="inbox",
+        limit=2,
+        label="",
+        require_access=_allowed,
+    )
+    result = await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
+    assert result == {"status": "outcome_unknown", "action": "archive", "count": 0, "total": 2}
+    with pytest.raises(GmailApiError, match="already used"):
+        await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
+    assert len(writes) == 1
+
+
+async def test_trash_timeout_is_bounded_and_review_cannot_be_replayed(monkeypatch):
+    from hushh_mcp.services import gmail_mailbox_actions
+
+    monkeypatch.setattr(gmail_mailbox_actions, "_TRASH_TIMEOUT_SECONDS", 0.01)
+    writes = []
+    db = _ProposalDb()
+    listing = _mailbox_provider([], [])
+
+    async def provider(request):
+        if request.method != "POST":
+            return listing(request)
+        writes.append(request)
+        await asyncio.sleep(0.1)
+        return httpx.Response(200)
+
+    service = _mailbox(_ModifyGmail(), db, provider)
+    proposal = await service.propose(
+        user_id="owner",
+        action="trash",
+        query="",
+        mailbox="inbox",
+        limit=2,
+        label="",
+        require_access=_allowed,
+    )
+    result = await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
+    assert result["status"] == "outcome_unknown"
+    assert result["count"] == 0
+    assert db.rows[proposal["proposal_id"]]["status"] == "executing"
+    with pytest.raises(GmailApiError, match="already used"):
+        await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
+    assert len(writes) == 2
+
+
 async def test_unapproved_or_foreign_proposals_never_reach_gmail():
     writes = []
     gmail = _ModifyGmail()
@@ -1071,3 +1272,76 @@ async def test_proposal_card_carries_subjects_but_the_model_result_does_not():
     assert result["status"] == "confirmation_required" and result["count"] == 2
     assert "Project plan" not in json.dumps(result)
     assert writes == []
+
+
+async def test_gmail_todo_card_uses_opaque_ids_and_keeps_email_details_out_of_model_result(
+    monkeypatch,
+):
+    from hushh_mcp.agents.email import mailbox_tools
+
+    class Reader:
+        def __init__(self, *, gmail, user_id, require_access):
+            assert user_id == "owner"
+            self.require_access = require_access
+
+        async def read(self, operation, arguments):
+            assert operation == "search_inbox"
+            assert arguments == {
+                "mailbox": "inbox",
+                "limit": 2,
+                "query": "subject:plan",
+            }
+            await self.require_access()
+            return {
+                "untrusted_external_content": [
+                    {
+                        "subject": "Project plan",
+                        "sender": "Alice",
+                        "received_at": "2026-10-09T08:30:00Z",
+                    }
+                ],
+                "truncated": False,
+            }
+
+    monkeypatch.setattr(mailbox_tools, "GmailMetadataReader", Reader)
+    monkeypatch.setattr(mailbox_tools, "get_gmail_receipts_service", lambda: object())
+    state = {"hussh:user_id": "owner", "temp:one_execution_surface": "typed_chat"}
+    context = type("Ctx", (), {"state": state})()
+
+    result = await mailbox_tools.propose_gmail_todo(
+        context,
+        query="subject:plan",
+        limit=2,
+    )
+
+    payload = state["hussh:pending_directive:gmail_mailbox:todo"]["payload"]
+    assert payload["type"] == "gmail.create_todos"
+    assert payload["confirmLabel"] == "Add to To-do list"
+    assert payload["messages"] == [
+        {
+            "subject": "Project plan",
+            "sender": "Alice",
+            "receivedAt": "2026-10-09T08:30:00Z",
+        }
+    ]
+    assert payload["todos"] == [
+        {
+            "id": f"{payload['proposalId']}:1",
+            "title": "Follow up: Project plan",
+        }
+    ]
+    assert "Project plan" not in json.dumps(result)
+    assert "gmail-message-id" not in json.dumps(payload)
+
+
+@pytest.mark.parametrize("scope", ["", "https://www.googleapis.com/auth/gmail.send"])
+async def test_missing_read_permission_refuses_before_token_refresh(scope):
+    gmail = _Gmail()
+    gmail.row["scope_csv"] = scope
+
+    async def no_refresh(**kwargs):
+        pytest.fail("a missing permission must not refresh credentials")
+
+    gmail._ensure_access_token = no_refresh
+    with pytest.raises(GmailMetadataError, match="reconnect_required"):
+        await _reader(gmail, lambda _: pytest.fail("provider called")).read("list_recent", {})

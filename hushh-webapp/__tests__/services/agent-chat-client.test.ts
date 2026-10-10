@@ -11,6 +11,7 @@ const mockTransport = vi.hoisted(() => ({
   // Mirrors @ag-ui/client 0.0.59 when the body ends with no RUN_FINISHED or
   // RUN_ERROR (read from its source): the run completes with no callback.
   endWithoutTerminal: false,
+  hangAfterBodyEof: false,
   // Read the response body through the client's own `fetch` until it ends or
   // the run is aborted, as the real transport does.
   readBody: false,
@@ -19,10 +20,12 @@ const mockTransport = vi.hoisted(() => ({
 vi.mock("@ag-ui/client", () => ({
   HttpAgent: class {
     private reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+    private releaseAfterEof: (() => void) | null = null;
     constructor(public config: { fetch?: (url: string, init: RequestInit) => Promise<Response> }) {}
     abortRun() {
       mockTransport.aborted = true;
       void this.reader?.cancel();
+      this.releaseAfterEof?.();
     }
     async runAgent(parameters: unknown, subscriber: Record<string, (input: any) => void>) {
       mockTransport.runAgent(parameters, this.config);
@@ -35,6 +38,9 @@ vi.mock("@ag-ui/client", () => ({
         const response = await this.config.fetch!("/api/one/agent-chat", {});
         this.reader = response.body!.getReader();
         while (!(await this.reader.read()).done) { /* keep reading */ }
+        if (mockTransport.hangAfterBodyEof) {
+          await new Promise<void>((resolve) => { this.releaseAfterEof = resolve; });
+        }
         // The real client reports its own abort to the subscriber, then swallows it.
         if (mockTransport.aborted) {
           subscriber.onRunFailed?.({ error: new DOMException("Aborted", "AbortError") });
@@ -1054,6 +1060,28 @@ describe("AG-UI Agent One client", () => {
     );
   });
 
+  it("carries the saved receipt index only on a turn that has one", async () => {
+    const receiptMemory = {
+      schema: "receipt_canonical_index.v1" as const,
+      generated_at: "2026-10-09T10:00:00Z",
+      total_transactions: 0,
+      truncated: false,
+      transactions: [],
+    };
+    const turn = { vaultKey: TEST_VAULT_KEY, userId: "user-1", conversationId: "thread-1",
+      vaultOwnerToken: "owner-token", handlers: {} };
+
+    await streamAgentChat({ ...turn, message: "Show my receipts", receiptMemory });
+    await streamAgentChat({ ...turn, message: "What is on my calendar?", receiptMemory: null });
+    await streamAgentChat({ ...turn, message: "Hello" });
+
+    expect(mockTransport.runAgent.mock.calls[0]?.[0].forwardedProps.receiptMemory).toEqual(receiptMemory);
+    expect(mockTransport.runAgent.mock.calls[1]?.[0].forwardedProps).not.toHaveProperty("receiptMemory");
+    expect(mockTransport.runAgent.mock.calls[2]?.[0].forwardedProps).not.toHaveProperty("receiptMemory");
+    // Typed data beside the turn, never inside the memory packet One reads as text.
+    expect(mockTransport.runAgent.mock.calls[0]?.[0].forwardedProps.pkmContext ?? "").not.toContain("receipt_canonical_index");
+  });
+
   it("uses the same AG-UI endpoint before vault unlock", async () => {
     await expect(streamAgentIntro({ message: "What is Hussh?" })).resolves.toMatchObject({
       text: "Hello",
@@ -1600,6 +1628,7 @@ describe("a chat turn never waits forever", () => {
   afterEach(() => {
     mockTransport.endWithoutTerminal = false;
     mockTransport.readBody = false;
+    mockTransport.hangAfterBodyEof = false;
     vi.useRealTimers();
   });
 
@@ -1622,6 +1651,46 @@ describe("a chat turn never waits forever", () => {
     await expect(streamAgentIntro({ message: "hello", handlers: { onError: introError } }))
       .rejects.toThrow(AGENT_CHAT_STREAM_LOST_ERROR);
     expect(introError).toHaveBeenCalledTimes(1);
+  });
+
+  it("settles a clean EOF even when the transport waits for a missing terminal event", async () => {
+    vi.mocked(ApiService.apiFetchStream).mockResolvedValueOnce(
+      new Response(new ReadableStream<Uint8Array>({ start(controller) { controller.close(); } }), {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    );
+    mockTransport.readBody = true;
+    mockTransport.hangAfterBodyEof = true;
+    const onError = vi.fn();
+    const onComplete = vi.fn();
+
+    await expect(streamAgentChat({
+      vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Find my mail",
+      conversationId: "thread-eof", vaultOwnerToken: "owner-token",
+      handlers: { onError, onComplete },
+    })).rejects.toThrow(AGENT_CHAT_STREAM_LOST_ERROR);
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(mockTransport.aborted).toBe(true);
+  });
+
+  it("reports one terminal outcome when the transport emits a late failure", async () => {
+    mockTransport.endWithoutTerminal = true;
+    mockTransport.emitEvents = (subscriber) => {
+      subscriber.onRunFinishedEvent?.({ event: { type: "RUN_FINISHED" }, outcome: "success" });
+      subscriber.onRunFailed?.({ error: new Error("late transport failure") });
+    };
+    const onComplete = vi.fn();
+    const onError = vi.fn();
+
+    await expect(streamAgentChat({
+      vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Find my mail",
+      conversationId: "thread-terminal", vaultOwnerToken: "owner-token",
+      handlers: { onComplete, onError },
+    })).resolves.toMatchObject({ conversationId: "thread-terminal" });
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(onError).not.toHaveBeenCalled();
   });
 
   it("fails a silent stream after the idle window, while keep-alive bytes hold it open", async () => {

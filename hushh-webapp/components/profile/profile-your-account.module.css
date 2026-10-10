@@ -1,17 +1,18 @@
-/* The account tab lives inside Profile's existing glass sheet. Keep its
-   appearance local to the pane; the full-page account route keeps its layout. */
+/* Share Profile's account settings presentation with Wallet details through
+   walletContent. The full-page account route keeps its existing layout. */
 @layer base {
-  .paneAccountContent {
-    --account-card: var(--profile-pane-card-surface);
-    --account-card-edge: var(--profile-pane-card-border);
-    --account-highlight: var(--profile-pane-card-highlight);
+  .paneAccountContent,
+  .walletContent {
+    --account-card: var(--profile-pane-card-surface, var(--app-card-surface-default-solid));
+    --account-card-edge: var(--profile-pane-card-border, var(--app-card-border-standard));
+    --account-highlight: var(--profile-pane-card-highlight, var(--app-glass-border));
     --account-ink: var(--ios-account-label);
     --account-muted: var(--ios-account-secondary-label);
     --account-icon: var(--ios-account-label);
     --account-accent: var(--ios-account-accent);
     --account-danger: var(--app-destructive);
-    --account-hair: var(--profile-pane-hair);
-    --account-field: var(--profile-pane-surface-strong);
+    --account-hair: var(--profile-pane-hair, var(--app-separator));
+    --account-field: var(--profile-pane-surface-strong, var(--app-card-surface-default-solid));
     --settings-row-px: 12px;
     --settings-row-py: 9px;
     --settings-row-gap: 10px;
@@ -22,27 +23,27 @@
     font-family: var(--font-app-body);
   }
 
-  :global(.profile-pane-scroll-root)
-    .paneAccountContent
+  :is(:global(.profile-pane-scroll-root)
+    .paneAccountContent, .walletContent)
     :global([data-testid="settings-group"]) {
     margin-inline: 0 !important;
   }
 
-  :global(.profile-pane-scroll-root)
-    .paneAccountContent
+  :is(:global(.profile-pane-scroll-root)
+    .paneAccountContent, .walletContent)
     :global([data-testid="settings-group"] > div:first-child) {
     margin: 12px 0 7px !important;
     padding-inline: 9px !important;
   }
 
-  :global(.profile-pane-scroll-root)
-    .paneAccountContent
+  :is(:global(.profile-pane-scroll-root)
+    .paneAccountContent, .walletContent)
     :global([data-testid="settings-group"]:first-child > div:first-child) {
     margin-top: 6px !important;
   }
 
-  :global(.profile-pane-scroll-root .app-page-shell)
-    .paneAccountContent:global(.profile-account-content)
+  :is(:global(.profile-pane-scroll-root .app-page-shell)
+    .paneAccountContent:global(.profile-account-content), .walletContent)
     :global(
       [data-slot="settings-group-heading"][role="heading"][aria-level="2"]
     ) {
@@ -55,8 +56,8 @@
     text-transform: none !important;
   }
 
-  :global(.profile-pane-scroll-root)
-    .paneAccountContent
+  :is(:global(.profile-pane-scroll-root)
+    .paneAccountContent, .walletContent)
     :global([data-slot="settings-group-shell"]) {
     --settings-group-radius: 17px;
     overflow: hidden !important;
@@ -68,34 +69,34 @@
       0 8px 24px rgba(35, 42, 51, 0.05) !important;
   }
 
-  :global(.profile-pane-scroll-root)
-    .paneAccountContent
+  :is(:global(.profile-pane-scroll-root)
+    .paneAccountContent, .walletContent)
     :global([data-row-layout="settings"]) {
     min-height: 58px !important;
     background: transparent !important;
   }
 
-  :global(.profile-pane-scroll-root)
-    .paneAccountContent
+  :is(:global(.profile-pane-scroll-root)
+    .paneAccountContent, .walletContent)
     :global(
       [data-row-layout="settings"]
         > button:not([data-slot="settings-row-action"])
     ),
-  :global(.profile-pane-scroll-root)
-    .paneAccountContent
+  :is(:global(.profile-pane-scroll-root)
+    .paneAccountContent, .walletContent)
     :global(
       [data-row-layout="settings"] > div[data-slot="settings-row-content"]
     ),
-  :global(.profile-pane-scroll-root)
-    .paneAccountContent
+  :is(:global(.profile-pane-scroll-root)
+    .paneAccountContent, .walletContent)
     :global([data-row-layout="settings"] > div:not([data-slot])) {
     min-height: 58px !important;
     padding: 9px 12px !important;
     gap: 10px !important;
   }
 
-  :global(.profile-pane-scroll-root)
-    .paneAccountContent
+  :is(:global(.profile-pane-scroll-root)
+    .paneAccountContent, .walletContent)
     :global([data-row-layout="settings"]::after) {
     left: 53px !important;
     right: 12px !important;
@@ -103,8 +104,8 @@
     background: var(--account-hair) !important;
   }
 
-  :global(.profile-pane-scroll-root)
-    .paneAccountContent
+  :is(:global(.profile-pane-scroll-root)
+    .paneAccountContent, .walletContent)
     :global([data-slot="settings-row-icon"]) {
     width: 31px !important;
     height: 31px !important;
@@ -112,11 +113,11 @@
     background: transparent !important;
   }
 
-  :global(.profile-pane-scroll-root)
-    .paneAccountContent
+  :is(:global(.profile-pane-scroll-root)
+    .paneAccountContent, .walletContent)
     :global([data-slot="settings-row-icon"] svg),
-  :global(.profile-pane-scroll-root)
-    .paneAccountContent
+  :is(:global(.profile-pane-scroll-root)
+    .paneAccountContent, .walletContent)
     :global(.profile-account-line-icon) {
     width: 22px !important;
     height: 22px !important;
@@ -125,20 +126,20 @@
     stroke-width: 1.8 !important;
   }
 
-  :global(.profile-pane-scroll-root)
-    .paneAccountContent
+  :is(:global(.profile-pane-scroll-root)
+    .paneAccountContent, .walletContent)
     :global(.profile-account-icon-accent) {
     stroke: var(--account-accent) !important;
   }
 
-  :global(.profile-pane-scroll-root)
-    .paneAccountContent
+  :is(:global(.profile-pane-scroll-root)
+    .paneAccountContent, .walletContent)
     :global(.profile-account-icon-accent-fill) {
     fill: var(--account-accent) !important;
   }
 
-  :global(.profile-pane-scroll-root)
-    .paneAccountContent:global(.profile-account-content)
+  :is(:global(.profile-pane-scroll-root)
+    .paneAccountContent:global(.profile-account-content), .walletContent)
     :global([data-slot="settings-row-title"]) {
     color: var(--account-ink) !important;
     font-family: var(--font-app-body) !important;
@@ -148,8 +149,8 @@
     line-height: 1.22 !important;
   }
 
-  :global(.profile-pane-scroll-root)
-    .paneAccountContent:global(.profile-account-content)
+  :is(:global(.profile-pane-scroll-root)
+    .paneAccountContent:global(.profile-account-content), .walletContent)
     :global([data-slot="settings-row-description"]) {
     color: var(--account-muted) !important;
     font-family: var(--font-app-body) !important;
@@ -160,24 +161,24 @@
     margin-top: 3px !important;
   }
 
-  :global(.profile-pane-scroll-root)
-    .paneAccountContent
+  :is(:global(.profile-pane-scroll-root)
+    .paneAccountContent, .walletContent)
     :global([data-slot="settings-row-trailing"]) {
     gap: 7px !important;
     color: var(--account-muted) !important;
     font-size: 12px !important;
   }
 
-  :global(.profile-pane-scroll-root)
-    .paneAccountContent
+  :is(:global(.profile-pane-scroll-root)
+    .paneAccountContent, .walletContent)
     :global([data-slot="settings-row-chevron"]) {
     width: 16px !important;
     height: 16px !important;
     color: var(--account-muted) !important;
   }
 
-  :global(.profile-pane-scroll-root)
-    .paneAccountContent
+  :is(:global(.profile-pane-scroll-root)
+    .paneAccountContent, .walletContent)
     :global(.profile-account-inline-action) {
     color: var(--account-accent) !important;
     font-family: var(--font-app-body) !important;
@@ -186,29 +187,29 @@
     line-height: 1.2 !important;
   }
 
-  :global(.profile-pane-scroll-root)
-    .paneAccountContent
+  :is(:global(.profile-pane-scroll-root)
+    .paneAccountContent, .walletContent)
     :global(.profile-account-delete-row [data-slot="settings-row-title"]),
-  :global(.profile-pane-scroll-root)
-    .paneAccountContent
+  :is(:global(.profile-pane-scroll-root)
+    .paneAccountContent, .walletContent)
     :global(.profile-account-delete-row [data-slot="settings-row-icon"]),
-  :global(.profile-pane-scroll-root)
-    .paneAccountContent
+  :is(:global(.profile-pane-scroll-root)
+    .paneAccountContent, .walletContent)
     :global(.profile-account-delete-row .profile-account-line-icon) {
     color: var(--account-danger) !important;
   }
 
-  :global(.profile-pane-scroll-root)
-    .paneAccountContent
+  :is(:global(.profile-pane-scroll-root)
+    .paneAccountContent, .walletContent)
     :global(.profile-account-delete-row [data-slot="settings-row-icon"] svg) {
     color: var(--account-danger) !important;
   }
 
-  :global(.profile-pane-scroll-root)
-    .paneAccountContent
+  :is(:global(.profile-pane-scroll-root)
+    .paneAccountContent, .walletContent)
     :global([data-row-layout="settings"]:has(button:hover)::before),
-  :global(.profile-pane-scroll-root)
-    .paneAccountContent
+  :is(:global(.profile-pane-scroll-root)
+    .paneAccountContent, .walletContent)
     :global([data-row-layout="settings"]:has(button:focus-visible)::before) {
     inset: 0 !important;
     border-radius: 0 !important;
@@ -374,31 +375,32 @@
   }
 
   @media (max-width: 380px) {
-    .paneAccountContent {
+    .paneAccountContent,
+    .walletContent {
       --settings-row-px: 10px;
       --settings-row-gap: 7px;
     }
 
-    :global(.profile-pane-scroll-root)
-      .paneAccountContent
+    :is(:global(.profile-pane-scroll-root)
+      .paneAccountContent, .walletContent)
       :global(
         [data-row-layout="settings"]
           > button:not([data-slot="settings-row-action"])
       ),
-    :global(.profile-pane-scroll-root)
-      .paneAccountContent
+    :is(:global(.profile-pane-scroll-root)
+      .paneAccountContent, .walletContent)
       :global(
         [data-row-layout="settings"] > div[data-slot="settings-row-content"]
       ),
-    :global(.profile-pane-scroll-root)
-      .paneAccountContent
+    :is(:global(.profile-pane-scroll-root)
+      .paneAccountContent, .walletContent)
       :global([data-row-layout="settings"] > div:not([data-slot])) {
       padding-inline: 10px !important;
       gap: 7px !important;
     }
 
-    :global(.profile-pane-scroll-root)
-      .paneAccountContent
+    :is(:global(.profile-pane-scroll-root)
+      .paneAccountContent, .walletContent)
       :global([data-row-layout="settings"]::after) {
       left: 48px !important;
       right: 10px !important;

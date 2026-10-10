@@ -69,6 +69,11 @@ class DrivePermissionWorker:
         counts = Counter()
         try:
             async with asyncio.timeout(deadline_seconds):
+                materialize = getattr(
+                    getattr(self.executor, "store", None), "materialize_late_legacy", None
+                )
+                if materialize is not None:
+                    counts["materialized"] += await materialize(limit=20)
                 async for job, enabled in self._jobs(max_jobs):
                     if not enabled:
                         counts["disabled"] += 1

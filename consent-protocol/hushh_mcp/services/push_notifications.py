@@ -14,6 +14,7 @@ import uuid
 from urllib.parse import quote
 
 from hushh_mcp.branding import connection_request_body
+from hushh_mcp.services.push_tokens_service import PUSH_TOKENS_FOR_USER_SQL, remove_stale_push_token
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ def send_user_data_push(
         rows = (
             get_db()
             .execute_raw(
-                "SELECT token, platform FROM user_push_tokens WHERE user_id = :user_id",
+                PUSH_TOKENS_FOR_USER_SQL,
                 {"user_id": user_id},
             )
             .data
@@ -110,10 +111,7 @@ def send_user_data_push(
                 sent += 1
             except (messaging.UnregisteredError, messaging.SenderIdMismatchError):
                 try:
-                    get_db().execute_raw(
-                        "DELETE FROM user_push_tokens WHERE token = :token",
-                        {"token": token},
-                    )
+                    remove_stale_push_token(get_db(), user_id, token)
                 except Exception as cleanup_exc:  # noqa: BLE001
                     logger.warning(
                         "push.token_cleanup_failed type=%s error=%s",
@@ -555,7 +553,10 @@ def send_direct_message_push(
     if not recipient or not conversation or not message:
         return 0
     notification_id = f"direct-message:{message}"
-    deep_link = f"/one/messages?conversationId={quote(conversation, safe='')}"
+    from hushh_mcp.services.direct_message_route_cipher import DirectMessageRouteCipher
+
+    route_token = DirectMessageRouteCipher().seal(recipient, "conversation", conversation)
+    deep_link = f"/one/messages?token={quote(route_token, safe='')}"
     return send_user_data_push(
         recipient,
         notification_type="direct_message",
@@ -567,6 +568,7 @@ def send_direct_message_push(
         data={
             "message_id": notification_id,
             "conversation_id": conversation,
+            "route_token": route_token,
             "direct_message_id": message,
         },
         # Firebase does not need a raw recipient id to route an opaque message

@@ -360,6 +360,12 @@ export function deriveVoiceRouteScreen(
     // settles on Chat's connector panel.
     return { screen: "profile_connectors", subview: null };
   }
+  if (normalizedPath === ROUTES.ONE_REFERRALS) {
+    return { screen: "one_referrals", subview: null };
+  }
+  if (normalizedPath === ROUTES.PROFILE_REFERRALS) {
+    return { screen: "profile_referrals_redirect", subview: null };
+  }
   if (normalizedPath === ROUTES.PROFILE) {
     const { panel } = resolveProfileRouteState(normalizedPath, query);
     const tab = query.get("tab");

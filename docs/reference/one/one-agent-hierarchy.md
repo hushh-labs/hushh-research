@@ -223,14 +223,24 @@ them. It preserves One's conversation and permits only `list_recent` (the newest
 INBOX page, "my last N emails"), `list_needs_reply`, `search_inbox`, and the body
 reads `read_message` / `read_thread` (size-capped text seen only by the tool-less
 interpreter), each scoped to `inbox`, `sent` or `anywhere` and returning an `unread`
-flag. Reviewed mailbox changes (archive, labels, read state, Trash) go through One's
+flag. It also admits `read_receipts`, which answers questions about the owner's
+own receipts, invoices, bills and purchases from their saved receipt memory and
+never from an inbox search: the owner's device decrypts the bounded canonical
+index in `shopping.receipts_memory` (saved only by the owner-confirmed
+`gmail_receipt_memory_save_button`) and sends it beside that one typed turn, the
+Email hop filters, pages and formats it with no model and no Gmail call, and a
+missing or stale memory answers "not ready" with the generated Open Receipts
+action. A request to find emails that mention receipts stays `search_inbox`. See
+the "Email receipts read from saved receipt memory" declaration in
+[Backend Semantic Boundary](../../../consent-protocol/docs/reference/backend-semantic-boundary.md).
+Reviewed mailbox changes (archive, labels, read state, Trash) go through One's
 `propose_gmail_mailbox_change` card, never through this read path. After a read, only exact-call-reviewed MCP tools, One's
 `suggest_follow_ups` (which reads and changes nothing), and One's
 client-only editable Gmail draft remain callable in the same invocation; the
 draft cannot run in the original parallel read batch and cannot send. Its
 interpreter has no tools; durable tool history contains a redacted receipt,
-not mailbox metadata or draft fields. Reviewed sending and receipt/sync
-tools are not admitted through this lane. Connected Systems remains
+not mailbox metadata or draft fields. Reviewed sending and receipt sync are
+not admitted through this lane. Connected Systems remains
 authority-ingress-only. Connections is reached through Nav; its separate legacy
 mutation adapter retains its full information/action authority gate. There is no
 separate Gmail specialist roster entry.

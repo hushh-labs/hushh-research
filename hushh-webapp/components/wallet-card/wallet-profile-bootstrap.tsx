@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { WalletCardService } from "@/lib/services/wallet-card-service";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import { buildSmartDefaultDraft, draftToPayload } from "./wallet-card-fields";
 
 const RETRY_DELAYS = [1_000, 5_000, 20_000] as const;
@@ -25,13 +26,13 @@ export function WalletProfileBootstrap() {
 
   useEffect(() => {
     if (!userId) completedOwner.current = null;
-    if (loading || !userId || !isVaultUnlocked || !vaultOwnerToken || completedOwner.current === userId) return;
+    if (shouldSkipReviewerBackgroundWritesForAutomation() || loading || !userId || !isVaultUnlocked || !vaultOwnerToken || completedOwner.current === userId) return;
     let cancelled = false;
     let running = false;
     let attempt = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const ensure = async () => {
-      if (cancelled || running || completedOwner.current === userId || document.visibilityState === "hidden") return;
+      if (shouldSkipReviewerBackgroundWritesForAutomation() || cancelled || running || completedOwner.current === userId || document.visibilityState === "hidden") return;
       running = true;
       try {
         await WalletCardService.ensureCard({

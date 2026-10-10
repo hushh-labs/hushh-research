@@ -4,7 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import { WalletCardBrowser } from "@/components/wallet/wallet-card-browser";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
 
-vi.mock("@/components/wallet-card/wallet-card-workspace", () => ({ WalletCardWorkspace: () => <section>Live profile controls</section> }));
+vi.mock("@/components/wallet/wallet-sharing", () => ({ WalletSharing: () => <section>Card recipients</section> }));
+vi.mock("@/components/wallet-card/wallet-card-workspace", () => ({ WalletCardWorkspace: ({ passVariant, active }: { passVariant: string; active: boolean }) => <section data-pass-variant={passVariant} data-active={active}>Live profile controls</section> }));
 vi.mock("@/components/wallet/wallet-referral-card-details", () => ({ WalletReferralCardDetails: () => <section>Live referral controls</section> }));
 
 function setup(cards: WalletCardSummary[] = [], selectedCardId: string | null = null) {
@@ -32,7 +33,11 @@ describe("Wallet card browser", () => {
     const card: WalletCardSummary = { cardId: "saved-card", nickname: "My card", brand: "visa", last4: "9876", expiryMonth: 5, expiryYear: 2030, issuingRegion: "IN", createdAt: "" };
     const { host, unmount } = setup([card], card.cardId);
     expect(screen.getByText("Protected details action")).toBeVisible();
+    expect(screen.getByText("Card recipients")).toBeVisible();
+    expect(screen.queryByText("Live profile controls")).toBeNull();
     expect(screen.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "card");
+    act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
+    expect(screen.queryByText("Live profile controls")).toBeNull();
     unmount(); host.remove();
   });
 
@@ -40,6 +45,7 @@ describe("Wallet card browser", () => {
     const { props, dock, host, unmount } = setup();
     fireEvent.click(dock.getByRole("button", { name: "Open Agent One Referral" }));
     expect(screen.getByText("Live referral controls")).toBeVisible();
+    expect(screen.queryByRole("region", { name: "Card finances" })).toBeNull();
     expect(props.onSelect).not.toHaveBeenCalled();
     expect(props.onRemove).not.toHaveBeenCalled();
     expect(screen.queryByTestId("wallet-demo-activity")).toBeNull();
@@ -61,9 +67,10 @@ describe("Wallet card browser", () => {
     expect(props.onSelect).toHaveBeenCalledWith("saved-card");
     expect(screen.getByTestId("wallet-card-face")).toHaveAttribute("data-revealed", "false");
     expect(screen.getByText("Protected details action")).toBeVisible();
-    expect(screen.queryByText("Live profile controls")).toBeNull();
+    expect(screen.getByText("Card recipients")).toBeVisible();
     fireEvent.click(dock.getByRole("button", { name: "All (4)" }));
     expect(screen.queryByText("Protected details action")).toBeNull();
+    expect(screen.queryByText("Live profile controls")).toBeNull();
     unmount(); host.remove();
   });
 });

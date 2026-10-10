@@ -93,4 +93,24 @@ describe("Drive lifecycle Feed rows", () => {
       "payment-expired", "partial", "unidentified",
     ]);
   });
+
+  it("removes historical Pay when a same-request payment settles without touching another request", () => {
+    const rows = collapseDriveLifecycleRows([
+      row("request-a-paid", "document_share_payment_confirmed", "pending", {
+        metadata: { request_id: "request-a" },
+      }),
+      row("request-b-pay", "document_share_payment_ready", "pending", {
+        metadata: { request_id: "request-b" },
+      }),
+      row("request-a-pay", "document_share_payment_ready", "pending", {
+        metadata: { request_id: "request-a" },
+      }),
+      row("request-a-sent", "document_share_request_sent", "pending", {
+        metadata: { request_id: "request-a" },
+      }),
+    ]);
+    expect(rows.map((item) => item.id)).toEqual([
+      "request-a-paid", "request-b-pay", "request-a-sent",
+    ]);
+  });
 });

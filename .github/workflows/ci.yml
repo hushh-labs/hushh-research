@@ -276,33 +276,36 @@ jobs:
           fi
         if: always()
 
-  back-navigation-contracts:
-    name: "Back Navigation Contracts"
+  ui-contracts:
+    name: "UI Contracts"
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: hushh-webapp/package-lock.json
-      - run: npm ci --prefer-offline --no-audit --progress=false
+          cache-dependency-path: hushh-webapp/scripts/architecture/ui-contract-tools/package-lock.json
+      - run: npm ci --ignore-scripts --no-audit --progress=false
+        working-directory: hushh-webapp/scripts/architecture/ui-contract-tools
+      - run: npm run verify:ui-contracts
         working-directory: hushh-webapp
-      - run: npm run verify:back-contracts
-        working-directory: hushh-webapp
+        env:
+          UI_CONTRACT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
 
   preflight-gate:
     name: "Preflight Gate"
     needs:
-      - search-web-contracts
+      - ui-contracts
       - secret-scan
       - dco-check
       - pr-base-policy
       - repo-governance
       - paths
       - main-freshness-gate
-      - back-navigation-contracts
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -330,8 +333,8 @@ jobs:
           printf 'main-freshness-gate=%s\n' "$MAIN_FRESHNESS"
 
           fail=0
-          if [ "${{ needs['search-web-contracts'].result }}" != "success" ]; then
-            echo "Search web contracts must pass; skipped checks cannot approve a PR."
+          if [ "${{ needs['ui-contracts'].result }}" != "success" ]; then
+            echo "UI contracts (Back and Search) must pass; skipped checks cannot approve a PR."
             fail=1
           fi
           for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$MAIN_FRESHNESS"; do
@@ -340,10 +343,6 @@ jobs:
             fi
           done
 
-          if [ "${{ needs['back-navigation-contracts'].result }}" != "success" ]; then
-            echo "Back navigation contracts must pass; skipped checks cannot approve a PR."
-            fail=1
-          fi
 
           if [ "$fail" -ne 0 ]; then
             echo "Preflight failed; skipping expensive web/protocol/integration lanes."
@@ -365,6 +364,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
 
       - uses: actions/setup-node@v6
         with:
@@ -1092,26 +1093,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash scripts/ci/check-merge-fidelity.sh
 
-  search-web-contracts:
-    name: "Search Web Contracts"
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: hushh-webapp/package-lock.json
-      - run: npm ci --legacy-peer-deps
-        working-directory: hushh-webapp
-      - run: npm run verify:search-contracts
-        working-directory: hushh-webapp
-
   ci-status:
     name: "CI Status Gate"
     needs:
-      - search-web-contracts
+      - ui-contracts
       - secret-scan
       - dco-check
       - pr-base-policy
@@ -1128,7 +1113,6 @@ jobs:
       - mcp-package-check
       - integration-check
       - main-freshness-gate
-      - back-navigation-contracts
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1171,8 +1155,12 @@ jobs:
           printf 'main-freshness-gate=%s\n' "$MAIN_FRESHNESS"
 
           fail=0
-          if [ "${{ needs['search-web-contracts'].result }}" != "success" ]; then
-            echo "Search web contracts must pass; skipped checks cannot approve a PR."
+          if [ "${{ needs['ui-contracts'].result }}" != "success" ]; then
+            echo "UI contracts (Back and Search) must pass; skipped checks cannot approve a PR."
+            fail=1
+          fi
+          if [ "${{ needs.paths.outputs.frontend }}" = "true" ] && [ "$WEB_CORE" != "success" ]; then
+            echo "Changed frontend sources require successful core and UI validator regressions."
             fail=1
           fi
           # A skipped lane passes the loop below, so a lane whose paths changed
@@ -1199,10 +1187,6 @@ jobs:
             fi
           done
 
-          if [ "${{ needs['back-navigation-contracts'].result }}" != "success" ]; then
-            echo "Back navigation contracts must pass; skipped checks cannot approve a PR."
-            fail=1
-          fi
 
           if [ "$fail" -ne 0 ]; then
             echo "One or more CI jobs failed."

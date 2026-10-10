@@ -6,6 +6,14 @@ const card: AgentPkmPreviewCard = { card_id: "test", source_text: "Synthetic bus
   merge_decision: { target_entity_path: "businesses.entities.chosen", merge_mode: "extend_entity" } };
 const current = (uid: string) => ({ businesses: { entities: { chosen: { _business_origin: { business_uid: uid }, summary: "Synthetic" } } } });
 describe("one owner with independent businesses", () => {
+  it("uses the model payload identity for a new business but never invents an update target", () => {
+    const created = { ...card, target_entity_id: undefined, merge_decision: {
+      merge_mode: "create_entity", target_entity_id: "", target_entity_path: "",
+    } };
+    expect(() => assertBusinessMemoryTarget({}, created, { businessUid: "business-A" })).not.toThrow();
+    expect(() => assertBusinessMemoryTarget(current("business-A"), created, { businessUid: "business-A" })).toThrow("already exists");
+    expect(() => assertBusinessMemoryTarget({}, { ...created, merge_decision: { merge_mode: "extend_entity", target_entity_path: "" } }, { businessUid: "business-A" })).toThrow("fresh review");
+  });
   it("rejects the same UID at another entity or scope without choosing a new destination", () => {
     const existing = { profile: { entities: { old: { _business_origin: { business_uid: "business-A" } } } } };
     expect(() => assertBusinessMemoryTarget(existing, card, { businessUid: "business-A" })).toThrow("already saved");
@@ -28,7 +36,11 @@ describe("one owner with independent businesses", () => {
     const retargeted = { ...card, merge_decision: { merge_mode: "create_entity", target_entity_path: "profile.entities.chosen" } };
     expect(() => assertBusinessMemoryTarget({}, retargeted, { businessUid: "business-A" })).not.toThrow();
     const destination = (uid: string) => ({ profile: { entities: { chosen: { _business_origin: { business_uid: uid } } } } });
-    expect(() => assertBusinessMemoryTarget(destination("business-A"), retargeted, { businessUid: "business-A" })).not.toThrow();
+    expect(() => assertBusinessMemoryTarget(destination("business-A"), retargeted, { businessUid: "business-A" })).toThrow("already exists");
+    expect(() => assertBusinessMemoryTarget(destination("business-A"), { ...retargeted, merge_mode: "extend_entity" },
+      { businessUid: "business-A" })).toThrow("already exists");
+    const update = { ...retargeted, merge_decision: { ...retargeted.merge_decision, merge_mode: "correct_entity" } };
+    expect(() => assertBusinessMemoryTarget(destination("business-A"), update, { businessUid: "business-A" })).not.toThrow();
     const other = destination("business-B"); const before = structuredClone(other);
     expect(() => assertBusinessMemoryTarget(other, retargeted, { businessUid: "business-A" })).toThrow("different or unidentified");
     expect(other).toEqual(before);

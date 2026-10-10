@@ -72,3 +72,6 @@
 /* Hide the complete shelf, including its mask, without changing scroll geometry.
    Anchored on a local class: CSS-modules pure mode (native webpack build) rejects selectors with only :global parts. */
 .dockHost[data-scrolling-down="true"]:not(:focus-within) { visibility:hidden; pointer-events:none; }
+
+/* The route already owns the Wallet heading; put the deck directly below it. */
+.browser[data-mode="all"] { margin-top:0; padding-top:0; }

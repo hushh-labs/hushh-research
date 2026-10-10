@@ -323,6 +323,12 @@ def test_a_calendar_day_is_the_owners_day_not_a_rolling_window():
         {"date_from": "2024-01-01", "date_to": "2026-09-24", "time_intent": "file_activity"},
         {"date_from": "24/09/2026", "time_intent": "file_activity"},
         {"file_kind": "spreadsheet'"},
+        {"file_kind": "document", "result_limit": 100},  # missing ordering
+        {"sort": "recent", "result_limit": 0},
+        {"sort": "recent", "result_limit": 1001},
+        {"sort": "recent", "result_limit": True},
+        {"sort": "recent", "result_limit": "100"},
+        {"sort": "recent", "result_limit": 100.0},
     ],
 )
 def test_plan_rejects_unbounded_or_contradictory_windows(payload):
@@ -337,10 +343,17 @@ def test_plan_rejects_unbounded_or_contradictory_windows(payload):
         {"file_kind": "pdf"},
         {"shared_with_me": True},
         {"date_from": "2026-09-10", "time_intent": "file_activity"},
+        {"file_kind": "document", "sort": "recent", "result_limit": 100},
     ],
 )
 def test_plan_accepts_each_claude_style_boundary_on_its_own(payload):
     LiveSearchPlan.model_validate(payload)
+
+
+def test_legacy_frozen_search_plans_do_not_gain_a_silent_result_cap():
+    plan = LiveSearchPlan.model_validate({"file_kind": "document", "sort": "recent"})
+    assert plan.result_limit is None
+    assert plan.model_dump(mode="json")["result_limit"] is None
 
 
 @pytest.mark.parametrize(

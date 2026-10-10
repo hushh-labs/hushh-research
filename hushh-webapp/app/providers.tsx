@@ -20,7 +20,6 @@ import {
   useEffect,
   useMemo,
   useRef,
-  useState,
 } from "react";
 import { AuthProvider } from "@/lib/firebase";
 import { ContactInvitationSessionProvider } from "@/components/connections/contact-invitation-session-provider";
@@ -123,7 +122,6 @@ import {
   clearProfilePaneQuery,
   closeProfilePane,
   resolveProfilePaneUrlState,
-  type ProfilePaneLocation,
 } from "@/lib/navigation/profile-pane";
 
 interface ProvidersProps {
@@ -162,14 +160,7 @@ function AppShellFrame({ children }: ProvidersProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { isAuthenticated, loading: authLoading, userId } = useAuth();
-  const [profilePaneResume, setProfilePaneResume] = useState<{
-    ownerId: string | null;
-    location: ProfilePaneLocation;
-  }>({
-    ownerId: null,
-    location: PROFILE_PANE_ROOT_LOCATION,
-  });
+  const { isAuthenticated, loading: authLoading } = useAuth();
   // Destination crossings behind the shared back contract. Recorded here
   // because this frame renders for every route, including chrome-less ones,
   // and a screen with no top bar can still be where a destination was entered
@@ -286,10 +277,6 @@ function AppShellFrame({ children }: ProvidersProps) {
     () => resolveProfilePaneUrlState(searchParams),
     [searchParams],
   );
-  const profilePaneResumeLocation =
-    profilePaneResume.ownerId === userId
-      ? profilePaneResume.location
-      : PROFILE_PANE_ROOT_LOCATION;
   const profilePaneOpen = profilePaneEnabled && profilePaneUrlState.open;
   const isFullscreenTopFlow = routeLayoutMode === "flow";
   const shouldLockFullscreenRoot = isFullscreenTopFlow || hidesPersistentChrome;
@@ -358,7 +345,7 @@ function AppShellFrame({ children }: ProvidersProps) {
         // need to guess at device safe areas or bar geometry.
         "--app-scroll-bottom-pad": bottomChromeHidden
           ? "0px"
-          : isRiaRoute(pathname)
+          : isRiaRoute(pathname) || routeLayout.route === ROUTES.ONE_MESSAGES
             ? "var(--bottom-chrome-stack-height)"
             : isOneSetupSurfaceRoute(pathname)
               ? "calc(var(--onboarding-agent-bar-clearance) + 1.5rem)"
@@ -372,6 +359,7 @@ function AppShellFrame({ children }: ProvidersProps) {
       hideGlobalChrome,
       isPublicStandaloneRoute,
       routeLayout.pageTopLocalOffset,
+      routeLayout.route,
       signedInShellContentOffset.style,
       topShellMetrics.contentOffsetMode,
       topShellMetrics.hasTabs,
@@ -409,12 +397,13 @@ function AppShellFrame({ children }: ProvidersProps) {
   const bottomShellModel = useMemo(
     () => ({
       navigationHidden: hideBottomNavigation,
-      // Chat uses the retained Agent Dock; Messages owns its composer. Neither
+      // Chat and Messages project their composers into the retained Agent Dock. Neither
       // also shows the idle global voice launcher. Active commands remain cancellable.
       agentBarHidden:
         isAuthenticated &&
         !authLoading &&
-        (pathname === ROUTES.HOME || pathname === ROUTES.ONE_MESSAGES),
+        (pathname === ROUTES.HOME || routeLayout.route === ROUTES.ONE_MESSAGES),
+      includeComposerHeight: routeLayout.route === ROUTES.ONE_MESSAGES,
       hidden: bottomChromeHidden,
     }),
     [
@@ -423,6 +412,7 @@ function AppShellFrame({ children }: ProvidersProps) {
       isAuthenticated,
       authLoading,
       pathname,
+      routeLayout.route,
     ],
   );
   // Drive the bottom-chrome hide animation through a CSS variable instead of a
@@ -469,22 +459,6 @@ function AppShellFrame({ children }: ProvidersProps) {
   }, [topShellScrollResetKey]);
 
   useEffect(() => {
-    setProfilePaneResume((current) => {
-      if (current.ownerId !== userId) {
-        return {
-          ownerId: userId,
-          location: profilePaneUrlState.open
-            ? profilePaneUrlState.location
-            : PROFILE_PANE_ROOT_LOCATION,
-        };
-      }
-      return profilePaneUrlState.open
-        ? { ownerId: userId, location: profilePaneUrlState.location }
-        : current;
-    });
-  }, [profilePaneUrlState, userId]);
-
-  useEffect(() => {
     if (authLoading || isAuthenticated || !profilePaneUrlState.open) return;
     clearProfilePaneQuery(pathname || ROUTES.ONE_HOME, searchParams);
   }, [
@@ -512,7 +486,7 @@ function AppShellFrame({ children }: ProvidersProps) {
       openProfilePane(
         pathname || ROUTES.ONE_HOME,
         searchParams,
-        profilePaneResumeLocation,
+        PROFILE_PANE_ROOT_LOCATION,
       );
       report?.("opening");
     };
@@ -526,7 +500,6 @@ function AppShellFrame({ children }: ProvidersProps) {
   }, [
     pathname,
     profilePaneEnabled,
-    profilePaneResumeLocation,
     profilePaneUrlState.open,
     searchParams,
   ]);
@@ -539,14 +512,14 @@ function AppShellFrame({ children }: ProvidersProps) {
           openProfilePane(
             pathname || ROUTES.ONE_HOME,
             searchParams,
-            profilePaneResumeLocation,
+            PROFILE_PANE_ROOT_LOCATION,
           );
         }
         return;
       }
       closeProfilePane(pathname || ROUTES.ONE_HOME, searchParams);
     },
-    [profilePaneIsOpen, pathname, searchParams, profilePaneResumeLocation],
+    [profilePaneIsOpen, pathname, searchParams],
   );
 
   useEffect(() => {

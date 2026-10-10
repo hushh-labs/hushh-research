@@ -25,6 +25,7 @@ import { isIOS, isNative } from "@/lib/capacitor/platform";
 import { resolveRuntimeFrontendUrl } from "@/lib/runtime/settings";
 import { ApiError, apiErrorCode, apiJson } from "@/lib/services/api-client";
 import { ApiService } from "@/lib/services/api-service";
+import { pickWalletAvatarUrl, WALLET_AVATAR_READ_LIMIT } from "@/lib/services/wallet-card-avatar";
 import { openExternalUrl } from "@/lib/utils/browser-navigation";
 
 /* ------------------------------------------------------------------ routes */
@@ -621,8 +622,9 @@ function toPublicProfile(raw: unknown): WalletCardPublicProfile | null {
     github: safeLink(readString(source, ["github"], TEXT_FIELD_LIMITS.github)),
     portfolio: safeLink(readString(source, ["portfolio"], TEXT_FIELD_LIMITS.portfolio)),
     preferred_contact: readPreferredContact(source),
-    avatar_url: safeLink(
-      readString(source, ["avatarUrl", "avatar_url", "photoUrl", "photo_url"], MAX_URL_LENGTH),
+    avatar_url: pickWalletAvatarUrl(
+      readString(source, ["avatarUrl", "avatar_url", "photoUrl", "photo_url"], WALLET_AVATAR_READ_LIMIT),
+      safeLink,
     ),
     updated_at: readString(
       source,
@@ -852,7 +854,11 @@ export class WalletCardService {
       body: JSON.stringify({
         userId: params.userId,
         cardPayload: validation.value,
-        ...(params.avatarUrl ? { avatarUrl: params.avatarUrl } : {}),
+        // The server reads the live account photo itself; only a short https
+        // URL is accepted here, so an uploaded (data URL) photo must not be sent.
+        ...(params.avatarUrl?.startsWith("https://") && params.avatarUrl.length <= 300
+          ? { avatarUrl: params.avatarUrl }
+          : {}),
         ...(localLink ? { shareToken: localLink.shareToken } : {}),
       }),
     });

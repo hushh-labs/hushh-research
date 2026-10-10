@@ -1,0 +1,13 @@
+{
+  "description": "Synthetic public interoperability fixture. Scalar 1 is test-only; never use for real keys.",
+  "keyId": "4ac2cf4e-4338-4c63-a6ce-a44608214f14",
+  "publicKey": "BGsX0fLhLEJH-Lzm5WOkQPJ3A32BLeszoPShOUXYmMKWT-NC4v4af5uO5-tKfA-eFivOM1drMV7Oy7ZAaDe_UfU",
+  "privateKey": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGhRANCAARrF9Hy4SxCR_i85uVjpEDydwN9gS3rM6D0oTlF2JjClk_jQuL-Gn-bjufrSnwPnhYrzjNXazFezsu2QGg3v1H1",
+  "context": "circle:11111111-2222-3333-4444-555555555555:fixture",
+  "preview": {
+    "sender": "",
+    "text": "Namaste 👋 नमस्ते"
+  },
+  "sealed": "[\"4ac2cf4e-4338-4c63-a6ce-a44608214f14\",\"BLLugCBFB-fWvHjPcg3ZYBJgBKR88KSmCHEb9xD5FeDmWZE5ikGXf4pHgUYTw3DlVZnOvhMlvlYy7K5d4r1ciag\",\"_SKnsQzGpPTHVSxY\",\"T4vMbfSLFfZXQTwUbArZwIY5QgoIVzE_AMwPjtHM3YuZiuAuyHgxoX4q_AIgeddndtm0BBqDkqNn-4BEBSEQF9j0T7-qUQ\"]",
+  "identity": "[\"4ac2cf4e-4338-4c63-a6ce-a44608214f14\",\"BDQcAQ_Bie3y6ILlFWnu8Q7D4SqFQz2I6za04DPbaXOmbCVD4lIHA_HuuLa3AEuT25wC7POXQ_rQQjGqDomqjHo\",\"t4SFWCuM_Ya9aAha\",\"EhQz5ceo2zx7RErenmLkFj1clU2oQONvatHTmQFLQUy-nUFpGHR7otENgTQ2lksZs7e3FRVLdwRFWVqySYEQB8CFQ99gsBDlvybVcwojreRQpeoEiB2l1EAF\"]"
+}

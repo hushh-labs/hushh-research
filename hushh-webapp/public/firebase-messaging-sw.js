@@ -45,7 +45,7 @@ const DOCUMENT_SHARE_NOTIFICATION_COPY_BY_TYPE = {
   },
   document_share_payment_ready: {
     title: "Payment needed",
-    body: "Pay $10 in One to continue your document request.",
+    body: "Pay in One to continue your document request.",
   },
   document_share_payment_confirmed: {
     title: "Payment confirmed",
@@ -199,16 +199,8 @@ function notificationTapTarget(data) {
   // Private-message pushes carry only opaque identifiers. The app verifies
   // conversation membership before it renders any history.
   if (type === "direct_message") {
-    const conversationId = String(
-      data?.conversation_id || data?.conversationId || "",
-    ).trim();
-    if (
-      conversationId &&
-      conversationId.length <= 256 &&
-      !/[\x00-\x1f]/.test(conversationId)
-    ) {
-      return `/one/messages?conversation=${encodeURIComponent(conversationId)}`;
-    }
+    const routeToken = String(data?.route_token || "");
+    if (routeToken.startsWith("dm1.")) return `/one/messages?token=${encodeURIComponent(routeToken)}`;
     return "/one/messages";
   }
   // Recipient-only alerts match the native/shared FCM tap handler. Historical
@@ -352,6 +344,8 @@ async function routeNotificationClick(url, reason, data) {
   return undefined;
 }
 
+importScripts("/chat-notification-preview.js");
+
 self.addEventListener("push", function (event) {
   if (!event.data) return;
   try {
@@ -420,6 +414,9 @@ self.addEventListener("push", function (event) {
     };
     event.waitUntil(
       (async () => {
+        const isChat = ["direct_message", "location_circle_message"].includes(notificationData?.type);
+        if (isChat && notificationData.recipient_key_id && notificationData.recipient_key_id !== await self.currentChatNotificationKey()) return;
+        if (isChat && Number(notificationData.chat_expires_at) < Date.now() / 1000) return;
         const deliveryId = nextDeliveryId();
         if (isSilent) {
           await closeDeliveredNotificationTag(tag);
@@ -450,7 +447,16 @@ self.addEventListener("push", function (event) {
         // Suppress the browser notification only after the visible app bridge
         // confirms receipt. Otherwise the system tray remains the reliable fallback.
         if (!acknowledged) {
-          await self.registration.showNotification(title, notificationOptions);
+          const preview = isChat ? await self.openChatNotificationPreview(notificationData) : null;
+          const identity = isChat ? await self.openChatNotificationPreview(notificationData, "chat_identity") : null;
+          const trusted = notificationData?.type === "location_circle_message" ? identity : preview;
+          const sender = String(trusted?.sender || "New message").slice(0, 80);
+          const group = String(trusted?.group || "").slice(0, 80);
+          const text = Array.from(String(preview?.text || (isChat ? "You have a new message" : body))).slice(0, 160).join("");
+          const avatar = trusted?.avatar;
+          const icon = typeof avatar === "string" && avatar.startsWith("data:image/jpeg;base64,") && avatar.length <= 1023 ? avatar : notificationOptions.icon;
+          await self.registration.showNotification(isChat ? group || sender : title, { ...notificationOptions,
+            ...(isChat ? { body: group ? `${sender}: ${text}` : text, icon, requireInteraction: false } : {}) });
         }
       })(),
     );

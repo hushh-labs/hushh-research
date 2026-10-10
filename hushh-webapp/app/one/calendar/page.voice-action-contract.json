@@ -1,0 +1,56 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "one_calendar",
+  "surface_title": "Calendar",
+  "docs_references": [
+    "docs/reference/one/one-calendar-knowledge-graph.md",
+    "docs/reference/one/one-voice-runtime-architecture.md"
+  ],
+  "defaults": {
+    "speaker_persona": "one",
+    "reachability": {
+      "active_personas": ["investor", "ria"],
+      "routes": ["/one/calendar", "/one"],
+      "screens": ["one_calendar", "one_agents"],
+      "hidden_navigable": true,
+      "navigation_prerequisites": [
+        "Open /one/calendar only when the owner asks to see the Calendar page."
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "calendar.read",
+      "label": "Read Calendar",
+      "meaning": "Reads the owner's connected Google Calendar through One Live Voice. The read can list calendars, find events in a bounded time window, open a previously shown event, inspect busy periods, or find openings. Event text is displayed privately on screen; the operational voice model receives only counts and status. No event is created or changed.",
+      "aliases": [
+        "what is on my calendar",
+        "show my calendar events",
+        "find a calendar event",
+        "when am i free"
+      ],
+      "search_keywords": [
+        "calendar events",
+        "calendar list",
+        "event details",
+        "busy times",
+        "free openings"
+      ],
+      "guard_ids": ["auth_signed_in", "vault_owner_token"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "read_calendar"
+      },
+      "control_ids": [],
+      "state_exposure": ["calendar_connection_state", "vault_ready"],
+      "docs_references": [
+        "consent-protocol/hushh_mcp/one_voice/tools/calendar.py",
+        "consent-protocol/hushh_mcp/services/google_calendar_service.py"
+      ]
+    }
+  ],
+  "search": {}
+}

@@ -53,6 +53,7 @@ import {
   type AgentStructuredExperience,
 } from "@/lib/agent/agui-structured-experiences";
 import { ownerStyleRequestField, type OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
+import type { ReceiptCanonicalIndex } from "@/lib/profile/gmail-receipt-memory-index";
 
 export type AgentChatMessage = {
   id: string;
@@ -402,15 +403,22 @@ const AGENT_CHAT_STREAM_WATCHDOG_TICK_MS = 5_000;
  * completes such a run quietly. `fetch` is the HttpAgent transport with every
  * body chunk noted; `start` arms the silence watchdog for one run.
  */
-function createAgentStreamLiveness(onSilent: () => void, onBytes: () => void = () => undefined) {
+function createAgentStreamLiveness(
+  onSilent: () => void,
+  onBytes: () => void = () => undefined,
+  onCleanEof: () => void = onSilent,
+) {
   let lastBytesAtMs = Date.now();
   let timer: ReturnType<typeof setInterval> | null = null;
+  let eofTimer: ReturnType<typeof setTimeout> | null = null;
   const touch = () => {
     lastBytesAtMs = Date.now();
   };
   const stop = () => {
     if (timer !== null) clearInterval(timer);
     timer = null;
+    if (eofTimer !== null) clearTimeout(eofTimer);
+    eofTimer = null;
   };
   return {
     fetch: async (init: RequestInit | undefined): Promise<Response> => {
@@ -423,6 +431,11 @@ function createAgentStreamLiveness(onSilent: () => void, onBytes: () => void = (
           touch();
           onBytes();
           controller.enqueue(chunk);
+        },
+        flush() {
+          // Let the AG-UI parser consume the final frame first. Some SDK
+          // paths wait for a terminal event forever after a clean body EOF.
+          eofTimer = setTimeout(onCleanEof, 500);
         },
       }));
       return new Response(body, {
@@ -759,6 +772,16 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Reading your calendar events.",
     activity: "Reading your Calendar",
   },
+  calendar_calendars: {
+    label: "Google Calendar",
+    message: "Finding your calendars.",
+    activity: "Reading your calendars",
+  },
+  calendar_event_detail: {
+    label: "Google Calendar",
+    message: "Reading the event details.",
+    activity: "Reading an event",
+  },
   calendar_availability: {
     label: "Google Calendar",
     message: "Checking your availability.",
@@ -798,6 +821,11 @@ const SERVER_TOOL_PRESENTATION: Record<
     label: "Gmail",
     message: "Preparing a mailbox change for your confirmation.",
     activity: "Preparing a mailbox change",
+  },
+  propose_gmail_todo: {
+    label: "Gmail",
+    message: "Preparing email follow-ups for your confirmation.",
+    activity: "Preparing follow-ups",
   },
   propose_drive_share: {
     label: "Google Drive",
@@ -1182,6 +1210,12 @@ export async function streamAgentChat(input: {
   /** One saved Drive result, checked against the current owner and live Drive before use. */
   driveSearchSelection?: { jobId: string; position: number };
   pendingEmailDraft?: PendingEmailDraftContext | null;
+  /**
+   * The owner's saved receipt index, decrypted on this device. It rides beside
+   * the turn only for the Email receipts read; the server validates it against
+   * a closed schema and keeps it for this one turn, never as conversation state.
+   */
+  receiptMemory?: ReceiptCanonicalIndex | null;
   screenContext?: Record<string, unknown> | null;
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
@@ -1274,10 +1308,17 @@ export async function streamAgentChat(input: {
     throw error;
   }
   const chatKey = Object.values(chatKeyHeaders)[0] ?? "";
-  const liveness = createAgentStreamLiveness(() => {
+  const onLostTransport = () => {
+    if (runTerminal || streamLost || failure || intentionallyStoppedAtConfirmation ||
+        detached || input.signal?.aborted) return;
     loseStream();
     agent.abortRun();
-  }, () => handlers.onStreamHealth?.({ kind: "bytes" }));
+  };
+  const liveness = createAgentStreamLiveness(
+    onLostTransport,
+    () => handlers.onStreamHealth?.({ kind: "bytes" }),
+    onLostTransport,
+  );
   const agent = new HttpAgent({
     url: "/api/one/agent-chat",
     threadId,
@@ -1421,6 +1462,7 @@ export async function streamAgentChat(input: {
               gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
               ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
               ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}),
+              ...(input.receiptMemory ? { receiptMemory: input.receiptMemory } : {}),
               screenContext: input.screenContext,
             },
             resume: [{ interruptId, status, payload }],
@@ -1822,6 +1864,7 @@ export async function streamAgentChat(input: {
       }
     },
     onRunFinishedEvent: (params) => {
+      if (runTerminal || streamLost || failure || intentionallyStoppedAtConfirmation || detached) return;
       runTerminal = true;
       if (params.outcome === "interrupt") {
         for (const interrupt of params.interrupts) {
@@ -1872,6 +1915,7 @@ export async function streamAgentChat(input: {
                     gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
                     ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
                     ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}),
+                    ...(input.receiptMemory ? { receiptMemory: input.receiptMemory } : {}),
                     screenContext: input.screenContext,
                     ...(approval ? { mcpApproval: {
                       directiveId: approval.directiveId, connectorId: approval.connectorId,
@@ -1903,6 +1947,7 @@ export async function streamAgentChat(input: {
       finishTerminalRun();
     },
     onRunErrorEvent: ({ event }) => {
+      if (runTerminal || streamLost || failure || detached) return;
       runTerminal = true;
       if (intentionallyStoppedAtConfirmation) {
         finishTerminalRun();
@@ -1921,7 +1966,7 @@ export async function streamAgentChat(input: {
       // Our own abort of a detached stream is not a failure of the turn, which
       // is still running server-side. A stream this client already gave up on
       // was reported once; its abort must not replace that with a second error.
-      if (intentionallyStoppedAtConfirmation || detached || streamLost) {
+      if (runTerminal || failure || intentionallyStoppedAtConfirmation || detached || streamLost) {
         finishTerminalRun();
         return;
       }
@@ -1969,6 +2014,7 @@ export async function streamAgentChat(input: {
         gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
         ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
         ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}),
+        ...(input.receiptMemory ? { receiptMemory: input.receiptMemory } : {}),
         screenContext: input.screenContext,
         ...(input.consentContinuation ? { consentContinuation: input.consentContinuation } : {}),
         ...(input.feedAttention ? { feedAttention: { itemId: input.feedAttention.itemId } } : {}),
@@ -2025,10 +2071,12 @@ export async function streamAgentIntro(input: {
     failure = new Error(AGENT_CHAT_STREAM_LOST_ERROR);
     handlers.onError?.(failure.message);
   };
-  const liveness = createAgentStreamLiveness(() => {
+  const onLostTransport = () => {
+    if (runTerminal || streamLost || failure || input.signal?.aborted) return;
     loseStream();
     agent.abortRun();
-  });
+  };
+  const liveness = createAgentStreamLiveness(onLostTransport);
   const agent = new HttpAgent({
     url: "/api/one/agent-chat",
     threadId,
@@ -2049,16 +2097,18 @@ export async function streamAgentIntro(input: {
       handlers.onToken?.(event.delta);
     },
     onRunFinishedEvent: () => {
+      if (runTerminal || streamLost || failure) return;
       runTerminal = true;
       handlers.onComplete?.({ conversationId: threadId });
     },
     onRunErrorEvent: ({ event }) => {
+      if (runTerminal || streamLost || failure) return;
       runTerminal = true;
       failure = new Error(formatAgentChatErrorMessage(event.message || "", event.code || undefined));
       handlers.onError?.(failure.message);
     },
     onRunFailed: ({ error }) => {
-      if (streamLost) return;
+      if (runTerminal || streamLost || failure) return;
       failure = new Error(formatAgentChatErrorMessage(error.message || ""));
       handlers.onError?.(failure.message);
     },

@@ -1,9 +1,9 @@
 import { ApiService } from "@/lib/services/api-service";
 
 /**
- * The One email delivery boundary deliberately has no local persistence. The
- * server owns normalization, confirmation hashes, and the short-lived send
- * action; this client only carries the currently visible draft between clicks.
+ * The server owns normalization, confirmation hashes, and the send action.
+ * Session storage retains only opaque action IDs for response-loss recovery;
+ * drafts, auth credentials, provider IDs and send tokens never enter it.
  */
 export type EmailDraft = {
   to: string;
@@ -52,6 +52,80 @@ export type SentEmailResult = {
   threadId: string | null;
   outcomeUnknown: boolean;
 };
+
+export type EmailSendStatus = {
+  actionId: string;
+  state: "prepared" | "sending" | "sent" | "failed" | "outcome_unknown" | "expired" | "cancelled";
+};
+
+const PENDING_SEND_STORAGE_PREFIX = "one-email-pending-send-actions:v1:";
+const PENDING_SEND_TTL_MS = 24 * 60 * 60 * 1000;
+const MAX_PENDING_SEND_ACTIONS = 8;
+const ACTION_ID_PATTERN = /^[A-Za-z0-9-]{1,128}$/;
+
+type PendingSendSurface = "chat" | "voice";
+type PendingSendAction = { actionId: string; createdAt: number; surface: PendingSendSurface };
+
+function pendingSendStorageKey(ownerId: string): string {
+  return `${PENDING_SEND_STORAGE_PREFIX}${ownerId}`;
+}
+
+function readPendingSendActions(ownerId: string): PendingSendAction[] {
+  if (!ownerId || typeof sessionStorage === "undefined") return [];
+  try {
+    const raw = sessionStorage.getItem(pendingSendStorageKey(ownerId)) || "[]";
+    if (raw.length > 4096) return [];
+    const stored: unknown = JSON.parse(raw);
+    if (!Array.isArray(stored)) return [];
+    const now = Date.now();
+    return stored.filter((value): value is PendingSendAction => {
+      const row = asRecord(value);
+      return Boolean(
+        row && typeof row.actionId === "string" && ACTION_ID_PATTERN.test(row.actionId) &&
+        typeof row.createdAt === "number" && Number.isFinite(row.createdAt) &&
+        row.createdAt <= now && now - row.createdAt <= PENDING_SEND_TTL_MS &&
+        (row.surface === "chat" || row.surface === "voice")
+      );
+    }).slice(-MAX_PENDING_SEND_ACTIONS);
+  } catch {
+    return [];
+  }
+}
+
+function writePendingSendActions(ownerId: string, actions: PendingSendAction[]): void {
+  if (!ownerId || typeof sessionStorage === "undefined") return;
+  try {
+    if (actions.length) {
+      sessionStorage.setItem(pendingSendStorageKey(ownerId), JSON.stringify(actions));
+    } else {
+      sessionStorage.removeItem(pendingSendStorageKey(ownerId));
+    }
+  } catch {
+    // Storage availability never changes the send result or authorizes a retry.
+  }
+}
+
+export function pendingEmailSendActionIds(ownerId: string, surface: PendingSendSurface = "chat"): string[] {
+  const actions = readPendingSendActions(ownerId);
+  writePendingSendActions(ownerId, actions);
+  return actions.filter((action) => action.surface === surface).map((action) => action.actionId);
+}
+
+export function rememberPendingEmailSendAction(
+  ownerId: string, actionId: string, surface: PendingSendSurface = "chat",
+): void {
+  if (!ownerId || !ACTION_ID_PATTERN.test(actionId)) return;
+  const actions = readPendingSendActions(ownerId).filter((action) => action.actionId !== actionId);
+  actions.push({ actionId, createdAt: Date.now(), surface });
+  writePendingSendActions(ownerId, actions.slice(-MAX_PENDING_SEND_ACTIONS));
+}
+
+export function forgetPendingEmailSendAction(ownerId: string, actionId: string): void {
+  if (!ownerId || !ACTION_ID_PATTERN.test(actionId)) return;
+  writePendingSendActions(ownerId, readPendingSendActions(ownerId).filter(
+    (action) => action.actionId !== actionId,
+  ));
+}
 
 /** These codes come from Gmail's connector, not the owner's vault credentials. */
 function gmailAuthorizationFailed(code: string | null, status: number): boolean {
@@ -176,7 +250,7 @@ function safeErrorMessage(code: string | null, status: number): string {
     return "Your mail changed since this review. Ask One to prepare the change again.";
   }
   if (code === "GMAIL_MAILBOX_UNAVAILABLE") {
-    return "Gmail did not apply that change. Please try again.";
+    return "Gmail's response was interrupted. Check the mailbox before making this change again.";
   }
   if (code === "REPLY_SOURCE_CHANGED" || code === "REPLY_ACCOUNT_CHANGED") {
     return "The original email or your Mail connection changed. Ask One to prepare the reply again.";
@@ -263,6 +337,30 @@ function draftFromPayload(payload: unknown): EmailDraftResult {
 }
 
 export class EmailDeliveryService {
+  /** Reconcile the same reviewed attempt after a lost response; this never sends. */
+  static async sendStatus(input: EmailDeliveryAuth & { actionId: string }): Promise<EmailSendStatus> {
+    if (!ACTION_ID_PATTERN.test(input.actionId)) {
+      throw new EmailDeliveryError("That mail review is unavailable.", 404, "ACTION_NOT_FOUND");
+    }
+    const response = await ApiService.apiFetch(
+      `/api/one/email/send/status/${encodeURIComponent(input.actionId)}`,
+      { method: "POST", headers: emailHeaders(input) },
+    );
+    if (!response.ok) throw await readFailure(response);
+    const record = asRecord(await response.json().catch(() => null));
+    const state = stringValue(record, "state");
+    if (stringValue(record, "action_id") !== input.actionId || ![
+      "prepared", "sending", "sent", "failed", "outcome_unknown", "expired", "cancelled",
+    ].includes(state)) {
+      throw new EmailDeliveryError(
+        "We could not confirm delivery. Check Sent Mail before trying again.",
+        502,
+        "EMAIL_ACTION_OUTCOME_UNKNOWN",
+      );
+    }
+    return { actionId: input.actionId, state: state as EmailSendStatus["state"] };
+  }
+
   static async saveGmailDraft(input: EmailDeliveryAuth & {
     draft: EmailDraft;
   }): Promise<void> {
@@ -294,9 +392,23 @@ export class EmailDeliveryService {
       }),
     );
     const count = payload?.count;
+    const total = payload?.total;
+    if (payload?.status === "partially_executed" || payload?.status === "outcome_unknown") {
+      const confirmed = typeof count === "number" && Number.isInteger(count) && count >= 0 ? count : 0;
+      const reviewed = typeof total === "number" && Number.isInteger(total) && total >= confirmed
+        ? total : null;
+      const progress = reviewed !== null && confirmed > 0
+        ? `Gmail confirmed ${confirmed} of ${reviewed} changes. `
+        : "";
+      throw new EmailDeliveryError(
+        `${progress}The remaining result is uncertain. Check Gmail before making this change again.`,
+        409,
+        "GMAIL_MAILBOX_OUTCOME_UNKNOWN",
+      );
+    }
     if (payload?.status !== "executed" || typeof count !== "number") {
       throw new EmailDeliveryError(
-        "Gmail may have applied this change. Check Gmail before trying again.", 502,
+        "Gmail may have applied this change. Check Gmail before making it again.", 502,
       );
     }
     return { action: stringValue(payload, "action"), count };

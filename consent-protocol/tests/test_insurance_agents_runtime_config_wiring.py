@@ -166,6 +166,10 @@ def test_the_deploy_workflow_passes_the_flag_it_configures():
         Path(__file__).resolve().parents[2] / ".github" / "workflows" / "deploy-uat.yml"
     ).read_text()
     assert "--insurance-agents-api-base-url" in workflow
+    assert (
+        "--one-business-directory-enabled \"${{ vars.ONE_BUSINESS_DIRECTORY_ENABLED_UAT || 'false' }}\""
+        in workflow
+    )
 
 
 def test_the_deploy_mounts_the_mirrored_key_on_the_backend():
@@ -181,3 +185,22 @@ def test_runtime_env_map_owns_the_key():
         runtime_settings._BACKEND_RUNTIME_ENV_MAP["insurance_agents_api_base_url"]
         == "INSURANCE_AGENTS_API_BASE_URL"
     )
+
+
+@pytest.mark.parametrize("enabled", ["true", "false"])
+def test_generated_config_preserves_business_directory_rollout(monkeypatch, enabled):
+    """The shared config writer must not erase this flag on the next deploy."""
+    module = _load_sync_module()
+    config = module._build_backend_runtime_config(
+        _namespace(one_business_directory_enabled=enabled)
+    )
+    monkeypatch.delenv("ONE_BUSINESS_DIRECTORY_ENABLED", raising=False)
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps(config))
+    runtime_settings.hydrate_runtime_environment()
+    assert runtime_settings.one_business_directory_enabled() is (enabled == "true")
+
+
+def test_business_directory_rollout_remains_closed_without_opt_in():
+    module = _load_sync_module()
+    config = module._build_backend_runtime_config(_namespace())
+    assert config["one_business_directory_enabled"] == "false"

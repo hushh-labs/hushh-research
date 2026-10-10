@@ -1,3 +1,4 @@
+import { clearCurrentNotificationDevice, notificationDeviceId } from "@/lib/notifications/preview-keys";
 /**
  * Unified FCM Service
  * ============= *
@@ -15,7 +16,6 @@ import { Capacitor } from "@capacitor/core";
 import { circleChatNotificationTarget } from "@/lib/circle-chat/routes";
 import { ApiService } from "@/lib/services/api-service";
 import {
-  buildDirectMessageRoute,
   ROUTES,
 } from "@/lib/navigation/routes";
 import { isAgentConversationId } from "@/lib/agent/agent-chat-turn-watch";
@@ -42,6 +42,14 @@ import {
 } from "@/lib/one-location/notifications";
 
 // Event name for FCM messages (both web and native dispatch this)
+// The app bridge resolves only after native Firebase has removed its cached
+// token. A subsequent account must wait before retrieving that installation's token.
+let nativeTokenDeletion: Promise<void> = Promise.resolve();
+async function nativeTokenAfterDeletion(messaging: { getToken(): Promise<{ token: string }> }) {
+  await nativeTokenDeletion;
+  return messaging.getToken();
+}
+
 export const FCM_MESSAGE_EVENT = "fcm-message";
 const CONSENT_NOTIFICATION_ACTION_REVIEW = "CONSENT_REVIEW";
 const CONSENT_NOTIFICATION_ACTION_APPROVE = "CONSENT_APPROVE";
@@ -213,13 +221,9 @@ export function directMessageNotificationTapTarget(
 ): string | null {
   const type = String(data?.type || "").trim().toLowerCase();
   if (type !== "direct_message") return null;
-  const conversationId = String(
-    data?.conversation_id || data?.conversationId || "",
-  ).trim();
-  if (!conversationId || conversationId.length > 256 || /[\x00-\x1f]/.test(conversationId)) {
-    return ROUTES.ONE_MESSAGES;
-  }
-  return buildDirectMessageRoute({ conversationId });
+  const routeToken = String(data?.route_token || "");
+  if (routeToken.startsWith("dm1.")) return `/one/messages?token=${encodeURIComponent(routeToken)}`;
+  return ROUTES.ONE_MESSAGES;
 }
 
 export function buildNotificationTapTarget(
@@ -303,6 +307,27 @@ let nativeListenersPromise: Promise<void> | null = null;
 let webListenerConfigured = false;
 let webServiceWorkerBridgeConfigured = false;
 let lastKnownSession: { userId: string; idToken: string } | null = null;
+let notificationSessionGeneration = 0;
+const pushCleanupControllers = new Set<AbortController>();
+let pendingChatTaps: Array<Record<string, unknown>> = [];
+async function routeChatTap(data: Record<string, unknown>) {
+  const { activeNotificationKeyId } = await import("@/lib/notifications/preview-keys");
+  const key = activeNotificationKeyId(lastKnownSession?.userId);
+  if (!lastKnownSession || data.recipient_key_id && !key) {
+    pendingChatTaps = [...pendingChatTaps.slice(-4), data];
+    return;
+  }
+  if (data.recipient_key_id && data.recipient_key_id !== key || data.user_id && data.user_id !== lastKnownSession.userId) return;
+  if (Number(data.chat_expires_at || 0) && Number(data.chat_expires_at) < Date.now() / 1000) return;
+  dispatchFeedStateChanged("action");
+  requestInternalAppNavigation({ href: buildNotificationTapTarget(data), scroll: false });
+}
+async function flushChatTaps() {
+  if (!pendingChatTaps.length) return;
+  const taps = pendingChatTaps;
+  pendingChatTaps = [];
+  for (const data of taps) await routeChatTap(data);
+}
 const FIREBASE_WEB_PUSH_DATABASES = [
   "firebase-messaging-database",
   "firebase-installations-database",
@@ -611,7 +636,9 @@ export async function initializeFCM(
   options: FCMInitOptions = {},
 ): Promise<FCMInitResult> {
   const isNative = Capacitor.isNativePlatform();
+  for (const cleanup of pushCleanupControllers) cleanup.abort();
   lastKnownSession = { userId, idToken };
+  notificationSessionGeneration++;
 
   if (isNative) {
     return initializeNativeFCM(userId, idToken, options);
@@ -731,6 +758,8 @@ async function initializeNativeFCM(
   idToken: string,
   options: FCMInitOptions,
 ): Promise<FCMInitResult> {
+  const generation = notificationSessionGeneration;
+  const isCurrent = () => generation === notificationSessionGeneration && lastKnownSession?.userId === userId;
   try {
     if (
       typeof window !== "undefined" &&
@@ -749,6 +778,7 @@ async function initializeNativeFCM(
     // Configure listeners before permission/token/backend work so a foreground
     // notification or tap cannot be lost during native startup.
     await setupNativeListeners();
+    if (!isCurrent()) return { status: "unsupported", detail: "notification_session_changed" };
 
     // Permission prompts are product actions. Normal authentication and app
     // startup may re-register an already-granted token, but only an explicit
@@ -776,7 +806,9 @@ async function initializeNativeFCM(
     }
 
     // Step 2: Get FCM token
-    const { token } = await FirebaseMessaging.getToken();
+    if (!isCurrent()) return { status: "unsupported", detail: "notification_session_changed" };
+    const { token } = await nativeTokenAfterDeletion(FirebaseMessaging);
+    if (!isCurrent()) return { status: "unsupported", detail: "notification_session_changed" };
     console.log("[FCM] Got push token");
 
     // Step 3: Register token with backend
@@ -786,8 +818,10 @@ async function initializeNativeFCM(
       token,
       platform,
       idToken,
+      isCurrent,
     );
 
+    if (isCurrent()) await flushChatTaps();
     if (response.ok) {
       const payload = (await response
         .clone()
@@ -835,6 +869,8 @@ async function initializeWebFCM(
   idToken: string,
   options: FCMInitOptions,
 ): Promise<FCMInitResult> {
+  const generation = notificationSessionGeneration;
+  const isCurrent = () => generation === notificationSessionGeneration && lastKnownSession?.userId === userId;
   try {
     console.log("[FCM] Initializing for web platform...");
 
@@ -1032,6 +1068,7 @@ async function initializeWebFCM(
       token,
       "web",
       idToken,
+      isCurrent,
     );
 
     if (response.ok) {
@@ -1056,7 +1093,7 @@ async function initializeWebFCM(
         if (safePayload !== payload) {
           console.log("[FCM] 📬 Document request notification received");
         } else {
-          console.log("[FCM] 📬 Foreground message received:", payload);
+          console.log("[FCM] Foreground notification received");
         }
         window.dispatchEvent(
           new CustomEvent(FCM_MESSAGE_EVENT, {
@@ -1157,7 +1194,7 @@ function setupNativeListeners(): Promise<void> {
             if (safeNotification !== notification) {
               console.log("[FCM] Document request notification received");
             } else {
-              console.log("[FCM] Foreground message received:", notification);
+              console.log("[FCM] Foreground notification received");
             }
 
             window.dispatchEvent(
@@ -1182,11 +1219,16 @@ function setupNativeListeners(): Promise<void> {
             if (safeDocumentData) {
               console.log("[FCM] Document request notification tapped");
             } else {
-              console.log("[FCM] Notification tapped:", action);
+              console.log("[FCM] Notification tapped");
             }
             const actionId = String(action.actionId || "tap").trim();
 
             if (actionId === "dismiss") {
+              return;
+            }
+
+            if ((data?.recipient_key_id || data?.user_id) && ["direct_message", "location_circle_message"].includes(String(data?.type))) {
+              void routeChatTap(data).catch(() => { /* Wait for a later initialization if key storage is unavailable. */ });
               return;
             }
 
@@ -1244,17 +1286,31 @@ function setupNativeListeners(): Promise<void> {
       );
 
       listeners.push(
-        await FirebaseMessaging.addListener("tokenReceived", async (event) => {
+        await FirebaseMessaging.addListener("tokenReceived", async () => {
           console.log("[FCM] Push token refreshed");
           const platform = Capacitor.getPlatform() as "ios" | "android" | "web";
           try {
-            if (lastKnownSession) {
-              await ApiService.registerPushToken(
-                lastKnownSession.userId,
-                event.token,
+            const session = lastKnownSession;
+            const generation = notificationSessionGeneration;
+            if (session) {
+              const { auth } = await import("@/lib/firebase/config");
+              const user = auth.currentUser;
+              if (!user || user.uid !== session.userId) return;
+              // A refresh callback can contain a token being deleted for the
+              // previous owner. Resolve the provider's current token only once
+              // the native deletion barrier has completed.
+              const { token } = await nativeTokenAfterDeletion(FirebaseMessaging);
+              const freshToken = await user.getIdToken();
+              const isCurrent = () => generation === notificationSessionGeneration && lastKnownSession === session && auth.currentUser?.uid === session.userId;
+              if (!isCurrent()) return;
+              const response = await ApiService.registerPushToken(
+                session.userId,
+                token,
                 platform,
-                lastKnownSession.idToken,
+                freshToken,
+                isCurrent,
               );
+              if (!response.ok) throw new Error("Notification registration unavailable");
               console.log("[FCM] Refreshed token re-registered with backend");
             }
           } catch (err) {
@@ -1346,7 +1402,7 @@ export async function getFCMToken(): Promise<string | null> {
     if (isNative) {
       const { FirebaseMessaging } =
         await import("@capacitor-firebase/messaging");
-      const { token } = await FirebaseMessaging.getToken();
+      const { token } = await nativeTokenAfterDeletion(FirebaseMessaging);
       return token;
     } else {
       const vapidKey = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY;
@@ -1429,27 +1485,54 @@ export async function clearDeliveredConsentNotifications(options: {
  * Removes the token from Firebase and also calls the backend to unregister
  * so no further pushes are attempted for this device.
  */
+/** Local preview privacy is independent of Firebase/network token cleanup. */
+export async function clearLocalChatNotificationState(userId?: string): Promise<void> {
+  const departingOwner = userId ?? lastKnownSession?.userId;
+  if (userId && lastKnownSession && lastKnownSession.userId !== userId) return;
+  lastKnownSession = null;
+  notificationSessionGeneration++;
+  pendingChatTaps = [];
+  await clearCurrentNotificationDevice(departingOwner);
+}
+
 export async function deleteFCMToken(
   userId?: string,
   idToken?: string,
   options?: { signal?: AbortSignal },
 ): Promise<void> {
-  const signal = options?.signal;
-  if (signal?.aborted) return;
+  if (userId && lastKnownSession && lastKnownSession.userId !== userId) return;
+  const controller = new AbortController();
+  const outerSignal = options?.signal;
+  const abort = () => controller.abort();
+  outerSignal?.addEventListener("abort", abort, { once: true });
+  if (outerSignal?.aborted) controller.abort();
+  const signal = controller.signal;
+  pushCleanupControllers.add(controller);
+  try {
+  // Fence refresh callbacks before awaiting any network or imports.
+  const localPrivacy = clearLocalChatNotificationState(userId);
+  if (signal?.aborted) { await localPrivacy; return; }
   const isNative = Capacitor.isNativePlatform();
 
   // A stalled backend must not prevent removal of the device's push state.
   // Both operations start within the caller's budget, independently.
+  if (signal?.aborted) return;
+  const deviceId = await notificationDeviceId();
+  if (signal.aborted) return;
   const unregister = userId && idToken
-    ? ApiService.unregisterPushToken(userId, idToken, undefined, signal)
+    ? ApiService.unregisterPushToken(userId, idToken, undefined, signal, deviceId)
     : Promise.resolve();
   const clearLocalPushState = async () => {
     if (signal?.aborted) return;
     if (isNative) {
-      const { FirebaseMessaging } =
-        await import("@capacitor-firebase/messaging");
-      if (signal?.aborted) return;
-      await FirebaseMessaging.deleteToken();
+      const deletion = nativeTokenDeletion.catch(() => undefined).then(async () => {
+        if (signal.aborted) return;
+        const { HushhNotifications } = await import("@/lib/capacitor");
+        if (signal.aborted) return;
+        await HushhNotifications.deletePushToken();
+      });
+      nativeTokenDeletion = deletion.catch(() => undefined);
+      await deletion;
     } else {
       const { app } = await import("@/lib/firebase/config");
       if (signal?.aborted) return;
@@ -1474,8 +1557,12 @@ export async function deleteFCMToken(
     }
 
   };
-  const results = await Promise.allSettled([unregister, clearLocalPushState()]);
+  const results = await Promise.allSettled([unregister, clearLocalPushState(), localPrivacy]);
   if (results.some((result) => result.status === "rejected")) {
     console.warn("[FCM] Push cleanup did not fully complete.");
+  }
+  } finally {
+    pushCleanupControllers.delete(controller);
+    outerSignal?.removeEventListener("abort", abort);
   }
 }

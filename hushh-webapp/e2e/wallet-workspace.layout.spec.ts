@@ -305,7 +305,10 @@ for (const [width, count] of [[320, 10], [375, 10], [390, 10], [430, 10], [1440,
         const last = stack.locator("li[data-gesture-card^=card_]").last().getByRole("button").first();
         await last.click();
         await expect(page.getByTestId("wallet-selected-card")).toBeVisible();
-        await expect(page.getByRole("button", { name: "Show card details", exact: true })).toBeVisible();
+        const details = page.getByRole("region", { name: "Saved card details", exact: true });
+        await expect(details).toBeVisible();
+        await expect(details.getByText(/^•••• •••• •••• \d{4}$/)).toBeVisible();
+        await expect(details.getByText("Hidden", { exact: true })).toBeVisible();
         expect(await page.evaluate(() => window.__walletEvents ?? [])).toEqual([]);
         await page.getByRole("button", { name: "All cards", exact: true }).click();
       }
@@ -526,7 +529,8 @@ test("Add saves typed card details, keeps optional fields empty, and preserves i
   const form = page.getByTestId("secure-card-add-form");
   await form.getByLabel("Card number", { exact: true }).fill("5555 5555 5555 4444");
   await form.getByLabel("Name on card", { exact: true }).fill("SAMIRA ALEXANDRA RIVERA-WASHINGTON");
-  await form.getByLabel("Card network (optional)", { exact: true }).selectOption("mastercard");
+  await form.getByLabel("Card network (optional)", { exact: true }).click();
+  await page.getByRole("option", { name: "Mastercard", exact: true }).click();
   await form.getByLabel("Expiry (MM/YY)", { exact: true }).fill("09/32");
   await form.getByLabel("CVV", { exact: true }).fill("321");
   await form.getByRole("button", { name: "Save card", exact: true }).click();
@@ -682,5 +686,5 @@ test("Wallet sharp onboarding and stacked detail links", async ({ page }) => {
   await expect.poll(() => page.locator('[data-stack-details]').evaluateAll(nodes => nodes.every(node => getComputedStyle(node).visibility !== "hidden"))).toBe(true);
   await page.getByRole("tab", { name: "Sharing", exact: true }).click();
   await expect(page.getByTestId("wallet-sharing-content").locator('figure [data-agent-card="profile"]')).toBeVisible();
-  await expect(page.getByText("Illustrative card · Your saved details stay private")).toBeVisible();
+  await expect(page.getByTestId("wallet-sharing-content").locator("figure")).toBeInViewport();
 });

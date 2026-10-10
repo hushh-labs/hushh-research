@@ -203,6 +203,10 @@ async function open(
       await route.fulfill({ body: walletHero, contentType: "image/webp" });
       return;
     }
+    if (/^\/wallet\/artwork\/(profile|referral|nws)-v1\.svg$/.test(assetPath)) {
+      await route.fulfill({ body:fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType:"image/svg+xml", headers:{ "Access-Control-Allow-Origin":"*" } });
+      return;
+    }
     if (/^\/wallet\/agent-one-card-(profile|referral|nws)\.html$/.test(assetPath)) {
       await route.fulfill({
         body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)),
@@ -229,14 +233,16 @@ async function mount(page: Page, enter = true) {
 }
 
 
-for (const viewport of [{ width:390, height:844 }, { width:900, height:600 }, { width:900, height:1200 }]) {
+for (const viewport of [{ width:390, height:844 }, { width:900, height:600 }, { width:1366, height:768, savedCards:5 }, { width:900, height:1200 }]) {
 test(`Wallet scroll reveals lower cards and a left swipe opens the touched card ${viewport.width}x${viewport.height}`, async ({ page }) => {
-  await open(page, viewport.width, "light", { cards: 0 }, { height: viewport.height, shell: true });
+  await open(page, viewport.width, "light", { cards: viewport.savedCards ?? 0 }, { height: viewport.height, shell: true });
   await mount(page);
   const stack = page.getByTestId("wallet-add-stack");
   await expect(stack).toBeVisible();
+  await expect(stack.locator('[data-agent-card][data-artwork-ready="true"]')).toHaveCount(3);
   const scrollRoot = page.locator('[data-app-scroll-root="true"]');
   const layers = stack.locator("li");
+
   await expect.poll(async () => {
     const boxes = await layers.evaluateAll(nodes => nodes.map(n => n.getBoundingClientRect().top));
     return boxes[1] - boxes[0];
@@ -250,6 +256,27 @@ test(`Wallet scroll reveals lower cards and a left swipe opens the touched card 
   await expect.poll(() => page.locator('[data-swipe-views-root="true"]').evaluate(el => Math.abs(el.getBoundingClientRect().height - document.querySelector('#top-shell-wallet-panel-cards')!.getBoundingClientRect().height))).toBeLessThan(1);
   // Let the initial short-window positioning finish before simulating user scroll.
   await page.waitForTimeout(400);
+  const initialGeometry = await layers.evaluateAll(nodes => {
+    const first = nodes[0].querySelector('[data-agent-card]')!.getBoundingClientRect();
+    const edges = nodes.slice(1, 3).map(node => {
+      const box = node.getBoundingClientRect();
+      const hit = document.elementFromPoint(box.x + box.width / 2, box.top + 6);
+      return { top:box.top, hitOwnCard:hit?.closest('[data-gesture-card]') === node };
+    });
+    return { first:{ top:first.top, bottom:first.bottom, width:first.width }, edges,
+      dockTop:document.querySelector('[data-bottom-chrome]')!.getBoundingClientRect().top,
+      zoom:window.visualViewport?.scale ?? 1 };
+  });
+  expect(initialGeometry.zoom).toBe(1);
+  expect(initialGeometry.first.width).toBeGreaterThanOrEqual(260);
+  expect(initialGeometry.first.bottom).toBeLessThan(initialGeometry.dockTop - 8);
+  expect(initialGeometry.edges[0].top - initialGeometry.first.bottom).toBeGreaterThanOrEqual(44);
+  expect(initialGeometry.edges[1].top - initialGeometry.edges[0].top).toBeGreaterThanOrEqual(11.9);
+  expect(initialGeometry.edges[1].top + 12).toBeLessThanOrEqual(initialGeometry.dockTop - 7);
+  expect(initialGeometry.edges.every(edge => edge.hitOwnCard)).toBe(true);
+  const geometryPath = test.info().outputPath("initial-deck-geometry.json");
+  fs.writeFileSync(geometryPath, JSON.stringify(initialGeometry, null, 2));
+  await test.info().attach("initial-deck-geometry", { path:geometryPath, contentType:"application/json" });
   const firstFace = await layers.first().locator('[data-agent-card]').boundingBox();
   if (!firstFace) throw new Error("Featured card bounds missing");
   const previousScroll = await scrollRoot.evaluate(root => root.scrollTop);
@@ -270,7 +297,8 @@ test(`Wallet scroll reveals lower cards and a left swipe opens the touched card 
   expect(await scrollRoot.evaluate(root => root.scrollWidth <= root.clientWidth + 1)).toBe(true);
   // WebKit can report 43.99997 after transform composition; CSS still owns 44px.
   expect(await stack.locator('[data-stack-details] button').evaluateAll(buttons => buttons.every(button => parseFloat(getComputedStyle(button).height) >= 44 && Math.round(button.getBoundingClientRect().height) >= 44))).toBe(true);
-  expect(await stack.locator('[data-card-details-label]').evaluateAll(labels => labels.length === 3 && labels.every(label => label.getBoundingClientRect().height <= 28))).toBe(true);
+  await expect(stack.locator('[data-card-details-label]')).toHaveCount(3 + (viewport.savedCards ?? 0));
+  expect(await stack.locator('[data-card-details-label]').evaluateAll(labels => labels.every(label => label.getBoundingClientRect().height <= 28))).toBe(true);
   await page.screenshot({ path: test.info().outputPath("wallet-unfolded.png") });
   const card = layers.nth(1);
   await card.scrollIntoViewIfNeeded();
@@ -294,7 +322,10 @@ test(`Wallet scroll reveals lower cards and a left swipe opens the touched card 
   await expect(card.locator('[data-controls-open="false"]')).toBeVisible();
   await page.mouse.wheel(170, 0);
   await expect(card.locator('[data-controls-open="true"]')).toBeVisible();
-  await card.getByRole("button", { name:"View details", exact:true }).click();
+  await expect(card.locator('[data-card-controls]').getByText("Username", { exact:true })).toBeVisible();
+  await expect(card.locator('[data-card-controls]').getByRole("button", { name:"View details", exact:true })).toHaveCount(0);
+  await card.getByRole("button", { name:"Back to card", exact:true }).click();
+  await card.getByRole("button", { name:"View details for Agent One Referral", exact:true }).click();
   await expect(page.getByRole("region", { name: "Referral card details" })).toBeVisible();
   expect(await page.evaluate(() => window.__walletEvents ?? [])).toEqual([]);
   await page.getByRole("button", { name:"All cards", exact:true }).click();

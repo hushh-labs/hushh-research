@@ -1,4 +1,4 @@
-"""Reviewed Gmail mailbox changes exposed to One's typed chat head.
+"""Reviewed Gmail mailbox actions and To-do follow-ups for One's typed chat.
 
 The Calendar proposal pattern (``hushh_mcp/agents/calendar/tools.py``) applied
 to Gmail. The tool resolves the exact messages and returns a confirmation
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from uuid import uuid4
 
 from google.adk.tools.tool_context import ToolContext
 
@@ -19,8 +20,8 @@ from hushh_mcp.services.gmail_mailbox_actions import (
     MAILBOX_ACTIONS,
     get_gmail_mailbox_actions,
 )
-from hushh_mcp.services.gmail_metadata_reader import GmailMetadataError
-from hushh_mcp.services.gmail_receipts_service import GmailApiError
+from hushh_mcp.services.gmail_metadata_reader import GmailMetadataError, GmailMetadataReader
+from hushh_mcp.services.gmail_receipts_service import GmailApiError, get_gmail_receipts_service
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,24 @@ _READ_ERRORS = {
     "invalid_argument": "Describe which emails to change with a sender, subject, words or dates.",
     "response_too_large": "That selection is too large. Try a narrower description.",
 }
+
+
+def _todo_title(value: Any) -> str:
+    """Keep a visible Gmail follow-up title short and inert."""
+
+    subject = " ".join(str(value or "").split())
+    if not subject:
+        subject = "Email follow-up"
+    return (f"Follow up: {subject}").encode("utf-8")[:240].decode("utf-8", errors="ignore")
+
+
+def _todo_read_error(error: GmailApiError) -> dict[str, Any]:
+    if error.code == "GMAIL_NOT_CONNECTED":
+        return {"status": "connect_required", "message": _READ_ERRORS["connect_required"]}
+    if error.code in {"GMAIL_READ_PERMISSION_REQUIRED", "GMAIL_REAUTH_REQUIRED"}:
+        return {"status": "reconnect_required", "message": _READ_ERRORS["reconnect_required"]}
+    logger.warning("one_adk_gmail_todo_propose_failed code=%s", error.code)
+    return {"status": "failed", "message": _UNAVAILABLE}
 
 
 def _connection_directive(tool_context: ToolContext) -> dict[str, Any]:
@@ -183,4 +202,98 @@ async def propose_gmail_mailbox_change(
     }
 
 
-GMAIL_MAILBOX_TOOLS = [propose_gmail_mailbox_change]
+async def propose_gmail_todo(
+    tool_context: ToolContext,
+    query: str = "",
+    mailbox: str = "inbox",
+    limit: int = 10,
+) -> dict[str, Any]:
+    """Prepare selected Gmail follow-ups for the owner's To-do list.
+
+    Use only when the owner explicitly asks to add named email follow-ups to
+    their list. ``query`` is a Gmail search from the owner's description;
+    leave it empty only for their newest mail. No Gmail message is changed,
+    and an email's received time is never treated as a due date.
+    """
+
+    user_id = str(tool_context.state.get(_STATE_USER_ID) or "").strip()
+    if (
+        not user_id
+        or tool_context.state.get(_STATE_EXECUTION_SURFACE) != "typed_chat"
+        or not connector_feature_enabled("gmail_chat_reads", user_id)
+    ):
+        return {"status": "unavailable", "message": "Gmail follow-ups are available in chat only."}
+
+    async def require_access() -> None:
+        if (
+            str(tool_context.state.get(_STATE_USER_ID) or "").strip() != user_id
+            or tool_context.state.get(_STATE_EXECUTION_SURFACE) != "typed_chat"
+        ):
+            raise PermissionError("Mail owner authority is unavailable")
+
+    bounded_limit = limit if type(limit) is int and 1 <= limit <= 10 else 10
+    normalized_mailbox = str(mailbox or "inbox")
+    normalized_query = str(query or "")
+    operation = "search_inbox" if normalized_query.strip() else "list_recent"
+    arguments: dict[str, Any] = {"mailbox": normalized_mailbox, "limit": bounded_limit}
+    if operation == "search_inbox":
+        arguments["query"] = normalized_query
+    try:
+        reader = GmailMetadataReader(
+            gmail=get_gmail_receipts_service(),
+            user_id=user_id,
+            require_access=require_access,
+        )
+        preview = await reader.read(operation, arguments)
+    except GmailApiError as exc:
+        return _todo_read_error(exc)
+    except GmailMetadataError as exc:
+        return {"status": exc.code, "message": _READ_ERRORS.get(exc.code, _UNAVAILABLE)}
+    except PermissionError:
+        raise
+    except Exception:  # noqa: BLE001 - provider errors never enter the chat transcript
+        logger.exception("one_adk_gmail_todo_propose_failed reason=unexpected")
+        return {"status": "failed", "message": _UNAVAILABLE}
+
+    messages = list(preview.get("untrusted_external_content") or [])
+    if not messages:
+        return {"status": "no_match", "message": "No emails matched that description."}
+
+    proposal_id = f"gmail_todo_{uuid4().hex}"
+    visible_messages = [
+        {
+            "subject": item.get("subject"),
+            "sender": item.get("sender"),
+            "receivedAt": item.get("received_at"),
+        }
+        for item in messages
+    ]
+    todos = [
+        {"id": f"{proposal_id}:{index}", "title": _todo_title(item.get("subject"))}
+        for index, item in enumerate(messages, start=1)
+    ]
+    noun = "this email" if len(todos) == 1 else f"these {len(todos)} emails"
+    more = " (the first matches only)" if preview.get("truncated") else ""
+    directive = {
+        "kind": "action",
+        "delegateAgentId": "agent_email",
+        "payload": {
+            "type": "gmail.create_todos",
+            "proposalId": proposal_id,
+            "summary": f"Add follow-ups for {noun}{more} to your To-do list?",
+            "confirmLabel": "Add to To-do list",
+            "messages": visible_messages,
+            "todos": todos,
+            "truncated": bool(preview.get("truncated")),
+        },
+    }
+    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:todo"] = directive
+    return {
+        "status": "confirmation_required",
+        "count": len(todos),
+        "first_matches_only": bool(preview.get("truncated")),
+        "message": "The app is showing the selected emails for confirmation.",
+    }
+
+
+GMAIL_MAILBOX_TOOLS = [propose_gmail_mailbox_change, propose_gmail_todo]

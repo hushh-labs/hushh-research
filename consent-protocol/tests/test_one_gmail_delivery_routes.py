@@ -140,6 +140,67 @@ def test_send_passes_opaque_attachment_token_to_owner_service():
     assert service.execute.await_args.kwargs["draft_payload"]["revision"] == 2
 
 
+def test_send_status_reconciles_same_owner_action_without_mail_or_provider_metadata():
+    row = {
+        "action_id": "action-1",
+        "state": "sent",
+        "gmail_message_id": "private-gmail-message",
+        "gmail_thread_id": "private-gmail-thread",
+        "safe_error_code": None,
+    }
+    reader = AsyncMock(return_value=row)
+    with patch.object(module, "get_owner_send_action", reader):
+        response = TestClient(_app()).get("/api/one/email/send/status/action-1")
+
+    assert response.status_code == 200
+    assert response.json() == {"action_id": "action-1", "state": "sent", "outcome_unknown": False}
+    assert response.headers["cache-control"] == "private, no-store"
+    reader.assert_awaited_once_with(user_id="firebase-user", action_id="action-1")
+
+
+def test_send_status_post_settles_only_the_matching_owner_without_disclosing_metadata():
+    row = {
+        "action_id": "action-1",
+        "state": "outcome_unknown",
+        "gmail_message_id": "private-gmail-message",
+        "safe_error_code": "send_interrupted",
+    }
+    reconciler = AsyncMock(return_value=row)
+    with patch.object(module, "reconcile_owner_send_action", reconciler):
+        response = TestClient(_app()).post("/api/one/email/send/status/action-1")
+        denied = TestClient(_app(owner_user_id="other-user")).post(
+            "/api/one/email/send/status/action-1"
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "action_id": "action-1",
+        "state": "outcome_unknown",
+        "outcome_unknown": True,
+    }
+    assert response.headers["cache-control"] == "private, no-store"
+    assert denied.status_code == 403
+    reconciler.assert_awaited_once_with(user_id="firebase-user", action_id="action-1")
+
+
+def test_send_status_refuses_other_owner_before_reading_ledger():
+    reader = AsyncMock(return_value={"action_id": "action-1", "state": "sent"})
+    with patch.object(module, "get_owner_send_action", reader):
+        response = TestClient(_app(owner_user_id="other-user")).get(
+            "/api/one/email/send/status/action-1"
+        )
+    assert response.status_code == 403
+    reader.assert_not_awaited()
+
+
+def test_send_status_does_not_disclose_another_owners_action():
+    reader = AsyncMock(return_value=None)
+    with patch.object(module, "get_owner_send_action", reader):
+        response = TestClient(_app()).get("/api/one/email/send/status/action-1")
+    assert response.status_code == 404
+    reader.assert_awaited_once_with(user_id="firebase-user", action_id="action-1")
+
+
 def test_save_gmail_draft_is_explicit_and_rejects_attachments():
     draft = AsyncMock(return_value={"status": "saved", "draft_id": "draft-1"})
     with patch.object(module, "create_reviewed_gmail_draft", draft):

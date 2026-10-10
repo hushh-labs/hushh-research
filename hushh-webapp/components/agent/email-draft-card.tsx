@@ -450,8 +450,10 @@ export function EmailDraftCard({
 
     void (async () => {
       let sendRequestStarted = false;
+      let preparedActionId: string | null = null;
+      let auth: Awaited<ReturnType<typeof getAuth>> = null;
       try {
-        const auth = await getAuth();
+        auth = await getAuth();
         if (!auth) {
           onRequireVault();
           throw new EmailDeliveryError("Unlock your vault and try again.", 403);
@@ -467,7 +469,10 @@ export function EmailDraftCard({
                 onSendRequestStarted: () => {
                   sendRequestStarted = true;
                 },
-                onPrepared: (actionId) => onDeliveryPrepared?.(actionId, attemptId),
+                onPrepared: (actionId) => {
+                  preparedActionId = actionId;
+                  onDeliveryPrepared?.(actionId, attemptId);
+                },
               });
             })()
           : await (async () => {
@@ -482,6 +487,7 @@ export function EmailDraftCard({
                   500,
                 );
               }
+              preparedActionId = prepared.actionId;
               onDeliveryPrepared?.(prepared.actionId, attemptId);
               if (reviewedSend && canSendReviewed && !canSendReviewed()) {
                 throw new EmailDeliveryError("Review this draft again before sending.", 409, "DRAFT_CHANGED");
@@ -505,7 +511,29 @@ export function EmailDraftCard({
         }
         onSent(attemptId);
       } catch (cause) {
-        onSendFailed?.(deliveryFailure(cause, sendRequestStarted), attemptId);
+        const failure = deliveryFailure(cause, sendRequestStarted);
+        if (failure.code === "EMAIL_ACTION_OUTCOME_UNKNOWN" && preparedActionId && auth) {
+          try {
+            const recorded = await EmailDeliveryService.sendStatus({
+              ...auth, actionId: preparedActionId,
+            });
+            if (recorded.state === "sent") {
+              onSent(attemptId);
+              return;
+            }
+            if (["failed", "expired", "cancelled"].includes(recorded.state)) {
+              onSendFailed?.(new EmailDeliveryError(
+                "Mail was not sent. Review the draft before trying again.",
+                409,
+                "EMAIL_ACTION_NOT_SENT",
+              ), attemptId);
+              return;
+            }
+          } catch {
+            // The status read failed or raced with the send. Preserve unknown.
+          }
+        }
+        onSendFailed?.(failure, attemptId);
       }
     })();
   };

@@ -163,6 +163,16 @@ class CircleChatService:
                 {"user": user, "circle": circle},
             )
             return {
+                "notificationDevices": _rows(
+                    conn,
+                    """SELECT p.user_id AS "userId",
+                  p.preview_key_id::text AS "keyId", p.preview_public_key AS "publicKey"
+                  FROM user_push_installations p JOIN one_location_circle_memberships member
+                    ON member.user_id=p.user_id AND member.circle_id=CAST(:circle AS uuid) AND member.status='active'
+                  WHERE p.preview_key_id IS NOT NULL AND p.user_id<>:user
+                  ORDER BY p.updated_at DESC LIMIT 500""",
+                    {"circle": circle, "user": user},
+                ),
                 "rosterVersion": self._roster_version(roster),
                 "members": [
                     {
@@ -408,14 +418,15 @@ class CircleChatService:
                 "image": payload.get("imageCiphertext"),
                 "image_iv": payload.get("imageIv"),
                 "recipient_count": len(roster) - 1,
+                "previews": json.dumps(payload.get("notificationPreviews") or {}),
             }
             row = _rows(
                 conn,
                 """
                 INSERT INTO circle_chat_messages(id, circle_id, sender_user_id, client_message_id,
-                  ciphertext, iv, image_ciphertext, image_iv, request_digest, original_recipient_count)
+                  ciphertext, iv, image_ciphertext, image_iv, request_digest, original_recipient_count, notification_previews)
                 VALUES(CAST(:id AS uuid), CAST(:circle AS uuid), :user, CAST(:client AS uuid),
-                  :ciphertext, :iv, :image, :image_iv, :digest, :recipient_count) RETURNING *
+                  :ciphertext, :iv, :image, :image_iv, :digest, :recipient_count, CAST(:previews AS jsonb)) RETURNING *
             """,
                 params,
             )[0]
@@ -475,7 +486,7 @@ class CircleChatService:
                         "user_id": user,
                         "type": kind,
                         "circle_id": circle,
-                        "message_id": f"{kind}:{message}:{user}",
+                        "message_id": f"{kind}:{message}",
                     }
                 )
             },

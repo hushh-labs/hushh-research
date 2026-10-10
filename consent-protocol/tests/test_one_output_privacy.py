@@ -46,6 +46,40 @@ def test_approval_reference_never_enters_wire_state():
     assert event.delta[0]["value"] == private
 
 
+def test_mail_selection_provider_ids_stay_out_of_wire_state():
+    key = "hussh:mail_read_offer"
+    offer = {"owner_id": "owner", "message_ids": ["private-provider-id"]}
+    snapshot = StateSnapshotEvent(snapshot={key: offer, "visible": 1})
+    assert public_event(snapshot).snapshot == {"visible": 1}
+    delta = StateDeltaEvent(
+        delta=[
+            {"op": "add", "path": "/" + key, "value": offer},
+            {"op": "replace", "path": "", "value": {key: offer, "visible": 2}},
+        ]
+    )
+    projected = public_event(delta)
+    assert "private-provider-id" not in projected.model_dump_json()
+    assert projected.delta == [{"op": "replace", "path": "", "value": {"visible": 2}}]
+
+
+@pytest.mark.parametrize(
+    "key", ["hussh:calendar_event_read_offer", "hussh:calendar_list_read_offer"]
+)
+def test_calendar_selection_provider_ids_stay_out_of_wire_state(key: str) -> None:
+    offer = {"owner_id": "owner", "ids": ["private-calendar-provider-id"]}
+    snapshot = StateSnapshotEvent(snapshot={key: offer, "visible": 1})
+    assert public_event(snapshot).snapshot == {"visible": 1}
+    delta = StateDeltaEvent(
+        delta=[
+            {"op": "add", "path": "/" + key, "value": offer},
+            {"op": "replace", "path": "", "value": {key: offer, "visible": 2}},
+        ]
+    )
+    projected = public_event(delta)
+    assert "private-calendar-provider-id" not in projected.model_dump_json()
+    assert projected.delta == [{"op": "replace", "path": "", "value": {"visible": 2}}]
+
+
 @pytest.mark.parametrize("head", [HEAD_ONE, HEAD_INTRO])
 @pytest.mark.parametrize(
     "kind", [kind for kind in EventType if kind.value.startswith("REASONING_")]

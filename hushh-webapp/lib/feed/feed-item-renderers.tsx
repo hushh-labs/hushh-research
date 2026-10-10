@@ -23,7 +23,6 @@ import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { formatLocationDurationLabel } from "@/lib/one-location/duration-copy";
 import { buildOneLocationWorkflowHref } from "@/lib/one-location/notifications";
 import {
-  buildDirectMessageRoute,
   buildKaiMarketRoute,
   ROUTES,
 } from "@/lib/navigation/routes";
@@ -94,17 +93,11 @@ function metadataBool(metadata: Record<string, unknown>, key: string): boolean {
   return metadata[key] === true;
 }
 
-const DIRECT_MESSAGE_CONVERSATION_ID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 function directMessageFeedHref(metadata: Record<string, unknown>): string {
-  const conversationId = metadataString(
-    metadata,
-    "direct_message_conversation_id",
-  );
-  return DIRECT_MESSAGE_CONVERSATION_ID.test(conversationId)
-    ? buildDirectMessageRoute({ conversationId })
-    : ROUTES.ONE_MESSAGES;
+  const token = metadataString(metadata, "direct_message_route_token");
+  if (token.startsWith("dm1.")) return `${ROUTES.ONE_MESSAGES}?token=${encodeURIComponent(token)}`;
+  const conversationId = metadataString(metadata, "direct_message_conversation_id");
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(conversationId) ? `${ROUTES.ONE_MESSAGES}?conversation=${encodeURIComponent(conversationId)}` : ROUTES.ONE_MESSAGES;
 }
 
 /**
@@ -182,14 +175,17 @@ function driveFeedLine(
   eventType: string,
   sharedWithMe: boolean,
   status: string,
+  metadata: Record<string, unknown>,
 ): string {
   switch (eventType) {
+    case "document_share_request_sent":
+      return "Request sent";
     case "document_share_request":
       return "Document request received";
     case "document_share_review_ready":
       return "Files ready for your review";
     case "document_share_payment_ready":
-      return "Pay $10 to continue your document request";
+      return paymentInstructionLine(metadata);
     case "document_share_payment_confirmed":
       return "Payment confirmed for your document request";
     case "document_share_payment_refunded":
@@ -200,11 +196,11 @@ function driveFeedLine(
           ? "Declined your file request"
           : status === "pending"
             ? "Files are available; more may arrive"
-            : "Is sharing Drive files with you";
+            : "Approved your document request";
       }
       return status === "cancelled"
         ? "Withdrew their file request"
-        : status === "pending" ? "Some shared files are available" : "Getting your shared files";
+        : status === "pending" ? "Some shared files are available" : "Document request approved";
     case "document_share_outcome":
       if (status === "no_files_shared") return "No files were shared";
       if (status === "no_match")
@@ -236,6 +232,31 @@ function driveFeedLine(
     default:
       return "";
   }
+}
+
+function paymentInstructionLine(metadata: Record<string, unknown>): string {
+  const requestStatus = metadataString(metadata, "current_request_status").toLowerCase();
+  const paymentStatus = metadataString(metadata, "current_payment_status").toLowerCase();
+  if (metadata.current_access_stopped === true) return "Document access stopped";
+  if (paymentStatus === "paid") return "Payment confirmed";
+  if (paymentStatus === "refunded") return "Payment refunded";
+  const requestExpiry = Date.parse(metadataString(metadata, "current_request_expires_at"));
+  if (requestStatus === "cancelled" || requestStatus === "declined") {
+    return "Document request closed";
+  }
+  if (requestStatus === "expired" || metadata.current_request_expired === true ||
+      (Number.isFinite(requestExpiry) && requestExpiry <= Date.now())) {
+    return "Document request expired";
+  }
+  const checkoutExpiry = Date.parse(metadataString(metadata, "current_checkout_expires_at"));
+  if (paymentStatus === "expired" || metadata.current_checkout_expired === true ||
+      (Number.isFinite(checkoutExpiry) && checkoutExpiry <= Date.now())) {
+    return "Payment link expired";
+  }
+  // The actionable above history owns Checkout. An unavailable status cannot
+  // resurrect a Pay instruction from an old immutable Feed event.
+  if (paymentStatus === "unavailable") return "Check document request";
+  return "Payment due for your document request";
 }
 
 function metadataStringList(
@@ -1174,6 +1195,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         href: directMessageFeedHref(item.metadata),
       };
     }
+    case "document_share_request_sent":
     case "document_share_request":
     case "document_share_review_ready":
     case "document_share_payment_ready":
@@ -1200,6 +1222,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
           item.event_type,
           sharedWithMe,
           metadataString(item.metadata, "user_facing_status"),
+          item.metadata,
         ),
         href: item.event_type === "document_share_payment_ready" ||
           item.event_type === "document_share_payment_confirmed" ||

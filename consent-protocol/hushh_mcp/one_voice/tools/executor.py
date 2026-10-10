@@ -263,6 +263,18 @@ class ToolExecutor:
                     spoken_facts=["I can't do that here."],
                 )
             )
+        if name == "send_mail" and getattr(
+            ctx.services.get("mail_compose"), "review_supported", False
+        ):
+            return ToolCallOutcome(
+                result=Rejected(
+                    reason_code="review_flow_required",
+                    spoken_facts=[
+                        "Use the editable Mail review for this email; only your Send tap can deliver it."
+                    ],
+                ),
+                spec=spec,
+            )
         try:
             parsed = spec.input_model.model_validate(args or {})
         except ValidationError as exc:

@@ -141,23 +141,46 @@ describe("Wallet Add collection", () => {
 
 
 describe("Wallet card controls", () => {
-  it("opens the same details using a keyboard and returns focus when closed", () => {
+  it("reveals supplied basic information, keeps details on the card, and restores keyboard focus", () => {
     const onOpen = vi.fn();
     const dismissHint = vi.fn();
-    render(<WalletCardSwipe card={cards[0]} summary={{ title: "Agent One Profile", subtitle: "Your shared profile" }} disabled={false} onOpen={onOpen} hint dismissHint={dismissHint}>
-      <button type="button">Agent One Profile card</button>
+    render(<WalletCardSwipe card={cards[0]} summary={{ title: "Agent One Profile", fields: [
+      { label: "Username", value: "ankit.kumar.singh" },
+      { label: "Member since", value: "2026" },
+      { label: "Wallet ID", value: "profile-123" },
+    ] }} disabled={false} onOpen={onOpen} hint dismissHint={dismissHint}>
+      <button type="button" onClick={onOpen}>Agent One Profile card</button>
     </WalletCardSwipe>);
     const face = screen.getByRole("button", { name: "Agent One Profile card" });
     expect(screen.queryByRole("button", { name: "View details" })).toBeNull();
     fireEvent.keyDown(face, { key: "ArrowLeft" });
-    const details = screen.getByRole("button", { name: "View details" });
-    expect(details).toHaveFocus();
-    expect(dismissHint).toHaveBeenCalled();
-    fireEvent.click(details);
-    expect(onOpen).toHaveBeenCalledOnce();
-    fireEvent.keyDown(details, { key: "Escape" });
+    const close = screen.getByRole("button", { name: "Back to card" });
+    expect(close).toHaveFocus();
+    expect(screen.getByText("ankit.kumar.singh")).toBeVisible();
+    expect(screen.getByText("profile-123")).toBeVisible();
+    expect(screen.queryByText("Card number")).toBeNull();
     expect(screen.queryByRole("button", { name: "View details" })).toBeNull();
+    expect(dismissHint).toHaveBeenCalled();
+    expect(onOpen).not.toHaveBeenCalled();
+    fireEvent.keyDown(close, { key: "Escape" });
+    expect(screen.queryByRole("button", { name: "Back to card" })).toBeNull();
     expect(face).toHaveFocus();
+    fireEvent.click(face);
+    expect(onOpen).toHaveBeenCalledOnce();
+  });
+
+  it("keeps masked payment information when the supplied summary only names the card", () => {
+    const onOpen = vi.fn();
+    render(<WalletCardSwipe card={cards[0]} summary={{ title: "My Visa" }} disabled={false} onOpen={onOpen} hint={false} dismissHint={vi.fn()}>
+      <button type="button">My Visa card</button>
+    </WalletCardSwipe>);
+    fireEvent.keyDown(screen.getByRole("button", { name: "My Visa card" }), { key: "ArrowLeft" });
+    expect(screen.getByText("•••• 1000")).toBeVisible();
+    expect(screen.getByText("Visa")).toBeVisible();
+    expect(screen.getByText("04/30")).toBeVisible();
+    expect(onOpen).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Back to card" }));
+    expect(screen.getByRole("button", { name: "My Visa card" })).toHaveFocus();
   });
 
   it("leaves vertical wheel scrolling alone and reveals controls only for horizontal intent", () => {
@@ -183,6 +206,7 @@ describe("Wallet card controls", () => {
     </WalletCardSwipe>);
     const face = screen.getByRole("button", { name: "Busy card" });
     fireEvent.keyDown(face, { key: "ArrowLeft" });
-    expect(screen.queryByRole("button", { name: "View details" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Back to card" })).toBeNull();
+    expect(face.closest("[data-controls-open]")).toHaveAttribute("data-controls-open", "false");
   });
 });

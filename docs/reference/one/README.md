@@ -14,6 +14,8 @@ flowchart TD
   ontology["Agent Ontology"]
   feed["Feed Notification Model"]
   gmail["Owner-Approved Gmail Email"]
+  emailGraph["One Email Knowledge Graph"]
+  calendarGraph["One Calendar Knowledge Graph"]
   drive["Drive Connection And Sharing"]
   wallet["Wallet (formerly Cards)"]
 
@@ -26,6 +28,8 @@ flowchart TD
   root --> ontology
   root --> feed
   root --> gmail
+  gmail --> emailGraph
+  root --> calendarGraph
   root --> drive
   root --> wallet
 ```
@@ -65,5 +69,7 @@ for finance-specialist runtime references, and keep future-only One plans under
 - [one-voice-onboarding-journey.md](./one-voice-onboarding-journey.md): the One Voice onboarding journey and its state contract.
 - [feed-notification-model.md](./feed-notification-model.md): the cross-domain Feed route (`/one/feed`) that replaced the top-bar `ActivityInbox` bell — the `feed_events` table, its six domain write paths (Consent, Location, Kai, KYC, Connected Systems, Connections), read/unread semantics, and the bottom-nav tab.
 - [gmail-owner-approved-email.md](./gmail-owner-approved-email.md): one shared Gmail connection for receipt/inbox context and owner-approved personal email drafting and delivery; includes the explicit boundary from the `one@hushh.ai` KYC mailbox.
+- [one-email-knowledge-graph.md](./one-email-knowledge-graph.md): evidence-backed current Email paths, authority boundaries and failure states, including the read-only receipt cutover.
+- [one-calendar-knowledge-graph.md](./one-calendar-knowledge-graph.md): evidence-backed Calendar read paths, OAuth and account boundaries, Live Voice gap, and failure states.
 - [drive-connection-and-sharing-memory.md](./drive-connection-and-sharing-memory.md): current Drive connection, A-to-Trusted-circle share, B question and file-request paths, selected-file indexing, and latency investigation anchors.
 - [curated-mcp-connectors.md](./curated-mcp-connectors.md): how an operator-registered OAuth MCP provider (HubSpot, Notion and Attio) is described by one reviewed manifest, provisioned, deployed and shown in Connectors, and how to add another.

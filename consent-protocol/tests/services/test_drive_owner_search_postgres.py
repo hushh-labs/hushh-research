@@ -405,6 +405,226 @@ async def test_incomplete_provider_search_never_becomes_complete(store):
     assert final["status"] == "limited" and final["incompleteSearch"] is True
 
 
+async def bounded_job(store, *, field="modifiedTime", limit=2):
+    state = {**checkpoint(), "request_result_limit": limit, "request_order_field": field}
+    created, _ = await store.create(
+        user_id="owner",
+        client_request_id=str(uuid4()),
+        request={"query": "Latest files"},
+        checkpoint=state,
+        confirmed=True,
+    )
+    return await store.claim(user_id="owner", job_id=created["jobId"])
+
+
+@pytest.mark.parametrize("field", ["createdTime", "modifiedTime"])
+async def test_bounded_results_rank_all_corpora_atomically_before_review(store, field):
+    job = await bounded_job(store, field=field, limit=3)
+    old = {**result(1), field: "2026-09-01T00:00:00Z"}
+    middle = {**result(2), field: "2026-09-02T00:00:00Z", "shareable": False}
+    newest_b = {**result("b"), field: "2026-09-02T23:00:00-01:00"}
+    newest_a = {**result("a"), field: "2026-09-03T00:00:00Z", "resourceKey": "key-a"}
+    pending = await store.commit_page(job, checkpoint=job["checkpoint"], files=[old, middle])
+    assert pending["matched"] == 0
+    assert pending["coverage"]["candidateCount"] == 2
+    assert pending["coverage"]["selectionFinalized"] is False
+    assert (await store.results(user_id="owner", job_id=job["job_id"]))["files"] == []
+    with pytest.raises(DriveReadError, match="search_not_found"):
+        await store.reference(user_id="owner", job_id=job["job_id"], position=1)
+    # The same file may occur in My Drive and a member shared drive. Dedup is
+    # global, and a newer unshareable original still counts toward requested N.
+    final = await store.commit_page(
+        job,
+        checkpoint=job["checkpoint"],
+        files=[middle, newest_b, newest_a],
+        done=True,
+    )
+    assert final["status"] == "completed" and final["matched"] == 3
+    assert final["unshareableCount"] == 1
+    assert final["coverage"]["candidateCount"] == 4
+    assert final["coverage"]["selectionFinalized"] is True
+    assert final["coverage"]["resultOrder"] == f"{field} desc"
+    page = await store.results(user_id="owner", job_id=job["job_id"])
+    assert [item["id"] for item in page["files"]] == ["file-a", "file-b", "file-2"]
+    assert [item["position"] for item in page["files"]] == [1, 2, 3]
+    assert "resourceKey" not in page["files"][0]
+    assert (await store.reference(user_id="owner", job_id=job["job_id"], position=1))[
+        "resourceKey"
+    ] == "key-a"
+    with pytest.raises(DriveReadError, match="search_not_found"):
+        await store.results(user_id="other", job_id=job["job_id"])
+    with pytest.raises(DriveReadError, match="search_not_found"):
+        await store.reference(user_id="other", job_id=job["job_id"], position=1)
+
+
+@pytest.mark.parametrize("timestamp", [None, "broken", "2026-09-03T00:00:00"])
+async def test_bounded_result_with_unrankable_metadata_never_becomes_reviewable(store, timestamp):
+    job = await bounded_job(store)
+    final = await store.commit_page(
+        job,
+        checkpoint=job["checkpoint"],
+        files=[{**result(1), "modifiedTime": timestamp}],
+        done=True,
+    )
+    assert final["status"] == "limited" and final["incompleteSearch"] is True
+    assert final["errorCode"] == "provider_response_invalid"
+    assert final["matched"] == 0 and final["coverage"]["selectionFinalized"] is False
+    assert (await store.results(user_id="owner", job_id=job["job_id"]))["files"] == []
+    with pytest.raises(DriveReadError, match="search_not_found"):
+        await store.reference(user_id="owner", job_id=job["job_id"], position=1)
+
+
+@pytest.mark.parametrize("incomplete_first", [True, False])
+async def test_bounded_incomplete_page_cannot_publish_selection(store, incomplete_first):
+    job = await bounded_job(store)
+    await store.commit_page(
+        job,
+        checkpoint=job["checkpoint"],
+        files=[result(1)],
+        incomplete=incomplete_first,
+    )
+    final = await store.commit_page(
+        job,
+        checkpoint=job["checkpoint"],
+        files=[result(2)],
+        incomplete=not incomplete_first,
+        done=True,
+    )
+    assert final["status"] == "limited" and final["matched"] == 0
+    assert final["coverage"]["selectionFinalized"] is False
+    assert (await store.results(user_id="owner", job_id=job["job_id"]))["files"] == []
+
+
+async def test_bounded_finalization_failure_rolls_back_reordering_and_checkpoint(
+    store, monkeypatch
+):
+    job = await bounded_job(store, limit=1)
+    await store.commit_page(
+        job,
+        checkpoint=job["checkpoint"],
+        files=[{**result(1), "modifiedTime": "2026-09-01T00:00:00Z"}, result(2)],
+    )
+    before = sql(store, "SELECT * FROM drive_owner_search_jobs").mappings().one()
+    before_rows = (
+        sql(store, "SELECT * FROM drive_owner_search_results ORDER BY position").mappings().all()
+    )
+    seal = store._seal
+
+    def fail_checkpoint(value, user_id, resource_id, purpose):
+        if purpose == "owner-search-checkpoint":
+            raise RuntimeError("synthetic final checkpoint interruption")
+        return seal(value, user_id, resource_id, purpose)
+
+    monkeypatch.setattr(store, "_seal", fail_checkpoint)
+    with pytest.raises(RuntimeError, match="synthetic final checkpoint"):
+        await store.commit_page(job, checkpoint=job["checkpoint"], files=[], done=True)
+    assert sql(store, "SELECT * FROM drive_owner_search_jobs").mappings().one() == before
+    assert (
+        sql(store, "SELECT * FROM drive_owner_search_results ORDER BY position").mappings().all()
+        == before_rows
+    )
+    assert (await store.results(user_id="owner", job_id=job["job_id"]))["files"] == []
+    monkeypatch.setattr(store, "_seal", seal)
+    final = await store.commit_page(job, checkpoint=job["checkpoint"], files=[], done=True)
+    assert final["matched"] == 1
+    assert (await store.reference(user_id="owner", job_id=job["job_id"], position=1))[
+        "id"
+    ] == "file-2"
+
+
+async def test_bounded_changed_selection_never_publishes_candidates(store):
+    job = await bounded_job(store, limit=1)
+    with pytest.raises(DriveReadError, match="search_superseded"):
+        await store.commit_page(
+            job,
+            checkpoint={**job["checkpoint"], "request_result_limit": None},
+            files=[result(1)],
+            done=True,
+        )
+    assert sql(store, "SELECT count(*) FROM drive_owner_search_results").scalar_one() == 0
+    assert (await store.results(user_id="owner", job_id=job["job_id"]))["files"] == []
+
+
+async def test_bounded_pool_compaction_keeps_global_latest_without_limiting_search(
+    store, monkeypatch
+):
+    monkeypatch.setattr("hushh_mcp.services.drive_owner_search_store.MAX_RESULTS", 3)
+    job = await bounded_job(store, limit=2)
+
+    def dated(number, day):
+        return {**result(number), "modifiedTime": f"2026-09-{day:02}T00:00:00Z"}
+
+    first = await store.commit_page(
+        job, checkpoint=job["checkpoint"], files=[dated(1, 1), dated(2, 2), dated(3, 3)]
+    )
+    assert first["status"] == "running" and first["matched"] == 0
+    assert first["coverage"]["candidateCountScope"] == "all_unique_matches"
+    # Later corpora are newer. A previously discarded duplicate is safe to
+    # observe again; retained-pool counts must not claim unique scanned totals.
+    next_page = await store.commit_page(
+        job, checkpoint=job["checkpoint"], files=[dated(4, 4), dated(1, 1), dated(5, 5)]
+    )
+    assert next_page["status"] == "running" and next_page["matched"] == 0
+    assert next_page["coverage"]["candidatePoolPruned"] is True
+    assert next_page["coverage"]["candidateCountScope"] == "retained_pool"
+    assert (await store.results(user_id="owner", job_id=job["job_id"]))["files"] == []
+    final = await store.commit_page(
+        job,
+        checkpoint=job["checkpoint"],
+        files=[{**dated("b", 6), "shareable": False}, dated("a", 6)],
+        done=True,
+    )
+    assert final["status"] == "completed" and final["matched"] == 2
+    assert final["unshareableCount"] == 1
+    assert final["coverage"]["selectionFinalized"] is True
+    page = await store.results(user_id="owner", job_id=job["job_id"])
+    assert [item["id"] for item in page["files"]] == ["file-a", "file-b"]
+
+
+async def test_bounded_pool_compaction_and_append_roll_back_together(store, monkeypatch):
+    monkeypatch.setattr("hushh_mcp.services.drive_owner_search_store.MAX_RESULTS", 3)
+    job = await bounded_job(store, limit=2)
+    await store.commit_page(
+        job, checkpoint=job["checkpoint"], files=[result(1), result(2), result(3)]
+    )
+    before = sql(store, "SELECT * FROM drive_owner_search_jobs").mappings().one()
+    before_rows = (
+        sql(store, "SELECT * FROM drive_owner_search_results ORDER BY position").mappings().all()
+    )
+    seal = store._seal
+
+    def fail_new_candidate(value, user_id, resource_id, purpose):
+        if purpose == "owner-search-result" and value["id"] == "file-4":
+            raise RuntimeError("synthetic post-compaction append interruption")
+        return seal(value, user_id, resource_id, purpose)
+
+    monkeypatch.setattr(store, "_seal", fail_new_candidate)
+    with pytest.raises(RuntimeError, match="synthetic post-compaction"):
+        await store.commit_page(job, checkpoint=job["checkpoint"], files=[result(4)])
+    assert sql(store, "SELECT * FROM drive_owner_search_jobs").mappings().one() == before
+    assert (
+        sql(store, "SELECT * FROM drive_owner_search_results ORDER BY position").mappings().all()
+        == before_rows
+    )
+    assert (await store.results(user_id="owner", job_id=job["job_id"]))["files"] == []
+
+
+async def test_bounded_pool_with_unrankable_candidate_fails_closed_on_compaction(
+    store, monkeypatch
+):
+    monkeypatch.setattr("hushh_mcp.services.drive_owner_search_store.MAX_RESULTS", 3)
+    job = await bounded_job(store, limit=2)
+    await store.commit_page(
+        job,
+        checkpoint=job["checkpoint"],
+        files=[{**result(1), "modifiedTime": None}, result(2), result(3)],
+    )
+    final = await store.commit_page(job, checkpoint=job["checkpoint"], files=[result(4)])
+    assert final["status"] == "limited" and final["errorCode"] == "provider_response_invalid"
+    assert final["coverage"]["selectionFinalized"] is False and final["matched"] == 0
+    assert (await store.results(user_id="owner", job_id=job["job_id"]))["files"] == []
+
+
 async def test_limit_is_incomplete_and_has_no_live_lease(store, monkeypatch):
     monkeypatch.setattr("hushh_mcp.services.drive_owner_search_store.MAX_RESULTS", 2)
     state, _ = await create(store)
@@ -731,14 +951,21 @@ async def test_search_telemetry_contains_only_opaque_id_closed_states_and_counts
     messages = [
         record.getMessage() for record in caplog.records if record.name == "drive_owner_search"
     ]
-    assert len(messages) == 2
+    pages = [message for message in messages if message.startswith("drive_search.page ")]
+    slices = [message for message in messages if message.startswith("drive_search.slice ")]
+    assert len(pages) == len(slices) == 1
+    assert all(f"drive_op={correlation_tag(state['jobId'])}" in message for message in messages)
+    assert "phase=user status=received files=1" in pages[0] and "elapsed_ms=" in pages[0]
+    assert "status=queued pages=1 matched=1" in slices[0] and "elapsed_ms=" in slices[0]
+    for stage in ("search_claim", "search_authority", "search_commit"):
+        assert any(
+            f"drive_stage.timing stage={stage} outcome=ok duration_ms=" in message
+            for message in messages
+        )
     assert all(
-        f"drive_op={correlation_tag(state['jobId'])}" in message and "elapsed_ms=" in message
+        "Synthetic" not in message and "file-1" not in message and state["jobId"] not in message
         for message in messages
     )
-    assert "phase=user status=received files=1" in messages[0]
-    assert "status=queued pages=1 matched=1" in messages[1]
-    assert all("Synthetic" not in message and "file-1" not in message for message in messages)
 
 
 async def test_search_reads_never_write_a_connection_row_without_a_catalog_row(store):

@@ -6,7 +6,6 @@ import importlib.util
 import unittest
 from pathlib import Path
 
-
 MODULE_PATH = Path(__file__).with_name("runtime-capacity-budget.py")
 SPEC = importlib.util.spec_from_file_location("runtime_capacity_budget", MODULE_PATH)
 assert SPEC and SPEC.loader
@@ -55,6 +54,27 @@ def revision(
 
 
 class RuntimeCapacityBudgetTest(unittest.TestCase):
+    def test_deferred_retirement_counts_multiple_old_generations_until_deletion(
+        self,
+    ) -> None:
+        service = {
+            "status": {"traffic": [{"revisionName": "app-current", "percent": 100}]}
+        }
+        revisions = [
+            revision("app-current"),
+            revision("app-recent-drain"),
+            revision("app-older-drain"),
+        ]
+        settings = {**SETTINGS, "count_retained_revisions": True}
+        rows = budget.service_budget("app", settings, service, revisions, CONNECTION)
+        self.assertEqual(
+            {row["name"] for row in rows}, {r["metadata"]["name"] for r in revisions}
+        )
+        self.assertEqual(sum(row["connections"] for row in rows), 210)
+        # Negative control: the legacy policy reserves only one unreferenced revision.
+        legacy = budget.service_budget("app", SETTINGS, service, revisions, CONNECTION)
+        self.assertEqual(sum(row["connections"] for row in legacy), 140)
+
     def test_tagged_zero_traffic_and_rollback_are_counted_once(self) -> None:
         service = {
             "status": {

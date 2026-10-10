@@ -25,6 +25,14 @@ from hushh_mcp.services.drive_document_store import (
     DriveDocumentStore,
 )
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
+from hushh_mcp.services.drive_owner_allowed import (
+    OWNER_ALLOWED_KEY,
+    automatic_recipient_current,
+    owner_allowed_marker,
+    owner_allowed_price_cents,
+    owner_allowed_record,
+    valid_owner_price_cents,
+)
 from hushh_mcp.services.drive_sharing_contract import (
     BROAD_TRUST_DISCLOSURE,
     BROAD_TRUST_SCOPE,
@@ -201,6 +209,7 @@ class DriveSharingStore(DriveDocumentStore):
         order = (
             connection.execute(
                 text("""SELECT status,amount_cents,currency,reconciliation_required,
+                    stripe_checkout_session_id,
                     stripe_checkout_expires_at
                 FROM drive_request_payment_orders WHERE request_id=:request"""),
                 {"request": request_id},
@@ -216,12 +225,14 @@ class DriveSharingStore(DriveDocumentStore):
                 "paymentReconciliationRequired": order["reconciliation_required"] is True,
                 "paymentLinkExpired": bool(
                     order["status"] not in {"paid", "refunded"}
+                    and order["stripe_checkout_session_id"] is not None
                     and order["stripe_checkout_expires_at"] is not None
                     and order["stripe_checkout_expires_at"] <= datetime.now(UTC)
                 ),
                 "checkoutExpiresAt": (
                     order["stripe_checkout_expires_at"].isoformat()
-                    if order["stripe_checkout_expires_at"] is not None
+                    if order["stripe_checkout_session_id"] is not None
+                    and order["stripe_checkout_expires_at"] is not None
                     else None
                 ),
             }
@@ -236,6 +247,42 @@ class DriveSharingStore(DriveDocumentStore):
             resource_id=str(row["request_id"]),
             purpose="request",
         )
+
+    @staticmethod
+    def _awaiting_owner_decision(row, private, now) -> bool:
+        """A new requester request with no owner Allow, search, stop or close yet.
+
+        The sealed marker excludes Trusted and already allowed requests. An
+        owner-initiated share never prepares in the background, so its
+        preparation_next_at is its expiry.
+        """
+        return bool(
+            row["status"] == "pending"
+            and row["expires_at"] > now
+            and row["access_stop_requested_at"] is None
+            and row["preparation_error_code"] is None
+            and row["bulk_search_started_at"] is None
+            and row["preparation_next_at"] < row["expires_at"]
+            and private.get("trusted_auto") is not True
+        )
+
+    def _owner_may_decide(self, connection, row, private, now) -> bool:
+        """Awaiting the owner's Allow or Deny, from someone outside their Trusted circle.
+
+        A current Trusted member's request created before the owner's Drive was
+        live carries no marker, but it keeps the Trusted path: the owner's
+        manual review at the default price, never an owner-set price.
+        """
+        return self._awaiting_owner_decision(
+            row, private, now
+        ) and not self._trusted_recipient_current(
+            connection, row["user_id"], row["recipient_user_id"]
+        )
+
+    @staticmethod
+    def _has_dates(private) -> bool:
+        purpose = private["purpose"]
+        return bool(purpose.get("periodStart") and purpose.get("periodEnd"))
 
     async def trusted_request_authority(self, *, user_id: str, request_id: str) -> dict:
         """Recheck a new trusted request and explicit background Drive authority.
@@ -256,14 +303,20 @@ class DriveSharingStore(DriveDocumentStore):
                 connection, user_id=user_id, generation=current["connection_generation"]
             )
             row = self._related_request(connection, user_id, identity)
+            private = self._open_request(row)
             if (
                 row["status"] != "pending"
+                or row["access_stop_requested_at"] is not None
                 or row["preparation_error_code"] == "manual_search_active"
                 or row["expires_at"]
                 <= connection.execute(text("SELECT clock_timestamp()")).scalar_one()
-                or self._open_request(row).get("trusted_auto") is not True
-                or not self._trusted_recipient_current(
-                    connection, user_id, participants["recipient_user_id"]
+                or private.get("trusted_auto") is not True
+                or not automatic_recipient_current(
+                    connection,
+                    user_id,
+                    participants["recipient_user_id"],
+                    private,
+                    request_id=identity,
                 )
             ):
                 raise DriveSharingError("trusted_request_unavailable")
@@ -508,6 +561,8 @@ class DriveSharingStore(DriveDocumentStore):
             now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
             if row["expires_at"] <= now or row["status"] in {"cancelled", "declined", "expired"}:
                 raise DriveSharingError("request_unavailable")
+            if start and row["access_stop_requested_at"] is not None:
+                raise DriveSharingError("request_changed")
             if start and row["status"] in {"approved", "completed", "partial", "no_match"}:
                 raise DriveSharingError("request_changed")
             if start and row["bulk_search_started_at"] is None:
@@ -537,6 +592,7 @@ class DriveSharingStore(DriveDocumentStore):
                 "recipientUserId": row["recipient_user_id"],
                 "recipientBinding": row["recipient_binding"],
                 "searchStarted": row["bulk_search_started_at"] is not None,
+                "accessStopRequested": row["access_stop_requested_at"] is not None,
             }
 
         return cast(dict, await self._transaction(operation))
@@ -690,8 +746,17 @@ class DriveSharingStore(DriveDocumentStore):
                     """,
                         {"id": request_id},
                     )
-                elif not trusted_auto:
+                else:
+                    # Both participants get one durable request milestone.
+                    # Repeated client UUIDs return the existing row above and
+                    # cannot duplicate either event.
                     self._event(connection, row, owner_user_id, "document_share_request")
+                    self._event(
+                        connection,
+                        row,
+                        row["recipient_user_id"],
+                        "document_share_request_sent",
+                    )
             return self._summary(row, recipient=True)
 
         return cast(dict, await self._transaction(operation))
@@ -1637,6 +1702,11 @@ class DriveSharingStore(DriveDocumentStore):
                         "no_match",
                     }
                 ),
+                "ownerAllowed": owner_allowed_marker(private) is not None,
+                "allowAvailable": admitted
+                and self._allow_available(connection, row, private, current_connection),
+                "paymentRequired": row["payment_required"] is True,
+                "priceCents": owner_allowed_price_cents(private),
             }
             if review and row["bulk_search_started_at"] is None:
                 payload = self.sharing_cipher.open(
@@ -1697,6 +1767,84 @@ class DriveSharingStore(DriveDocumentStore):
                     }
                 )
             return result
+
+        return cast(dict, await self._transaction(operation))
+
+    def _allow_available(self, connection, row, private, current_connection) -> bool:
+        """Read-only preview of allow_request's checks after the caller's connection check."""
+        if not (
+            connector_feature_enabled("drive_document_sharing", row["user_id"])
+            and connector_feature_enabled("drive_document_sharing", row["recipient_user_id"])
+            and connector_feature_enabled("google_drive_live", row["user_id"])
+            and current_connection["status"] == "connected"
+            and current_connection["validation_state"] == "verified"
+            and current_connection["verified_policy_hash"] == LIVE_POLICY_HASH
+            and self._has_dates(private)
+        ):
+            return False
+        now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
+        return self._owner_may_decide(connection, row, private, now)
+
+    async def allow_request(
+        self, *, user_id: str, request_id: str, revision: int, amount_cents: int | None
+    ) -> dict:
+        """The owner's Allow for one request from outside their Trusted circle.
+
+        Re-seals the request with the marker a Trusted request receives at
+        creation, plus the owner's price. The same background search, payment
+        and sharing then run, and each step still rechecks the active
+        connection. Allow keeps the revision and emits no event.
+        """
+        self._sharing_admission(user_id)
+        if amount_cents is not None and not valid_owner_price_cents(amount_cents):
+            raise DriveSharingError("invalid_payment_amount")
+        identity = str(UUID(request_id))
+
+        def operation(connection):
+            self._participant_gate(connection, user_id, identity)
+            DriveLivePreferences(db=self.db).live_active(connection, user_id=user_id)
+            row = self._related_request(connection, user_id, identity)
+            if row["revision"] != revision:
+                raise DriveSharingError("review_changed")
+            private = self._open_request(row)
+            allowed = owner_allowed_marker(private)
+            if allowed is not None:
+                # A repeated tap or a retry after a lost response; never a new
+                # price, and never an Allow that a disconnect already ended.
+                if allowed["amount_cents"] != amount_cents or row["owner_allowed_at"] is None:
+                    raise DriveSharingError("request_already_decided")
+                return {**self._summary(row), "ownerAllowed": True, "amountCents": amount_cents}
+            now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
+            if not self._owner_may_decide(connection, row, private, now):
+                raise DriveSharingError("request_already_decided")
+            # A paid request needs the owner's price; a free one takes none.
+            if (row["payment_required"] is True) != (amount_cents is not None):
+                raise DriveSharingError("invalid_payment_amount")
+            if not self._has_dates(private):
+                raise DriveSharingError("date_range_required")
+            self._sharing_admission(row["recipient_user_id"])
+            envelope = self.sharing_cipher.seal(
+                {
+                    **private,
+                    "trusted_auto": True,
+                    OWNER_ALLOWED_KEY: owner_allowed_record(
+                        amount_cents=amount_cents, allowed_at=now.isoformat()
+                    ),
+                },
+                user_id=user_id,
+                resource_id=identity,
+                purpose="request",
+            )
+            updated = self._row(
+                connection,
+                """UPDATE drive_share_requests SET request_envelope=CAST(:envelope AS jsonb),
+                  preparation_error_code='trusted_auto_queued',
+                  preparation_next_at=clock_timestamp(),owner_allowed_at=clock_timestamp(),
+                  updated_at=clock_timestamp()
+                  WHERE request_id=:request RETURNING *""",
+                {"request": identity, "envelope": json.dumps(envelope)},
+            )
+            return {**self._summary(updated), "ownerAllowed": True, "amountCents": amount_cents}
 
         return cast(dict, await self._transaction(operation))
 

@@ -6063,10 +6063,52 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 /* The retained Agent Bar owns the material in both modes. Chat projects its
  * existing form into that bar, not another glass pill or another text box. */
 [data-agent-dock-surface="text"] {
+  /* The fixed composer can overlap the last message while the keyboard is
+   * present. Give that overlap an iOS material so the transcript recedes
+   * behind the writing surface instead of reading through it. */
+  --agent-composer-material: color-mix(
+    in oklab,
+    var(--background) 72%,
+    transparent
+  );
+  --agent-composer-rim: color-mix(
+    in oklab,
+    var(--foreground) 10%,
+    transparent
+  );
   display: block;
   min-width: 0;
   overflow: visible;
   border-radius: 1.5rem;
+  border-color: var(--agent-composer-rim) !important;
+  background: var(--agent-composer-material) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--background) 72%, white),
+    0 10px 30px -8px color-mix(in oklab, var(--foreground) 15%, transparent),
+    0 1px 3px color-mix(in oklab, var(--foreground) 8%, transparent) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(28px) saturate(180%);
+}
+
+.dark [data-agent-dock-surface="text"] {
+  --agent-composer-material: color-mix(
+    in oklab,
+    var(--background) 76%,
+    transparent
+  );
+  --agent-composer-rim: color-mix(
+    in oklab,
+    var(--foreground) 16%,
+    transparent
+  );
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  [data-agent-dock-surface="text"] {
+    background: var(--background) !important;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 [data-agent-dock-surface="voice"] {
   /* Same resting frame as the one-line composer: only content changes on
@@ -6119,11 +6161,17 @@ html.kb-open [data-agent-dock-chat] [data-bottom-shell-navigation-slot] {
   visibility: hidden;
   pointer-events: none;
 }
+/* Inbox search hides its inactive message bar like other search pages.
+ * Active private-agent voice and command controls stay usable. */
+html.kb-open [data-messages-dock]:not([data-command-active="true"]):not(:has([data-command-active="true"])):is(:not(:has([data-agent-dock-composer]:not([hidden]))), :has([data-direct-message-inbox-composer="true"])) [data-bottom-shell-agent-slot] {
+  visibility: hidden;
+  pointer-events: none;
+}
 html.kb-open [data-agent-dock-chat] [data-bottom-shell-motion-stack] {
   transform: none !important;
 }
 html:not(.kb-resizes) [data-agent-dock-chat] [data-bottom-shell-agent-slot] {
-  translate: 0 calc(max(0px, var(--kb-height, 0px) - var(--app-bottom-shell-height, 0px) + 0.5rem) * -1);
+  translate: 0 calc(max(0px, var(--kb-height, 0px) - var(--app-bottom-shell-keyboard-reservation, var(--app-bottom-shell-height, 0px)) + 0.5rem) * -1);
   transition: translate var(--kb-motion-duration) var(--kb-motion-curve);
 }
 html.kb-open.kb-resizes [data-agent-dock-chat] {
@@ -6445,39 +6493,6 @@ html.kb-open.kb-resizes [data-agent-dock-chat] [data-bottom-shell-navigation-slo
 [data-app-bottom-shell] :is(.bottom-chrome-surface, .kai-bottom-nav-pill) svg {
   color: currentColor;
   stroke: currentColor;
-}
-
-/* The direct-message page is a desktop split view. Its shared bottom shell is
- * mounted above the route tree, so center the navigation within the thread
- * pane using the same 0.8fr / 1.45fr geometry as the page. Mobile remains the
- * default full-width single-column shell. */
-@media (min-width: 768px) {
-  body:has([data-direct-message-page="true"])
-    [data-app-bottom-shell]
-    [data-bottom-shell-motion-stack] {
-    --direct-message-frame-width: min(
-      var(--app-shell-expanded, 96rem),
-      calc(100vw - 2 * var(--page-inline-gutter-standard, 1rem))
-    );
-    --direct-message-frame-left: max(
-      var(--page-inline-gutter-standard, 1rem),
-      calc((100vw - var(--app-shell-expanded, 96rem)) / 2)
-    );
-    --direct-message-inbox-width: calc(var(--direct-message-frame-width) * 0.8 / 2.25);
-    --direct-message-thread-width: calc(var(--direct-message-frame-width) * 1.45 / 2.25);
-    --direct-message-footer-width: min(
-      var(--app-bottom-shell-max-width, 40rem),
-      var(--direct-message-thread-width)
-    );
-    width: var(--direct-message-footer-width);
-    max-width: none;
-    margin-left: calc(
-      var(--direct-message-frame-left) + var(--direct-message-inbox-width) +
-        (var(--direct-message-thread-width) - var(--direct-message-footer-width)) / 2 -
-        var(--app-bottom-shell-inline-inset, 1rem)
-    );
-    margin-right: 0;
-  }
 }
 
 /* Carousel edge glass (left/right): use to hint adjacent slides while keeping center crisp. */
@@ -8787,4 +8802,13 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
     :is(input, textarea)::placeholder {
     font-size: 13px !important;
   }
+}
+
+/* Referral artwork has an approved fixed light identity, independent of the
+   account's accent preference. Components consume the canonical token family. */
+.referral-dashboard,
+[data-referral-introduction="true"] {
+  --app-accent: #007aff;
+  --referral-medal-deep: #b8894d;
+  --referral-medal-light: #d4a574;
 }

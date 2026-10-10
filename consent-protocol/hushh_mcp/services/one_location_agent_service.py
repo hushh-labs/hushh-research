@@ -48,6 +48,7 @@ from hushh_mcp.services.one_location_public_invite_url import (
     public_invite_url,
 )
 from hushh_mcp.services.people_search_sql import directory_name_rank, people_query_match_params
+from hushh_mcp.services.push_tokens_service import PUSH_TOKENS_FOR_USER_SQL, remove_stale_push_token
 from hushh_mcp.services.requester_identity import (
     OPAQUE_LABEL_MIN_LENGTH,
     UUID_LIKE_LABEL_PATTERN,
@@ -486,10 +487,7 @@ def _submit_notification_send(
             messaging.send(message)
         except (messaging.UnregisteredError, messaging.SenderIdMismatchError):
             try:
-                get_db().execute_raw(
-                    "DELETE FROM user_push_tokens WHERE token = :token",
-                    {"token": token},
-                )
+                remove_stale_push_token(get_db(), user_id, token)
             except Exception as exc:
                 logger.warning(
                     "one.location.notification_token_cleanup_failed type=%s user=%s error=%s",
@@ -1693,7 +1691,7 @@ class OneLocationAgentService:
             rows = (
                 get_db()
                 .execute_raw(
-                    "SELECT token, platform FROM user_push_tokens WHERE user_id = :user_id",
+                    PUSH_TOKENS_FOR_USER_SQL,
                     {"user_id": user_id},
                 )
                 .data

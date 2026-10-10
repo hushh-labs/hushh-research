@@ -612,6 +612,9 @@ class AccountService:
                 """
             ),
             "user_push_tokens": text("DELETE FROM user_push_tokens WHERE user_id = :user_id"),
+            "user_push_installations": text(
+                "DELETE FROM user_push_installations WHERE user_id = :user_id"
+            ),
             "circle_chat_messages": text(
                 "DELETE FROM circle_chat_messages WHERE sender_user_id = :user_id"
             ),
@@ -1583,6 +1586,9 @@ class AccountService:
         )
         results["internal_access_events"] = True
         self._delete_user_rows_if_table_exists(conn, table_name="user_push_tokens", params=params)
+        self._delete_user_rows_if_table_exists(
+            conn, table_name="user_push_installations", params=params
+        )
         results["push_tokens"] = True
         self._delete_owned_named_circles(
             conn,
@@ -2126,6 +2132,9 @@ class AccountService:
                 results["internal_access_events"] = True
                 self._delete_user_rows_if_table_exists(
                     conn, table_name="user_push_tokens", params=params
+                )
+                self._delete_user_rows_if_table_exists(
+                    conn, table_name="user_push_installations", params=params
                 )
                 results["push_tokens"] = True
                 self._delete_owned_named_circles(

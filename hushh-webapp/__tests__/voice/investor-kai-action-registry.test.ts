@@ -53,6 +53,20 @@ describe("investor-kai-action-registry", () => {
     expect(unresolvedWired).toEqual([]);
   });
 
+  it("resolves Calendar reads through the server voice tool registry", () => {
+    const calendarRead = getInvestorKaiActionById("calendar.read");
+    expect(calendarRead?.wiring).toMatchObject({
+      status: "wired",
+      handler: "oneVoiceRuntime",
+      binding: {
+        kind: "server_voice_tool",
+        toolName: "read_calendar",
+        actionId: "calendar.read",
+      },
+    });
+    expect(calendarRead && resolveInvestorKaiActionWiring(calendarRead).resolvable).toBe(true);
+  });
+
   it("keeps route actions out of the legacy command binding while resolving generated voice tools", () => {
     // Finance navigation is a generated route action, not an independently
     // executable command-bar binding.

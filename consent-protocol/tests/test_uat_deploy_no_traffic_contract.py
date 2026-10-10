@@ -306,6 +306,17 @@ def test_command_deploys_do_not_restore_live_or_model_pack_dependencies() -> Non
     assert "resolve_fleet_model_name" in sources[3]
 
 
+def test_calendar_voice_details_are_enabled_only_for_uat_rollout() -> None:
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    uat_workflow = _read(".github/workflows/deploy-uat.yml")
+    production_workflow = _read(".github/workflows/deploy-production.yml")
+
+    assert '_ONE_VOICE_CALENDAR_NARRATION_ENABLED: "false"' in backend_build
+    assert "ONE_VOICE_CALENDAR_NARRATION_ENABLED" in backend_build
+    assert "_ONE_VOICE_CALENDAR_NARRATION_ENABLED=true" in uat_workflow
+    assert "_ONE_VOICE_CALENDAR_NARRATION_ENABLED=true" not in production_workflow
+
+
 def test_one_voice_live_env_contract_is_explicit_and_enabled_in_production() -> None:
     """One Live Voice runs on Vertex ADC only, behind one flag, with an exact model pin.
 

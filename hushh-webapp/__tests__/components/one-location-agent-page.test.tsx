@@ -3495,6 +3495,8 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("keeps multiple Circles atomic while contacts remain independent", async () => {
+    // This regression starts in the workspace; onboarding has dedicated cases.
+    window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
     const readyRecipient = locationState().recipients[0]!;
     const makeReadyRecipient = (userId: string, displayName: string) => ({
       ...readyRecipient,
@@ -4022,6 +4024,8 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("resets every abandoned share field and ignores a late review preflight", async () => {
+    // Keep the timing budget on composer reset and late-response isolation.
+    window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
     const { rerender } = render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
