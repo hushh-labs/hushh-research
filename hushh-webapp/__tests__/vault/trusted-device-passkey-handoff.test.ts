@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import handoffVector from "@/__tests__/fixtures/trusted-device-vault-handoff-v1.json";
+import { resolvePasskeyEnvironment } from "@/lib/vault/passkey-rp";
 
 const mocks = vi.hoisted(() => ({
   getVaultState: vi.fn(),
@@ -188,6 +189,51 @@ describe("trusted-device passkey vault handoff", () => {
       "uat-salt",
       "uat-iv",
     );
+  });
+
+  it.each(["one.hushh.ai", "one.hussh.ai"])(
+    "binds the existing production wrapper to production on %s",
+    async (hostname) => {
+      mocks.getVaultState.mockResolvedValue({
+        vaultKeyHash: "hash",
+        wrappers: [{
+          method: "generated_default_web_prf",
+          encryptedVaultKey: "encrypted",
+          salt: "salt",
+          iv: "iv",
+          passkeyCredentialId: "credential",
+          passkeyPrfSalt: "prf-salt",
+          passkeyRpId: "one.hushh.ai",
+        }],
+      });
+      mocks.authenticateWithPrf.mockResolvedValue({ vaultKeyHex: "a".repeat(64) });
+      mocks.unlockVault.mockResolvedValue("b".repeat(64));
+      mocks.wrapExportKeyForConnector.mockResolvedValue({});
+      await buildTrustedDevicePasskeyHandoff({
+        userId: "user-1", deviceId: "device-1", state: "state-1",
+        authorizationId: "authorization-1", expiresAt: 123456,
+        recipientPublicKey: "recipient", hostname,
+        environment: resolvePasskeyEnvironment(hostname)!,
+      });
+      expect(mocks.authenticateWithPrf).toHaveBeenCalledWith(
+        "user-1", "prf-salt", "credential", "one.hushh.ai",
+      );
+      expect(mocks.wrapExportKeyForConnector).toHaveBeenCalledWith(
+        expect.objectContaining({
+          additionalData: expect.stringContaining("|one.hushh.ai|production|recipient"),
+        }),
+      );
+    },
+  );
+
+  it("rejects a mismatched environment before retrieving or using vault material", async () => {
+    await expect(buildTrustedDevicePasskeyHandoff({
+      userId: "user-1", deviceId: "device-1", state: "state-1",
+      authorizationId: "authorization-1", expiresAt: 123456,
+      recipientPublicKey: "recipient", hostname: "one.hussh.ai", environment: "uat",
+    })).rejects.toThrow("environment does not match");
+    expect(mocks.getVaultState).not.toHaveBeenCalled();
+    expect(mocks.authenticateWithPrf).not.toHaveBeenCalled();
   });
 
   it("falls back without starting WebAuthn when no compatible passkey exists", async () => {
