@@ -41,7 +41,7 @@ type NetworkStyle = {
  */
 const CARD_MARK_ASSETS: Partial<Record<CardBrand, string>> = {
   amex: "/brand/cards/amex.svg", discover: "/brand/cards/discover.svg",
-  diners: "/brand/cards/diners.svg", jcb: "/brand/cards/jcb.svg", rupay: "/brand/cards/rupay.png",
+  diners: "/brand/cards/diners.svg", jcb: "/brand/cards/jcb.svg", rupay: "/brand/cards/rupay-transparent.png",
   unionpay: "/brand/cards/unionpay.png",
 };
 

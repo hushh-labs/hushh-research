@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import { walletMessagePreview } from "@/lib/wallet/wallet-card-share";
 import {
   Database,
   FileText,
@@ -1264,7 +1265,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
           href: directMessageFeedHref(item.metadata),
         };
       }
-      const preview = metadataString(item.metadata, "message_preview");
+      const preview = walletMessagePreview(metadataString(item.metadata, "message_preview"));
       const unread = Number(item.metadata.chat_unread_count) || 0;
       return {
         icon: MessageCircle,
