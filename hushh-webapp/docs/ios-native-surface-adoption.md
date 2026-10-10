@@ -13,6 +13,63 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
+### Recovery default — 2026-10-09
+
+Recovery baseline: `09d51746465e552c622b51cf3f7ec467d976f4f9`.
+This section supersedes the experimental adoption claims below. Those sections
+are historical evidence and rollback context, not current renderer acceptance.
+
+`native-presentation-policy.ts` selects shared React custom controls before
+discovery/first paint. `HushhNativePresentationPolicy` independently rejects old
+Debug admission flags in the wrapper. Both boundaries are deliberately closed:
+an older wrapper cannot turn the recovery web bundle into the experimental UI,
+and an older web bundle cannot activate custom controls in the recovery wrapper.
+Reservations, apertures, panel observers and bridge pose streaming are disabled
+together. Existing contracts and owner/privacy/stale-choice safeguards remain
+available for bounded qualification; NativeChrome stays version 2 and NativeDock
+stays a separate version-1 private-editor contract.
+
+| Shared family / reachable states | Recovery renderer and operation owner | Overlap / fallback / rollback |
+| --- | --- | --- |
+| Five bottom destinations and Search | Standard UITabBar; existing React navigation | Existing modal/keyboard/privacy isolation; web on unsupported wrappers; independent of custom policy |
+| Shell Back, History opener, More and utility triggers | Shared React; authored action/Back owners | Profile, History, Search and dialogs; no temporary native replacement |
+| Agent Bar, Chat editor, voice/text, expanded editing and attachments | Shared React; existing dock, draft, guarded submission and voice owners | Keyboard and all modal layers; one composer, no native replica |
+| Profile, its nested panels, Preferences and photo preview | Full-height React; existing pane/gesture and feature owners | Entire panel including moving header; no stationary portal or native clipping |
+| History, search, row menus and confirmations | Full-height React; existing history/gesture and operation owners | Entire moving presentation and scrim; no bridge round-trip in drag path |
+| Cloud/Puppy, Appearance and Accent | Shared React; existing controlled value owners | No per-click renderer changes; native selection presentations require independent qualification |
+| Independent bounded menus, dates and durations | Existing React unless separately qualified owned system presentation | Dismissal completion, choice/privacy fences and full overlap parity required |
+| Connect/Memory/Mail/Finance pagers, rich cards, protected forms and complex multiselects | Shared React; existing feature owners | Inactive panes inert; no native primitive substitution |
+
+Coverage uses `native-route-inventory.json` and the route-layout contract, not a
+second route registry: 126 route entries, 102 native-required at this baseline.
+Query tabs, Profile panel/detail queries, overlays and legacy/callback boundaries
+must be accounted for by the families above. Source coverage is not device proof.
+iPad, Android, web and older iOS retain their established fallbacks.
+
+**Qualification boundary:** first install and review the recovery candidate.
+Only then prototype a synthetic complete native History body/scrim/gesture plus
+dock/header in one hierarchy, retaining React routing and operations. A successful
+History prototype does not qualify Profile or rich product screens. No visible
+motion may depend on per-frame React/native clipping. Custom native families stay
+disabled until visual, interaction, accessibility and performance evidence pass
+independently. Re-enable only an admitted whole family, not the historical flags.
+
+Focused recovery verification: 185 cases across lifecycle, navigation, plugin
+contracts, Profile navigation and owner-scoped draft continuity pass, as does
+typecheck. Restoring the old pre-discovery concealment makes the recovery test
+fail; the guard was restored. Design, static performance and native-contract
+checks pass. Exact installation and physical acceptance are still outstanding.
+No transition-frame or physical Release performance acceptance is inferred from
+the earlier functional receipts. The black-material cause remains unverified;
+this recovery avoids the failing custom composition rather than declaring it fixed.
+
+Older experimental wrappers requiring regions/apertures select their existing web
+navigation fallback, rather than reserving an unready native bar. The recovery
+wrapper retains standard native navigation and its safe modal/keyboard hiding;
+that behavior is not represented as glass continuity beneath a React drawer.
+
+## Historical experiments (not current renderer qualification)
+
 ### Drawer admission regression repair — 2026-10-09
 
 Source baseline: `a4a7610a6751`. The attach-only iPhone material journey

@@ -2,6 +2,7 @@
 
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import { nativeDocumentId } from "./session-privacy";
+import { customNativePresentationEnabled } from "./native-presentation-policy";
 import type { NativeControlAppearance } from "./native-control-appearance";
 
 /** Private, memory-only input adapter. Never put these payloads in chrome
@@ -77,6 +78,7 @@ export interface HushhNativeDockPlugin {
 export const nativeDock = registerPlugin<HushhNativeDockPlugin>("HushhNativeDock");
 let capability: { documentId: string; promise: Promise<NativeDockCapabilities | null> } | undefined;
 export function getNativeDockCapabilities() {
+  if (!customNativePresentationEnabled()) return Promise.resolve(null);
   if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return Promise.resolve(null);
   const documentId = nativeDocumentId();
   if (capability?.documentId === documentId) return capability.promise;

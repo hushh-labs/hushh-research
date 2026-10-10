@@ -3,6 +3,8 @@ import { createRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useNativeNavigation, useNativeNavigationOverlayRef, useNativeNavigationBottomInset, useNativeNavigationBlocked, useNativeNavigationBlockedUntilSettled } from "@/lib/capacitor/native-navigation";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
+vi.mock("@/lib/capacitor/native-presentation-policy", () => ({ customNativePresentationEnabled: vi.fn(() => true) }));
 
 const bridge = vi.hoisted(() => ({
   platform: "web", supported: true,
@@ -41,6 +43,7 @@ function select(state: ReturnType<typeof lastState>, tab = "dashboard") {
 
 describe("native navigation presentation boundary", () => {
   beforeEach(() => {
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(true);
     bridge.platform = "ios";
     bridge.callbacks.clear();
     bridge.getCapabilities.mockReset().mockResolvedValue({ contractVersion: 2, supported: true, contentHeight: 49, bottomInset: 34 });
@@ -50,6 +53,39 @@ describe("native navigation presentation boundary", () => {
     bridge.regions.mockReset().mockResolvedValue(true);
   });
   afterEach(async () => { await act(async () => { await Promise.resolve(); }); });
+
+  it.each(["underlayPresentation", "contentBackedPresentation", "reservedPresentationRegions"])(
+    "uses web fallback for an old experimental %s wrapper instead of reserving a stranded native bar", async (capability) => {
+      vi.mocked(customNativePresentationEnabled).mockReturnValue(false);
+      bridge.regions.mockResolvedValue(false);
+      bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, supported: true, [capability]: true });
+      const view = renderHook(() => useNativeNavigation({ ...options, onSelect: vi.fn() }));
+      await waitFor(() => expect(view.result.current.reserved).toBe(false));
+      expect(view.result.current.ready).toBe(false);
+      expect(bridge.setState).not.toHaveBeenCalled();
+      expect(bridge.regions).not.toHaveBeenCalled();
+      view.unmount();
+    });
+  it("retains standard native navigation in recovery and isolates full-height React overlays", async () => {
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(false);
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, supported: true,
+      interactionIsolation: true, contentHeight: 49, bottomInset: 34 });
+    bridge.regions.mockResolvedValue(false);
+    const action = vi.fn();
+    const view = renderHook(() => useNativeNavigation({ ...options, onSelect: action }));
+    await waitFor(() => expect(view.result.current.ready).toBe(true));
+    expect(view.result.current.height).toBe(49);
+    const before = lastState();
+    const overlay = render(<Overlay />);
+    await waitFor(() => expect(lastState()).toMatchObject({ visible: false, interactionEnabled: false }));
+    select(before);
+    expect(action).not.toHaveBeenCalled();
+    overlay.unmount();
+    await waitFor(() => expect(lastState()).toMatchObject({ visible: true, interactionEnabled: true }));
+    select(before); expect(action).not.toHaveBeenCalled();
+    expect(bridge.regions).not.toHaveBeenCalled();
+    view.unmount();
+  });
 
   it.each(["web", "android"])("does not replace or call the native bar on %s", async (platform) => {
     bridge.platform = platform;

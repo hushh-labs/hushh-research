@@ -205,6 +205,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         // Qualification-only; older wrappers and Release retain their current
         // host until composition, touch and physical frame pacing pass.
         if #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone,
+           HushhNativePresentationPolicy.customControlsEnabled,
            ProcessInfo.processInfo.arguments.contains("--hushh-native-compositor"),
            let existing = webView, view === existing {
             let contentBacked = ProcessInfo.processInfo.arguments.contains("--hushh-native-content-backed")

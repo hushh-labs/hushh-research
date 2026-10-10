@@ -420,6 +420,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
     private var layoutState = NativeDockLayoutState()
     private lazy var model = NativeDockModel()
     private var admitted: Bool {
+        guard HushhNativePresentationPolicy.customControlsEnabled else { return false }
         #if DEBUG
         if #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone {
             return ProcessInfo.processInfo.arguments.contains("--hushh-native-agent-dock")

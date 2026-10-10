@@ -1,11 +1,13 @@
 "use client";
 
 import type { ChromeFrame } from "./native-chrome";
+import { customNativePresentationEnabled } from "./native-presentation-policy";
 
 // Only acknowledged authored reservations; no protected content or persistence.
 const slots = new Map<string, { revision: number; frame: ChromeFrame }>();
 const masked = new Set<HTMLElement>();
 export function setNativeBaseAperture(id: string, revision: number, frame: ChromeFrame) {
+  if (!customNativePresentationEnabled()) return;
   if ((slots.get(id)?.revision ?? -1) > revision) return;
   slots.set(id, { revision, frame }); render();
 }

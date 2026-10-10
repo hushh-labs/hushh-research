@@ -1,6 +1,7 @@
 "use client";
 
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
+import { customNativePresentationEnabled } from "./native-presentation-policy";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type Ref, type RefObject } from "react";
 import { nativeDocumentId, subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
 import { NATIVE_CONTROL_CONTRACT_VERSION, type NativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
@@ -190,6 +191,11 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
       try {
         const capability = await nativeNavigation.getCapabilities();
         if (!capability.supported || capability.contractVersion !== NATIVE_CONTROL_CONTRACT_VERSION || cancelled) return;
+        // Experimental wrappers requiring apertures/regions cannot host the
+        // recovery renderer. Use their established web fallback, never strand
+        // a reserved bar or resurrect the rejected custom composition.
+        if (!customNativePresentationEnabled() && (capability.underlayPresentation ||
+            capability.contentBackedPresentation || capability.reservedPresentationRegions)) return;
         underlayPresentation.current = capability.underlayPresentation === true;
         reservedRegions.current = capability.reservedPresentationRegions === true;
         documentId ??= nativeDocumentId();
@@ -225,7 +231,7 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
         if (!cancelled) {
           // Qualified regions keep DOM overlays away from the native strip.
           // Older foreground pilots still conceal safely during coverage.
-          setInteractionIsolation(capability.interactionIsolation === true &&
+          setInteractionIsolation(customNativePresentationEnabled() && capability.interactionIsolation === true &&
             (capability.contentBackedPresentation !== true || reservedRegions.current));
           setSupported(true);
         }

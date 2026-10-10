@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { Capacitor } from "@capacitor/core";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { useAuth } from "@/hooks/use-auth";
 import { boundedDock, DockEventFence, getNativeDockCapabilities, nativeDock, nextDockIdentity, sameDock, validDockEvent, type DockIdentity, type DockProjection } from "@/lib/capacitor/native-dock";
 import { useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
@@ -86,7 +87,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
   }, [user?.uid]);
 
   useLayoutEffect(() => {
-    if (discovered || !enabled || !ports || !Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return;
+    if (!customNativePresentationEnabled() || discovered || !enabled || !ports || !Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return;
     // Cold capability discovery is read-only. Reserve presentation before the
     // first paint rather than briefly exposing the DOM composer underneath it.
     presentationOwner = presentation.current;

@@ -2,6 +2,7 @@
 
 import { NATIVE_PANEL_LAYOUT_EVENT } from "@/lib/capacitor/native-panel-presentation";
 import { NativeChromeFocusCancelled } from "@/lib/capacitor/native-chrome";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { appHaptic } from "@/lib/capacitor/app-haptics";
 
 import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
@@ -101,10 +102,10 @@ export function NativeChatChrome(props: Props) {
   const nativeFocusPending = useRef<FocusRequest | null>(null);
   const domFocusPending = useRef<FocusRequest | null>(null);
   const [, commitFocus] = useState(0);
-  const [hidden, setHidden] = useState(() => hasOutstandingNativeChrome(controlId) ||
+  const [hidden, setHidden] = useState(() => customNativePresentationEnabled() && (hasOutstandingNativeChrome(controlId) ||
     (supportsNativeChrome(kind) || Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios" &&
       peekNativeChromeCapabilities() === undefined) &&
-    badgeAdmitted && props.eligible && !!props.owner && !overlay && !suppressed);
+    badgeAdmitted && props.eligible && !!props.owner && !overlay && !suppressed));
   const [prepared, setPrepared] = useState<NativeChromeLease | null>(null);
   const [measurement, remeasure] = useState(0);
   const rehearsalDiagnostics = useRef(false);
@@ -290,7 +291,7 @@ export function NativeChatChrome(props: Props) {
     };
   }, []);
   useLayoutEffect(() => {
-    if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return;
+    if (!customNativePresentationEnabled() || !Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return;
     let cancelled = false;
     let subscriptionsFailed = false;
     const handles: PluginListenerHandle[] = [];
@@ -678,7 +679,7 @@ export function NativeHistoryOpener({ owner, context, eligible, open, pendingAtt
   onActivate: (preferNativeFocus: boolean, trigger?: HTMLButtonElement) => void;
 }) {
   const label = open ? "Close chat history" : "Open chat history";
-  const retainedBase = peekNativeChromeCapabilities()?.reservedPresentationRegions === true;
+  const retainedBase = customNativePresentationEnabled() && peekNativeChromeCapabilities()?.reservedPresentationRegions === true;
   return <NativeChatChrome kind="history" owner={owner} pendingAttention={pendingAttention}
     context={context} eligible={eligible && (retainedBase || !open)} style={{ visibility: open && !retainedBase ? "hidden" : undefined }}
     onActivate={() => onActivate(true)} focusRef={focusRef} ref={ref}

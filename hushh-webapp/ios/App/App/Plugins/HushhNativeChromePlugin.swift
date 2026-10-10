@@ -2,6 +2,12 @@ import Capacitor
 import SwiftUI
 import UIKit
 
+/// Recovery default. The standard UITabBar and privacy shield are independent.
+/// Legacy Debug flags are not qualification of a complete overlapping family.
+enum HushhNativePresentationPolicy {
+    static let customControlsEnabled = false
+}
+
 /// Strict public presentation metadata, shared by UIKit and SwiftUI controls.
 /// Colors come from React's canonical CSS tokens, not another native palette.
 struct HushhNativeControlAppearance {
@@ -1177,6 +1183,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         return pose?.generation == slot.groupGeneration && pose?.settled == true
     }
     private var backAdmitted: Bool {
+        guard HushhNativePresentationPolicy.customControlsEnabled else { return false }
         // Debug pilot only; release and iPad retain accepted controls until
         // their physical visual/accessibility acceptance has been recorded.
         #if DEBUG

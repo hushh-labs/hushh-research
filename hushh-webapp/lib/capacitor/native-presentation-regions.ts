@@ -1,6 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useState, useSyncExternalStore, type RefObject } from "react";
+import { customNativePresentationEnabled } from "./native-presentation-policy";
 import { getNativeChromeCapabilities, peekNativeChromeCapabilities, nativeChrome } from "./native-chrome";
 import { getNativeSessionPrivacyState, nativeDocumentId, subscribeNativeSessionPrivacy, type NativeSessionPrivacyState } from "./session-privacy";
 import type { NativePanelIdentity, NativePanelPose } from "./native-panel-presentation";
@@ -37,6 +38,7 @@ const drawerSources = new Map<NativePanelIdentity["group"], {
 /** Authored presentation only. Dormant registration changes no admission. */
 export function registerNativeDrawerPose(identity: NativePanelIdentity,
   sample: (privacyGeneration: number) => NativePanelPose | undefined) {
+  if (!customNativePresentationEnabled()) return () => undefined;
   const source = { identity, sample };
   drawerSources.set(identity.group, source);
   if (covered && drawer === identity.group) void syncNativePresentationRegions().catch(() => undefined);
@@ -44,6 +46,7 @@ export function registerNativeDrawerPose(identity: NativePanelIdentity,
 }
 
 export function setNativeDockPresentationFrame(documentId: string, revision: number, y: number | null) {
+  if (!customNativePresentationEnabled()) return;
   if (documentId !== nativeDocumentId() || (dockFrame && dockFrame.revision > revision)) return;
   if (y === null) dockFrame = undefined;
   else if (Number.isFinite(y) && y >= 0 && y < window.innerHeight) dockFrame = { documentId, revision, y };
@@ -65,7 +68,7 @@ export function setNativePresentationRegionIsolation(active: boolean, cover = fa
   covered = active && cover;
   drawer = covered ? owningDrawer : undefined;
   isolateSeats();
-  if (!peekNativeChromeCapabilities()?.reservedPresentationRegions) return;
+  if (!customNativePresentationEnabled() || !peekNativeChromeCapabilities()?.reservedPresentationRegions) return;
   void syncNativePresentationRegions().catch(() => undefined);
 }
 
@@ -89,6 +92,7 @@ function measureRegions(): Omit<NativePresentationRegions, "revision"> {
 /** Acknowledged layout precedes native visibility. Older wrappers keep their
  * existing overlay geometry. No gesture-frame writes or protected payloads. */
 export async function syncNativePresentationRegions(): Promise<boolean> {
+  if (!customNativePresentationEnabled()) return false;
   const capability = await getNativeChromeCapabilities();
   if (!capability?.reservedPresentationRegions) return false;
   const privacy = capability.fullWindowOverlays ? await getNativeSessionPrivacyState() : undefined;
@@ -162,7 +166,7 @@ export async function syncNativePresentationRegions(): Promise<boolean> {
  * animation frames, reconcile the shared overlay region. */
 export function useNativePresentationRegions(ref: RefObject<HTMLElement | null>, enabled: boolean) {
   useLayoutEffect(() => {
-    if (!enabled || !ref.current) return;
+    if (!customNativePresentationEnabled() || !enabled || !ref.current) return;
     const reconcile = () => { void syncNativePresentationRegions().catch(() => undefined); };
     const observer = new ResizeObserver(reconcile);
     observer.observe(ref.current);
@@ -189,7 +193,7 @@ export function useNativeOverlayCollisionPadding(padding: number | Partial<Recor
 /** Full-height modal admission is independent of its requested open state. */
 export function useNativeFullWindowOverlayReady(active: boolean) {
   const ready = useSyncExternalStore(listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    () => !active || !peekNativeChromeCapabilities()?.fullWindowOverlays ||
+    () => !customNativePresentationEnabled() || !active || !peekNativeChromeCapabilities()?.fullWindowOverlays ||
       accepted?.documentId === nativeDocumentId() && accepted.covered === true && accepted.isolated &&
       covered && isolated && accepted.revision === revision, () => true);
   const [entry, setEntry] = useState({ active, admitted: ready });

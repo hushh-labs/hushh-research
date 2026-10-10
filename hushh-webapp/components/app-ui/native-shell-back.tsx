@@ -1,6 +1,7 @@
 "use client";
 
 import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeftIcon } from "@/components/icons";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
@@ -28,8 +29,8 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
   const [inPlaceUpdates, setInPlaceUpdates] = useState(false);
   const [backReplacement, setBackReplacement] = useState(false);
   const [retainedPresentation, setRetainedPresentation] = useState(false);
-  const [hidden, setHidden] = useState(() => hasOutstandingNativeChrome() ||
-    (supportsNativeChrome("back") || Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios") && eligible && !!owner && !suppressed);
+  const [hidden, setHidden] = useState(() => customNativePresentationEnabled() && (hasOutstandingNativeChrome() ||
+    (supportsNativeChrome("back") || Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios") && eligible && !!owner && !suppressed));
   const [prepared, setPrepared] = useState<NativeChromeLease | null>(null);
   const [measurement, remeasure] = useState(0);
   const lease = useRef<NativeChromeLease | null>(null);
@@ -48,7 +49,7 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
   }, [allowed, context, epoch, onBack, theme, inPlaceUpdates, retainedPresentation]);
 
   useLayoutEffect(() => {
-    if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return;
+    if (!customNativePresentationEnabled() || !Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return;
     let cancelled = false;
     let subscriptionsFailed = false;
     const handles: PluginListenerHandle[] = [];
@@ -230,7 +231,9 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
     <ShellActionSurface ref={button} variant="icon" aria-label={label} onClick={onBack}
       disabled={hidden} aria-hidden={hidden || undefined} tabIndex={hidden ? -1 : undefined}
       style={{ visibility: hidden ? "hidden" : undefined }}
-      className="!border-transparent !bg-transparent !text-[color:var(--app-accent-deep)] !shadow-none hover:!bg-transparent active:!scale-100">
+      className={customNativePresentationEnabled()
+        ? "!border-transparent !bg-transparent !text-[color:var(--app-accent-deep)] !shadow-none hover:!bg-transparent active:!scale-100"
+        : "!text-[color:var(--app-accent-deep)]"}>
       <ArrowLeftIcon className="h-5 w-5" />
     </ShellActionSurface>
   </div>;

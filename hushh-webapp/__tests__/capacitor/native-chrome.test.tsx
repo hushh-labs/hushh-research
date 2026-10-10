@@ -16,6 +16,13 @@ import { NativePanelPoseWriter, useNativePanelPresentation, type NativePanelPose
 import { nativePresentationAdmission, registerNativeDrawerPose, setNativePresentationRegionIsolation, syncNativePresentationRegions, useNativeFullWindowOverlayReady, waitForNativeDrawerCoverageRelease, type NativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
 import { AgentDockProvider, useAgentDockState } from "@/components/agent/agent-dock";
 import { useNativeDockPort, useNativeDockPorts, type NativeDockPort } from "@/components/agent/native-dock-port";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
+import { setNativeBaseAperture } from "@/lib/capacitor/native-base-apertures";
+
+// Keep qualification-only lifecycle coverage without enabling it in the app.
+vi.mock("@/lib/capacitor/native-presentation-policy", () => ({
+  customNativePresentationEnabled: vi.fn(() => true),
+}));
 
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "dock-reviewer" } }) }));
 
@@ -218,6 +225,7 @@ describe("private dock asynchronous submission boundary", () => {
       selectionStart: 0, selectionEnd: 0 };
   }
   beforeEach(() => {
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(true);
     bridge.platform = "ios"; bridge.documentId = crypto.randomUUID();
     document.documentElement.style.setProperty("--muted-foreground", "#8e8e93");
     document.documentElement.classList.remove("dark");
@@ -235,6 +243,58 @@ describe("private dock asynchronous submission boundary", () => {
     vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
   });
   afterEach(async () => { cleanup(); await act(async () => { await Promise.resolve(); }); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+  it("reveals recovery controls synchronously and never admits reservations, apertures or drawer poses", async () => {
+    const productionPolicy = await vi.importActual<typeof import("@/lib/capacitor/native-presentation-policy")>("@/lib/capacitor/native-presentation-policy");
+    expect(productionPolicy.customNativePresentationEnabled()).toBe(false);
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(false);
+    bridge.getCapabilities.mockReturnValue(new Promise(() => undefined));
+    const back = vi.fn(), select = vi.fn();
+    function Controls({ open }: { open: boolean }) {
+      const focus = useRef<HTMLButtonElement>(null), panel = useRef<HTMLDivElement>(null);
+      const attach = useNativePanelPresentation("profile", "synthetic-owner", panel, open);
+      const ready = useNativeFullWindowOverlayReady(open);
+      return <div data-app-shell-root="true">
+        <NativeShellBack label="Go back" onBack={back} owner="synthetic-owner" context="synthetic" eligible />
+        <NativeChatChrome kind="agent-surface" owner="synthetic-owner" context="synthetic" eligible value="one"
+          className="" focusRef={focus} onValueChange={select}><button ref={focus} onClick={() => select("puppy")}>Puppy</button></NativeChatChrome>
+        <div ref={attach} data-native-panel-group="profile" data-testid="recovery-pane">{ready ? "ready" : "waiting"}</div>
+      </div>;
+    }
+    const view = render(<Controls open={false} />);
+    for (const label of ["Go back", "Puppy"]) {
+      const control = view.getByRole("button", { name: label });
+      expect(control.closest('[inert], [aria-hidden="true"]')).toBeNull();
+      expect(control).toBeVisible();
+      fireEvent.click(control);
+    }
+    expect(back).toHaveBeenCalledOnce(); expect(select).toHaveBeenCalledOnce();
+    for (const open of [true, false, true, false]) {
+      view.rerender(<Controls open={open} />);
+      expect(view.getByTestId("recovery-pane").textContent).toBe("ready");
+    }
+    setNativeBaseAperture("recovery-probe", 1, projection.frame);
+    expect(await syncNativePresentationRegions()).toBe(false);
+    await act(async () => { await Promise.resolve(); });
+    expect(bridge.getCapabilities).not.toHaveBeenCalled();
+    expect(bridge.prepare).not.toHaveBeenCalled();
+    expect(bridge.setPresentationRegions).not.toHaveBeenCalled();
+    expect(bridge.applyPanelPose).not.toHaveBeenCalled();
+    expect(document.documentElement.classList.contains("native-compositor-apertures")).toBe(false);
+    expect(view.container.querySelector<HTMLElement>('[data-app-shell-root]')?.style.clipPath).toBe("");
+  });
+  it("keeps the React composer interactive before discovery in recovery mode, including reopen", async () => {
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(false);
+    dockBridge.getCapabilities.mockReturnValue(new Promise(() => undefined));
+    const view = render(fixture(false, vi.fn()));
+    expect(view.getByTestId("dock-presentation").textContent).toBe("fallback");
+    view.rerender(fixture(true, vi.fn()));
+    view.rerender(fixture(false, vi.fn()));
+    await act(async () => { await Promise.resolve(); });
+    expect(view.getByTestId("dock-presentation").textContent).toBe("fallback");
+    expect(dockBridge.getCapabilities).not.toHaveBeenCalled();
+    expect(dockBridge.apply).not.toHaveBeenCalled();
+    expect(dockBridge.subscribe).not.toHaveBeenCalled();
+  });
   it.each([false, true])("waits for operation listeners before admitting the editor; rejection %s", async (reject) => {
     const input = deferred<void>();
     dockBridge.subscribe.mockImplementation(async name => { if (name === "input") await input.promise; });
@@ -388,6 +448,7 @@ describe("native chrome presentation lease", () => {
     expect(action).toHaveBeenCalledOnce();
   });
   beforeEach(async () => {
+    vi.mocked(customNativePresentationEnabled).mockReturnValue(true);
     window.localStorage.clear();
     document.documentElement.classList.remove("dark");
     document.documentElement.removeAttribute("data-accent");

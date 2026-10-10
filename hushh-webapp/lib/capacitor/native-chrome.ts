@@ -2,6 +2,7 @@
 
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import { nativeDocumentId } from "@/lib/capacitor/session-privacy";
+import { customNativePresentationEnabled } from "./native-presentation-policy";
 import type { NativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { nativePanelGeometry, type NativePanelPose, type NativePanelReceipt, type NativePanelIdentity } from "./native-panel-presentation";
 import { setNativeBaseAperture, removeNativeBaseAperture } from "./native-base-apertures";
@@ -115,6 +116,7 @@ export function getNativeChromeCapabilities(): Promise<NativeChromeCapabilities 
   return pending.promise;
 }
 export function supportsNativeChrome(family: ChromeFamily): boolean {
+  if (!customNativePresentationEnabled()) return false;
   const capability = peekNativeChromeCapabilities();
   return capability?.contractVersion === 2 && capability.independentControls === true && capability.families.includes(family);
 }

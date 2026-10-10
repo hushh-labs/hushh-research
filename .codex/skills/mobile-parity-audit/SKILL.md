@@ -50,6 +50,12 @@ Non-owned surfaces:
 
 ## Workflow
 
+Native family qualification follows `hushh-webapp/docs/ios-native-surface-adoption.md`.
+Inspect transition frames on synthetic surfaces, not just settled screenshots or
+host receipts. Keep functional, visual, accessibility and physical performance
+acceptance separate; cover shared families across route/query/overlay states.
+Installation and attach-only warm-session verification are separate phases.
+
 1. Start from the documented parity contract and then validate the live native surfaces.
 2. Keep findings tied to concrete platform gaps, not generic “mobile broken” summaries.
 3. Route implementation work back into plugin-contract or owner skills after the audit isolates the issue.

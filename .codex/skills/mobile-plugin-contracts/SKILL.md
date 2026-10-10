@@ -49,6 +49,12 @@ Non-owned surfaces:
 
 ## Workflow
 
+For custom native presentation changes, follow the current renderer boundaries
+in `hushh-webapp/docs/ios-native-surface-adoption.md`. Prove a feasible whole-layer
+composition first; retained hosts and ordered bridge receipts cannot synchronize
+React and native animation frames. Choose one renderer before reveal and keep it
+for that presentation lifetime. Do not reopen historical Debug flags as adoption.
+
 1. Verify the TypeScript bridge, plugin registration, and native implementation paths first.
 2. Keep plugin method names and service-layer contracts aligned across platforms.
 3. Treat service-layer native/web branching as part of the same contract, not a follow-up.

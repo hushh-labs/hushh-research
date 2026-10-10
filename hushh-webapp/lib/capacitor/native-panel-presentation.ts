@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { customNativePresentationEnabled } from "./native-presentation-policy";
 import { getNativeChromeCapabilities, nativeChrome, type ChromeFrame } from "./native-chrome";
 import { getNativeSessionPrivacyState, nativeDocumentId, subscribeNativeSessionPrivacy } from "./session-privacy";
 import { nativeDrawerPresentationAdmission, registerNativeDrawerPose, useNativePresentationRegionRevision, waitForNativeDrawerCoverageRelease } from "./native-presentation-regions";
@@ -92,7 +93,7 @@ export function useNativePanelPresentation(group: "profile" | "history", owner: 
   }, [panelRef]);
   useLayoutEffect(() => {
     const panel = node;
-    if (!owner || !panel || !enabled) return;
+    if (!customNativePresentationEnabled() || !owner || !panel || !enabled) return;
     let cancelled = false, frame = 0, sequence = 0, privacyGeneration = -1;
     let writer: NativePanelPoseWriter | undefined;
     let unregisterDrawer: (() => void) | undefined;

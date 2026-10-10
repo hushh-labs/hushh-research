@@ -612,6 +612,36 @@ final class AppUITests: XCTestCase {
         XCTAssertFalse(webView.buttons["Unlock"].exists, "The gesture lost the unlocked session")
         print("CHAT_DRAWER_GESTURE_CONTINUITY body_swipe_fixed_host")
         print("CHAT_DRAWER_BIDIRECTIONAL_CONTINUITY open_close_warm_chat")
+        if ProcessInfo.processInfo.environment["HUSHH_RUN_RECOVERY_SMOKE"] == "true" {
+            let profileOpen = app.buttons["Open Profile"].firstMatch
+            let profileClose = app.buttons["Close Profile"].firstMatch
+            let bar = app.descendants(matching: .any).matching(identifier: "one-native-navigation").firstMatch
+            XCTAssertFalse(app.textViews["native-dock-editor"].exists,
+                           "Recovery must never activate a second composer")
+            for _ in 0..<10 {
+                XCTAssertTrue(waitForAdmittedControl(open)); open.tap()
+                XCTAssertTrue(waitForAdmittedControl(close))
+                XCTAssertFalse(bar.exists && bar.isHittable, "Native navigation escaped full-height History")
+                close.tap()
+                XCTAssertTrue(waitForAdmittedControl(profileOpen)); profileOpen.tap()
+                XCTAssertTrue(waitForAdmittedControl(profileClose))
+                XCTAssertFalse(bar.exists && bar.isHittable, "Native navigation escaped full-height Profile")
+                profileClose.tap()
+                XCTAssertTrue(waitForAdmittedControl(composer))
+                XCTAssertEqual(webView.frame, hostFrame, "Recovery replaced or shifted the WebView")
+                XCTAssertEqual(composer.frame.minX, composerFrame.minX, accuracy: 1)
+                XCTAssertFalse(webView.buttons["Unlock"].exists, "Recovery lost the unlocked session")
+                XCTAssertFalse(app.textViews["native-dock-editor"].exists, "Recovery re-admitted a native replica")
+            }
+            composer.tap()
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "Recovery keyboard did not open")
+            XCTAssertTrue(waitForAdmittedControl(profileOpen)); profileOpen.tap()
+            XCTAssertTrue(waitForAdmittedControl(profileClose)); profileClose.tap()
+            dismissRehearsalChatKeyboard(app)
+            XCTAssertTrue(waitForAdmittedControl(composer))
+            XCTAssertEqual(webView.frame, hostFrame)
+            print("REACT_RECOVERY_CONTINUITY ten_profile_ten_history_keyboard_single_composer_warm_host")
+        }
     }
 
     func testLocalSessionVoiceBarCancelsFromItsBodyAndReturnsToChat() throws {
