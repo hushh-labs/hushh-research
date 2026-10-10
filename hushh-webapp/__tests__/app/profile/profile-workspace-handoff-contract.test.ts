@@ -7,6 +7,10 @@ const profilePageSource = readFileSync(
   join(process.cwd(), "components/profile/profile-workspace-page.tsx"),
   "utf8",
 );
+const payoutsSource = readFileSync(
+  join(process.cwd(), "components/consent/document-hashcoins.tsx"),
+  "utf8",
+);
 
 describe("profile workspace duplication contract", () => {
   it("keeps One dashboard workspaces out of the Profile landing screen", () => {
@@ -53,9 +57,11 @@ describe("profile workspace duplication contract", () => {
     expect(memory).not.toContain("DocumentRequestPricingCard");
     expect(memory).not.toContain("DocumentPayoutAccountCard");
     expect(memory).not.toContain("DocumentBankPayoutStatusCard");
+    expect(memory).not.toContain("DocumentHashcoinPayouts");
     expect(profilePageSource).toContain('activePanel === "payouts"');
     expect(profilePageSource).toContain('activePanel === "request-pricing"');
-    expect(profilePageSource).toContain("<DocumentPayoutAccountCard handleReturn />");
+    expect(profilePageSource).toContain("<DocumentHashcoinPayouts />");
+    expect(payoutsSource).toContain("<DocumentPayoutAccountCard handleReturn showHistory={false} />");
     expect(profilePageSource).toContain("<DocumentRequestPricingCard />");
     expect(profilePageSource).toMatch(/if \(vaultAccess\.needsVaultCreation && panel !== "security"\) \{\s*setPendingProfileTarget\(\{ panel, detail, mode: "push" \}\);/);
     expect(profilePageSource).toMatch(/else if \(pendingProfileTarget\) \{\s*updateProfileView\(/);

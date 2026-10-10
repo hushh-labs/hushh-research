@@ -59,7 +59,7 @@ async def test_earnings_history_paginates_and_never_crosses_owner_boundary(
           refund_amount_cents INT,platform_fee_cents INT,allocated_processing_fee_cents INT,
           owner_earning_cents INT,reversal_amount_cents INT,created_at TIMESTAMPTZ,
           transferred_at TIMESTAMPTZ,expected_files INT,confirmed_files INT,erased_at TIMESTAMPTZ,
-          stripe_mode TEXT DEFAULT 'test')""")
+          stripe_mode TEXT DEFAULT 'test',settlement_method TEXT DEFAULT 'stripe_transfer',credited_at TIMESTAMPTZ)""")
         )
         for i, request_id in enumerate([*owner_ids, other_id]):
             c.execute(
@@ -72,7 +72,7 @@ async def test_earnings_history_paginates_and_never_crosses_owner_boundary(
             )
             c.execute(
                 text("""INSERT INTO drive_request_owner_payouts VALUES
-              (:id,'transferred',1000,0,30,59,911,NULL,:created,:created,1,1,NULL,'test')"""),
+              (:id,'transferred',1000,0,30,59,911,NULL,:created,:created,1,1,NULL,'test','stripe_transfer',NULL)"""),
                 {
                     "id": request_id,
                     "created": datetime(2026, 1, 1, tzinfo=UTC) + timedelta(seconds=i),

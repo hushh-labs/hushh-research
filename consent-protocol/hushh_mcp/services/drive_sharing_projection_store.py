@@ -163,7 +163,7 @@ class DriveSharingProjectionStore(DriveRevocationStore):
                 SELECT r.request_id,r.status,r.revision,r.created_at,r.expires_at,
                        r.payment_required,r.quoted_amount_cents,r.quote_version,
                        p.status AS owner_payout_status,
-                       CASE WHEN r.payment_required=TRUE AND
+                       CASE WHEN r.payment_required=TRUE AND r.settlement_method<>'hashcoins' AND
                          ((r.status IN ('pending','preparing','review_ready','approved','partial')
                            AND r.expires_at>clock_timestamp())
                           OR p.status IN ('awaiting_account','due','awaiting_delivery',

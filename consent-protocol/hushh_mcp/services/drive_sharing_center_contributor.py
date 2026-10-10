@@ -380,6 +380,7 @@ def _projection(
         "quote_version": "drive_share_requests.quote_version" if pricing else "NULL::integer",
         "owner_payout_account_ready": """CASE WHEN
           drive_share_requests.payment_required=TRUE
+          AND drive_share_requests.settlement_method<>'hashcoins'
           AND NOT EXISTS (SELECT 1 FROM drive_request_payment_orders pay
             WHERE pay.request_id=drive_share_requests.request_id
               AND pay.status IN ('paid','refunded'))

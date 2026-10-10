@@ -2701,3 +2701,34 @@ async def test_webhook_waits_for_account_erasure_and_reconciles_late_payment(sha
     assert obligation["reconciliation_required"] is True
     assert obligation["payer_ref"] == hashlib.sha256(f"{request_id}:recipient".encode()).hexdigest()
     assert events == 1 and feed_events == 0
+
+
+@pytest.mark.asyncio
+async def test_hashcoin_checkout_never_requires_or_binds_connect_bank(monkeypatch):
+    from hushh_mcp.services.pkm_payout_service import PkmPayoutService
+
+    monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", "true")
+    refresh = AsyncMock(side_effect=AssertionError("Coin earning must not call Connect"))
+    monkeypatch.setattr(PkmPayoutService, "refresh_account", refresh)
+    create = Mock(side_effect=lambda **params: _checkout_sdk_response(params))
+    service, request_id, _, _ = _checkout_fixture(monkeypatch, create)
+    service.payment_state = AsyncMock(
+        return_value={
+            "status": "awaiting_payment",
+            "_payout_enrolled": True,
+            "_payout_owner_user_id": "owner",
+            "_payout_settlement_method": "hashcoins",
+        }
+    )
+    original = service._row.side_effect
+    service._row.side_effect = lambda *args, **kwargs: {
+        **original(*args, **kwargs),
+        "settlement_method": "hashcoins",
+    }
+    result = await service.checkout(requester_user_id="recipient", request_id=request_id)
+    assert result["checkoutUrl"].startswith("https://checkout.stripe.com/")
+    refresh.assert_not_called()
+    assert not any(
+        "UPDATE drive_request_owner_payouts" in call.args[1] for call in service._row.call_args_list
+    )
+    create.assert_called_once()

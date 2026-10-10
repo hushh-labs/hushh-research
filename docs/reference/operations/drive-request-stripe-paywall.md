@@ -15,7 +15,7 @@ sequenceDiagram
     participant Drive
     Chris->>PrivateAgent: Request documents
     PrivateAgent->>Feed: Request sent
-    opt Manish has not linked a payout bank
+    opt Legacy bank-settled request without a linked bank
         Feed->>Manish: Link bank
         Manish->>Stripe: Complete US Connect setup
     end
@@ -34,62 +34,61 @@ sequenceDiagram
     Stripe->>PrivateAgent: Signed payment webhook
     PrivateAgent->>Drive: Grant exact files
     Drive->>Chris: Confirmed access
-    PrivateAgent->>Stripe: Settle delivered share after refunds and fees
-    Stripe->>Bank: Deposit on the connected account's payout schedule
+    PrivateAgent->>Feed: Credit net Hussh Coins after delivery, refunds and fees
+    Manish->>Stripe: Redeem separate test coins in payout sandbox
+    Stripe->>Bank: Simulated deposit only; real balance unchanged
 ```
 
 ## User story
 
 The owner sets a whole-dollar default from $1 to $500 in **Profile → Request
-pricing**. **Save** makes it available to future requests; **Ask each time**
-removes the automatic default. An unset price is not a $10 quote. Existing
-requests retain the price already agreed or recorded on their order. Owners link
-or manage a US bank through **Profile → Payouts** and Stripe-hosted Connect
-onboarding. One does not collect bank credentials or use Plaid for this flow.
+pricing**. **Ask each time** removes the automatic default. Existing requests
+retain their recorded quote; an unset price never becomes an implicit $10.
 
-A requester can send a document request even if the owner has not finished payout
-setup or set a price. The durable request waits, and Feed asks the owner to
-**Link bank** first. No new payment order, Checkout or file grant is permitted
-until the required owner setup is ready. A browser return from Stripe is only a
-hint: the backend checks the connected account's submitted details, transfer
-capability, bank payout capability and US eligibility before readiness changes.
+With `DRIVE_REQUEST_HASHCOINS_ENABLED=true`, new paid document requests record an
+immutable `hashcoins` settlement method. They can earn without a linked bank.
+Trusted requests with a saved price can prepare while the owner is away; with no
+price, Feed asks the owner to **Set price**. Outside-circle requests still need
+**Allow** and an owner-confirmed price. Linking a bank or saving a default never
+approves a non-trusted request. All existing recipient, consent, expiry, paid
+sharing and revocation boundaries remain enforced.
 
-For a current Trusted Circle request with a saved price and ready payouts, the
-private agent can search while the owner is away, freeze the first nonempty
-shareable batch, and put the agreed **Pay** action in the requester's Feed.
-For **Ask each time**, Feed asks the owner to **Set price** for this request.
-That fixes a request-specific quote without adding a non-trusted Allow record or
-bypassing later Trusted Circle checks. Saving a global default can also resume
-an unquoted trusted request. Once Stripe confirms payment, the Drive worker
-continues exact-file grants without an additional approval.
+The private agent freezes shareable files before offering one Checkout charge
+per request. No match means no charge. Stripe-signed confirmation precedes any
+file grant. Confirmed delivery, final prorated refund and the actual processing
+fee precede the earning credit. **100 Hussh Coins = $1; one coin is one integer USD
+cent.** Coins are an internal earnings ledger, not a cryptocurrency or purchasable
+balance. The 3% Hussh commission and actual Stripe processing fee are deducted
+once. A fully delivered $10 request with a $0.59 processing fee earns 911 coins.
+That fee is an example, not a fixed rate. Unknown amounts remain pending.
 
-An outside-circle request waits for the owner's decision. **Allow** opens a
-price sheet with the request's purpose, period, recipient Google account and
-Viewer access terms. The owner chooses a whole-dollar price and confirms that
-review's revision. This both consents to the request and fixes its price; merely
-setting a global default or linking a bank never approves a non-trusted request.
-The same automatic search, payment and grant pipeline then runs. **Deny** starts
-no search. Requests that cannot use the automatic Allow path keep their existing
-manual exact-file review and payment gate.
+Profile → Payouts separates **Hussh Coins** (real earnings) from **Payout sandbox**
+(test-only bank linking and redemption). A live earning creates one separate test
+allocation for rehearsing redemption. Spending test coins never reserves or
+reduces real coins. The sandbox balance and Stripe test deposits have no cash
+value and do not reach a real bank. Test balances are never promoted when keys
+change. Existing historical test payments likewise do not become real earnings.
 
-Each request has **one charge**, independent of document count or progressive
-25-file batches. No payment is created when search finds zero shareable files.
-Requesters see the amount before they pay. No files or usable recipient links
-are released before a signed payment confirmation. Historical free requests
-remain free; old merchant-only orders retain their original terms and are never
-backfilled into owner earnings.
+A test redemption reserves the chosen coin amount under a wallet lock, verifies
+a ready test account and available test provider funds, then transfers once to
+that connected account. Concurrent taps use a stable request identity. An
+ambiguous response stays reserved while the scheduled worker reconciles the
+same transfer. Definitive failure releases the reservation. Transfer status and
+Stripe's later aggregate test bank-deposit status remain separate. The UI
+reconciles through the existing authenticated Feed notification stream.
 
-Profile → Payouts shows document **Transactions** and separate **Bank deposits**.
-Transaction details show the actual charge, refund, 3% Hussh commission, Stripe
-processing fee and owner's net earnings. Unknown fees or net amounts show
-**Calculating**, not zero. A transfer to the owner's Stripe balance is labelled
-**Transferred to Stripe**; only Stripe's bank-payout state is labelled paid to the
-bank. Feed and the open payout view reconcile live state without a manual refresh.
+Real bank redemption is disabled in this release. Live Connect activation,
+verification, source-earning allocation and a controlled live acceptance run are
+required before enabling it; changing a key does not enable cash withdrawal.
+Existing `stripe_transfer` orders retain their original bank prerequisite and
+automatic settlement. Neither a rollout toggle nor a new code version converts
+an already transferred earning into coins. Refunds and disputes after coin credit
+append a compensating debit or hold, preserving the audit trail. Owner erasure
+detaches identity and holds remaining liabilities instead of deleting them.
 
-The payment layer exposes only opaque workflow identifiers to Stripe. The
-existing live Drive search still runs on the backend with Manish's delegated
-Google access and server-readable encrypted metadata. It should not be described
-as end-to-end or strict cryptographic zero knowledge of the Drive documents.
+The payment layer exposes opaque workflow identifiers to Stripe. Drive search
+uses the owner's delegated Google access and server-readable encrypted metadata;
+it is not strict cryptographic zero knowledge of document contents.
 
 ## Search latency and bounded requests
 
@@ -158,9 +157,10 @@ define the native query, pagination and corpus boundaries used here.
    changes. The separate trusted **Set price** operation changes only the quote,
    checks current trust, revision, expiry and no existing order/search, and never
    creates the sealed owner Allow record.
-2. New paid requests carry a sealed `owner_settlement_required` marker. Missing
-   bank readiness, an unset price or paused owner payouts keeps the request
-   pending. Setup completion resumes only live, unpaid, unordered requests and
+2. New paid requests carry a sealed `owner_settlement_required` marker and an
+   immutable settlement method. An unset price or paused owner settlement keeps
+   the request pending. Bank readiness additionally gates legacy
+   `stripe_transfer` requests; `hashcoins` requests earn without bank setup. Setup completion resumes only live, unpaid, unordered requests and
    preserves consent and existing quotes. Preparation freezes at least one
    shareable file before it creates the single request-bound payment order and
    durable requester Feed event. Owner-private
@@ -213,7 +213,7 @@ origin. The backend refuses Checkout if these values are absent or mismatched.
    alive while its expiry event is delayed.
    Never put a Stripe key, webhook secret, document metadata, or a live Checkout
    URL in GitHub variables, build substitutions, logs, or client code.
-2. Deploy the release manifest through migration 297 and backend/frontend code
+2. Deploy the release manifest through migration 299 and backend/frontend code
    before enabling owner settlement. Confirm
    historic requests and explicit owner approval still work. Keep GitHub UAT
    variable `DRIVE_REQUEST_PAYMENTS_UAT_ENABLED=false` until the bulk/erasure
@@ -226,7 +226,8 @@ origin. The backend refuses Checkout if these values are absent or mismatched.
    produces a **Pay $20** item and the Stripe Checkout total matches; Deny shows
    the requester a declined request and starts no search; a Trusted request uses
    the saved default (for example $5); with no default, Set price affects only
-   that request; missing bank setup blocks payment until verified; before payment,
+   that request; legacy transfer requests wait for bank setup, while Hussh Coins requests can earn
+   without it; before payment,
    no Google ACL or recipient link exists; a test
    payment settles by webhook and resumes grants; a browser return alone changes
    nothing. Repeat with replayed webhooks, two devices, multiple requests,
@@ -297,16 +298,17 @@ unit checks cannot prove the absence of a database deadlock. Payment order,
 webhook, and refund paths follow the same graph-first rule before identity
 writes.
 
-## Owner settlement (new paid requests)
+## Owner settlement and historical direct transfers
 
 Hussh charges the requester through its US Stripe platform account. Every new
 paid document request requires owner settlement. Its payment order and owner
 ledger enroll atomically when `DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED=true`; if that
 rollout is off, the new request waits instead of silently using merchant-only
-terms. Earlier orders are not backfilled. The document owner must complete
-Stripe Connect onboarding for a US account before search/payment admission;
-Checkout verifies the live account again before charging. Plaid is not involved
-in owner settlement.
+terms. Earlier orders are not backfilled. With Hussh Coins enabled, the confirmed
+net amount becomes a ledger credit and bank setup is needed only for redemption.
+The direct-transfer behavior below applies to existing `stripe_transfer` orders:
+the owner completes US Connect onboarding before search/payment admission, and
+Checkout verifies that account before charging. Plaid is not involved.
 
 The private worker transfers the owner's share to their connected Stripe balance
 only after the request reaches a terminal delivery outcome and Google confirms
@@ -355,7 +357,9 @@ REQUIRE_CONNECTOR_POSTGRES=1 uv run pytest -q \
   tests/services/test_drive_request_payment.py \
   tests/test_drive_request_owner_payouts.py \
   tests/test_stripe_connect_bank_payouts.py \
-  tests/test_pkm_payouts.py
+  tests/test_pkm_payouts.py \
+  tests/test_hashcoin_wallet.py \
+  tests/test_hashcoin_redemption.py
 ```
 
 The PostgreSQL fixture creates an isolated local database and fails if its
@@ -489,3 +493,20 @@ before changing a local order. A full refund keeps the order's
 `reconciliation_required` hold until confirmation; a partial refund preserves the
 paid order for files that were actually delivered. A browser return or operator
 assumption is never payment or refund proof.
+
+### UAT Hussh Coins activation
+
+After migration 299 and the mode-separated API/worker are ready, keep
+`STRIPE_UAT_MODE=live`, set `STRIPE_CONNECT_UAT_MODE=test` and
+`DRIVE_REQUEST_HASHCOINS_UAT_ENABLED=true`, and deploy the exact merged SHA.
+The API and worker retain live payment/refund credentials while binding the
+separate sandbox Connect credentials. The sandbox connected-account endpoint is
+`/api/one/payouts/connect/sandbox-webhook`; the existing live endpoint stays in
+place. Verify the mode and secret *names* on both serving roles without printing
+secret values. Disable only new enrollment to pause the rollout: existing coin
+settlement and uncertain redemption must still reconcile with retained keys.
+
+Acceptance includes earning with no bank, both consent paths, replayed credits,
+parallel redemption attempts, erased owners, actual-fee and partial-delivery
+settlement, dispute holds, sandbox bank changes, and provider timeouts. No test
+transfer or test payout establishes that real funds reached a bank.
