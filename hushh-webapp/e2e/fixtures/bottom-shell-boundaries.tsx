@@ -2,7 +2,7 @@
 // the navigation pill, the "Talk to One" bar and the live voice dock render
 // from production source; only auth, routing, the microphone owner and the
 // voice socket are replaced, because none of them decide geometry.
-import { useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
 const noop = () => {};
 const root = () => document.documentElement.dataset;
@@ -90,4 +90,7 @@ export const ToolResultCard = () => null;
 // Direct chat layout fixtures exercise People; CircleChat has its own production
 // fixture. Keeping this pane inert avoids pulling vault/network clients into a
 // geometry test while preserving the shared Chat shell.
-export const CircleMessagesPane = () => null;
+export const CircleMessagesPane = ({ onCircleCountChange }: { onCircleCountChange?: (count: number) => void }) => {
+  useEffect(() => { onCircleCountChange?.(3); }, [onCircleCountChange]);
+  return null;
+};

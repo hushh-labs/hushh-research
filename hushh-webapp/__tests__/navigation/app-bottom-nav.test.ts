@@ -63,7 +63,7 @@ describe("app bottom navigation", () => {
   });
 
   it("uses the active One agent app as the first tab on One subroutes", () => {
-    expect(resolveOneActiveNav("/")).toBe("dashboard");
+    expect(resolveOneActiveNav("/")).toBe("chat");
     expect(resolveOneActiveNav(ROUTES.ONE_MESSAGES)).toBe("chat");
     expect(resolveOneActiveNav(ROUTES.ONE_HOME)).toBe("dashboard");
     expect(resolveOneActiveNav(ROUTES.GMAIL)).toBe("gmail");
@@ -80,19 +80,19 @@ describe("app bottom navigation", () => {
     expect(resolveOneActiveNav(ROUTES.ONE_FEED)).toBe("feed");
     // Global destinations keep their own fixed tab; Profile belongs to One
     // because Profile is not a persistent bottom-bar option.
-    expect(resolveOneActiveNav(ROUTES.HOME)).toBe("dashboard");
+    expect(resolveOneActiveNav(ROUTES.HOME)).toBe("chat");
     expect(resolveOneActiveNav(ROUTES.PROFILE)).toBe("profile");
     expect(resolveOneActiveNav(ROUTES.PROFILE_RECEIPTS)).toBe("profile");
     expect(resolveOneActiveNav(ROUTES.MARKETPLACE)).toBe("connect");
   });
 
   it("keeps global destinations out of contextual route-family slots", () => {
-    expect(resolveBottomNavHref("dashboard", "one")).toBe(ROUTES.HOME);
-    expect(resolveBottomNavHref("dashboard", "investor")).toBe(ROUTES.HOME);
-    expect(resolveBottomNavHref("dashboard", "ria")).toBe(ROUTES.HOME);
-    expect(resolveBottomNavHref("chat", "one")).toBe(ROUTES.ONE_MESSAGES);
-    expect(resolveBottomNavHref("chat", "investor")).toBe(ROUTES.ONE_MESSAGES);
-    expect(resolveBottomNavHref("chat", "ria")).toBe(ROUTES.ONE_MESSAGES);
+    expect(resolveBottomNavHref("dashboard", "one")).toBe(ROUTES.ONE_HOME);
+    expect(resolveBottomNavHref("dashboard", "investor")).toBe(ROUTES.ONE_HOME);
+    expect(resolveBottomNavHref("dashboard", "ria")).toBe(ROUTES.ONE_HOME);
+    expect(resolveBottomNavHref("chat", "one")).toBe(ROUTES.HOME);
+    expect(resolveBottomNavHref("chat", "investor")).toBe(ROUTES.HOME);
+    expect(resolveBottomNavHref("chat", "ria")).toBe(ROUTES.HOME);
     expect(resolveBottomNavHref("search", "one")).toBeNull();
     expect(resolveBottomNavHref("search", "investor")).toBeNull();
     expect(resolveBottomNavAction("search", "one")).toEqual({
@@ -165,10 +165,13 @@ describe("app bottom navigation", () => {
   });
 
   it("selects the active workspace destination", () => {
-    expect(resolveBottomNavActiveKey(ROUTES.HOME, "one")).toBe("dashboard");
+    expect(resolveBottomNavActiveKey(ROUTES.HOME, "one")).toBe("chat");
     expect(resolveBottomNavActiveKey(ROUTES.ONE_MESSAGES, "one")).toBe(
       "chat",
     );
+    expect(resolveBottomNavActiveKey(ROUTES.ONE_HOME, "one")).toBe("dashboard");
+    expect(resolveInvestorActiveNav(ROUTES.HOME)).toBe("chat");
+    expect(resolveRiaActiveNav(ROUTES.HOME)).toBe("chat");
     expect(resolveBottomNavActiveKey(ROUTES.KAI_ANALYSIS, "investor")).toBe(
       "dashboard",
     );

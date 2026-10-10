@@ -1,6 +1,5 @@
-import type { LucideIcon } from "@/components/icons";
+import type { ComponentType } from "react";
 import {
-  CalendarDays,
   Database,
   FileText,
   Mail,
@@ -12,6 +11,7 @@ import {
   UserRound,
   Users,
 } from "@/components/icons";
+import { CalendarAgentIcon } from "@/components/icons/agents";
 
 import {
   consentInformationLabel,
@@ -37,7 +37,7 @@ import type { FeedItem, FeedSourceDomain } from "@/lib/services/feed-service";
 import { getAnalysisHistoryRunRouteId } from "@/lib/kai/analysis-route-intent";
 
 export type FeedItemPresentation = {
-  icon: LucideIcon;
+  icon: ComponentType<{ className?: string; color?: string }>;
   domainLabel: string;
   label: string;
   description: string;
@@ -48,7 +48,7 @@ export type FeedItemPresentation = {
   } | null;
 };
 
-const DOMAIN_ICON: Record<FeedSourceDomain, LucideIcon> = {
+const DOMAIN_ICON: Record<FeedSourceDomain, FeedItemPresentation["icon"]> = {
   consent: ShieldCheck,
   location: MapPin,
   kai: TrendingUp,
@@ -420,7 +420,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
   const outcome = Object.prototype.hasOwnProperty.call(AGENT_OUTCOME_COPY, item.event_type)
     ? AGENT_OUTCOME_COPY[item.event_type] : undefined;
   if (outcome) {
-    const family = item.event_type.startsWith("calendar_") ? { icon: CalendarDays, domainLabel: "Calendar" }
+    const family = item.event_type.startsWith("calendar_") ? { icon: CalendarAgentIcon, domainLabel: "Calendar" }
       : item.event_type.startsWith("mail_") ? { icon: Mail, domainLabel: "Mail" }
         : item.event_type.startsWith("drive_") ? { icon: FileText, domainLabel: "Google Drive" }
           : { icon, domainLabel };
@@ -1086,7 +1086,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       };
     case "calendar_connected":
       return {
-        icon: CalendarDays,
+        icon: CalendarAgentIcon,
         domainLabel: "Calendar",
         label: "Calendar connected",
         description: "Your calendar is ready in One.",
@@ -1094,7 +1094,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       };
     case "calendar_reconnect_required":
       return {
-        icon: CalendarDays,
+        icon: CalendarAgentIcon,
         domainLabel: "Calendar",
         label: "Calendar needs reconnection",
         description: "Reconnect Calendar to keep using it in One.",
@@ -1102,7 +1102,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       };
     case "calendar_disconnected":
       return {
-        icon: CalendarDays,
+        icon: CalendarAgentIcon,
         domainLabel: "Calendar",
         label: "Calendar disconnected",
         description: "One no longer has access to your calendar.",
@@ -1112,7 +1112,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     case "calendar_event_rescheduled":
     case "calendar_event_canceled":
       return {
-        icon: CalendarDays,
+        icon: CalendarAgentIcon,
         domainLabel: "Calendar",
         label:
           item.event_type === "calendar_event_created"

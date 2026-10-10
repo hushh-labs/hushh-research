@@ -209,7 +209,7 @@ async def sync_contacts(
         # the requester's verified-phone shadow is ready in this request too,
         # so a first contact-sync tap cannot fail merely because no earlier
         # authenticated response finished its warmup yet.
-        await ActorIdentityService().sync_from_firebase(firebase_uid, force=False)
+        await ActorIdentityService().sync_verified_phone_from_firebase(firebase_uid)
         # Charge before querying the discovery index. This is intentionally a
         # Postgres authority rather than an in-process limiter so production
         # remains bounded across Cloud Run instances without paid Redis infra.

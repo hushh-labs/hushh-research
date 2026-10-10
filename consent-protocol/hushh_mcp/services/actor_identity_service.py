@@ -1391,6 +1391,24 @@ class ActorIdentityService:
             ) from exc
         return self._normalize_alias_row(verified)
 
+    async def sync_verified_phone_from_firebase(self, user_id: str) -> dict[str, Any] | None:
+        """Repair an incomplete phone shadow using existing provider verification.
+
+        A fresh shadow can predate signup verification. Its cache TTL is not
+        proof that another OTP is needed. Complete verified claims keep the
+        normal cached path; incomplete ones refresh only this owner's Firebase
+        identity through the existing serialized phone writer. Contact-discovery
+        admission still belongs to its database policy gate.
+        """
+        identity = await self.sync_from_firebase(user_id, force=False)
+        if (
+            identity
+            and identity.get("phone_verified") is True
+            and str(identity.get("phone_number") or "").strip()
+        ):
+            return identity
+        return await self.sync_from_firebase(user_id, force=True)
+
     async def sync_from_firebase(
         self,
         user_id: str,

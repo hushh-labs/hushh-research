@@ -1116,6 +1116,19 @@ relationship/provenance, and the lookup-weighted abuse budget persists only aggr
 
 The client reads up to 5,000 unique usable numbers per sync, dispatches them in batches of at
 most 1,000, and reports any source/cap overflow as unchecked rather than as zero/unmatched.
+Contact sync reuses the phone verification established at signup. Client phone
+hydration is an optional normalization hint and cannot require a second OTP.
+Both contact-sync mutation and `one_network` compatibility matching refresh an
+incomplete identity shadow from the authenticated owner's Firebase record before
+the existing database verification and lookup-budget gates; complete verified
+claims use the cached path. Provider refresh preserves backend-only verified phone
+claims when the primary Firebase account has no phone. Missing normalization
+identity permits explicit international numbers and Android SIM-region numbers;
+ambiguous national numbers remain uncheckable without locale guessing. A partially
+normalized multi-number contact can still match, but cannot be labelled unmatched
+or inviteable unless every usable number was checked. Database verification remains
+mandatory after recovery.
+
 `actor_identity_cache` stores only canonical E.164 verified phones. Migration 198 clears every
 member of a malformed or duplicate verified binding, marks the shadow stale for an immediate
 Firebase refresh, and enforces a partial unique index; it never guesses an owner.
