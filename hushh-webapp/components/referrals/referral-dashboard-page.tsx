@@ -31,11 +31,12 @@ import {
   type WeeklyChallenge,
 } from "@/lib/services/referral-service";
 
-type TabKey = "you" | "standings";
+type TabKey = "you" | "standings" | "rewards";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "you", label: "You" },
-  { key: "standings", label: "Standings" },
+  { key: "standings", label: "Ranking" },
+  { key: "rewards", label: "Rewards" },
 ];
 
 /** Fixed reference palette; globals.css scopes accent tokens to this route. */
@@ -415,7 +416,6 @@ function ReferralDashboardContent({ onReplayIntroduction }: { onReplayIntroducti
               circleRes={circleRes}
               onRetryCircle={reloadCircle}
               countdown={countdown}
-              onSeeStandings={() => setTab("standings")}
               link={link}
               onCopy={onCopy}
               onShare={onShare}
@@ -434,15 +434,15 @@ function ReferralDashboardContent({ onReplayIntroduction }: { onReplayIntroducti
 
         </>
       )}
+      {tab === "rewards" ? (
+        <section aria-label="Rewards">
+          <RewardsTab milestonesRes={milestonesRes} onRetry={reloadMilestones} />
+        </section>
+      ) : null}
       {tab === "you" ? (
-        <>
-          <section className="mt-7" aria-label="Rewards">
-            <RewardsTab milestonesRes={milestonesRes} onRetry={reloadMilestones} />
-          </section>
-          <section className="mt-7" aria-label="How referrals work">
-            <RulesTab policyRes={policyRes} onRetry={reloadPolicy} />
-          </section>
-        </>
+        <section className="mt-7" aria-label="How referrals work">
+          <RulesTab policyRes={policyRes} onRetry={reloadPolicy} />
+        </section>
       ) : null}
     </ShellRoot>
   );
@@ -493,12 +493,12 @@ function ShellRoot({
         className="sticky top-0 z-50 backdrop-blur-xl"
         style={{ background: "rgba(242, 242, 247, .82)" }}
       >
-        <div className="mx-auto grid h-16 max-w-[912px] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 px-6">
-          <div className="flex items-center gap-3">
-            <ShellActionSurface aria-label="Back to One home" title="Back to One home" onClick={() => navigateTopShellBack({ pathname: ROUTES.ONE_REFERRALS, navigate: ({ href, mode }) => router[mode](href) })} className="!h-11 !w-11 !border-transparent !bg-transparent !text-[color:var(--app-accent-deep)] !shadow-none hover:!bg-transparent">
-              <ArrowLeft className="size-5" aria-hidden="true" />
-            </ShellActionSurface>
-          </div>
+        <div className="referral-back-row flex h-16 items-center px-6">
+          <ShellActionSurface aria-label="Back to One home" title="Back to One home" onClick={() => navigateTopShellBack({ pathname: ROUTES.ONE_REFERRALS, navigate: ({ href, mode }) => router[mode](href) })} className="!h-11 !w-11 !border-transparent !bg-transparent !text-[color:var(--app-accent-deep)] !shadow-none hover:!bg-transparent">
+            <ArrowLeft className="size-5" aria-hidden="true" />
+          </ShellActionSurface>
+        </div>
+        <div className="referral-tab-row mx-auto max-w-[912px] px-6 pb-3">
           <SegmentedTabs
             value={tab}
             onValueChange={(value) => onTabChange(value as TabKey)}
@@ -506,7 +506,6 @@ function ShellRoot({
             ariaLabel="Referral sections"
             className="referral-tabs"
           />
-          <span aria-hidden />
         </div>
       </header>
 
@@ -580,7 +579,6 @@ function YouTab({
   circleRes,
   onRetryCircle,
   countdown,
-  onSeeStandings,
   link,
   onCopy,
   onShare,
@@ -599,7 +597,6 @@ function YouTab({
   circleRes: Res<CircleSelection>;
   onRetryCircle: () => void;
   countdown: string | null;
-  onSeeStandings: () => void;
   link: string;
   onCopy: () => void;
   onShare: () => void;
@@ -616,7 +613,6 @@ function YouTab({
         challengeRes={challengeRes}
         onRetryChallenge={onRetryChallenge}
         countdown={countdown}
-        onSeeStandings={onSeeStandings}
         onCopy={onCopy}
       />
 
@@ -687,11 +683,7 @@ function YouTab({
                 </li>
               ))}
             </ul>
-          ) : (
-            <p className="mt-[14px] text-sm" style={{ color: COLORS.text2 }}>
-              No referrals yet. Share your link to start.
-            </p>
-          )}
+          ) : null}
         </Card>
 
         <Card className="p-[22px]">
@@ -734,13 +726,11 @@ function ChallengeClock({
   challengeRes,
   onRetryChallenge,
   countdown,
-  onSeeStandings,
   onCopy,
 }: {
   challengeRes: Res<WeeklyChallenge>;
   onRetryChallenge: () => void;
   countdown: string | null;
-  onSeeStandings: () => void;
   onCopy: () => void;
 }) {
   // The seven-day track and Day 1-7 labels are a structural part of the card
@@ -790,7 +780,6 @@ function ChallengeClock({
           />
           {headline.label}
         </span>
-        <span>Your points, connected to your One profile</span>
       </p>
       <div className="mt-2 flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
         <div
@@ -800,13 +789,6 @@ function ChallengeClock({
           {headline.value}
         </div>
         <div className="flex gap-2.5 pb-2">
-          <button
-            onClick={onSeeStandings}
-            className="flex h-11 items-center justify-center rounded-[12px] px-4 text-sm font-semibold"
-            style={{ background: "rgba(255,255,255,.12)" }}
-          >
-            See standings
-          </button>
           <button
             onClick={onCopy}
             className="flex h-11 items-center justify-center rounded-[12px] px-4 text-sm font-semibold"
@@ -1096,7 +1078,7 @@ function StandingsTab({
     <div className="referral-standings grid gap-6 sm:grid-cols-[280px_minmax(0,1fr)] sm:items-start">
       <aside className="sm:sticky sm:top-20">
         <h2 className="ui-text-section-title">
-          Standings
+          Ranking
           <i className="not-italic" style={{ color: COLORS.blue }}>
             .
           </i>
@@ -1390,12 +1372,12 @@ function RewardsTab({
                           >
                             <RewardArtwork milestoneKey={entry.milestone_key} title={label[0] ?? entry.reward} />
                           </span>
-                          <span
+                          {earned || isNext ? <span
                             className="text-xs font-semibold sm:text-xs"
                             style={{ color: earned ? "#137a35" : isNext ? "#006dcc" : COLORS.text2 }}
                           >
-                            {earned ? "Unlocked" : isNext ? "Up next" : "Milestone"}
-                          </span>
+                            {earned ? "Unlocked" : "Up next"}
+                          </span> : null}
                         </div>
                         <h4 className="ui-text-headline">
                           {label[0]}
