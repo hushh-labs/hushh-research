@@ -39,6 +39,9 @@ def setup(monkeypatch):
                 "retry_preparation",
                 "prepare_revocation",
                 "revoke",
+                "owner_pricing",
+                "update_owner_pricing",
+                "request_quote",
             )
         }
     )
@@ -55,6 +58,69 @@ def unlock(app, uid="recipient"):
         "user_id": uid,
         "token": "synthetic-owner",
     }
+
+
+@pytest.mark.parametrize(
+    "method,path,body",
+    [
+        ("get", "/pricing", None),
+        ("put", "/pricing", {"enabled": True, "amountCents": 2500, "expectedVersion": 0}),
+        ("get", f"/quote?ownerPersonRef={REQUEST_ID}", None),
+    ],
+)
+def test_pricing_routes_require_owner(setup, method, path, body):
+    client, _, service, _ = setup
+    response = client.request(method, "/api/connectors/google_drive/sharing" + path, json=body)
+    assert response.status_code == 401
+    assert "no-store" in response.headers["Cache-Control"]
+    assert all(not value.called for value in vars(service).values())
+
+
+def test_pricing_routes_bind_authenticated_owner_and_validate_price(setup, monkeypatch):
+    client, app, service, _ = setup
+    unlock(app)
+    base = "/api/connectors/google_drive/sharing"
+    service.owner_pricing.return_value = {"enabled": False, "amountCents": 1000, "version": 0}
+    response = client.get(base + "/pricing")
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, no-store"
+    service.owner_pricing.assert_awaited_once_with(user_id="recipient")
+
+    response = client.put(
+        base + "/pricing",
+        json={
+            "enabled": True,
+            "amountCents": 2500,
+            "expectedVersion": 0,
+        },
+    )
+    assert response.status_code == 200
+    service.update_owner_pricing.assert_awaited_once_with(
+        user_id="recipient", enabled=True, amount_cents=2500, expected_version=0
+    )
+    for invalid in (2050, 0, 50100, True):
+        response = client.put(
+            base + "/pricing",
+            json={
+                "enabled": True,
+                "amountCents": invalid,
+                "expectedVersion": 0,
+            },
+        )
+        assert response.status_code == 422
+    assert service.update_owner_pricing.await_count == 1
+
+    monkeypatch.setattr(routes, "_person_target", AsyncMock(return_value="owner"))
+    service.request_quote.return_value = {
+        "amountCents": 2500,
+        "version": 1,
+        "paymentRequired": True,
+        "payoutReady": False,
+    }
+    response = client.get(base + f"/quote?ownerPersonRef={REQUEST_ID}")
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, no-store"
+    service.request_quote.assert_awaited_once_with(user_id="recipient", owner_user_id="owner")
 
 
 @pytest.mark.parametrize(

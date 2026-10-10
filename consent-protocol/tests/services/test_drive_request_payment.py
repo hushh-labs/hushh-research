@@ -177,12 +177,27 @@ def test_paid_grant_guard_blocks_reconciliation_hold():
     DriveRequestPaymentStore.require_paid_if_required(connection, request_row)
 
 
-@pytest.mark.parametrize("owner_price,amount", [(None, 1000), (3000, 3000)])
+@pytest.mark.parametrize(
+    "owner_price,quoted_price,amount",
+    [
+        (None, None, 1000),
+        (3000, None, 3000),
+        (None, 2500, 2500),
+        (3000, 2500, 2500),
+    ],
+)
 def test_non_trusted_approval_creates_order_without_premature_pay_notification(
-    monkeypatch, owner_price, amount
+    monkeypatch, owner_price, quoted_price, amount
 ):
     monkeypatch.setenv("DRIVE_SHARING_KEY_V1", base64.b64encode(b"s" * 32).decode())
+    monkeypatch.delenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", raising=False)
+    record_payout = Mock()
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_request_owner_payout_service.DriveRequestOwnerPayoutService.record_order",
+        record_payout,
+    )
     insert_result = Mock()
+    insert_result.rowcount = 1
     selected_result = Mock()
     selected_result.mappings.return_value.first.return_value = {"status": "awaiting_payment"}
     connection = SimpleNamespace(execute=Mock(side_effect=[insert_result, selected_result]))
@@ -195,6 +210,7 @@ def test_non_trusted_approval_creates_order_without_premature_pay_notification(
         "user_id": "owner",
         "recipient_user_id": "requester",
         "payment_required": True,
+        "quoted_amount_cents": quoted_price,
         "revision": 2,
         "request_envelope": DriveSharingCipher().seal(
             private, user_id="owner", resource_id=request_id, purpose="request"
@@ -207,6 +223,7 @@ def test_non_trusted_approval_creates_order_without_premature_pay_notification(
     assert "ON CONFLICT (request_id) DO NOTHING" in str(insert.args[0])
     # A manual approval keeps the default price; an allowed request the owner's.
     assert insert.args[1]["amount"] == amount
+    assert record_payout.call_count == (1 if quoted_price is not None else 0)
 
 
 @pytest.mark.asyncio
@@ -801,6 +818,42 @@ def test_confirmed_refund_queues_requester_notice_once():
     service._event.assert_called_once()
 
 
+def test_partial_refund_keeps_delivered_payment_paid():
+    claim = {
+        "request_id": str(uuid4()),
+        "payment_intent": "pi_test_partial",
+        "amount_cents": 500,
+        "gross_amount_cents": 1000,
+        "attempt_id": str(uuid4()),
+    }
+    request = {"request_id": claim["request_id"], "recipient_user_id": "recipient", "revision": 1}
+    service = SimpleNamespace(
+        _row=Mock(
+            side_effect=[
+                {"user_id": "owner", "recipient_user_id": "recipient"},
+                request,
+                {"request_id": claim["request_id"]},
+                {"status": "paid", "amount_cents": 1000},
+                {"attempt_id": claim["attempt_id"], "status": "dispatching"},
+            ]
+        ),
+        _event=Mock(),
+    )
+    connection = SimpleNamespace(execute=Mock())
+    refund = {
+        "id": "re_test_partial",
+        "payment_intent": "pi_test_partial",
+        "amount": 500,
+        "currency": "usd",
+        "status": "succeeded",
+    }
+    assert _finish_refund(service, connection, claim, refund, None) == "succeeded"
+    service._event.assert_called_once_with(connection, request, "document_share_payment_refunded")
+    assert not any(
+        "status='refunded'" in str(call.args[0]) for call in connection.execute.call_args_list
+    )
+
+
 def test_inflight_refund_finishes_after_request_erasure_without_feed_event():
     claim = {
         "request_id": str(uuid4()),
@@ -1212,6 +1265,136 @@ def _checkout_sdk_response(params, session_id="cs_test_checkout_regression", *, 
         },
         params["api_key"],
     )
+
+
+@pytest.mark.asyncio
+async def test_enrolled_checkout_stops_before_reservation_when_payouts_disabled(monkeypatch):
+    create = Mock()
+    service, request_id, _, connection = _checkout_fixture(monkeypatch, create)
+    monkeypatch.delenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", raising=False)
+    service.payment_state = AsyncMock(
+        return_value={
+            "status": "awaiting_payment",
+            "_payout_enrolled": True,
+            "_payout_owner_user_id": "owner",
+        }
+    )
+    with pytest.raises(DriveSharingError, match="payment_unavailable"):
+        await service.checkout(requester_user_id="recipient", request_id=request_id)
+    connection.execute.assert_not_called()
+    create.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_enrolled_checkout_binds_verified_connect_destination(monkeypatch):
+    from hushh_mcp.services.pkm_payout_service import PkmPayoutService
+
+    monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", "true")
+    monkeypatch.setattr(
+        PkmPayoutService,
+        "refresh_account",
+        AsyncMock(
+            return_value={
+                "stripe_account_id": "acct_verified",
+                "readiness": {"ready": True},
+            }
+        ),
+    )
+    create = Mock(side_effect=lambda **params: _checkout_sdk_response(params))
+    service, request_id, _, _ = _checkout_fixture(monkeypatch, create)
+    service.payment_state = AsyncMock(
+        return_value={
+            "status": "awaiting_payment",
+            "_payout_enrolled": True,
+            "_payout_owner_user_id": "owner",
+        }
+    )
+    original_row = service._row.side_effect
+
+    def row(connection, sql, params):
+        if "FROM pkm_owner_payout_accounts" in sql:
+            return {
+                "stripe_account_id": "acct_verified",
+                "details_submitted": True,
+                "payouts_enabled": True,
+            }
+        if "UPDATE drive_request_owner_payouts" in sql:
+            return {"destination_account_id": "acct_verified"}
+        return original_row(connection, sql, params)
+
+    service._row.side_effect = row
+    await service.checkout(requester_user_id="recipient", request_id=request_id)
+    bound = [
+        call
+        for call in service._row.call_args_list
+        if "UPDATE drive_request_owner_payouts" in call.args[1]
+    ]
+    assert len(bound) == 1
+    assert bound[0].args[2]["account"] == "acct_verified"
+    assert create.call_args.kwargs["payment_intent_data"]["transfer_group"] == (
+        f"drive-request-{request_id}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_enrolled_checkout_rejects_changed_connect_mapping_before_charge(monkeypatch):
+    from hushh_mcp.services.pkm_payout_service import PkmPayoutService
+
+    monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", "true")
+    monkeypatch.setattr(
+        PkmPayoutService,
+        "refresh_account",
+        AsyncMock(
+            return_value={
+                "stripe_account_id": "acct_verified",
+                "readiness": {"ready": True},
+            }
+        ),
+    )
+    create = Mock()
+    service, request_id, _, _ = _checkout_fixture(monkeypatch, create)
+    service.payment_state = AsyncMock(
+        return_value={
+            "status": "awaiting_payment",
+            "_payout_enrolled": True,
+            "_payout_owner_user_id": "owner",
+        }
+    )
+    original_row = service._row.side_effect
+
+    def row(connection, sql, params):
+        if "FROM pkm_owner_payout_accounts" in sql:
+            return {
+                "stripe_account_id": "acct_changed",
+                "details_submitted": True,
+                "payouts_enabled": True,
+            }
+        return original_row(connection, sql, params)
+
+    service._row.side_effect = row
+    with pytest.raises(DriveSharingError, match="payment_not_ready"):
+        await service.checkout(requester_user_id="recipient", request_id=request_id)
+    create.assert_not_called()
+    assert not any(
+        "UPDATE drive_request_owner_payouts" in call.args[1] for call in service._row.call_args_list
+    )
+
+
+@pytest.mark.asyncio
+async def test_requester_payment_projection_does_not_expose_payout_owner():
+    service = DriveRequestPaymentService(db=object())
+    service.payment_state = AsyncMock(
+        return_value={
+            "status": "awaiting_payment",
+            "amountCents": 1000,
+            "_payout_enrolled": True,
+            "_payout_owner_user_id": "owner-secret",
+        }
+    )
+    assert await service.get_payment(requester_user_id="recipient", request_id=str(uuid4())) == {
+        "status": "awaiting_payment",
+        "amountCents": 1000,
+    }
 
 
 @pytest.mark.asyncio

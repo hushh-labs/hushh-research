@@ -25,6 +25,7 @@ import { BodyText, HelperText } from "@/components/app-ui/typography";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { DocumentShareReview } from "@/components/consent/document-share-review";
+import { DocumentRequestQuoteNotice, useDocumentRequestQuote } from "@/components/consent/document-request-quote";
 import { DriveQueryRequestCard } from "@/components/consent/drive-query-request-card";
 import {
   FILE_REQUEST_HELPER,
@@ -114,6 +115,11 @@ function UnlockedRequestButton({
     ? { purpose: draft.purpose, periodStart: draft.periodStart, periodEnd: draft.periodEnd }
     : null;
   const draftNeedsDates = Boolean(draftTerms && (!draftTerms.periodStart || !draftTerms.periodEnd));
+  const fileQuote = useDocumentRequestQuote({
+    active: Boolean(draftTerms && enabled && !fileRequestId),
+    ownerPersonRef: personRef,
+    getToken,
+  });
   const files = useFileRequest({
     userId,
     personRef,
@@ -121,6 +127,7 @@ function UnlockedRequestButton({
     initial: draftTerms && draft
       ? { terms: draftTerms, clientRequestId: draft.clientRequestId }
       : undefined,
+    onQuoteChanged: fileQuote.refresh,
   });
   const alive = useRef(false);
   const serial = useRef(0);
@@ -243,7 +250,7 @@ function UnlockedRequestButton({
   };
   const requestDraftFiles = async () => {
     if (!draftTerms || phase !== "idle") return;
-    const requestId = await files.send(draftTerms);
+    const requestId = await files.send(draftTerms, fileQuote.quote);
     if (requestId) setFileRequestId(requestId);
   };
   const busy = phase !== "idle" || files.phase !== "idle";
@@ -272,6 +279,8 @@ function UnlockedRequestButton({
           Ask {personName}: “{question}”
         </BodyText>
         <HelperText>Request files: {FILE_REQUEST_HELPER}</HelperText>
+        <DocumentRequestQuoteNotice quote={fileQuote.quote} loading={fileQuote.loading}
+          error={fileQuote.error} onRetry={fileQuote.refresh} />
         <HelperText>Ask as a question: {ASK_HELPER}</HelperText>
         {draftNeedsDates ? (
           <HelperText role="status">
@@ -287,7 +296,7 @@ function UnlockedRequestButton({
           primary={
             <Button
               size="prominent"
-              disabled={!draftTerms || !validFileRequest(draftTerms) || busy}
+              disabled={!draftTerms || !validFileRequest(draftTerms) || !fileQuote.quote || busy}
               onClick={() => void requestDraftFiles()}
             >
               {fileRequestLabel(files.phase, files.needsGoogle)}

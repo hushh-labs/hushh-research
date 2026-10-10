@@ -86,10 +86,10 @@ def test_direct_message_reactions_support_multiple_distinct_emojis():
 
 def test_direct_message_attachments_keep_bytes_encrypted_and_guard_rollback():
     root = Path(__file__).resolve().parents[1]
-    name = "292_direct_message_attachments.sql"
+    name = "295_direct_message_attachments.sql"
     migration = (root / "db" / "migrations" / name).read_text(encoding="utf-8").lower()
     rollback = (
-        (root / "db" / "migrations" / "rollback" / "292_direct_message_attachments.rollback.sql")
+        (root / "db" / "migrations" / "rollback" / "295_direct_message_attachments.rollback.sql")
         .read_text(encoding="utf-8")
         .lower()
     )
@@ -107,7 +107,7 @@ def test_direct_message_attachments_keep_bytes_encrypted_and_guard_rollback():
     assert name in manifest["ordered_migrations"]
     assert (
         manifest["rollback_migrations"][name]
-        == "rollback/292_direct_message_attachments.rollback.sql"
+        == "rollback/295_direct_message_attachments.rollback.sql"
     )
     assert "select 1 from public.direct_message_attachments" in rollback
     assert "raise exception" in rollback

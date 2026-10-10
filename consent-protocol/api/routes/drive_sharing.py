@@ -153,6 +153,7 @@ class CreateRequest(StrictRequest):
     clientRequestId: UUID
     purpose: ShareRequestPurpose
     timeZone: str | None = Field(default=None, min_length=1, max_length=64)
+    expectedQuoteVersion: int | None = Field(default=None, ge=0, strict=True)
 
     @model_validator(mode="after")
     def one_owner_target(self):
@@ -163,6 +164,12 @@ class CreateRequest(StrictRequest):
 
 class DecisionRequest(StrictRequest):
     revision: int = Field(ge=0, strict=True)
+
+
+class OwnerPricingRequest(StrictRequest):
+    enabled: StrictBool
+    amountCents: int = Field(strict=True, ge=100, le=50000, multiple_of=100)
+    expectedVersion: int = Field(strict=True, ge=0)
 
 
 class QueryCreateRequest(StrictRequest):
@@ -307,6 +314,8 @@ def _error(error):
         "confirmation_required": (409, "Review and explicitly confirm this removal."),
         "request_already_decided": (409, "This request already has a decision."),
         "request_changed": (409, "This request changed. Refresh its status."),
+        "price_changed": (409, "The price changed. Review it again."),
+        "payout_unavailable": (503, "Document payments are temporarily unavailable."),
         "revocation_pending": (409, "Removal is pending. Refresh its status."),
         "no_revocable_permissions": (409, "There are no recorded permissions available to remove."),
         "sharing_unavailable": (503, "Document sharing is not available yet."),
@@ -432,7 +441,30 @@ async def create_request(
         client_request_id=str(body.clientRequestId),
         purpose=body.purpose,
         request_time_zone=body.timeZone,
+        expected_quote_version=body.expectedQuoteVersion,
     )
+
+
+@router.get("/pricing")
+async def owner_pricing(owner: Owner = Depends(_owner)):
+    return await _call("owner_pricing", owner=owner)
+
+
+@router.put("/pricing")
+async def update_owner_pricing(body: OwnerPricingRequest, owner: Owner = Depends(_owner)):
+    return await _call(
+        "update_owner_pricing",
+        owner=owner,
+        enabled=body.enabled,
+        amount_cents=body.amountCents,
+        expected_version=body.expectedVersion,
+    )
+
+
+@router.get("/quote")
+async def request_quote(ownerPersonRef: UUID, owner: Owner = Depends(_owner)):
+    owner_user_id = await _person_target(owner, ownerPersonRef)
+    return await _call("request_quote", owner=owner, owner_user_id=owner_user_id)
 
 
 @router.get("/requests")

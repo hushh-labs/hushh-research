@@ -25,6 +25,7 @@ def _drain(
     bulk_removal_worker=None,
     checkout_worker=None,
     refund_worker=None,
+    owner_payout_worker=None,
     packet_order_worker=None,
 ):
     return DriveWorkDrain(
@@ -37,6 +38,7 @@ def _drain(
         checkout_worker=checkout_worker or _worker({"outcomes": {"not_claimed": 1}}),
         notification_worker=workers[3],
         refund_worker=refund_worker or _worker({"outcomes": {"disabled": 1}}),
+        owner_payout_worker=owner_payout_worker or _worker({"outcomes": {"disabled": 1}}),
         packet_order_worker=packet_order_worker or _worker({"outcomes": {"disabled": 1}}),
     )
 
@@ -64,6 +66,7 @@ async def test_document_stage_is_exclusive_bounded_and_aggregate_only():
             "checkouts": {"deferred": 1},
             "notifications": {"deferred": 1},
             "refunds": {"deferred": 1},
+            "owner_payouts": {"deferred": 1},
             "packet_orders": {"deferred": 1},
         },
     }
@@ -94,6 +97,7 @@ async def test_suggestion_stage_does_not_claim_document_or_sharing_work():
         "checkouts": {"deferred": 1},
         "notifications": {"deferred": 1},
         "refunds": {"deferred": 1},
+        "owner_payouts": {"deferred": 1},
         "packet_orders": {"deferred": 1},
     }
 
@@ -122,6 +126,7 @@ async def test_sharing_stage_continues_notification_after_permission_failure():
         "checkouts": {"not_claimed": 1},
         "notifications": {"settled": 1},
         "refunds": {"disabled": 1},
+        "owner_payouts": {"disabled": 1},
         "packet_orders": {"disabled": 1},
     }
     assert "private" not in str(result)
@@ -141,6 +146,24 @@ async def test_sharing_stage_binds_checkout_before_dispatching_payment_notice():
 
     assert result["workers"]["checkouts"] == {"ready": 1}
     assert result["workers"]["notifications"] == {"settled": 1}
+
+
+@pytest.mark.asyncio
+async def test_sharing_snapshots_delivery_before_prorated_refunds():
+    workers = [_worker({"outcomes": {}}) for _ in range(4)]
+    payout = _worker({"outcomes": {"awaiting_refund": 1}})
+    refund = _worker({"outcomes": {"succeeded": 1}})
+
+    async def refund_after_snapshot(**_):
+        payout.run.assert_awaited_once()
+        return {"outcomes": {"succeeded": 1}}
+
+    refund.run.side_effect = refund_after_snapshot
+    result = await _drain(workers, owner_payout_worker=payout, refund_worker=refund).run(
+        stage="sharing"
+    )
+    assert result["workers"]["owner_payouts"] == {"awaiting_refund": 1}
+    assert result["workers"]["refunds"] == {"succeeded": 1}
 
 
 @pytest.mark.asyncio

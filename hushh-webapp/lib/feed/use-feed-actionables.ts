@@ -51,6 +51,8 @@ import {
 } from "@/lib/consent/consent-events";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
+import { documentShareRequestId, isDocumentShareEntry } from "@/lib/consent/document-share-consent";
+import { ROUTES } from "@/lib/navigation/routes";
 import { projectFeedDriveProgress, type FeedDriveProgress } from "@/lib/feed/drive-request-progress";
 import {
   describeFeedDrivePayment,
@@ -59,6 +61,7 @@ import {
 import { useFeedPaymentClock } from "@/lib/feed/use-feed-payment-clock";
 import { useFeedPaymentContext } from "@/lib/feed/use-feed-payment-context";
 import { DriveRequestPaymentService } from "@/lib/services/drive-request-payment-service";
+import { DocumentPayoutService } from "@/lib/services/document-payout-service";
 import {
   DriveSharingError,
   DriveSharingService,
@@ -213,6 +216,7 @@ export interface DocumentPricePrompt {
   requesterLabel: string;
   /** False for a free request: Allow sends no price. */
   paymentRequired: boolean;
+  lockedAmountCents: number | null;
   purpose: string | null;
   recipientEmail: string | null;
   periodStart: string | null;
@@ -235,6 +239,7 @@ type DocumentPriceTarget = OwnerDocumentDecision & {
 type DocumentPriceTerms = {
   revision: number;
   paymentRequired: boolean;
+  lockedAmountCents: number | null;
   purpose: string;
   recipientEmail: string;
   periodStart: string | null;
@@ -799,6 +804,37 @@ export function useFeedActionables(): UseFeedActionablesResult {
   const sentProgressRefresh = sentProgressResource.refresh;
   const activeProgressRefresh = activeProgressResource.refresh;
 
+  // Consent identifies paid requests that may be waiting, while Stripe's
+  // current Connect account is the authority for whether setup is complete.
+  const payoutSetupCandidate = (receivedOverflowItems ?? []).find((entry) =>
+    isDocumentShareEntry(entry) && entry.metadata?.direction === "incoming" &&
+    typeof entry.metadata.ownerPayoutAccountReady === "boolean" &&
+    Boolean(documentShareRequestId(entry.id)));
+  const hasPayoutSetupCandidate = Boolean(payoutSetupCandidate);
+  const [remotePayoutSetup, setRemotePayoutSetup] = useState<{
+    token: string;
+    state: "loading" | "ready" | "setup" | "unavailable";
+  } | null>(null);
+  useEffect(() => {
+    if (!hasPayoutSetupCandidate || !vaultOwnerToken) {
+      setRemotePayoutSetup(null);
+      return;
+    }
+    let cancelled = false;
+    setRemotePayoutSetup({ token: vaultOwnerToken, state: "loading" });
+    void DocumentPayoutService.account(vaultOwnerToken)
+      .then(({ account }) => {
+        if (!cancelled) setRemotePayoutSetup({
+          token: vaultOwnerToken,
+          state: account?.ready === true ? "ready" : "setup",
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setRemotePayoutSetup({ token: vaultOwnerToken, state: "unavailable" });
+      });
+    return () => { cancelled = true; };
+  }, [hasPayoutSetupCandidate, vaultOwnerToken]);
+
   // ── Document requests from outside the Trusted circle: Allow or Deny ──
   // Both answers go out on this vault session's owner token only. A lock,
   // unlock or account switch mid-request ends it as session_changed.
@@ -906,6 +942,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
       setPriceTerms({
         revision: review.revision,
         paymentRequired: review.paymentRequired === true,
+        lockedAmountCents: review.paymentRequired === true ? review.priceCents ?? null : null,
         purpose: review.purpose.purpose,
         recipientEmail: review.recipientEmail,
         periodStart: review.purpose.periodStart,
@@ -998,6 +1035,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
       requesterLabel: priceTarget?.requesterLabel ?? "",
       paymentRequired:
         priceTerms?.paymentRequired ?? priceTarget?.paymentRequired ?? false,
+      lockedAmountCents: priceTerms?.lockedAmountCents ?? null,
       purpose: priceTerms?.purpose ?? null,
       recipientEmail: priceTerms?.recipientEmail ?? null,
       periodStart: priceTerms?.periodStart ?? null,
@@ -1174,10 +1212,38 @@ export function useFeedActionables(): UseFeedActionablesResult {
     if (!userId) return [];
     const items: FeedActionable[] = [];
 
+    // An enrolled request can reach its payment gate while the owner has no
+    // consent decision pending. The live received projection supplies the
+    // setup task; an old or free request never projects explicit false.
+    const payoutState = remotePayoutSetup?.token === vaultOwnerToken
+      ? remotePayoutSetup.state : "loading";
+    if (payoutSetupCandidate &&
+        (!vaultOwnerToken || payoutState === "setup" || payoutState === "unavailable")) {
+      const setupNeeded = payoutState === "setup";
+      items.push({
+        id: "drive-payout-setup",
+        icon: ConsentAgentIcon,
+        iconTone: "capability",
+        title: setupNeeded ? "Set up US payouts" : "Check US payouts",
+        description: setupNeeded
+          ? "Finish setup before requesters can pay."
+          : "Check payout setup before requesters pay.",
+        href: buildConsentCenterHref("pending", { requestId: payoutSetupCandidate.id, from: "/one/feed" }),
+        actions: [{
+          key: "setup-payouts",
+          label: setupNeeded ? "Set up US payouts" : "Check US payouts",
+          tone: "primary",
+          run: () => router.push(ROUTES.PROFILE_MY_DATA),
+        }],
+        sortAt: parseConsentInstant(payoutSetupCandidate.issued_at) ?? firstSeenAt("drive-payout-setup"),
+        displayTimestamp: parseConsentInstant(payoutSetupCandidate.issued_at),
+      });
+    }
+
     for (const payment of sentPayments) {
       const displayPayment = describeFeedDrivePayment(payment, paymentClockNow, paymentContexts[payment.requestId]);
-      const paymentIsExpired = displayPayment.status !== "ready";
-      const paymentAction = paymentIsExpired
+      const paymentIsNonActionable = displayPayment.status !== "ready";
+      const paymentAction = paymentIsNonActionable
         ? []
         : [
             {
@@ -1203,8 +1269,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
         iconTone: "capability",
         title: displayPayment.title,
         description: displayPayment.description,
-        href: paymentIsExpired ? payment.href : undefined,
-        chevron: paymentIsExpired,
+        href: paymentIsNonActionable ? payment.href : undefined,
+        chevron: paymentIsNonActionable,
         actions: paymentAction,
         sortAt: payment.requestedAt ?? firstSeenAt(`drive-payment:${payment.requestId}`),
         displayTimestamp: payment.requestedAt,
@@ -1819,6 +1885,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
     firstSeenAt,
     locationRequests,
     receivedGrants,
+    payoutSetupCandidate,
+    remotePayoutSetup,
     sentPayments,
     circleMemberInvites,
     locationRefresh,

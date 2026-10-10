@@ -495,6 +495,14 @@ class DriveBulkShareStore(DriveLivePreferences):
                 self._require_paid_for_origin(connection, row["origin_request_id"])
             except DriveSharingError:
                 retry_origin_current = False
+            finalized_payout = self._row(
+                connection,
+                """SELECT finalized_at FROM drive_request_owner_payouts
+                   WHERE request_id=:request""",
+                {"request": row["origin_request_id"]},
+            )
+            if finalized_payout and finalized_payout["finalized_at"] is not None:
+                retry_origin_current = False
             retry_origin_current = retry_origin_current and all(
                 self._share_recipient_current(
                     connection, row, row["user_id"], item["user_id"], for_retry=True
@@ -1596,6 +1604,18 @@ class DriveBulkShareStore(DriveLivePreferences):
                 ):
                     raise DriveSharingError("request_changed")
                 self._require_paid_for_origin(connection, origin["request_id"])
+                # Once an enrolled owner's delivered-file count is frozen for
+                # prorated refund and payout, retrying an undelivered file
+                # would share it without charging or paying for that file.
+                # Lock the payout after the request in the settlement order.
+                payout = self._row(
+                    connection,
+                    """SELECT finalized_at FROM drive_request_owner_payouts
+                       WHERE request_id=:request FOR UPDATE""",
+                    {"request": origin["request_id"]},
+                )
+                if payout and payout["finalized_at"] is not None:
+                    raise DriveSharingError("bulk_changed")
             recipients = self._recipients(connection, row)
             if len(recipients) != row["recipient_count"] or any(
                 not (

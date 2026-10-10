@@ -196,7 +196,9 @@ async def run_circle_chat_push_worker() -> None:
             delay = 1 if any(counts) else idle_delay
             idle_delay = 1 if any(counts) else min(5, idle_delay * 2)
             if not ready:
-                logger.info("circle_chat.push_worker_ready max_idle_s=5 concurrency=%s", concurrency)
+                logger.info(
+                    "circle_chat.push_worker_ready max_idle_s=5 concurrency=%s", concurrency
+                )
                 ready = True
         except Exception as exc:
             # Never log messages, wraps, tokens, or database exception text.

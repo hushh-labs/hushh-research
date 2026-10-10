@@ -77,7 +77,7 @@ def chat_db():
                 )
                 cursor.execute((ROOT / "db/migrations/290_chat_push_delivery.sql").read_text())
                 cursor.execute(
-                    (ROOT / "db/migrations/293_circle_chat_reactions_events.sql").read_text()
+                    (ROOT / "db/migrations/296_circle_chat_reactions_events.sql").read_text()
                 )
         raw.close()
 
@@ -377,7 +377,7 @@ def test_key_rotation_pagination_push_lease_and_soft_delete(chat_db, monkeypatch
     with raw.cursor() as cursor:
         cursor.execute(
             (
-                ROOT / "db/migrations/rollback/293_circle_chat_reactions_events.rollback.sql"
+                ROOT / "db/migrations/rollback/296_circle_chat_reactions_events.rollback.sql"
             ).read_text()
         )
         cursor.execute(

@@ -31,18 +31,47 @@ def _payer_ref(request_id: str, requester_user_id: str) -> str:
     return hashlib.sha256(f"{request_id}:{requester_user_id}".encode()).hexdigest()
 
 
-def _order_amount_cents(private: Mapping[str, Any]) -> int:
-    """The price a new order is created at: the owner's Allow price, else the default."""
+def _order_amount_cents(request: Mapping[str, Any], private: Mapping[str, Any]) -> int:
+    """An immutable request quote wins over the legacy Allow/default price."""
+    if request.get("quoted_amount_cents") is not None:
+        return int(request["quoted_amount_cents"])
     return owner_allowed_price_cents(private) or DEFAULT_PRICE_CENTS
 
 
-def _quoted_amount_cents(order: Mapping[str, Any] | None, private: Mapping[str, Any] | None) -> int:
+def _quoted_amount_cents(
+    request: Mapping[str, Any], order: Mapping[str, Any] | None, private: Mapping[str, Any] | None
+) -> int:
     """The stored order amount; before an order exists, the price it would be created at."""
     if order is not None:
         return int(order["amount_cents"])
+    if request.get("quoted_amount_cents") is not None:
+        return int(request["quoted_amount_cents"])
     if private is None:
         return DEFAULT_PRICE_CENTS
-    return _order_amount_cents(private)
+    return _order_amount_cents(request, private)
+
+
+def _record_new_owner_payout(
+    connection,
+    *,
+    request_id: str,
+    owner_user_id: str,
+    amount_cents: int,
+    quoted_request: bool = False,
+) -> None:
+    """Enroll only new orders, atomically with their immutable payment price."""
+    from hushh_mcp.services.drive_request_owner_payout_service import (
+        DriveRequestOwnerPayoutService,
+        payout_enabled,
+    )
+
+    if quoted_request or payout_enabled():
+        DriveRequestOwnerPayoutService.record_order(
+            connection,
+            request_id=request_id,
+            owner_user_id=owner_user_id,
+            amount_cents=amount_cents,
+        )
 
 
 class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
@@ -210,7 +239,8 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             resource_id=str(request["request_id"]),
             purpose="request",
         )
-        connection.execute(
+        amount_cents = _order_amount_cents(request, private)
+        inserted = connection.execute(
             text("""INSERT INTO drive_request_payment_orders
               (request_id,user_id,requester_user_id,amount_cents)
               VALUES (:request,:owner,:requester,:amount)
@@ -219,9 +249,17 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 "request": request["request_id"],
                 "owner": request["user_id"],
                 "requester": request["recipient_user_id"],
-                "amount": _order_amount_cents(private),
+                "amount": amount_cents,
             },
         )
+        if inserted.rowcount == 1:
+            _record_new_owner_payout(
+                connection,
+                request_id=str(request["request_id"]),
+                owner_user_id=request["user_id"],
+                amount_cents=amount_cents,
+                quoted_request=request.get("quoted_amount_cents") is not None,
+            )
         order = (
             connection.execute(
                 text("SELECT status FROM drive_request_payment_orders WHERE request_id=:request"),
@@ -330,7 +368,8 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
         )
         if batch is None:
             return request, None, False
-        connection.execute(
+        amount_cents = _order_amount_cents(request, private)
+        inserted = connection.execute(
             text("""INSERT INTO drive_request_payment_orders
               (request_id,user_id,requester_user_id,amount_cents)
               VALUES (:request,:owner,:requester,:amount)
@@ -339,9 +378,17 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 "request": request["request_id"],
                 "owner": user_id,
                 "requester": request["recipient_user_id"],
-                "amount": _order_amount_cents(private),
+                "amount": amount_cents,
             },
         )
+        if inserted.rowcount == 1:
+            _record_new_owner_payout(
+                connection,
+                request_id=str(request["request_id"]),
+                owner_user_id=user_id,
+                amount_cents=amount_cents,
+                quoted_request=request.get("quoted_amount_cents") is not None,
+            )
         order = self._row(
             connection,
             "SELECT * FROM drive_request_payment_orders WHERE request_id=:request",
@@ -386,10 +433,13 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 return {"status": "not_required", "amountCents": 0, "currency": "usd"}
             order = self._row(
                 connection,
-                """SELECT * FROM drive_request_payment_orders
-                   WHERE request_id=:request AND requester_user_id=:requester""",
+                """SELECT o.*,EXISTS(SELECT 1 FROM drive_request_owner_payouts p
+                     WHERE p.request_id=o.request_id) AS payout_enrolled
+                   FROM drive_request_payment_orders o
+                   WHERE o.request_id=:request AND o.requester_user_id=:requester""",
                 {"request": request["request_id"], "requester": requester_user_id},
             )
+            payout_enrolled = bool(order and order.get("payout_enrolled"))
             request_expired = (
                 request["status"]
                 in {
@@ -442,7 +492,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 status = order["status"]
             return {
                 "status": status,
-                "amountCents": _quoted_amount_cents(order, private),
+                "amountCents": _quoted_amount_cents(request, order, private),
                 "currency": order["currency"] if order is not None else "usd",
                 "paymentLinkExpired": checkout_expired and not request_expired,
                 "checkoutExpiresAt": (
@@ -461,6 +511,10 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                     )
                     and order["status"] == "paid"
                 ),
+                # Internal preflight only; get_payment strips these before
+                # the requester API response. The owner is not disclosed.
+                "_payout_enrolled": payout_enrolled,
+                "_payout_owner_user_id": request["user_id"] if payout_enrolled else None,
             }
 
         return await self._transaction(operation)
