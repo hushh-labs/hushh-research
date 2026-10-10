@@ -19,7 +19,7 @@ import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-
 import { chatReadIsBlocked, subscribeChatLayerChanges } from "@/lib/interaction/chat-read-visibility";
 import { useChatAlertVisibility } from "@/lib/notifications/chat-alert-visibility";
 import { FeedPushPrompt } from "@/components/feed/feed-push-prompt";
-import { useVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { useVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { AgentDockPortal } from "@/components/agent/agent-dock";
 import laneStyles from "./circle-chat-lane.module.css";
 import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";

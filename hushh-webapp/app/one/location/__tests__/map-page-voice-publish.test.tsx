@@ -49,7 +49,7 @@ vi.mock("@/components/location/map/location-map-screen", () => ({
     createElement("div", { "data-testid": "replacement-your-map" }),
 }));
 
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
   usePublishVoiceSurfaceMetadata: (metadata: unknown) => publishSpy(metadata),
 }));
 

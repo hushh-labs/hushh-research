@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 
 /**
  * The hands-free lane has to say the same thing the screen says.

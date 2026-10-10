@@ -6,9 +6,9 @@ import {
   evaluateKaiActionAvailability,
   getKaiActionById,
   type KaiActionDefinition,
-} from "@/lib/voice/kai-action-gateway";
-import type { AppRuntimeState } from "@/lib/voice/voice-types";
-import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/kai-action-gateway";
+import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
+import type { VoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 /**
  * contracts/kai/capability-guard-coverage.v1.json is the registry of every

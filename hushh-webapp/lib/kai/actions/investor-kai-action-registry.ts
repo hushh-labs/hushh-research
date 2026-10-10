@@ -1,6 +1,6 @@
 import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
 import type { Persona } from "@/lib/services/ria-service";
-import type { VoiceToolCall } from "@/lib/voice/voice-types";
+import type { VoiceToolCall } from "@/lib/kai/actions/voice-types";
 import liveTools from "@/contracts/kai/one-voice-live-tools.v1.json";
 import {
   getKaiActionById,
@@ -14,7 +14,7 @@ import {
   type KaiActionRiskLevel,
   type KaiActionSpeakerPersona,
   type KaiActionWorkflow,
-} from "@/lib/voice/kai-action-gateway";
+} from "@/lib/kai/actions/kai-action-gateway";
 
 export type InvestorKaiTriggerType = "voice" | "tap" | "keyboard" | "programmatic";
 export type InvestorKaiRiskLevel = KaiActionRiskLevel;

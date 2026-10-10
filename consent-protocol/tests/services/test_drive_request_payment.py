@@ -20,6 +20,8 @@ import pytest
 import stripe
 from sqlalchemy import text
 
+import hushh_mcp.services.pkm_payout_service as payout_account_module
+from db.db_client import DatabaseClient
 from hushh_mcp.runtime_settings import clear_runtime_settings_caches
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
 from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
@@ -28,6 +30,7 @@ from hushh_mcp.services.drive_owner_allowed import (
     owner_allowed_record,
 )
 from hushh_mcp.services.drive_permission_store import DrivePermissionStore
+from hushh_mcp.services.drive_request_owner_payout_service import DriveRequestOwnerPayoutService
 from hushh_mcp.services.drive_request_payment_checkout_worker import (
     DriveRequestPaymentCheckoutWorker,
 )
@@ -45,7 +48,10 @@ from hushh_mcp.services.drive_request_payment_store import (
 )
 from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher, DriveSharingError
 from hushh_mcp.services.drive_sharing_retention import erase_drive_account_in_transaction
+from hushh_mcp.services.drive_sharing_service import DriveSharingService
 from hushh_mcp.services.drive_sharing_store import DriveSharingStore
+from hushh_mcp.services.drive_suggestion_store import DriveSuggestionStore
+from hushh_mcp.services.stripe_connect_bank_payouts import StripeConnectBankPayouts
 from tests.services.test_drive_request_bulk_postgres import _search, request_bulk  # noqa: F401
 from tests.services.test_drive_sharing_store import (  # noqa: F401
     connector_postgres_url,
@@ -53,11 +59,382 @@ from tests.services.test_drive_sharing_store import (  # noqa: F401
     drive,
     drive_connect,
     lifecycle,
+    live_drive,
     request,
     sharing,
 )
 
 DATED_PURPOSE = {"purpose": "Statements", "periodStart": "2026-10-01", "periodEnd": "2026-10-09"}
+
+
+class _CommerceStripe:
+    """Synthetic provider boundary; all settlement decisions stay in real services."""
+
+    Webhook = stripe.Webhook
+
+    def __init__(self, request_id):
+        self.charge = {
+            "id": "ch_test_lifecycle",
+            "payment_intent": "pi_test_bound",
+            "amount": 2500,
+            "amount_refunded": 0,
+            "currency": "usd",
+            "paid": True,
+            "captured": True,
+            "disputed": False,
+            "livemode": False,
+            "balance_transaction": "txn_test_lifecycle",
+            "transfer_group": f"drive-request-{request_id}",
+        }
+        self.checkout = SimpleNamespace(
+            Session=SimpleNamespace(
+                create=Mock(side_effect=lambda **kw: _checkout_sdk_response(kw, "cs_test_bound"))
+            )
+        )
+        self.Account = SimpleNamespace(
+            retrieve=Mock(
+                return_value={
+                    "id": "acct_test_owner",
+                    "country": "US",
+                    "details_submitted": True,
+                    "payouts_enabled": True,
+                    "capabilities": {"transfers": "active"},
+                    "requirements": {},
+                    "external_accounts": {
+                        "data": [
+                            {
+                                "object": "bank_account",
+                                "country": "US",
+                                "currency": "usd",
+                                "default_for_currency": True,
+                                "status": "verified",
+                            }
+                        ],
+                        "has_more": False,
+                    },
+                }
+            )
+        )
+        self.PaymentIntent = SimpleNamespace(
+            retrieve=Mock(
+                return_value={
+                    "id": "pi_test_bound",
+                    "status": "succeeded",
+                    "latest_charge": self.charge["id"],
+                    "livemode": False,
+                }
+            )
+        )
+        self.Charge = SimpleNamespace(retrieve=Mock(side_effect=lambda *a, **kw: dict(self.charge)))
+        self.BalanceTransaction = SimpleNamespace(
+            retrieve=Mock(return_value={"id": "txn_test_lifecycle", "currency": "usd", "fee": 103})
+        )
+        self.Refund = SimpleNamespace(
+            list=Mock(return_value={"data": [], "has_more": False}),
+            create=Mock(side_effect=self._refund),
+        )
+        self.Transfer = SimpleNamespace(
+            list=Mock(return_value={"data": [], "has_more": False}),
+            create=Mock(
+                side_effect=lambda **kw: {
+                    **kw,
+                    "id": "tr_test_lifecycle",
+                    "livemode": False,
+                    "reversed": False,
+                    "amount_reversed": 0,
+                }
+            ),
+        )
+        # A bank deposit can aggregate many earnings, so its amount deliberately
+        # differs from this document's transfer and has no request attribution.
+        self.Payout = SimpleNamespace(
+            retrieve=Mock(
+                return_value={
+                    "id": "po_test_lifecycle",
+                    "object": "payout",
+                    "livemode": False,
+                    "status": "paid",
+                    "amount": 5000,
+                    "currency": "usd",
+                    "arrival_date": 1800000000,
+                }
+            )
+        )
+
+    def _refund(self, **kwargs):
+        self.charge["amount_refunded"] = kwargs["amount"]
+        return {
+            "id": "re_test_lifecycle",
+            "status": "succeeded",
+            "currency": "usd",
+            "payment_intent": kwargs["payment_intent"],
+            "amount": kwargs["amount"],
+        }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "trusted,confirmed,retained,refund,commission,earning,refund_first",
+    [
+        (False, 3, 2500, 0, 75, 2322, False),
+        (True, 2, 1667, 833, 50, 1514, False),
+        (False, 0, 0, 2500, 0, 0, False),
+        (False, 0, 0, 2500, 0, 0, True),
+    ],
+    ids=["owner_full_delivery", "trusted_partial_delivery", "owner_zero_delivery", "refund_first"],
+)
+async def test_document_payment_delivery_transfer_and_bank_payout_lifecycle(
+    sharing, monkeypatch, trusted, confirmed, retained, refund, commission, earning, refund_first
+):
+    """Exercise persisted commerce boundaries without Stripe or Google network calls."""
+    for key, value in {
+        "ENVIRONMENT": "test",
+        "STRIPE_MODE": "test",
+        "DRIVE_REQUEST_PAYMENTS_ENABLED": "true",
+        "DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED": "true",
+        "STRIPE_SECRET_KEY": "sk_test_local_only_synthetic",
+        "STRIPE_WEBHOOK_SECRET": "whsec_payment_test_secret",
+        "STRIPE_CONNECT_WEBHOOK_SECRET": "whsec_connect_lifecycle_test_secret",
+        "APP_FRONTEND_ORIGIN": "https://test.example",
+        "HUSSH_SITE_ORIGIN": "https://test.example",
+    }.items():
+        monkeypatch.setenv(key, value)
+    clear_runtime_settings_caches()
+    live_drive(sharing, monkeypatch)
+    await sharing.update_owner_pricing(
+        user_id="owner", enabled=True, amount_cents=2500, expected_version=0
+    )
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO stripe_owner_payout_accounts
+          (stripe_mode,user_id,stripe_account_id,details_submitted,payouts_enabled,account_ready)
+          VALUES ('test','owner','acct_test_owner',TRUE,TRUE,TRUE)""")
+        )
+        if trusted:
+            circle = str(uuid4())
+            connection.execute(
+                text("INSERT INTO one_location_circles VALUES (:id,'owner','trusted','active')"),
+                {"id": circle},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO one_location_circle_memberships VALUES (:id,'recipient','active')"
+                ),
+                {"id": circle},
+            )
+    request_id = (await request(sharing))["requestId"]
+    provider = _CommerceStripe(request_id)
+    account_service = payout_account_module.PkmPayoutService(stripe_api=provider)
+    account_service._db = DatabaseClient(engine=sharing.db.engine)
+    assert (await account_service.refresh_account(user_id="owner"))["readiness"]["ready"]
+    # Checkout constructs this collaborator internally. Replace its factory,
+    # retaining the real account lookup, provider validation and PostgreSQL update.
+    monkeypatch.setattr(payout_account_module, "PkmPayoutService", lambda: account_service)
+    bulk = DriveBulkShareStore(db=sharing.db)
+    payment = DriveRequestPaymentService(db=sharing.db, stripe_api=provider)
+    payouts = DriveRequestOwnerPayoutService(db=sharing.db, stripe_api=provider)
+    bank = StripeConnectBankPayouts(db=sharing.db, stripe_api=provider)
+    delivery = DriveSharingService(
+        oauth=SimpleNamespace(lifecycle=SimpleNamespace(db=sharing.db)),
+        store=DriveSuggestionStore(db=sharing.db),
+        # Google identity verification is also an external provider boundary.
+        verify_recipient=AsyncMock(),
+    )
+    review = await bulk.create_review(
+        user_id="owner",
+        search_job_id=_search(bulk, request_id=request_id, count=3),
+        client_request_id=str(uuid4()),
+        origin_request_id=request_id,
+        recipients=[
+            {
+                "userId": "recipient",
+                "email": "recipient@example.invalid",
+                "subject": "1234567",
+                "kind": "google_provider",
+            }
+        ],
+        excluded=[],
+        selected_positions=[1, 2, 3],
+    )
+    approval = {
+        "user_id": "owner",
+        "share_id": review["shareId"],
+        "revision": review["revision"],
+        "review_digest": review["reviewDigest"],
+        "approval_source": "trusted_auto" if trusted else "owner",
+    }
+    if trusted:
+        await payment.ensure_payment_for_frozen_batch("owner", request_id, review["shareId"])
+        with pytest.raises(DriveSharingError, match="payment_required"):
+            await bulk.approve(**approval)
+    else:
+        with pytest.raises(DriveSharingError, match="payment_not_ready"):
+            await payment.checkout(requester_user_id="recipient", request_id=request_id)
+        await bulk.approve(**approval)
+        with pytest.raises(DriveSharingError, match="payment_required"):
+            await bulk.claim(
+                user_id="owner",
+                share_id=review["shareId"],
+                position=1,
+                recipient_user_id="recipient",
+            )
+    provider.checkout.Session.create.assert_not_called()
+    await payment.checkout(requester_user_id="recipient", request_id=request_id)
+    checkout_params = provider.checkout.Session.create.call_args.kwargs
+    assert checkout_params["line_items"][0]["price_data"]["unit_amount"] == 2500
+    assert checkout_params["payment_intent_data"]["transfer_group"] == f"drive-request-{request_id}"
+    payload, signature = _signed_event(
+        request_id, amount=2500, attempt_id=checkout_params["metadata"]["checkout_attempt_id"]
+    )
+    await payment.process_webhook(payload=payload, signature=signature)
+    await payment.process_webhook(payload=payload, signature=signature)
+    if trusted:
+        await bulk.approve(**approval)
+    assert (await payment.get_payment(requester_user_id="recipient", request_id=request_id))[
+        "status"
+    ] == "paid"
+    assert (await payouts.reconcile_due(max_orders=1))["fees_resolved"] == 0
+    assert (await payouts.transfer_due(max_orders=1))["claimed"] == 0
+    assert (await bank.owner_summary(user_id="owner"))["payouts"] == []
+
+    for position in range(1, 4):
+        job = await bulk.claim(
+            user_id="owner",
+            share_id=review["shareId"],
+            position=position,
+            recipient_user_id="recipient",
+        )
+        assert job is not None
+        await bulk.mark_dispatching(job)
+        assert await bulk.settle(
+            job,
+            state="succeeded" if position <= confirmed else "failed",
+            safe_error_code=None if position <= confirmed else "permission_rejected",
+            receipt={"managed": True} if position <= confirmed else None,
+        )
+    delivered = await delivery.delivery(user_id="recipient", request_id=request_id)
+    assert delivered["sharedCount"] == confirmed
+    assert delivered["status"] == ("completed" if confirmed == 3 else "partial")
+    if refund_first:
+        # Independent workers may confirm the zero-delivery refund before
+        # the payout worker has frozen its delivery denominator.
+        assert (await payment.reconcile_refunds(max_orders=1))["succeeded"] == 1
+    await payouts.reconcile_due(max_orders=1)
+    if refund:
+        assert (await payouts.transfer_due(max_orders=1))["claimed"] == 0
+        if not refund_first:
+            assert (await payment.reconcile_refunds(max_orders=1))["succeeded"] == 1
+        assert provider.Refund.create.call_args.kwargs["amount"] == refund
+        await payouts.reconcile_due(max_orders=1)
+    else:
+        provider.Refund.create.assert_not_called()
+    outcome = await payouts.transfer_due(max_orders=1)
+    assert outcome["transferred"] == bool(earning)
+    with sharing.db.engine.connect() as connection:
+        ledger = dict(
+            connection.execute(
+                text("SELECT * FROM drive_request_owner_payouts WHERE request_id=:id"),
+                {"id": request_id},
+            )
+            .mappings()
+            .one()
+        )
+        assert (
+            connection.execute(
+                text(
+                    "SELECT count(*) FROM drive_request_payment_webhook_events WHERE request_id=:id"
+                ),
+                {"id": request_id},
+            ).scalar_one()
+            == 1
+        )
+    assert (
+        ledger["gross_amount_cents"],
+        ledger["expected_files"],
+        ledger["confirmed_files"],
+        ledger["retained_amount_cents"],
+        ledger["refund_amount_cents"],
+        ledger["platform_fee_cents"],
+    ) == (2500, 3, confirmed, retained, refund, commission)
+    assert ledger["status"] == ("transferred" if earning else "void")
+    assert ledger["stripe_mode"] == "test"
+    if earning:
+        assert ledger["owner_earning_cents"] == earning
+        assert (
+            ledger["actual_processing_fee_cents"] == ledger["allocated_processing_fee_cents"] == 103
+        )
+        assert provider.Transfer.create.call_args.kwargs == {
+            "amount": earning,
+            "currency": "usd",
+            "destination": "acct_test_owner",
+            "source_transaction": "ch_test_lifecycle",
+            "transfer_group": f"drive-request-{request_id}",
+            "metadata": {"payment_kind": "drive_request_owner_payout", "request_id": request_id},
+            "api_key": "sk_test_local_only_synthetic",
+            "idempotency_key": f"drive-owner-transfer:{request_id}",
+        }
+    else:
+        provider.PaymentIntent.retrieve.assert_not_called()
+        provider.Charge.retrieve.assert_not_called()
+        provider.BalanceTransaction.retrieve.assert_not_called()
+        provider.Transfer.list.assert_not_called()
+        with sharing.db.engine.connect() as connection:
+            assert tuple(
+                connection.execute(
+                    text("""SELECT o.status,b.status,
+              o.reconciliation_required,b.reconciliation_required
+              FROM drive_request_payment_orders o
+              JOIN drive_request_payment_obligations b USING (request_id)
+              WHERE o.request_id=:id"""),
+                    {"id": request_id},
+                ).one()
+            ) == ("refunded", "refunded", True, True)
+    history = (await payouts.owner_history(user_id="owner"))["transactions"]
+    assert len(history) == 1 and history[0]["requestId"] == request_id
+    assert history[0]["platformFeeCents"] == commission
+    assert history[0]["refundAmountCents"] == refund
+    assert history[0]["status"] == ledger["status"]
+    if earning:
+        assert history[0]["netAmountCents"] == earning
+    assert (await payouts.owner_history(user_id="recipient"))["transactions"] == []
+    assert (await bank.owner_summary(user_id="owner"))["payouts"] == []
+    # Transfer completion never invents a bank deposit. Only a signed Connect
+    # event plus the current provider Payout object may report the later deposit.
+    if earning:
+        bank_body = json.dumps(
+            {
+                "id": "evt_test_bank_lifecycle",
+                "type": "payout.paid",
+                "livemode": False,
+                "account": "acct_test_owner",
+                "data": {"object": {"id": "po_test_lifecycle", "object": "payout"}},
+            }
+        ).encode()
+        timestamp = int(time.time())
+        bank_signature = hmac.new(
+            b"whsec_connect_lifecycle_test_secret",
+            f"{timestamp}.".encode() + bank_body,
+            hashlib.sha256,
+        ).hexdigest()
+        signed = f"t={timestamp},v1={bank_signature}"
+        assert await bank.process_webhook(payload=bank_body, signature=signed) == "updated"
+        assert await bank.process_webhook(payload=bank_body, signature=signed) == "duplicate"
+        snapshot = (await bank.owner_summary(user_id="owner"))["payouts"]
+        assert len(snapshot) == 1
+        assert (snapshot[0]["status"], snapshot[0]["amountCents"]) == ("paid", 5000)
+        assert "requestId" not in snapshot[0]
+        assert (await bank.owner_summary(user_id="recipient"))["payouts"] == []
+        provider.Payout.retrieve.assert_called_once_with(
+            "po_test_lifecycle",
+            stripe_account="acct_test_owner",
+            api_key="sk_test_local_only_synthetic",
+        )
+    await payouts.reconcile_due(max_orders=1)
+    assert (await payouts.transfer_due(max_orders=1))["claimed"] == 0
+    assert (await payment.reconcile_refunds(max_orders=1))["claimed"] == 0
+    assert provider.Transfer.create.call_count == bool(earning)
+    assert provider.Refund.create.call_count == bool(refund)
+    provider.checkout.Session.create.assert_called_once()
 
 
 @pytest.mark.asyncio

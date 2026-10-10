@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { LOCATION_FLOW_LABELS } from "@/app/one/location/page";
-import { listKaiActions } from "@/lib/voice/kai-action-gateway";
+import { listKaiActions } from "@/lib/kai/actions/kai-action-gateway";
 
 /**
  * How One learns a Location flow was opened.

@@ -88,7 +88,7 @@ import { cn } from "@/lib/utils";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { chatReadIsBlocked, subscribeChatLayerChanges } from "@/lib/interaction/chat-read-visibility";
 import { useChatAlertVisibility } from "@/lib/notifications/chat-alert-visibility";
-import { useVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { useVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 import styles from "./direct-messages-page.module.css";
 

@@ -237,7 +237,7 @@ import {
 import {
   parseVoiceCard,
   parseVoiceConfirm,
-} from "@/lib/voice/voice-action-card";
+} from "@/lib/kai/actions/voice-action-card";
 
 function person(userId: string, displayName: string) {
   return {

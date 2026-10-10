@@ -24,8 +24,8 @@ import {
   PreVaultUserStateService,
   type PreVaultUserState,
 } from "@/lib/services/pre-vault-user-state-service";
-import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { deriveVoiceRouteScreen } from "@/lib/kai/actions/route-screen-derivation";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 type Settlement = {
   status: "started" | "succeeded" | "blocked" | "failed";

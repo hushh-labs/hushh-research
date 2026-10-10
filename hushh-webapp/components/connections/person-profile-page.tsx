@@ -64,8 +64,8 @@ import {
 } from "@/lib/agent/action-directive-summary";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { oneLocationErrorMessage } from "@/lib/one-location/error-message";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
-import { VOICE_CONFIRM_DATA_KEY } from "@/lib/voice/voice-action-card";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
+import { VOICE_CONFIRM_DATA_KEY } from "@/lib/kai/actions/voice-action-card";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 
 type Props = { personRef: string; initialProfile: PublicPersonProfile | null };

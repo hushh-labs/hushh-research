@@ -13,7 +13,7 @@ vi.mock("@/lib/notifications/preview-keys", () => ({
 vi.mock("@/lib/interaction/interaction-intent-coordinator", () => ({ appInteractionCoordinator: {
   getLifecycleSnapshot: () => ({ state: "active" }), subscribeLifecycle: () => () => {},
 } }));
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({ getVoiceSurfaceMetadata: () => null }));
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({ getVoiceSurfaceMetadata: () => null }));
 beforeEach(() => {
   state.key = null;
   state.setActiveChat.mockClear();

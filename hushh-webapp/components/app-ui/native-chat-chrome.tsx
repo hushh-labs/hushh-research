@@ -7,7 +7,7 @@ import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "@/lib/c
 import { subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
 import { isCurrentNativeControlAppearance, NATIVE_CONTROL_CONTRACT_VERSION, useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { isSessionChromeSuppressed, useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
-import { getVoiceSurfaceMetadata, useVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { getVoiceSurfaceMetadata, useVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 export type NativeChatChromeHandle = { restoreFocus: () => Promise<boolean> };
 type Props = {

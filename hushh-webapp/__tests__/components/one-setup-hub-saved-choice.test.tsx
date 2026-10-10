@@ -20,7 +20,7 @@ vi.mock("@/lib/services/finance-setup-draft-service", () => ({ FinanceSetupDraft
 vi.mock("@/lib/services/post-unlock-sync-service", () => ({ PostUnlockSyncService: {} }));
 vi.mock("@/lib/connections/gemini-runtime-configuration", () => ({ notifyGeminiRuntimeConfigurationChanged: vi.fn() }));
 vi.mock("@/lib/agent/one-conversation-session", () => ({ useOneConversationSession: () => vi.fn() }));
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({ usePublishVoiceSurfaceMetadata: vi.fn() }));
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({ usePublishVoiceSurfaceMetadata: vi.fn() }));
 vi.mock("@/lib/agent/local-onboarding-actions", () => ({ useLocalOnboardingActionHandler: vi.fn() }));
 
 beforeEach(() => { state.saved = false; state.listener = null; state.unsubscribe.mockClear(); });

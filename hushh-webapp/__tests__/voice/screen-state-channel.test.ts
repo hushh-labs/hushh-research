@@ -19,8 +19,8 @@ import { buildOneVoiceContextSnapshot } from "@/lib/voice/screen-context-builder
 import {
   clearVoiceSurfaceMetadata,
   publishVoiceSurfaceMetadata,
-} from "@/lib/voice/voice-surface-metadata";
-import type { AppRuntimeState } from "@/lib/voice/voice-types";
+} from "@/lib/kai/actions/voice-surface-metadata";
+import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
 
 function runtime(): AppRuntimeState {
   return {

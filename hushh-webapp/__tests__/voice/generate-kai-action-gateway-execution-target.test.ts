@@ -9,7 +9,7 @@ import {
  * #6122: two real, contract-authored actions (location.find_contacts,
  * ria.clients.switch_to_nearby) had execution_target.path: "control", which
  * was not in the frontend gateway parser's accepted union
- * (lib/voice/kai-action-gateway.ts's validateExecutionTarget) -- so the
+ * (lib/kai/actions/kai-action-gateway.ts's validateExecutionTarget) -- so the
  * generator happily wrote them into the compiled JSON, and the frontend
  * silently dropped both actions entirely, everywhere, with no error. The
  * generator had no path validation of its own to have caught this at
