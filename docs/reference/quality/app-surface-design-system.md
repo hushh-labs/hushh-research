@@ -641,6 +641,15 @@ Rules:
 3. Modal popovers inherit the same backdrop by default; non-modal anchored popovers stay flat. `PopoverContent withBackdrop` remains an explicit override. The scrim renders as `data-slot="popover-scrim"` and animates through the shared `overlay-scrim-in` / `overlay-scrim-out` keyframes registered in `globals.css`. Do not hand-roll a popover scrim with ad hoc opacity or blur values.
 4. Scrim animation tokens (`--motion-overlay-*`) are shared. Do not override per-surface enter/exit durations, and honor the reduced-motion media query already wired in `globals.css`. Sheets (`sheet-content`, `sheet-overlay`) use the shared `--motion-sheet-*` tier instead (300ms enter on the iOS sheet curve, 200ms exit), because they travel most of the screen; that tier is also app-wide, never per surface. The sheet surface slides on its own `sheet-surface-enter` / `sheet-surface-exit` keyframes, which animate only `transform` and `opacity`; the shared tw-animate `enter` / `exit` keyframes also animate `filter`, so sheets do not use them.
 5. Non-modal helper popovers (tooltips, inline hint bubbles, hover cards) do not take a backdrop. Reserve `withBackdrop` for surfaces that should pull focus away from the page.
+   The shared place-saving modal suppresses persistent DOM and native chrome
+   throughout its map, address, and summary steps using the existing scoped
+   chrome-suppression hook. Native Maps requires a transparent picker surface,
+   so layering alone cannot conceal the Agent Bar underneath. Closing the modal
+   releases its own suppression without releasing an enclosing onboarding flow.
+   This focused flow keeps its primary action first and its quiet secondary
+   action below it on phone and desktop: Confirm pin, then Skip for now; Save
+   location, then Skip for now. The surface or pinned footer owns the bottom
+   safe-area padding once; action groups do not add another inset.
    The Agent Chat history drawer (`AgentConnectionsDrawer`) uses this same scrim. Its panel and scrim portal to the body above the chat header and fixed bottom bar; opening it must not move the transcript or navigation.
    `AppChatHistoryEdgeGesture` owns both directions: pull right on the Chat
    body to open, or left on the drawer/list or backdrop to close. The panel
