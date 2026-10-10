@@ -36,6 +36,8 @@ export type MarketplaceLocalContact = {
   lookupIds: string[];
   /** False when at least one usable number was beyond the per-sync lookup cap. */
   coverageComplete: boolean;
+  /** Some numbers lacked a trusted region; a no-match is not final for this row. */
+  normalizationIncomplete?: boolean;
 };
 
 export type MarketplaceContactLookupResult = {
@@ -138,7 +140,17 @@ export async function buildMarketplaceContactLookups(options?: {
     // ranking a locale above the account's own number silently loses matches.
     deviceRegionFromNumberPlan: result.sourcePlatform === "android",
     accountPhoneNumber,
+    // A missing hydrated phone is not missing signup verification. Continue
+    // with international numbers (or Android's SIM region), but do not turn
+    // an Indian national number into a US hash using the browser locale.
+    allowLocaleFallback: !options?.resolveAccountPhoneNumber,
   });
+  const normalizePhone = (raw: string) => {
+    if (options?.resolveAccountPhoneNumber && !region && !raw.trim().startsWith("+")) {
+      return null;
+    }
+    return normalizeContactPhone(raw, region);
+  };
 
   // Normalize once per unique number, while retaining which local contact rows
   // referenced it. The correlation table never leaves this process.
@@ -152,6 +164,7 @@ export async function buildMarketplaceContactLookups(options?: {
     }
   >();
   const contactNumbers = new Map<string, Set<string>>();
+  const normalizationIncompleteContactKeys = new Set<string>();
   const selfOnlyContactKeys = new Set<string>();
   const accountPhoneE164 = accountPhoneNumber
     ? (normalizeContactPhone(accountPhoneNumber, region)?.e164 ?? null)
@@ -166,7 +179,11 @@ export async function buildMarketplaceContactLookups(options?: {
     const normalizedNumbers = new Set<string>();
     let excludedOwnNumber = false;
     for (const phoneNumber of contact.phoneNumbers || []) {
-      const normalized = normalizeContactPhone(phoneNumber, region);
+      if (options?.resolveAccountPhoneNumber && !region &&
+          !phoneNumber.trim().startsWith("+") && /\d/.test(phoneNumber)) {
+        normalizationIncompleteContactKeys.add(contactKey);
+      }
+      const normalized = normalizePhone(phoneNumber);
       if (!normalized) continue;
       if (accountPhoneE164 && normalized.e164 === accountPhoneE164) {
         excludedOwnNumber = true;
@@ -247,6 +264,9 @@ export async function buildMarketplaceContactLookups(options?: {
       coverageComplete: normalizedNumbers.every((number) =>
         selectedNumbers.has(number),
       ),
+      ...(normalizationIncompleteContactKeys.has(contact.contactKey)
+        ? { normalizationIncomplete: true }
+        : {}),
     };
   });
   const totalAvailable = Math.max(
@@ -260,7 +280,7 @@ export async function buildMarketplaceContactLookups(options?: {
       const local = localContacts[index]!;
       // Do not offer the account's own card through an alternate email address.
       if (accountPhoneE164 && (contact.phoneNumbers || []).some(
-        (phone) => normalizeContactPhone(phone, region)?.e164 === accountPhoneE164,
+        (phone) => normalizePhone(phone)?.e164 === accountPhoneE164,
       )) return [];
       const numbers = Array.from(contactNumbers.get(local.contactKey) ?? []);
       const emails = (result.sourcePlatform === "web" || result.sourcePlatform === "google")
