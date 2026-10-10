@@ -25,7 +25,7 @@ spec.loader.exec_module(module)
 class CapacityObservabilityTest(unittest.TestCase):
     def test_policy_delivery_drift_and_repeat_reconciliation(self) -> None:
         args = module.cli([
-            "--project", "hushh-uat-123", "--sql-instance", "hushh-vault-db", "--apply"
+            "--project", "hushh-pda-uat", "--sql-instance", "hushh-uat-pg", "--apply"
         ])
         channels = [{"name": f"projects/{args.project}/notificationChannels/{i}",
                      "type": "email", "labels": {"email_address": email}}
@@ -89,7 +89,7 @@ class CapacityObservabilityTest(unittest.TestCase):
 
     def test_sql_connections_sum_database_series_for_one_instance(self) -> None:
         args = module.cli(
-            ["--project", "hushh-uat-123", "--sql-instance", "hushh-vault-db"]
+            ["--project", "hushh-pda-uat", "--sql-instance", "hushh-uat-pg"]
         )
         for slug, threshold in (("warning", 700), ("critical", 850)):
             policy = module.render(
@@ -97,12 +97,45 @@ class CapacityObservabilityTest(unittest.TestCase):
             )
             condition = policy["conditions"][0]["conditionThreshold"]
             self.assertIn(
-                'database_id"="hushh-uat-123:hushh-vault-db"', condition["filter"]
+                'database_id"="hushh-pda-uat:hushh-uat-pg"', condition["filter"]
             )
             self.assertEqual(
                 condition["aggregations"][0]["crossSeriesReducer"], "REDUCE_SUM"
             )
             self.assertEqual(condition["thresholdValue"], threshold)
+
+    def test_sql_thresholds_follow_environment_capacity_and_keep_delivery(self) -> None:
+        for project, instance, values in (
+            ("hushh-pda", "hushh-vault-db", (280, 340)),
+            ("hushh-pda-uat", "hushh-uat-pg", (700, 850)),
+        ):
+            args = module.cli(["--project", project, "--sql-instance", instance])
+            for slug, expected in zip(("warning", "critical"), values):
+                with self.subTest(project=project, slug=slug):
+                    policy = module.render(
+                        ROOT / "alerts" / f"sql-connections-{slug}-policy.json.in", args
+                    )
+                    self.assertEqual(
+                        policy["conditions"][0]["conditionThreshold"]["thresholdValue"],
+                        expected,
+                    )
+                    self.assertIn(str(expected), policy["documentation"]["content"])
+                    self.assertEqual(policy["enabled"], slug == "critical")
+                    self.assertEqual(policy["alertStrategy"], {
+                        "notificationPrompts": ["OPENED", "CLOSED"]
+                    })
+
+    def test_unreviewed_database_is_rejected_before_cloud_calls(self) -> None:
+        for project, instance in (("unreviewed-project", "hushh-vault-db"),
+                                  ("hushh-pda", "hushh-uat-pg")):
+            with self.subTest(project=project, instance=instance), \
+                 patch.object(module, "run") as cloud, \
+                 contextlib.redirect_stderr(io.StringIO()), \
+                 self.assertRaises(SystemExit):
+                module.reconcile(module.cli([
+                    "--project", project, "--sql-instance", instance, "--apply"
+                ]))
+            cloud.assert_not_called()
 
     def test_distribution_extractors_match_backend_text_payload(self) -> None:
         payload = 'INFO {"message":"request.summary","method":"GET","route_template":"/api/consent/center/summary","duration_ms":52.75,"db_pool_wait_ms":3.5,"stream":false}'
@@ -143,7 +176,7 @@ class CapacityObservabilityTest(unittest.TestCase):
 
     def test_default_plan_never_mutates_cloud(self) -> None:
         args = module.cli(
-            ["--project", "hushh-uat-123", "--sql-instance", "hushh-vault-db"]
+            ["--project", "hushh-pda-uat", "--sql-instance", "hushh-uat-pg"]
         )
         calls = []
 

@@ -35,6 +35,11 @@
     "production": {
       "project": "hushh-pda",
       "database_instance": "hushh-vault-db",
+      "connection_policy": {
+        "database_max_connections": 400,
+        "admission_limit": 300,
+        "administrative_reserve": 30
+      },
       "non_database_services": ["hushh-ria-intelligence-api", "hushh-webapp", "prod-kai-redirect"],
       "services": {
         "consent-protocol": {

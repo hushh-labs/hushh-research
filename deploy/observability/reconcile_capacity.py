@@ -8,6 +8,7 @@ entry point intentionally does not enable APIs, alter IAM, jobs, or datasets.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
 import subprocess
@@ -18,6 +19,12 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parent
+_CAPACITY_SPEC = importlib.util.spec_from_file_location(
+    "runtime_capacity_budget", ROOT.parents[1] / "scripts/ci/runtime-capacity-budget.py"
+)
+assert _CAPACITY_SPEC and _CAPACITY_SPEC.loader
+_CAPACITY = importlib.util.module_from_spec(_CAPACITY_SPEC)
+_CAPACITY_SPEC.loader.exec_module(_CAPACITY)
 DEFAULT_EMAILS = ("manish@hushh.ai", "ankit@hushh.ai", "kushal@hushh.ai")
 METRICS = (
     "obs_request_summary_count",
@@ -70,6 +77,14 @@ def cli(argv: list[str] | None = None) -> argparse.Namespace:
         re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email) for email in args.email
     ):
         parser.error("--email must be an email address")
+    try:
+        _CAPACITY.sql_alert_thresholds(
+            json.loads(_CAPACITY.DEFAULT_PROFILE.read_text()),
+            args.project,
+            args.sql_instance,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
     return args
 
 
@@ -88,11 +103,16 @@ def run(*command: str, allow_missing: bool = False) -> Any:
 
 def render(path: Path, args: argparse.Namespace) -> dict[str, Any]:
     source = path.read_text()
+    thresholds = _CAPACITY.sql_alert_thresholds(
+        json.loads(_CAPACITY.DEFAULT_PROFILE.read_text()), args.project, args.sql_instance
+    )
     substitutions = {
         "__PROJECT_ID__": args.project,
         "__SQL_INSTANCE__": args.sql_instance,
         "__BACKEND_SERVICE__": args.backend_service,
         "__FRONTEND_SERVICE__": args.frontend_service,
+        "__SQL_CONNECTION_WARNING__": str(thresholds["warning"]),
+        "__SQL_CONNECTION_CRITICAL__": str(thresholds["critical"]),
     }
     for before, after in substitutions.items():
         source = source.replace(before, after)

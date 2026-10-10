@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib.util
+import copy
+import json
 import unittest
 from pathlib import Path
 
@@ -54,6 +56,50 @@ def revision(
 
 
 class RuntimeCapacityBudgetTest(unittest.TestCase):
+    def test_environment_policy_is_atomic_and_live_limit_stays_strict(self) -> None:
+        profile = json.loads(budget.DEFAULT_PROFILE.read_text())
+        self.assertEqual(budget.connection_policy(profile, "uat"), {
+            "database_max_connections": 1000,
+            "admission_limit": 800,
+            "administrative_reserve": 100,
+        })
+        self.assertEqual(budget.connection_policy(profile, "production"), {
+            "database_max_connections": 400,
+            "admission_limit": 300,
+            "administrative_reserve": 30,
+        })
+        for invalid in (None, {}, {"database_max_connections": 400},
+                        {"database_max_connections": True, "admission_limit": 300,
+                         "administrative_reserve": 30}):
+            with self.subTest(invalid=invalid):
+                changed = copy.deepcopy(profile)
+                changed["environments"]["production"]["connection_policy"] = invalid
+                with self.assertRaises(budget.BudgetError):
+                    budget.connection_policy(changed, "production")
+        for live in (100, 1000):
+            with self.subTest(live=live), self.assertRaisesRegex(
+                budget.BudgetError, f"max_connections is {live}; profile requires 400"
+            ):
+                budget.evaluate(profile, "production", {"database_max_connections": live})
+
+    def test_production_admission_boundary_counts_reserve(self) -> None:
+        profile = json.loads(budget.DEFAULT_PROFILE.read_text())
+        config = profile["environments"]["production"]
+        config["services"] = {}
+        config["jobs"] = {"drill": {"connections_per_task": 270,
+                                     "concurrent_executions": 1}}
+        inventory = {"database_max_connections": 400, "services": {}, "jobs": {
+            "drill": {"metadata": {"name": "drill"}, "spec": {"template": {
+                "spec": {"taskCount": 1, "parallelism": 1,
+                         "template": {"spec": {"containers": [{"env": []}]}}}
+            }}}
+        }}
+        report = budget.evaluate(profile, "production", inventory)
+        self.assertEqual(report["projected_connections"], 300)
+        self.assertTrue(report["admitted"])
+        config["jobs"]["drill"]["connections_per_task"] = 271
+        self.assertFalse(budget.evaluate(profile, "production", inventory)["admitted"])
+
     def test_deferred_retirement_counts_multiple_old_generations_until_deletion(
         self,
     ) -> None:

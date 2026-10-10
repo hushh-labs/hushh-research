@@ -104,11 +104,18 @@ def test_saved_owner_cards_share_without_extra_verification_but_foreign_cards_do
         service.create_grants("alice", legacy, str(uuid.uuid4()), refs(db), 10)
     save(db, legacy)
     assert service.card_access("alice", legacy)["eligible"] is True
-    assert len(service.create_grants("alice", legacy, str(uuid.uuid4()), refs(db), 10)["grants"]) == 2
+    assert (
+        len(service.create_grants("alice", legacy, str(uuid.uuid4()), refs(db), 10)["grants"]) == 2
+    )
     assert service.card_access("bob", legacy)["eligible"] is False
     expired = service.reserve("alice", str(uuid.uuid4()))["cardId"]
     with db.engine.begin() as conn:
-        conn.execute(text("UPDATE wallet_card_registrations SET reservation_expires_at=clock_timestamp()-interval '1 day' WHERE card_id=:card"), {"card": expired})
+        conn.execute(
+            text(
+                "UPDATE wallet_card_registrations SET reservation_expires_at=clock_timestamp()-interval '1 day' WHERE card_id=:card"
+            ),
+            {"card": expired},
+        )
     save(db, expired, 2)
     assert service.card_access("alice", expired)["eligible"] is True
     card = active_card(db, service)
