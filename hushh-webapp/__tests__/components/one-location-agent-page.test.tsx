@@ -450,6 +450,15 @@ vi.mock("@/lib/one-location/service", () => ({
     listCircleMembersPage: mockListCircleMembersPage,
     ensureSmsSystemCircle: mockEnsureSmsSystemCircle,
     getSmsContacts: mockGetSmsContacts,
+    getSmsRecipientRoster: async (token: string) => {
+      const smsContactUserIds = await mockGetSmsContacts(token);
+      return {
+        smsContactUserIds,
+        recipients: locationState().recipients.filter((recipient) =>
+          smsContactUserIds.includes(recipient.userId),
+        ),
+      };
+    },
     createNamedCircle: vi.fn().mockResolvedValue({
       id: "circle_onboarding",
       name: "Test's Circle",

@@ -61,6 +61,74 @@ afterEach(() => {
 });
 
 describe("SosPanel", () => {
+  it("keeps Stop available if the circle becomes empty during an active alert", () => {
+    render(<SosPanel {...baseProps} active recipients={[]} />);
+    expect(screen.getByRole("button", { name: "Stop Save My Soul alert" })).toBeEnabled();
+  });
+
+  it("cancels a keyboard hold when focus leaves the button", () => {
+    const onTrigger = vi.fn();
+    render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
+    fireEvent.click(screen.getByRole("button", { name: "Come get me" }));
+    const send = screen.getByTestId("sos-send-custom-message");
+    fireEvent.keyDown(send, { key: " " });
+    act(() => vi.advanceTimersByTime(500));
+    fireEvent.blur(send);
+    act(() => vi.advanceTimersByTime(2_000));
+    expect(onTrigger).not.toHaveBeenCalled();
+  });
+  it.each(["pointer", "keyboard"])("sends a preset through a two-second %s Send hold exactly once even after late release", async (mode) => {
+    const onTrigger = vi.fn().mockResolvedValue(undefined);
+    render(<SosPanel {...baseProps} contactCount={8} onTrigger={onTrigger} />);
+    expect(screen.getByText("8 contacts · Live location")).toBeInTheDocument();
+    expect(screen.getByText("Choose or type a message")).toBeInTheDocument();
+    expect(screen.queryByText("Pick a quick message.")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Come get me" }));
+    const send = screen.getByTestId("sos-send-custom-message");
+    if (mode === "pointer") fireEvent.pointerDown(send, { button: 0, pointerId: 1 });
+    else fireEvent.keyDown(send, { key: " " });
+    act(() => vi.advanceTimersByTime(1_999));
+    expect(onTrigger).not.toHaveBeenCalled();
+    await act(async () => vi.advanceTimersByTime(1));
+    expect(onTrigger).toHaveBeenCalledWith("Come get me");
+    await act(async () => vi.advanceTimersByTime(2_000));
+    if (mode === "pointer") {
+      fireEvent.pointerUp(send, { pointerId: 1 });
+      fireEvent.click(send);
+    } else fireEvent.keyUp(send, { key: " " });
+    await act(async () => vi.advanceTimersByTime(2_000));
+    expect(onTrigger).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["Enter", " "])("starts and cancels a countdown using a short %s keyboard press", (key) => {
+    const onTrigger = vi.fn();
+    render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
+    fireEvent.click(screen.getByRole("button", { name: "Come get me" }));
+    const send = screen.getByTestId("sos-send-custom-message");
+    fireEvent.keyDown(send, { key });
+    fireEvent.keyUp(send, { key });
+    expect(send).toHaveTextContent("Cancel");
+    act(() => vi.advanceTimersByTime(500));
+    fireEvent.keyDown(send, { key });
+    fireEvent.keyUp(send, { key });
+    act(() => vi.advanceTimersByTime(2_000));
+    expect(onTrigger).not.toHaveBeenCalled();
+    expect(send).toHaveTextContent("Send");
+  });
+
+  it("cancels an interrupted Send hold including its synthesized click", () => {
+    const onTrigger = vi.fn();
+    render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
+    fireEvent.click(screen.getByRole("button", { name: "Come get me" }));
+    const send = screen.getByTestId("sos-send-custom-message");
+    fireEvent.pointerDown(send, { button: 0, pointerId: 1 });
+    act(() => vi.advanceTimersByTime(1_500));
+    fireEvent.pointerUp(send, { pointerId: 1 });
+    fireEvent.click(send);
+    act(() => vi.advanceTimersByTime(3_000));
+    expect(onTrigger).not.toHaveBeenCalled();
+  });
+
   it("renders the Save My Soul workflow without an emergency call control", () => {
     render(<SosPanel {...baseProps} />);
 
@@ -139,6 +207,21 @@ describe("SosPanel", () => {
     expect(onTrigger).toHaveBeenCalledTimes(2);
   });
 
+  it.each(["Enter", " "])("suppresses repeated %s activation after a completed hold returns without an active alert", async (key) => {
+    const onTrigger = vi.fn().mockResolvedValue(undefined);
+    render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
+    fireEvent.click(screen.getByRole("button", { name: "I'm not safe" }));
+    const send = screen.getByTestId("sos-send-custom-message");
+    fireEvent.keyDown(send, { key });
+    await act(async () => { vi.advanceTimersByTime(2_000); });
+    expect(onTrigger).toHaveBeenCalledTimes(1);
+    // Browsers use an unprevented repeated Enter keydown to click again.
+    expect(fireEvent.keyDown(send, { key, repeat: true })).toBe(false);
+    act(() => vi.advanceTimersByTime(2_000));
+    fireEvent.keyUp(send, { key });
+    expect(onTrigger).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps typed messages staged until either send hold completes", () => {
     const onTrigger = vi.fn();
     render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
@@ -187,7 +270,7 @@ describe("SosPanel", () => {
     expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
   });
 
-  it("keeps preset selection separate from custom text", () => {
+  it("populates one editable message from presets and enables Send", () => {
     const onTrigger = vi.fn();
     render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
     const composer = screen.getByRole("textbox", { name: "Or write your own" });
@@ -195,8 +278,8 @@ describe("SosPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "I'm not safe" }));
     expect(screen.getByRole("button", { name: "I'm not safe" })).toHaveAttribute("aria-pressed", "true");
-    expect(composer).toHaveValue("");
-    expect(send).toBeDisabled();
+    expect(composer).toHaveValue("I'm not safe");
+    expect(send).toBeEnabled();
 
     fireEvent.change(composer, { target: { value: "Please call me" } });
     expect(screen.getByRole("button", { name: "I'm not safe" })).toHaveAttribute("aria-pressed", "false");
@@ -204,8 +287,8 @@ describe("SosPanel", () => {
     expect(onTrigger).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Come get me" }));
-    expect(composer).toHaveValue("");
-    expect(send).toBeDisabled();
+    expect(composer).toHaveValue("Come get me");
+    expect(send).toBeEnabled();
     expect(screen.getByRole("button", { name: "Come get me" })).toHaveAttribute("aria-pressed", "true");
   });
 
@@ -242,9 +325,9 @@ describe("SosPanel", () => {
 
     // Picking a preset clears the over-length custom text and its error.
     fireEvent.click(screen.getByRole("button", { name: "Come get me" }));
-    expect(composer).toHaveValue("");
+    expect(composer).toHaveValue("Come get me");
     expect(hold).toBeEnabled();
-    expect(send).toBeDisabled();
+    expect(send).toBeEnabled();
   });
 
   it("sends a valid custom short message exactly once after holding Send", () => {
@@ -293,6 +376,8 @@ describe("SosPanel", () => {
 
     fireEvent.click(send);
     act(() => vi.advanceTimersByTime(1_000));
+    fireEvent.pointerDown(send, { button: 0, pointerId: 2 });
+    fireEvent.pointerUp(send, { pointerId: 2 });
     fireEvent.click(send);
     expect(send).toHaveTextContent("Send");
     act(() => vi.advanceTimersByTime(2_000));
@@ -448,7 +533,7 @@ describe("SosPanel", () => {
     expect(screen.getByTestId("sos-status-label")).toHaveTextContent(
       "Alert active",
     );
-    expect(screen.getAllByText("1 contact alerted")).toHaveLength(1);
+    expect(screen.getAllByText("Live location sharing is active")).toHaveLength(1);
     const cancel = screen.getByRole("button", {
       name: "Stop Save My Soul alert",
     });

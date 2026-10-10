@@ -69,6 +69,30 @@ afterEach(() => {
 });
 
 describe("OneLocationService SOS additions", () => {
+  it("uses the complete SMS roster and excludes unrelated recipient projections", async () => {
+    const ids = Array.from({ length: 8 }, (_, i) => `recipient-${i}`);
+    const calls = stubFetch({ smsContactUserIds: ids, recipients: [...ids, "outsider"].map((userId) => ({
+      userId, displayName: userId, phoneVerified: true, canReceiveLocation: true,
+      keyId: `key-${userId}`, publicKeyJwk: { kty: "EC" }, keyAlgorithm: "ECDH-P256-AES256-GCM",
+    })) });
+    const roster = await OneLocationService.getSmsRecipientRoster("tok");
+    expect(roster.smsContactUserIds).toEqual(ids);
+    expect(roster.recipients.map((r) => r.userId)).toEqual(ids);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe("/api/one/location/sms-contacts");
+  });
+
+  it("supports an IDs-only backend during rolling deployment without widening the circle", async () => {
+    stubFetch({ smsContactUserIds: ["r1"] });
+    const legacy = vi.spyOn(OneLocationService, "listRecipients").mockResolvedValue([
+      { userId: "r1", displayName: "Contact", phoneVerified: true, canReceiveLocation: true, keyAlgorithm: "ECDH" },
+      { userId: "other", displayName: "Other", phoneVerified: true, canReceiveLocation: true, keyAlgorithm: "ECDH" },
+    ]);
+    const roster = await OneLocationService.getSmsRecipientRoster("tok");
+    expect(legacy).toHaveBeenCalledWith("tok");
+    expect(roster.recipients.map((r) => r.userId)).toEqual(["r1"]);
+  });
+
   it("createGrant sends reason when provided", async () => {
     const calls = stubFetch({ grant: { id: "g1" } });
     await OneLocationService.createGrant({

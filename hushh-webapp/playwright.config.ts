@@ -118,6 +118,7 @@ export default defineConfig({
       // that matters is the WKWebView the app ships in. Its fixture builds its
       // own document.
       testMatch: [
+        /sms-flow\.layout\.spec\.ts/,
         // The shared voice/text dock and keyboard clearance ship in WKWebView.
         /bottom-chrome-width\.layout\.spec\.ts/,
         /connect-page-grid\.layout\.spec\.ts/,

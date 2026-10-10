@@ -707,6 +707,7 @@ export type LocationHubViewModel = {
   sosRecipients: OneLocationRecipient[];
   /** Explicit owner-selected Save My Soul recipients. */
   smsRecipients: OneLocationRecipient[];
+  smsContactCount?: number;
   smsContactCandidates: OneLocationRecipient[];
   smsContactUserIds: string[];
   smsContactsLoading: boolean;
@@ -4991,6 +4992,7 @@ function SosFlow({
       ) : null}
       <SosPanel
         recipients={vm.smsRecipients}
+        contactCount={vm.smsContactCount}
         recipientsLoading={vm.smsContactsLoading}
         active={vm.sosActive}
         busy={vm.sosBusy}
