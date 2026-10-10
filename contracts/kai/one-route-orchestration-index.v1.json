@@ -7079,6 +7079,49 @@
       "native_surface_id": null
     },
     {
+      "route_pattern": "/wallet/open",
+      "page_file": "app/wallet/open/page.tsx",
+      "route_mode": "hidden",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.wallet.encrypted_file.open",
+      "context_policy": "suppress",
+      "voice_playbook": {
+        "playbook_id": "route.wallet.encrypted_file.open",
+        "purpose": "Let the recipient choose an encrypted card file and decrypt it locally without an account or upload.",
+        "screen": "app",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain that the file and its password are required without asking for their contents.",
+          "cancelled": "Respect cancellation and keep decrypted card information hidden.",
+          "failed": "Offer a local retry without claiming the card opened.",
+          "timeout": "Keep the card hidden and offer one safe retry.",
+          "callback_error": "Keep private values out of recovery messages.",
+          "route_mismatch": "Use only the verified encrypted-file reader route."
+        },
+        "completion_boundary": "The card is open only after authenticated decryption completes locally for the current file and password. No recipient delivery is inferred.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Never ask for, interpret, log or transmit the chosen file, password or decrypted card."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "app",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": null
+    },
+    {
       "route_pattern": "/welcome",
       "page_file": "app/welcome/page.tsx",
       "route_mode": "standard",

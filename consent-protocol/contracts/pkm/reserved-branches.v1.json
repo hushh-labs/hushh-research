@@ -58,6 +58,7 @@
 
     "one_wallet_add": {"feature": "wallet", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
     "one_wallet_remove": {"feature": "wallet", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
+    "one_wallet_share_card": {"feature": "wallet", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
     "agent_chat_wallet_add": {"feature": "wallet", "class": "feature", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
 
     "gmail_receipt_memory_save_button": {"feature": "gmail_receipts", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
@@ -227,7 +228,7 @@
       "branch_prefix": "*",
       "except": [],
       "owner_feature": "wallet",
-      "writer_ids": ["one_wallet_add", "one_wallet_remove", "agent_chat_wallet_add"],
+      "writer_ids": ["one_wallet_add", "one_wallet_remove", "one_wallet_share_card", "agent_chat_wallet_add"],
       "agent_memory_sibling": "financial.agent_memory",
       "offer_action": {"route_pattern": "/one/wallet", "action_id": "route.one_wallet", "label_template": "Add {label} to Wallet"},
       "shareable": "policy",

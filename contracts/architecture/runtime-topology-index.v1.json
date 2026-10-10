@@ -6081,6 +6081,29 @@
       "implementation_override": null,
       "lifecycle": "canonical",
       "native_surface_id": null,
+      "page_file": "app/wallet/open/page.tsx",
+      "pathname": "/wallet/open",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.wallet.encrypted_file.open"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
       "page_file": "app/welcome/page.tsx",
       "pathname": "/welcome",
       "route_mode": "standard",
@@ -6128,13 +6151,13 @@
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
     "action_gateway": "b8f73cead32d28c71c32eebbcd6f500e2f096e01951b3eee87a22de30b60e98d",
     "agent_registry": "01b1ae85c91c4e85dd879f023bdc41a3878b473107342bc63528de0b0c453d2e",
-    "cache_manifest": "6f378750de9878dbb85c050e8fc3eb8d561d95e880791c8715eca78fa5f04a5f",
+    "cache_manifest": "a755d259334378b86771604d20c27dcc668c6f97bb954f483548ba1c3bdcb755",
     "data_plane": "0a495db0a9303fbd7551ca81623e959f93691158a53e57ea263401deb8f34bb7",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "3dc81d307ef8cf9932ca3f80c2d54915515161968d0303feccea401e8afebce9",
-    "route_index": "822739eeee97798e6f589e74e60c18f4e466ed4fb729edc280ac2db4099051d5",
-    "route_layout": "78ac6a77ffcc94087bd302cbfd25fb5ceb5345f283f24a3a7ffb2f5488975b90",
-    "surface_map": "db0e29245df6ab7529c63ed0e32c8b3d751145c07977a6f5a4de88c73506ba16",
+    "route_index": "e367cca0805258a28b803954634668f2c7872a63046fb2825ece6a2409401f3b",
+    "route_layout": "2b31b3a1b8c5e00a1a6614d4fdd75b346431b8039326d2e03b2bc5c1af2a0a1d",
+    "surface_map": "2c1653e883ecbe50ce21d73366ab8d0196db96e8dac3ecafde217ec5ada529be",
     "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -6146,7 +6169,7 @@
     "decision_required": 2,
     "in_process_specialists": 5,
     "one_specialist_tools": 6,
-    "physical_routes": 149,
+    "physical_routes": 150,
     "semantic_routes": 14,
     "table_families": 94
   }
