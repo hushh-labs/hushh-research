@@ -1,6 +1,6 @@
 "use client";
 
-import { useContext, useEffect, useState, type ReactNode } from "react";
+import { useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useAuth } from "@/hooks/use-auth";
@@ -87,12 +87,16 @@ export function CircleMessagesPane({ active = true, initialCircleId = null, onTh
   const circles = loaded?.token === token && loaded.ownerId === ownerId ? loaded.circles : [];
   useEffect(() => { onCircleCountChange?.(circles.length); }, [circles.length, onCircleCountChange]);
   const selected = circles.find((circle) => circle.id === selectedId) ?? null;
-  const session = selected && ownerId && token && vault?.vaultKey ? {
-    circleId: selected.id,
+  const selectedCircleId = selected?.id ?? null;
+  const vaultKey = vault?.vaultKey ?? null;
+  // Keep the encrypted session stable while shell/header state rerenders.
+  // A new object restarts chat initialization and its long-poll connection.
+  const session = useMemo(() => selectedCircleId && ownerId && token && vaultKey ? {
+    circleId: selectedCircleId,
     userId: ownerId,
     vaultOwnerToken: token,
-    vaultKey: vault.vaultKey,
-  } : null;
+    vaultKey,
+  } : null, [selectedCircleId, ownerId, token, vaultKey]);
   const sessionCircleId = session?.circleId ?? null;
 
   useEffect(() => {
