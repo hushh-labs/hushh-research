@@ -2,14 +2,14 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
-import { useVoiceSurfaceActive } from "@/lib/voice/voice-surface-activity";
+import { useVoiceSurfaceActive } from "@/lib/kai/actions/voice-surface-activity";
 import type {
   VoiceSurfaceActionDefinition,
   VoiceSurfaceConceptDefinition,
   VoiceSurfaceControlDefinition,
   VoiceSurfaceDefinition,
   VoiceSurfaceSectionDefinition,
-} from "@/lib/voice/voice-types";
+} from "@/lib/kai/actions/voice-types";
 
 export type {
   VoiceSurfaceActionDefinition,
@@ -17,7 +17,7 @@ export type {
   VoiceSurfaceControlDefinition,
   VoiceSurfaceDefinition,
   VoiceSurfaceSectionDefinition,
-} from "@/lib/voice/voice-types";
+} from "@/lib/kai/actions/voice-types";
 
 /**
  * A screen reporting that it currently cannot do the thing it exists to do,

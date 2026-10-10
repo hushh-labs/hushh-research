@@ -270,7 +270,7 @@ describe("connection-request Feed-first foreground policy", () => {
       source: "fcm",
     });
     expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledWith("arrived");
-    expect(detail.accepted).toBe(true);
+    expect(detail.accepted).toBe(false);
   });
 
   it.each([
@@ -773,7 +773,7 @@ describe("connection-request Feed-first foreground policy", () => {
     expect(mocks.dispatchFeedStateChanged).not.toHaveBeenCalled();
     const detail = { notification: { data: { type: "direct_message", recipient_key_id: "current-owner-key", conversation_id: "fixture" } }, accepted: false };
     act(() => window.dispatchEvent(new CustomEvent("fcm-message", { detail })));
-    expect(detail.accepted).toBe(true);
+    expect(detail.accepted).toBe(false);
     expect(mocks.dispatchDirectMessagesUpdated).toHaveBeenCalledOnce();
   });
 

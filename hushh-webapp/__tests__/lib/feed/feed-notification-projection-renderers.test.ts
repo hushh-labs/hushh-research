@@ -443,3 +443,16 @@ describe("Kai analysis ready Feed item", () => {
     expect(openedAnalysisId({ ticker: "NVDA" })).toBeNull();
   });
 });
+
+
+it("describes one grouped Circle row and opens that Circle", () => {
+  const id = "00000000-0000-4000-8000-000000000123";
+  const view = presentFeedItem(feedItem("location_circle_message", { circle_id: id, circle_name: "Release Hunter", chat_unread_count: 7 }));
+  expect(view.label).toBe("Release Hunter");
+  expect(view.description).toBe("7 new messages");
+  expect(view.href).toContain(id);
+});
+it("keeps the authenticated latest DM preview alongside the grouped message count", () => {
+  const view = presentFeedItem(feedItem("direct_message_received", { counterpart_label: "Parth", message_preview: "See you soon", chat_unread_count: 3 }, "connections"));
+  expect(view.description).toBe("3 new messages · See you soon");
+});

@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
+import time
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
+import stripe
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
@@ -13,16 +18,20 @@ from sqlalchemy import event as sa_event
 from sqlalchemy.pool import StaticPool
 
 import api.routes.one.payouts as payout_routes
-import hushh_mcp.services.stripe_connect_bank_payouts as bank_module
 from api.middleware import require_vault_owner_token
+from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
 from hushh_mcp.services.stripe_connect_bank_payouts import (
     ConnectBankPayoutError,
     StripeConnectBankPayouts,
 )
 
+CONNECT_WEBHOOK_SECRET = "whsec_" + "c" * 30
+PAYMENT_WEBHOOK_SECRET = "whsec_" + "p" * 30
+
 
 class FakeStripe:
-    def __init__(self):
+    def __init__(self, *, livemode=False):
+        self.livemode = livemode
         self.retrieve_calls = []
         self.payout_status = "pending"
         self.account_payouts_enabled = True
@@ -42,13 +51,6 @@ class FakeStripe:
         }
         outer = self
 
-        class Webhook:
-            @staticmethod
-            def construct_event(payload, signature, secret):
-                if signature != "valid" or not secret.startswith("whsec_"):
-                    raise ValueError("signature invalid")
-                return json.loads(payload)
-
         class Payout:
             @staticmethod
             def retrieve(payout_id, **kwargs):
@@ -56,7 +58,7 @@ class FakeStripe:
                 return {
                     "id": payout_id,
                     "object": "payout",
-                    "livemode": False,
+                    "livemode": outer.livemode,
                     "status": outer.payout_status,
                     "amount": 911,
                     "currency": "usd",
@@ -83,7 +85,7 @@ class FakeStripe:
                     ),
                 }
 
-        self.Webhook, self.Payout, self.Account = Webhook, Payout, Account
+        self.Webhook, self.Payout, self.Account = stripe.Webhook, Payout, Account
 
 
 def event(*, event_id="evt_one", account="acct_owner", kind="payout.created", live=False):
@@ -92,6 +94,7 @@ def event(*, event_id="evt_one", account="acct_owner", kind="payout.created", li
     return json.dumps(
         {
             "id": event_id,
+            "object": "event",
             "type": kind,
             "account": account,
             "livemode": live,
@@ -109,14 +112,29 @@ def event(*, event_id="evt_one", account="acct_owner", kind="payout.created", li
     ).encode()
 
 
+def signature(payload, *, secret=CONNECT_WEBHOOK_SECRET, timestamp=None):
+    timestamp = int(time.time()) if timestamp is None else timestamp
+    digest = hmac.new(
+        secret.encode(), str(timestamp).encode() + b"." + payload, hashlib.sha256
+    ).hexdigest()
+    return f"t={timestamp},v1={digest}"
+
+
+def signed_event(**kwargs):
+    payload = event(**kwargs)
+    return {"payload": payload, "signature": signature(payload)}
+
+
 @pytest.fixture
-def world(monkeypatch):
-    monkeypatch.setattr(
-        bank_module,
-        "payment_config",
-        lambda: ("sk_test_" + "x" * 30, "whsec_payment_only", "https://uat.one.hushh.ai"),
-    )
-    monkeypatch.setenv("STRIPE_CONNECT_WEBHOOK_SECRET", "whsec_" + "c" * 30)
+def world(monkeypatch, request):
+    mode = getattr(request, "param", "test")
+    for name in ("ENVIRONMENT", "HUSHH_DEPLOY_ENV", "HUSSH_DEPLOY_ENV"):
+        monkeypatch.setenv(name, "uat")
+    monkeypatch.setenv("STRIPE_MODE", mode)
+    monkeypatch.setenv("STRIPE_SECRET_KEY", f"sk_{mode}_" + "x" * 30)
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", PAYMENT_WEBHOOK_SECRET)
+    monkeypatch.setenv("STRIPE_CONNECT_WEBHOOK_SECRET", CONNECT_WEBHOOK_SECRET)
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://uat.one.hushh.ai")
     engine = create_engine(
         "sqlite+pysqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
@@ -131,11 +149,11 @@ def world(monkeypatch):
     with engine.begin() as connection:
         connection.execute(
             text("""CREATE TABLE stripe_owner_payout_accounts (
-          user_id TEXT PRIMARY KEY,stripe_account_id TEXT UNIQUE NOT NULL,
-          stripe_mode TEXT NOT NULL DEFAULT 'test',
+          user_id TEXT NOT NULL,stripe_account_id TEXT UNIQUE NOT NULL,
+          stripe_mode TEXT NOT NULL,
           details_submitted BOOLEAN NOT NULL,payouts_enabled BOOLEAN NOT NULL,
           account_ready BOOLEAN NOT NULL DEFAULT FALSE,
-          updated_at TIMESTAMP)""")
+          updated_at TIMESTAMP,PRIMARY KEY(user_id,stripe_mode))""")
         )
         connection.execute(
             text("""CREATE TABLE stripe_connect_bank_payout_events (
@@ -154,10 +172,12 @@ def world(monkeypatch):
         )
         connection.execute(
             text("""INSERT INTO stripe_owner_payout_accounts
-              (user_id,stripe_account_id,details_submitted,payouts_enabled)
-              VALUES ('owner','acct_owner',0,0),('other','acct_other',0,0)""")
+              (user_id,stripe_account_id,stripe_mode,details_submitted,payouts_enabled)
+              VALUES ('owner','acct_owner_inactive',:inactive_mode,0,0),
+                ('owner','acct_owner',:mode,0,0),('other','acct_other',:mode,0,0)"""),
+            {"mode": mode, "inactive_mode": "test" if mode == "live" else "live"},
         )
-    fake = FakeStripe()
+    fake = FakeStripe(livemode=mode == "live")
     service = StripeConnectBankPayouts(db=SimpleNamespace(engine=engine), stripe_api=fake)
 
     async def transaction(operation):
@@ -166,79 +186,8 @@ def world(monkeypatch):
 
     service._transaction = transaction
     service.notices = notices
-    return service, fake, engine
-
-
-@pytest.mark.asyncio
-async def test_signed_events_track_aggregate_bank_payout_without_order_attribution(world):
-    service, fake, engine = world
-    assert await service.process_webhook(payload=event(), signature="valid") == "updated"
-    assert await service.process_webhook(payload=event(), signature="valid") == "duplicate"
-    assert service.notices == [
-        ("one_user_state_changed", '{"type":"bank_payout_changed","user_id":"owner"}')
-    ]
-    assert len(fake.retrieve_calls) == 1
-    summary = await service.owner_summary(user_id="owner")
-    assert summary["payouts"][0]["status"] == "pending"
-    assert summary["payouts"][0]["amountCents"] == 911
-    assert "requestId" not in json.dumps(summary)
-    assert (await service.owner_summary(user_id="other"))["payouts"] == []
-
-    fake.payout_status = "paid"
-    assert (
-        await service.process_webhook(
-            payload=event(event_id="evt_paid", kind="payout.paid"), signature="valid"
-        )
-        == "updated"
-    )
-    fake.payout_status = "pending"  # stale provider snapshot finishes later
-    assert (
-        await service.process_webhook(
-            payload=event(event_id="evt_late", kind="payout.updated"), signature="valid"
-        )
-        == "updated"
-    )
-    assert (await service.owner_summary(user_id="owner"))["payouts"][0]["status"] == "paid"
-
-    fake.payout_status = "failed"  # a later bank failure can follow payout.paid
-    await service.process_webhook(
-        payload=event(event_id="evt_failed", kind="payout.failed"), signature="valid"
-    )
-    assert (await service.owner_summary(user_id="owner"))["payouts"][0]["status"] == "failed"
-    with engine.begin() as connection:
-        assert (
-            connection.execute(
-                text("SELECT COUNT(*) FROM stripe_connect_bank_payouts")
-            ).scalar_one()
-            == 1
-        )
-
-
-@pytest.mark.asyncio
-async def test_rejects_invalid_signature_and_wrong_account_without_provider_read(world):
-    service, fake, engine = world
-    with pytest.raises(ConnectBankPayoutError, match="invalid_signature"):
-        await service.process_webhook(payload=event(), signature="bad")
-    assert (
-        await service.process_webhook(
-            payload=event(event_id="evt_live", live=True), signature="valid"
-        )
-        == "ignored_mode"
-    )
-    assert (
-        await service.process_webhook(
-            payload=event(event_id="evt_unmapped", account="acct_unknown"), signature="valid"
-        )
-        == "ignored_account"
-    )
-    assert fake.retrieve_calls == []
-    with engine.begin() as connection:
-        assert (
-            connection.execute(
-                text("SELECT COUNT(*) FROM stripe_connect_bank_payout_events")
-            ).scalar_one()
-            == 0
-        )
+    yield service, fake, engine
+    engine.dispose()
 
 
 @pytest.mark.asyncio
@@ -246,14 +195,14 @@ async def test_account_update_refreshes_owner_readiness_and_rejects_replayed_id_
     service, fake, engine = world
     assert (
         await service.process_webhook(
-            payload=event(event_id="evt_account", kind="account.updated"), signature="valid"
+            **signed_event(event_id="evt_account", kind="account.updated")
         )
         == "updated"
     )
     with engine.begin() as connection:
         account = connection.execute(
             text(
-                "SELECT details_submitted,payouts_enabled,account_ready FROM stripe_owner_payout_accounts WHERE user_id='owner'"
+                "SELECT details_submitted,payouts_enabled,account_ready FROM stripe_owner_payout_accounts WHERE stripe_account_id='acct_owner'"
             )
         ).first()
         assert tuple(account) == (1, 1, 1)
@@ -261,9 +210,7 @@ async def test_account_update_refreshes_owner_readiness_and_rejects_replayed_id_
         ("one_user_state_changed", '{"type":"bank_payout_changed","user_id":"owner"}')
     ]
     with pytest.raises(ConnectBankPayoutError, match="provider_mismatch"):
-        await service.process_webhook(
-            payload=event(event_id="evt_account", kind="payout.updated"), signature="valid"
-        )
+        await service.process_webhook(**signed_event(event_id="evt_account", kind="payout.updated"))
     assert len(fake.retrieve_calls) == 1
 
 
@@ -281,7 +228,7 @@ async def test_bank_change_reconciles_current_account_and_notifies_owner(world, 
     # Stripe still reports payouts_enabled while its removed/failed default bank
     # is already visible. Never keep accepting new paid orders on that cache.
     fake.external_accounts = {"data": [], "has_more": False}
-    assert await service.process_webhook(payload=event(kind=kind), signature="valid") == "updated"
+    assert await service.process_webhook(**signed_event(kind=kind)) == "updated"
     assert fake.retrieve_calls[0][0] == "acct_owner"  # deleted bank cannot be retrieved
     assert service.notices == [
         ("one_user_state_changed", '{"type":"bank_payout_changed","user_id":"owner"}')
@@ -289,7 +236,9 @@ async def test_bank_change_reconciles_current_account_and_notifies_owner(world, 
     with engine.begin() as connection:
         assert (
             connection.execute(
-                text("SELECT account_ready FROM stripe_owner_payout_accounts WHERE user_id='owner'")
+                text(
+                    "SELECT account_ready FROM stripe_owner_payout_accounts WHERE stripe_account_id='acct_owner'"
+                )
             ).scalar_one()
             == 0
         )
@@ -299,7 +248,7 @@ async def test_bank_change_reconciles_current_account_and_notifies_owner(world, 
             ).scalar_one()
             == 0
         )
-    assert await service.process_webhook(payload=event(kind=kind), signature="valid") == "duplicate"
+    assert await service.process_webhook(**signed_event(kind=kind)) == "duplicate"
     assert len(fake.retrieve_calls) == 1
 
 
@@ -308,33 +257,218 @@ async def test_bank_change_rejects_external_object_bound_to_another_owner(world)
     service, fake, _engine = world
     payload = json.loads(event(kind="account.external_account.updated"))
     payload["data"]["object"]["account"] = "acct_other"
+    raw = json.dumps(payload).encode()
     with pytest.raises(ConnectBankPayoutError, match="invalid_event"):
-        await service.process_webhook(payload=json.dumps(payload).encode(), signature="valid")
+        await service.process_webhook(payload=raw, signature=signature(raw))
     assert fake.retrieve_calls == []
 
 
-def test_routes_keep_bank_summary_owner_scoped_and_webhook_public(world, monkeypatch):
-    service, _fake, _engine = world
+@pytest.mark.parametrize("world", ["test", "live"], indirect=True)
+def test_signed_bank_flow_keeps_terminal_state_and_owner_mode_boundaries(world, monkeypatch):
+    service, fake, engine = world
     monkeypatch.setattr(payout_routes, "StripeConnectBankPayouts", lambda: service)
     app = FastAPI()
     app.include_router(payout_routes.router)
-    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner"}
     client = TestClient(app)
+    webhook = "/api/one/payouts/connect/webhook"
+    history = "/api/one/payouts/account/bank-payouts"
 
-    assert (
-        client.post(
-            "/api/one/payouts/connect/webhook", data=event(), headers={"Stripe-Signature": "bad"}
-        ).status_code
-        == 400
-    )
+    def post(**event_kwargs):
+        payload = event(live=fake.livemode, **event_kwargs)
+        return client.post(
+            webhook, content=payload, headers={"Stripe-Signature": signature(payload)}
+        )
+
+    assert client.get(history).status_code == 401
+    payload = event(live=fake.livemode)
+    for body, header in (
+        (payload + b"\n", signature(payload)),
+        (payload, signature(payload, timestamp=int(time.time()) - 600)),
+        (payload, signature(payload, secret=PAYMENT_WEBHOOK_SECRET)),
+    ):
+        rejected = client.post(webhook, content=body, headers={"Stripe-Signature": header})
+        assert rejected.status_code == 400
+        assert rejected.json() == {"detail": "Connect event could not be processed."}
+        assert rejected.headers["Cache-Control"] == "no-store"
+
+    wrong_mode = event(event_id="evt_wrong_mode", live=not fake.livemode)
     assert client.post(
-        "/api/one/payouts/connect/webhook", data=event(), headers={"Stripe-Signature": "valid"}
-    ).json() == {"status": "updated"}
-    response = client.get("/api/one/payouts/account/bank-payouts")
+        webhook, content=wrong_mode, headers={"Stripe-Signature": signature(wrong_mode)}
+    ).json() == {"status": "ignored_mode"}
+    for account in ("acct_unknown", "acct_owner_inactive"):
+        assert post(event_id=f"evt_{account}", account=account).json() == {
+            "status": "ignored_account"
+        }
+    assert fake.retrieve_calls == []
+    assert service.notices == []
+    with engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("SELECT COUNT(*) FROM stripe_connect_bank_payout_events")
+            ).scalar_one()
+            == 0
+        )
+        # The same owner has another mode's account and historical payout.
+        # An old wrong-mode row on the active account must also remain hidden.
+        connection.execute(
+            text("""INSERT INTO stripe_connect_bank_payouts
+              (stripe_payout_id,stripe_account_id,livemode,amount_cents,currency,status,status_rank)
+              VALUES ('po_inactive','acct_owner_inactive',:inactive,500,'usd','paid',2),
+                ('po_wrong_mode','acct_owner',:inactive,600,'usd','paid',2)"""),
+            {"inactive": not fake.livemode},
+        )
+
+    # Stripe needs no vault-owner token; its raw-byte signature is the authority.
+    accepted = post()
+    assert accepted.status_code == 200
+    assert accepted.json() == {"status": "updated"}
+    assert post().json() == {"status": "duplicate"}
+    assert len(fake.retrieve_calls) == 1
+    assert service.notices == [
+        ("one_user_state_changed", '{"type":"bank_payout_changed","user_id":"owner"}')
+    ]
+
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner"}
+    response = client.get(f"{history}?user_id=other")
     assert response.status_code == 200
     assert response.headers["Cache-Control"] == "private, no-store"
-    assert response.json()["payouts"][0]["status"] == "pending"
+    payout = response.json()["payouts"]
+    assert len(payout) == 1
+    assert payout[0]["id"] == "po_one"
+    assert payout[0]["status"] == "pending"
+    assert payout[0]["amountCents"] == 911
+    assert payout[0]["failureCode"] is None
     assert "acct_owner" not in response.text
+    assert "requestId" not in response.text
+
+    for index, (provider_status, kind, expected) in enumerate(
+        [
+            ("in_transit", "payout.updated", "in_transit"),
+            ("paid", "payout.paid", "paid"),
+            ("pending", "payout.created", "paid"),  # stale provider read finishes late
+            ("failed", "payout.failed", "failed"),  # bank rejects a paid deposit
+            ("paid", "payout.paid", "failed"),  # late paid read cannot erase the failure
+        ]
+    ):
+        fake.payout_status = provider_status
+        assert post(event_id=f"evt_transition_{index}", kind=kind).json() == {"status": "updated"}
+        payout = client.get(history).json()["payouts"]
+        assert len(payout) == 1
+        assert payout[0]["status"] == expected
+        assert payout[0]["failureCode"] == ("no_account" if expected == "failed" else None)
+
+    expected_key = ("sk_live_" if fake.livemode else "sk_test_") + "x" * 30
+    assert all(
+        payout_id == "po_one"
+        and options == {"stripe_account": "acct_owner", "api_key": expected_key}
+        for payout_id, options in fake.retrieve_calls
+    )
+    with engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("SELECT COUNT(*) FROM stripe_connect_bank_payout_events")
+            ).scalar_one()
+            == 6
+        )
+        assert (
+            connection.execute(
+                text(
+                    "SELECT COUNT(*) FROM stripe_connect_bank_payouts WHERE stripe_payout_id='po_one'"
+                )
+            ).scalar_one()
+            == 1
+        )
 
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "other"}
-    assert client.get("/api/one/payouts/account/bank-payouts").json()["payouts"] == []
+    assert client.get(f"{history}?user_id=owner").json()["payouts"] == []
+
+
+def test_signed_provider_timeout_retries_same_event_without_duplicate_payout(world, monkeypatch):
+    service, fake, engine = world
+    provider_reads = []
+    original_retrieve = fake.Payout.retrieve
+
+    def retrieve(payout_id, **kwargs):
+        provider_reads.append((payout_id, kwargs))
+        if len(provider_reads) == 1:
+            raise TimeoutError("private_provider_timeout")
+        return original_retrieve(payout_id, **kwargs)
+
+    monkeypatch.setattr(fake.Payout, "retrieve", retrieve)
+    monkeypatch.setattr(payout_routes, "StripeConnectBankPayouts", lambda: service)
+    app = FastAPI()
+    app.include_router(payout_routes.router)
+    client = TestClient(app)
+    payload = event(event_id="evt_retry")
+    headers = {"Stripe-Signature": signature(payload)}
+
+    failed = client.post("/api/one/payouts/connect/webhook", content=payload, headers=headers)
+    assert failed.status_code == 503
+    assert failed.json() == {"detail": "Connect event could not be processed."}
+    assert failed.headers["Cache-Control"] == "no-store"
+    assert len(provider_reads) == 1
+    assert service.notices == []
+    with engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("SELECT COUNT(*) FROM stripe_connect_bank_payout_events")
+            ).scalar_one()
+            == 0
+        )
+        assert (
+            connection.execute(
+                text("SELECT COUNT(*) FROM stripe_connect_bank_payouts")
+            ).scalar_one()
+            == 0
+        )
+
+    retried = client.post("/api/one/payouts/connect/webhook", content=payload, headers=headers)
+    assert retried.status_code == 200
+    assert retried.json() == {"status": "updated"}
+    duplicate = client.post("/api/one/payouts/connect/webhook", content=payload, headers=headers)
+    assert duplicate.status_code == 200
+    assert duplicate.json() == {"status": "duplicate"}
+    assert len(provider_reads) == 2
+    assert service.notices == [
+        ("one_user_state_changed", '{"type":"bank_payout_changed","user_id":"owner"}')
+    ]
+    with engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("SELECT stripe_event_id FROM stripe_connect_bank_payout_events")
+            ).scalar_one()
+            == "evt_retry"
+        )
+        assert (
+            connection.execute(
+                text("SELECT stripe_payout_id FROM stripe_connect_bank_payouts")
+            ).scalar_one()
+            == "po_one"
+        )
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "detail"),
+    [
+        ("GET", "/account/bank-payouts", "Bank payout status is unavailable."),
+        ("POST", "/connect/webhook", "Connect event could not be processed."),
+    ],
+)
+def test_bank_routes_sanitize_storage_failure(monkeypatch, method, path, detail):
+    failure = ConnectorLifecycleError("private_storage_diagnostic")
+    service = SimpleNamespace(
+        owner_summary=AsyncMock(side_effect=failure),
+        process_webhook=AsyncMock(side_effect=failure),
+    )
+    monkeypatch.setattr(payout_routes, "StripeConnectBankPayouts", lambda: service)
+    app = FastAPI()
+    app.include_router(payout_routes.router)
+    if method == "GET":
+        app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner"}
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.request(method, f"/api/one/payouts{path}")
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": detail}
+    assert "no-store" in response.headers.get("Cache-Control", "")

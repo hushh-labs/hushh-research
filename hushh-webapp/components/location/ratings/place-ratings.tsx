@@ -52,7 +52,7 @@ import { apiErrorCode } from "@/lib/services/api-client";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { deriveLocationVoiceActions } from "@/lib/voice/location-voice-actions";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 const SCREEN_ID = "one_location_ratings";
 const VOICE_ACTIONS = deriveLocationVoiceActions(SCREEN_ID);

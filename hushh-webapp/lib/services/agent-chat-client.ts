@@ -11,7 +11,7 @@ import {
 import { HttpAgent, type AgentSubscriber, type InputContent, type Tool, type UserMessage } from "@ag-ui/client";
 import { Capacitor } from "@capacitor/core";
 import { applyPatch, type Operation } from "fast-json-patch";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 import { describeDirectiveForOwner } from "@/lib/agent/action-directive-summary";
 import { parseMcpCallReview, type McpCallApproval, type McpCallReviewReference } from "@/lib/agent/mcp-call-review";
 import { REACTION_TOOL_NAME, parseMessageReaction, type MessageReactionResult } from "@/lib/agent/agent-message-reaction";

@@ -27,7 +27,7 @@ import {
 } from "@/lib/navigation/routes";
 import { acknowledgeOneSetupExit } from "@/lib/services/one-setup-exit-service";
 import { lucideCapabilityIcon } from "@/lib/onboarding/one-capabilities";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";

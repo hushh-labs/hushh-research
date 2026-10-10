@@ -97,6 +97,18 @@ class HushhNotificationsPlugin : Plugin() {
 
     companion object {
         const val EMERGENCY_SMS_CHANNEL_ID = "one_location_sms_emergency_v1"
+        @Volatile var activityActive = false
+        @Volatile var activeChatTag = ""
+        @Volatile var activeChatKey = ""
+    }
+
+    @PluginMethod
+    fun setActiveChat(call: PluginCall) {
+        val key = call.getString("keyId") ?: ""
+        if (!ChatPreviewKeys.matches(context, key)) { call.resolve(); return }
+        activeChatKey = key
+        activeChatTag = call.getString("tag") ?: ""
+        call.resolve()
     }
 
     private fun getBackendUrl(call: PluginCall? = null): String {
@@ -115,7 +127,7 @@ class HushhNotificationsPlugin : Plugin() {
     @PluginMethod
     fun clearNotificationKey(call: PluginCall) {
         val user = call.getString("userId") ?: run { call.reject("Notification identity required"); return }
-        try { ChatPreviewKeys.clear(context, user); call.resolve() }
+        try { ChatPreviewKeys.clear(context, user); activeChatTag = ""; activeChatKey = ""; call.resolve() }
         catch (_: Exception) { call.reject("Notification cleanup unavailable") }
     }
 

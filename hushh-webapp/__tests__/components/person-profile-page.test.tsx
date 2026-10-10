@@ -153,7 +153,7 @@ vi.mock("@/lib/agent/local-onboarding-actions", () => ({
   useLocalOnboardingActionHandler: vi.fn(),
 }));
 
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
   usePublishVoiceSurfaceMetadata: vi.fn(),
 }));
 

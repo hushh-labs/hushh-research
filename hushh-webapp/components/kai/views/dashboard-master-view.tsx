@@ -94,7 +94,7 @@ import {
 import {
   usePublishVoiceSurfaceMetadata,
   useVoiceSurfaceControlTracking,
-} from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/voice-surface-metadata";
 import {
   buildKaiPortfolioSectionRoute,
   type KaiPortfolioSection,

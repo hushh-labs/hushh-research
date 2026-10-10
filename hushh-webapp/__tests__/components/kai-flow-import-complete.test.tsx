@@ -126,7 +126,7 @@ vi.mock("@/lib/kai/kai-financial-resource", () => ({
   }),
 }));
 
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
   usePublishVoiceSurfaceMetadata: () => undefined,
   useVoiceSurfaceControlTracking: () => ({
     activeControlId: null,

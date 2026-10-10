@@ -94,6 +94,8 @@ describe("/api/kai/[...path] proxy", () => {
           Authorization: "Bearer firebase-id-token",
           "X-Hushh-Consent": "Bearer vault-owner-token",
           "Content-Type": "application/json",
+          // A random correlation ID can contain the fixture's private amount.
+          "X-Request-ID": "f5bdeb51-4bc4-4567-8bac-cb64b5d1df2a",
         },
         body: JSON.stringify({
           user_id: "owner-uid",

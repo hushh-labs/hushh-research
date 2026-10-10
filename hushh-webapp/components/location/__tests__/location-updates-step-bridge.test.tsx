@@ -2,7 +2,7 @@ import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentActionRuntimeResult } from "@/lib/agent/agent-action-runtime";
-import type { AppRuntimeState } from "@/lib/voice/voice-types";
+import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
 
 const USER = "u1";
 const LOCATION_SCREEN = "one_location";

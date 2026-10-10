@@ -96,12 +96,12 @@ import {
   type LocalActionContinuation,
   type LocalOnboardingActionContext,
 } from "@/lib/agent/local-onboarding-actions";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import {
   VOICE_CONFIRM_DATA_KEY,
   VOICE_DISAMBIGUATION_DATA_KEY,
-} from "@/lib/voice/voice-action-card";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+} from "@/lib/kai/actions/voice-action-card";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 import { deriveLocationVoiceActions } from "@/lib/voice/location-voice-actions";
 
 import { Badge } from "@/components/ui/badge";

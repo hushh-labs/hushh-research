@@ -87,7 +87,8 @@ import { cn } from "@/lib/utils";
 
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { chatReadIsBlocked, subscribeChatLayerChanges } from "@/lib/interaction/chat-read-visibility";
-import { useVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { useChatAlertVisibility } from "@/lib/notifications/chat-alert-visibility";
+import { useVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 import styles from "./direct-messages-page.module.css";
 
@@ -491,6 +492,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   }, [editingMessageId]);
 
   const hasRouteSelection = Boolean(resolvingSelection || requestedPersonRef || requestedConversationId);
+  useChatAlertVisibility(lane === "people" && hasRouteSelection && activeConversationId && !loadingThread && !blockingLayer && !messageSearchOpen
+    ? `direct-chat:${activeConversationId}` : null, messageListRef);
   const canCompose = hasRouteSelection && !resolvingSelection && thread.canSend;
 
   const loadInbox = useCallback(

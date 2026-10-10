@@ -14,7 +14,12 @@ import uuid
 from urllib.parse import quote
 
 from hushh_mcp.branding import connection_request_body
-from hushh_mcp.services.push_tokens_service import PUSH_TOKENS_FOR_USER_SQL, remove_stale_push_token
+from hushh_mcp.services.push_tokens_service import (
+    PUSH_NOTIFICATION_DEVICES_FOR_USER_SQL as PUSH_TOKENS_FOR_USER_SQL,
+)
+from hushh_mcp.services.push_tokens_service import (
+    remove_stale_push_token,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +104,15 @@ def send_user_data_push(
                 messaging,
                 token=token,
                 platform=platform,
-                data=message_data,
+                data={
+                    **message_data,
+                    **(
+                        {"recipient_key_id": str(row["preview_key_id"])}
+                        if notification_type in {"location_circle_chat_read", "direct_message_read"}
+                        and row.get("preview_key_id")
+                        else {}
+                    ),
+                },
                 title=title,
                 body=body,
                 request_url=deep_link,

@@ -8,17 +8,17 @@ import type {
   VoiceSurfaceConceptDefinition,
   VoiceSurfaceControlDefinition,
   VoiceSurfaceSectionDefinition,
-} from "@/lib/voice/voice-types";
+} from "@/lib/kai/actions/voice-types";
 import {
   getKaiActionById,
   getKaiActionsForControlId,
-} from "@/lib/voice/kai-action-gateway";
-import { listInvestorKaiActionsForSurface } from "@/lib/voice/investor-kai-action-registry";
+} from "@/lib/kai/actions/kai-action-gateway";
+import { listInvestorKaiActionsForSurface } from "@/lib/kai/actions/investor-kai-action-registry";
 import {
   getVoiceSurfaceMetadata,
   type VoiceInteractionLayerV1,
   type VoiceSurfaceMetadata,
-} from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/voice-surface-metadata";
 import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
 import {
   createVoiceTurnId,

@@ -58,7 +58,7 @@ const GLOBAL_NAV_ACTION_IDS = new Set([
 // phrase now resolves to exactly one action.
 const KNOWN_ALIAS_COLLISIONS = new Set([]);
 
-// The frontend gateway parser (lib/voice/kai-action-gateway.ts) only knows
+// The frontend gateway parser (lib/kai/actions/kai-action-gateway.ts) only knows
 // how to keep an action whose execution_target.path is one of these -- any
 // other value makes it drop the whole action, silently, everywhere (#6122:
 // location.find_contacts and ria.clients.switch_to_nearby vanished this way

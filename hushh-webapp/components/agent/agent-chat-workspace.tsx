@@ -394,7 +394,7 @@ import { CONSENT_STATE_CHANGED_EVENT, dispatchConsentStateChanged } from "@/lib/
 import { subscribeInformationRequest } from "@/lib/consent/information-request-reads";
 import { wakeLiveAccessWatch, watchLiveAccess } from "@/lib/consent/live-access-watch";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
-import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
+import { deriveVoiceRouteScreen } from "@/lib/kai/actions/route-screen-derivation";
 import { useRootChatDeferredReady } from "@/lib/navigation/use-root-chat-deferred-ready";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import {
@@ -448,9 +448,9 @@ import {
   takeDriveChatRecovery,
   type DriveChatRecoveryReason,
 } from "@/lib/agent/drive-oauth-chat-recovery";
-import type { AppRuntimeState } from "@/lib/voice/voice-types";
-import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
+import { getVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 import { buildOneVoiceStructuredScreenContext } from "@/lib/voice/screen-context-builder";
 import {
   EmailDeliveryService,

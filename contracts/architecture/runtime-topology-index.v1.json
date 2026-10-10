@@ -2929,6 +2929,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "route.connected_system_list",
           "route.profile_connected_systems"
         ],
         "delegate_agent_ids": [],
@@ -2954,7 +2955,10 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.connected_system_list",
+          "route.profile_connected_systems"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.connected.systems.systemid"
       }
@@ -3047,7 +3051,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.mail_connections"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.email"
       }
@@ -3925,7 +3931,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.messages_connections"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.messages"
       }
@@ -4239,6 +4247,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "route.connected_system_list",
           "route.profile_connected_systems"
         ],
         "delegate_agent_ids": [],
@@ -5025,7 +5034,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.puppy_agents"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.puppy"
       }
@@ -5475,7 +5486,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.wallet_profile_cards"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.wallet.card"
       }
@@ -6171,21 +6184,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
-    "action_gateway": "41f5493671bb408e4b07a89feaa44b9aa4291ab48873e2ebb5512df6210502db",
+    "action_gateway": "87a891f0497f2ae3c211044667bace55f9e4f8593265019844f3384a4f34a3ab",
     "agent_registry": "01b1ae85c91c4e85dd879f023bdc41a3878b473107342bc63528de0b0c453d2e",
     "cache_manifest": "6f378750de9878dbb85c050e8fc3eb8d561d95e880791c8715eca78fa5f04a5f",
     "data_plane": "fd6cd1c396003ea6d32472ac088d55c1742b6ab8a742b8281c3ca72a4afb427a",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "3dc81d307ef8cf9932ca3f80c2d54915515161968d0303feccea401e8afebce9",
-    "route_index": "6a7b4cf3d13c6decdc09f5cd37c7045c56f267a7516531241c57c5fa19a5dd8f",
-    "route_layout": "78ac6a77ffcc94087bd302cbfd25fb5ceb5345f283f24a3a7ffb2f5488975b90",
-    "surface_map": "3f47f4aca8e93bd924574d858e3e985dca678492f7e94ce9804d8f1dd0c3ba99",
+    "route_index": "f17b5604c1d222593e614c94ef88e7409bd69c6b60f48b160eebd28d5d0fe485",
+    "route_layout": "5566c183aa29a6f031d21619185d407571312474ca342b549302fd5ce83323e8",
+    "surface_map": "efbbc49d9427454d17cfa563c827c24b016eebe645a3a25ae2cb4d9807f640ad",
     "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 231,
+    "actions": 236,
     "agents": 19,
     "aliases": 4,
     "decision_required": 2,

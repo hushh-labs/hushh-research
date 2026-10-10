@@ -75,6 +75,13 @@ describe("FeedPushPrompt", () => {
     rerender(<FeedPushPrompt />);
     expect(container.innerHTML).toBe("");
   });
+  it("offers registration retry after permission is granted but delivery failed", async () => {
+    const requestPermission = setPermission("granted");
+    render(<FeedPushPrompt context="chat" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
+    expect(state.retry).toHaveBeenCalledOnce();
+    expect(requestPermission).not.toHaveBeenCalled();
+  });
   it("provides native authorization and settings recovery", async () => {
     state.native = true;
     const { rerender } = render(<FeedPushPrompt />);

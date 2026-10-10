@@ -173,7 +173,7 @@ import {
   usePublishVoiceSurfaceMetadata,
   useVoiceSurfaceControlTracking,
   type VoiceSurfaceActionDefinition,
-} from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/voice-surface-metadata";
 
 type ConsentTab = "requests" | "active" | "history" | "connections";
 type ConsentManagerMode = ConsentCenterMode;
@@ -3752,7 +3752,11 @@ export function ConsentCenterPage() {
                     heightMode="active"
                     holdHeightDuringTransition={false}
                   >
-                    <div>
+                    <div
+                      key={sentDocumentRequests ? "sent-document-requests" : "received-document-requests"}
+                      data-testid="consent-request-direction"
+                      data-request-direction={sentDocumentRequests ? "sent" : "received"}
+                    >
                     {!riaOutgoingCompatibilityRoute ? <div role="group" aria-label="Request direction" className="mb-3 flex flex-wrap gap-2 px-3">
                       <Button size="standard" variant="none" aria-pressed={!sentDocumentRequests} onClick={() => setParam({ requestView: null, page: null, requestId: null, selected: null, bundleId: null })}>Received</Button>
                       <Button size="standard" variant="none" aria-pressed={sentDocumentRequests} onClick={() => setParam({ requestView: "sent", page: null, requestId: null, selected: null, bundleId: null })}>Sent documents</Button>

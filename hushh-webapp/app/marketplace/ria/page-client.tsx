@@ -16,7 +16,7 @@ import {
 } from "@/lib/services/ria-service";
 import { ConnectionsService } from "@/lib/services/connections-service";
 import { trackEvent } from "@/lib/observability/client";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 function verificationBadge(status: string) {
   const normalized = status.toLowerCase();

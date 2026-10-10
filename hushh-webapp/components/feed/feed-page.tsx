@@ -59,8 +59,8 @@ import { useFeedLiveRefresh } from "@/lib/feed/use-feed-live-refresh";
 import { useDocumentFeedStream } from "@/lib/feed/use-document-feed-stream";
 import { ROUTES } from "@/lib/navigation/routes";
 import { openExternalUrl } from "@/lib/utils/browser-navigation";
-import { listKaiActionsForSurface } from "@/lib/voice/kai-action-gateway";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { listKaiActionsForSurface } from "@/lib/kai/actions/kai-action-gateway";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
 import { isFeedItemHidden } from "@/lib/feed/feed-visibility";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
@@ -72,6 +72,7 @@ import {
 import { daysSinceToday } from "@/lib/feed/feed-timestamp";
 import {
   appendFeedPage,
+  feedItemIdentity,
   createFeedPaginationState,
   isFeedIdAtOrBefore,
   latestFeedId,
@@ -630,11 +631,11 @@ function FeedPageSession({
       ...pagination.additionalItems,
     ]) {
       if (isFeedItemHidden(item, isLocalCrmBuildEnabled())) continue;
-      if (seen.has(item.id)) continue;
+      if (seen.has(feedItemIdentity(item))) continue;
       if (clearedThroughId && isFeedIdAtOrBefore(item.id, clearedThroughId)) {
         continue;
       }
-      seen.add(item.id);
+      seen.add(feedItemIdentity(item));
       const previous = previousItemsRef.current.get(item.id);
       merged.push(
         previous &&
