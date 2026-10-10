@@ -263,6 +263,109 @@ def test_historical_drive_payment_reads_current_requester_scoped_status() -> Non
     assert "private.pdf" not in str(metadata)
 
 
+def test_document_feed_projects_owner_setup_and_exact_partial_refund_only_to_each_party() -> None:
+    request_id = "11111111-2222-4333-8444-555555555555"
+    owner_db = _QueuedDb(
+        raw_results=[
+            [
+                {
+                    "request_id": request_id,
+                    "viewer_is_owner": True,
+                    "owner_payout_status": "awaiting_delivery",
+                    "owner_payout_account_ready": False,
+                    "owner_earning_cents": None,
+                    "current_refund_amount_cents": 500,
+                    "current_payment_amount_cents": 1000,
+                }
+            ]
+        ]
+    )
+    owner = FeedService()
+    owner._db = owner_db
+    row = {"event_type": "document_share_request", "metadata": {"request_id": request_id}}
+    owner_metadata = FeedService._to_item(
+        {"id": 1, **owner._with_drive_payment_status("owner", [row])[0]}
+    )["metadata"]
+    assert owner_metadata["owner_payout_status"] == "awaiting_delivery"
+    assert owner_metadata["owner_payout_account_ready"] is False
+    assert "current_refund_amount_cents" not in owner_metadata
+
+    requester_db = _QueuedDb(
+        raw_results=[
+            [
+                {
+                    "request_id": request_id,
+                    "viewer_is_owner": False,
+                    "owner_payout_status": "transferred",
+                    "owner_earning_cents": 411,
+                    "current_refund_amount_cents": 500,
+                    "current_payment_amount_cents": 1000,
+                }
+            ]
+        ]
+    )
+    requester = FeedService()
+    requester._db = requester_db
+    row = {"event_type": "document_share_payment_refunded", "metadata": {"request_id": request_id}}
+    requester_metadata = FeedService._to_item(
+        {"id": 2, **requester._with_drive_payment_status("requester", [row])[0]}
+    )["metadata"]
+    assert requester_metadata["current_refund_amount_cents"] == 500
+    assert requester_metadata["current_payment_amount_cents"] == 1000
+    assert "owner_payout_status" not in requester_metadata
+
+
+def test_document_feed_projects_setup_before_payout_order_and_waiting_to_requester(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", "true")
+    request_id = "11111111-2222-4333-8444-555555555555"
+    owner_db = _QueuedDb(
+        raw_results=[
+            [
+                {
+                    "request_id": request_id,
+                    "viewer_is_owner": True,
+                    "owner_payout_status": None,
+                    "owner_payout_account_ready": False,
+                }
+            ]
+        ]
+    )
+    owner = FeedService()
+    owner._db = owner_db
+    owner_row = {"event_type": "document_share_request", "metadata": {"request_id": request_id}}
+    owner_metadata = FeedService._to_item(
+        {"id": 1, **owner._with_drive_payment_status("owner", [owner_row])[0]}
+    )["metadata"]
+    assert owner_metadata["owner_payout_account_ready"] is False
+    assert "owner_payout_status" not in owner_metadata
+    assert owner_db.raw_calls[0][1]["payout_rollout"] is True
+
+    requester_db = _QueuedDb(
+        raw_results=[
+            [
+                {
+                    "request_id": request_id,
+                    "viewer_is_owner": False,
+                    "current_owner_payout_account_ready": False,
+                }
+            ]
+        ]
+    )
+    requester = FeedService()
+    requester._db = requester_db
+    requester_row = {
+        "event_type": "document_share_payment_ready",
+        "metadata": {"request_id": request_id},
+    }
+    requester_metadata = FeedService._to_item(
+        {"id": 2, **requester._with_drive_payment_status("requester", [requester_row])[0]}
+    )["metadata"]
+    assert requester_metadata["current_owner_payout_account_ready"] is False
+    assert "owner_payout_account_ready" not in requester_metadata
+
+
 def test_recipient_share_outcome_hides_owner_zero_match_result() -> None:
     recipient = FeedService._to_item(
         {

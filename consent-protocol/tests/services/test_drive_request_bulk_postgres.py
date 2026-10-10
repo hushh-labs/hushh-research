@@ -1601,6 +1601,106 @@ async def test_recipient_erasure_fences_paid_bulk_effect_settlement(
     assert refunds == [] and refund_status == "manual_review"
 
 
+async def _erase_paid_pending_progressive_batch(request_bulk, sharing, monkeypatch, *, uncertain):
+    monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", "true")
+    request = await _request(sharing)
+    request_id = request["requestId"]
+    review = await request_bulk.create_review(
+        user_id="owner",
+        search_job_id=_search(request_bulk, request_id=request_id, count=4),
+        client_request_id=str(uuid4()),
+        recipients=[_recipient("recipient", "b@example.invalid")],
+        excluded=[],
+        origin_request_id=request_id,
+        selected_positions=[1, 2, 3],
+    )
+    await request_bulk.approve(
+        user_id="owner",
+        share_id=review["shareId"],
+        revision=review["revision"],
+        review_digest=review["reviewDigest"],
+    )
+    with request_bulk.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_request_payment_orders SET
+              status='paid',stripe_payment_intent_id=:intent,paid_at=clock_timestamp()
+              WHERE request_id=:request"""),
+            {"request": request_id, "intent": f"pi_test_{uuid4().hex}"},
+        )
+        connection.execute(
+            text("""UPDATE drive_bulk_share_effects SET state=CASE
+              WHEN position=1 THEN 'succeeded'
+              WHEN position=2 AND :uncertain THEN 'unknown'
+              ELSE 'skipped' END
+              WHERE share_id=:share"""),
+            {"share": review["shareId"], "uncertain": uncertain},
+        )
+        if not uncertain:
+            request_bulk._finalize(connection, review["shareId"])
+        status = connection.execute(
+            text("SELECT status FROM drive_share_requests WHERE request_id=:request"),
+            {"request": request_id},
+        ).scalar_one()
+        assert status == "pending"  # A fourth search result still awaits review.
+    with request_bulk.db.engine.begin() as connection:
+        lock_connection_graph_users(connection, user_ids=["recipient"])
+        erase_drive_account_in_transaction(connection, user_id="recipient", permanent=False)
+    with request_bulk.db.engine.begin() as connection:
+        payout = (
+            connection.execute(
+                text("SELECT * FROM drive_request_owner_payouts WHERE request_id=:request"),
+                {"request": request_id},
+            )
+            .mappings()
+            .one()
+        )
+        obligation = (
+            connection.execute(
+                text("SELECT * FROM drive_request_payment_obligations WHERE request_id=:request"),
+                {"request": request_id},
+            )
+            .mappings()
+            .one()
+        )
+        refunds = _claim_refunds(
+            DriveRequestPaymentService(db=request_bulk.db), connection, limit=1
+        )
+    return payout, obligation, refunds
+
+
+@pytest.mark.asyncio
+async def test_erasure_prorates_settled_progressive_batch_while_request_pending(
+    request_bulk, sharing, monkeypatch
+):
+    payout, obligation, refunds = await _erase_paid_pending_progressive_batch(
+        request_bulk, sharing, monkeypatch, uncertain=False
+    )
+    assert payout["expected_files"] == 3
+    assert payout["confirmed_files"] == 1
+    assert payout["retained_amount_cents"] == 333
+    assert payout["refund_amount_cents"] == 667
+    assert payout["status"] == "awaiting_refund"
+    assert payout["eligible_at_erasure"] is True
+    assert obligation["delivery_confirmed_at_erasure"] is True
+    assert obligation["delivery_unsettled_at_erasure"] is False
+    assert len(refunds) == 1 and refunds[0]["amount_cents"] == 667
+
+
+@pytest.mark.asyncio
+async def test_erasure_holds_progressive_batch_with_unknown_delivery(
+    request_bulk, sharing, monkeypatch
+):
+    payout, obligation, refunds = await _erase_paid_pending_progressive_batch(
+        request_bulk, sharing, monkeypatch, uncertain=True
+    )
+    assert payout["finalized_at"] is None
+    assert payout["eligible_at_erasure"] is False
+    assert payout["status"] == "manual_review"
+    assert obligation["delivery_confirmed_at_erasure"] is True
+    assert obligation["delivery_unsettled_at_erasure"] is True
+    assert refunds == []
+
+
 @pytest.mark.asyncio
 async def test_request_review_requires_explicit_drive_shareability(request_bulk, sharing):
     request = await _request(sharing)

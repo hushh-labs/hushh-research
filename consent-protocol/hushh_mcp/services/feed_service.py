@@ -125,6 +125,12 @@ _SAFE_METADATA_KEYS = frozenset(
         "current_access_stopped",
         "current_checkout_expires_at",
         "current_request_expires_at",
+        "owner_payout_status",
+        "owner_payout_account_ready",
+        "current_owner_payout_account_ready",
+        "owner_earning_cents",
+        "current_refund_amount_cents",
+        "current_payment_amount_cents",
         "new_status",
         "actor_is_self",
         # Which lane a location share belongs to ("sos" vs everything else).
@@ -339,15 +345,15 @@ class FeedService:
     def _with_drive_payment_status(
         self, user_id: str, rows: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
-        """Batch refresh the authority behind historical Pay instructions.
+        """Batch refresh current document payment, refund and owner earning state.
 
         A Feed page is capped at 100 items. The query is scoped to the
-        authenticated requester as well as each opaque request ID, and never
-        returns an owner ID, provider link, file, or request content.
+        authenticated participant and opaque request IDs. It returns no owner
+        ID, provider link, file, or request content.
         """
         request_ids: set[str] = set()
         for row in rows:
-            if row.get("event_type") != "document_share_payment_ready":
+            if not str(row.get("event_type") or "").startswith("document_share_"):
                 continue
             metadata = row.get("metadata")
             if not isinstance(metadata, dict):
@@ -358,6 +364,8 @@ class FeedService:
                 continue
         if not request_ids:
             return rows
+
+        from hushh_mcp.services.drive_request_owner_payout_service import payout_enabled
 
         by_request: dict[str, dict[str, Any]] = {}
         try:
@@ -375,16 +383,39 @@ class FeedService:
                             o.stripe_checkout_expires_at IS NOT NULL AND
                             o.stripe_checkout_expires_at <= clock_timestamp()) AS current_checkout_expired,
                            CASE WHEN o.stripe_checkout_session_id IS NOT NULL
-                             THEN o.stripe_checkout_expires_at END AS current_checkout_expires_at
+                             THEN o.stripe_checkout_expires_at END AS current_checkout_expires_at,
+                           (r.user_id=:user_id) AS viewer_is_owner,
+                           p.status AS owner_payout_status,
+                           p.owner_earning_cents,
+                           CASE WHEN r.payment_required AND r.status IN
+                             ('pending','preparing','review_ready','approved','partial','completed')
+                             AND
+                             (p.request_id IS NOT NULL OR
+                              (:payout_rollout AND o.request_id IS NULL)) THEN
+                             COALESCE(a.details_submitted AND a.payouts_enabled,FALSE)
+                           END AS owner_payout_account_ready,
+                           CASE WHEN p.request_id IS NOT NULL THEN
+                             COALESCE(a.details_submitted AND a.payouts_enabled,FALSE)
+                           END AS current_owner_payout_account_ready,
+                           CASE WHEN f.status='succeeded'
+                             THEN COALESCE(f.amount_cents,o.amount_cents) END
+                             AS current_refund_amount_cents,
+                           o.amount_cents AS current_payment_amount_cents
                     FROM drive_share_requests r
                     JOIN jsonb_array_elements_text(CAST(:request_ids_json AS JSONB)) ids(value)
                       ON r.request_id = CAST(ids.value AS UUID)
                     LEFT JOIN drive_request_payment_orders o ON o.request_id=r.request_id
-                    WHERE r.recipient_user_id=:user_id
+                    LEFT JOIN drive_request_owner_payouts p
+                      ON p.request_id=r.request_id AND p.erased_at IS NULL
+                    LEFT JOIN pkm_owner_payout_accounts a
+                      ON a.user_id=r.user_id AND r.payment_required
+                    LEFT JOIN drive_request_payment_refunds f ON f.request_id=r.request_id
+                    WHERE r.recipient_user_id=:user_id OR r.user_id=:user_id
                     """,
                     {
                         "user_id": user_id,
                         "request_ids_json": json.dumps(sorted(request_ids)),
+                        "payout_rollout": payout_enabled(),
                     },
                 )
                 .data
@@ -396,7 +427,7 @@ class FeedService:
 
         result: list[dict[str, Any]] = []
         for row in rows:
-            if row.get("event_type") != "document_share_payment_ready":
+            if not str(row.get("event_type") or "").startswith("document_share_"):
                 result.append(row)
                 continue
             metadata = row.get("metadata")
@@ -404,22 +435,56 @@ class FeedService:
                 result.append(row)
                 continue
             current = by_request.get(str(metadata.get("request_id") or ""), {})
-            # Fail closed in presentation: a missing read cannot authorize a
-            # historical Pay instruction. The live payment action is fetched
-            # separately from the authenticated consent/payment projection.
-            projection = {
-                "current_payment_status": current.get("current_payment_status") or "unavailable",
-                "current_request_status": current.get("current_request_status") or "unavailable",
-                "current_checkout_expired": current.get("current_checkout_expired") is True,
-                "current_request_expired": current.get("current_request_expired") is True,
-                "current_access_stopped": current.get("current_access_stopped") is True,
-            }
-            for field in ("current_checkout_expires_at", "current_request_expires_at"):
-                instant = current.get(field)
-                if instant is not None:
-                    projection[field] = (
-                        instant.isoformat() if hasattr(instant, "isoformat") else str(instant)
-                    )
+            projection: dict[str, Any] = {}
+            if row.get("event_type") == "document_share_payment_ready":
+                # Fail closed in presentation: a missing read cannot authorize
+                # an old Pay instruction. The action rechecks the live order.
+                projection.update(
+                    {
+                        "current_payment_status": current.get("current_payment_status")
+                        or "unavailable",
+                        "current_request_status": current.get("current_request_status")
+                        or "unavailable",
+                        "current_checkout_expired": current.get("current_checkout_expired") is True,
+                        "current_request_expired": current.get("current_request_expired") is True,
+                        "current_access_stopped": current.get("current_access_stopped") is True,
+                    }
+                )
+                readiness = current.get("current_owner_payout_account_ready")
+                if type(readiness) is bool:
+                    projection["current_owner_payout_account_ready"] = readiness
+                for field in ("current_checkout_expires_at", "current_request_expires_at"):
+                    instant = current.get(field)
+                    if instant is not None:
+                        projection[field] = (
+                            instant.isoformat() if hasattr(instant, "isoformat") else str(instant)
+                        )
+            if current.get("viewer_is_owner") is True and row.get("event_type") in {
+                "document_share_request",
+                "document_share_outcome",
+            }:
+                status = current.get("owner_payout_status")
+                if isinstance(status, str):
+                    projection["owner_payout_status"] = status
+                readiness = current.get("owner_payout_account_ready")
+                if type(readiness) is bool:
+                    projection["owner_payout_account_ready"] = readiness
+                earning = current.get("owner_earning_cents")
+                if type(earning) is int and earning >= 0:
+                    projection["owner_earning_cents"] = earning
+            if (
+                current.get("viewer_is_owner") is False
+                and row.get("event_type") == "document_share_payment_refunded"
+            ):
+                refund_amount = current.get("current_refund_amount_cents")
+                payment_amount = current.get("current_payment_amount_cents")
+                if (
+                    type(refund_amount) is int
+                    and type(payment_amount) is int
+                    and (0 < refund_amount <= payment_amount)
+                ):
+                    projection["current_refund_amount_cents"] = refund_amount
+                    projection["current_payment_amount_cents"] = payment_amount
             result.append({**row, "metadata": {**metadata, **projection}})
         return result
 

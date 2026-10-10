@@ -120,6 +120,35 @@ describe("projectFeedDriveProgress", () => {
     } })])).toEqual([]);
   });
 
+  it("waits for an enrolled owner's payout setup without exposing Pay", () => {
+    const checkout = entry({ kind: "outgoing_request", metadata: {
+      ...entry().metadata,
+      direction: "outgoing",
+      paymentStatus: "checkout_open",
+      paymentAmountCents: 1000,
+      paymentCurrency: "usd",
+      checkoutExpiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+      ownerPayoutAccountReady: false,
+    } });
+    const waiting = projectFeedDrivePayments([checkout])[0]!;
+    expect(waiting).toMatchObject({
+      status: "waiting_owner_setup",
+      title: "Waiting for owner payout setup",
+      href: expect.stringContaining("requestView=sent"),
+    });
+    expect(describeFeedDrivePayment(waiting).title).toBe("Waiting for owner payout setup");
+    expect(projectFeedDrivePayments([entry({ ...checkout, metadata: {
+      ...checkout.metadata, paymentStatus: "awaiting_payment",
+      checkoutExpiresAt: null,
+    } })])[0]?.status).toBe("waiting_owner_setup");
+    expect(projectFeedDrivePayments([entry({ ...checkout, metadata: {
+      ...checkout.metadata, ownerPayoutAccountReady: true,
+    } })])[0]?.status).toBe("ready");
+    expect(projectFeedDrivePayments([entry({ ...checkout, metadata: {
+      ...checkout.metadata, ownerPayoutAccountReady: undefined,
+    } })])[0]?.status).toBe("ready");
+  });
+
   it("keeps an abandoned Checkout actionable without claiming sharing progress", () => {
     const payment = entry({ kind: "outgoing_request", metadata: {
       ...entry().metadata, direction: "outgoing", paymentStatus: "checkout_open",
