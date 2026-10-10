@@ -58,9 +58,10 @@ class FakeStripe:
                     "id": account_id,
                     "object": "account",
                     "country": "US",
-                    "livemode": False,
                     "details_submitted": True,
                     "payouts_enabled": outer.account_payouts_enabled,
+                    "capabilities": {"transfers": "active"},
+                    "requirements": {},
                 }
 
         self.Webhook, self.Payout, self.Account = Webhook, Payout, Account
@@ -108,6 +109,7 @@ def world(monkeypatch):
             text("""CREATE TABLE pkm_owner_payout_accounts (
           user_id TEXT PRIMARY KEY,stripe_account_id TEXT UNIQUE NOT NULL,
           details_submitted BOOLEAN NOT NULL,payouts_enabled BOOLEAN NOT NULL,
+          account_ready BOOLEAN NOT NULL DEFAULT FALSE,
           updated_at TIMESTAMP)""")
         )
         connection.execute(
@@ -226,10 +228,10 @@ async def test_account_update_refreshes_owner_readiness_and_rejects_replayed_id_
     with engine.begin() as connection:
         account = connection.execute(
             text(
-                "SELECT details_submitted,payouts_enabled FROM pkm_owner_payout_accounts WHERE user_id='owner'"
+                "SELECT details_submitted,payouts_enabled,account_ready FROM pkm_owner_payout_accounts WHERE user_id='owner'"
             )
         ).first()
-        assert tuple(account) == (1, 1)
+        assert tuple(account) == (1, 1, 1)
     assert service.notices == [
         ("one_user_state_changed", '{"type":"bank_payout_changed","user_id":"owner"}')
     ]

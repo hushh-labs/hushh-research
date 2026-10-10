@@ -38,6 +38,24 @@ function priceChips() {
 }
 
 describe("DocumentRequestPriceSheet", () => {
+  it("sets a trusted request price without an Allow label", () => {
+    const { props } = renderSheet({ priceOnly: true });
+    expect(screen.getByRole("dialog", { name: "Set price" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Save · $10" }));
+    expect(props.onSubmit).toHaveBeenCalledExactlyOnceWith(1000);
+    expect(screen.queryByRole("button", { name: /Allow/ })).toBeNull();
+  });
+
+  it("prefills an asynchronously loaded draft and keeps it editable", () => {
+    const { props, rerender } = renderSheet({ priceOnly: true, detailsPending: true });
+    rerender(<DocumentRequestPriceSheet {...props} detailsPending={false} initialAmountCents={1200} />);
+    expect(screen.getByLabelText("Custom price")).toHaveValue("12");
+    expect(screen.getByRole("button", { name: "Save · $12" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "$20" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save · $20" }));
+    expect(props.onSubmit).toHaveBeenCalledExactlyOnceWith(2000);
+  });
+
   it("offers the preset prices, starting at $10, and submits the chosen one", () => {
     const { props } = renderSheet();
 

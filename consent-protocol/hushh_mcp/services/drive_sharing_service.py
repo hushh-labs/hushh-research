@@ -67,12 +67,22 @@ class DriveSharingService:
 
     async def update_owner_pricing(self, *, user_id, enabled, amount_cents, expected_version):
         await self._require_owner()
-        return await self.store.update_owner_pricing(
+        result = await self.store.update_owner_pricing(
             user_id=user_id,
             enabled=enabled,
             amount_cents=amount_cents,
             expected_version=expected_version,
         )
+        await wake_drive_work("suggestions")
+        await wake_drive_work("sharing")
+        return result
+
+    async def resume_owner_setup(self, *, user_id):
+        """Internal verified account-refresh hook; no user consent is created here."""
+        result = await self.store.resume_owner_setup(user_id=user_id)
+        await wake_drive_work("suggestions")
+        await wake_drive_work("sharing")
+        return result
 
     async def request_quote(self, *, user_id, owner_user_id):
         await self._require_owner()
@@ -179,6 +189,15 @@ class DriveSharingService:
             user_id=user_id, request_id=request_id, revision=revision, amount_cents=amount_cents
         )
         await wake_drive_work("suggestions")
+        return result
+
+    async def set_request_price(self, *, user_id, request_id, revision, amount_cents):
+        await self._require_owner()
+        result = await self.store.set_request_price(
+            user_id=user_id, request_id=request_id, revision=revision, amount_cents=amount_cents
+        )
+        await wake_drive_work("suggestions")
+        await wake_drive_work("sharing")
         return result
 
     async def retry_preparation(self, **kwargs):

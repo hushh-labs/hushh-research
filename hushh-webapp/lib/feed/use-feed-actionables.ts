@@ -1,5 +1,7 @@
 "use client";
 
+import { documentRequestEntrySetup, documentRequestSetupHref, documentRequestSetupLabel } from "@/lib/consent/document-request-setup";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ComponentType } from "react";
@@ -51,8 +53,6 @@ import {
 } from "@/lib/consent/consent-events";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
-import { documentShareRequestId, isDocumentShareEntry } from "@/lib/consent/document-share-consent";
-import { ROUTES } from "@/lib/navigation/routes";
 import { projectFeedDriveProgress, type FeedDriveProgress } from "@/lib/feed/drive-request-progress";
 import {
   describeFeedDrivePayment,
@@ -61,7 +61,6 @@ import {
 import { useFeedPaymentClock } from "@/lib/feed/use-feed-payment-clock";
 import { useFeedPaymentContext } from "@/lib/feed/use-feed-payment-context";
 import { DriveRequestPaymentService } from "@/lib/services/drive-request-payment-service";
-import { DocumentPayoutService } from "@/lib/services/document-payout-service";
 import {
   DriveSharingError,
   DriveSharingService,
@@ -217,6 +216,8 @@ export interface DocumentPricePrompt {
   /** False for a free request: Allow sends no price. */
   paymentRequired: boolean;
   lockedAmountCents: number | null;
+  initialAmountCents?: number | null;
+  priceOnly?: boolean;
   purpose: string | null;
   recipientEmail: string | null;
   periodStart: string | null;
@@ -240,6 +241,8 @@ type DocumentPriceTerms = {
   revision: number;
   paymentRequired: boolean;
   lockedAmountCents: number | null;
+  initialAmountCents?: number | null;
+  priceOnly?: boolean;
   purpose: string;
   recipientEmail: string;
   periodStart: string | null;
@@ -253,6 +256,12 @@ function decisionErrorCode(cause: unknown): string {
 /** What the owner reads when Allow or Deny did not go through. Never server text. */
 export function documentDecisionErrorCopy(code: string): string {
   switch (code) {
+    case "owner_payout_required":
+      return "Link payouts to continue.";
+    case "owner_price_required":
+      return "Set your request price to continue.";
+    case "payout_unavailable":
+      return "Payments are unavailable. Try again later.";
     case "invalid_payment_amount":
       return "Choose a whole-dollar price from $1 to $500.";
     // The server says request_already_decided for every closed state as well:
@@ -804,37 +813,6 @@ export function useFeedActionables(): UseFeedActionablesResult {
   const sentProgressRefresh = sentProgressResource.refresh;
   const activeProgressRefresh = activeProgressResource.refresh;
 
-  // Consent identifies paid requests that may be waiting, while Stripe's
-  // current Connect account is the authority for whether setup is complete.
-  const payoutSetupCandidate = (receivedOverflowItems ?? []).find((entry) =>
-    isDocumentShareEntry(entry) && entry.metadata?.direction === "incoming" &&
-    typeof entry.metadata.ownerPayoutAccountReady === "boolean" &&
-    Boolean(documentShareRequestId(entry.id)));
-  const hasPayoutSetupCandidate = Boolean(payoutSetupCandidate);
-  const [remotePayoutSetup, setRemotePayoutSetup] = useState<{
-    token: string;
-    state: "loading" | "ready" | "setup" | "unavailable";
-  } | null>(null);
-  useEffect(() => {
-    if (!hasPayoutSetupCandidate || !vaultOwnerToken) {
-      setRemotePayoutSetup(null);
-      return;
-    }
-    let cancelled = false;
-    setRemotePayoutSetup({ token: vaultOwnerToken, state: "loading" });
-    void DocumentPayoutService.account(vaultOwnerToken)
-      .then(({ account }) => {
-        if (!cancelled) setRemotePayoutSetup({
-          token: vaultOwnerToken,
-          state: account?.ready === true ? "ready" : "setup",
-        });
-      })
-      .catch(() => {
-        if (!cancelled) setRemotePayoutSetup({ token: vaultOwnerToken, state: "unavailable" });
-      });
-    return () => { cancelled = true; };
-  }, [hasPayoutSetupCandidate, vaultOwnerToken]);
-
   // ── Document requests from outside the Trusted circle: Allow or Deny ──
   // Both answers go out on this vault session's owner token only. A lock,
   // unlock or account switch mid-request ends it as session_changed.
@@ -921,7 +899,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
         return;
       }
       if (load !== priceLoadRef.current) return;
-      if (review.allowAvailable !== true) {
+      if ((target.priceOnly ? review.priceOnlyAvailable : review.allowAvailable) !== true) {
         priceLoadRef.current += 1;
         setPriceOpen(false);
         setPriceError(null);
@@ -942,7 +920,10 @@ export function useFeedActionables(): UseFeedActionablesResult {
       setPriceTerms({
         revision: review.revision,
         paymentRequired: review.paymentRequired === true,
-        lockedAmountCents: review.paymentRequired === true ? review.priceCents ?? null : null,
+        // A non-trusted Allow sets this request's price; a draft quote is not an order.
+        lockedAmountCents: null,
+        initialAmountCents: review.priceCents ?? null,
+        priceOnly: target.priceOnly === true,
         purpose: review.purpose.purpose,
         recipientEmail: review.recipientEmail,
         periodStart: review.purpose.periodStart,
@@ -991,7 +972,9 @@ export function useFeedActionables(): UseFeedActionablesResult {
       setPriceBusy(true);
       setPriceError(null);
       try {
-        await DriveSharingService.allow(
+        const submit = terms.priceOnly ? DriveSharingService.setRequestPrice.bind(DriveSharingService)
+          : DriveSharingService.allow.bind(DriveSharingService);
+        await submit(
           token,
           target.requestId,
           { revision: terms.revision, amountCents: price },
@@ -1012,7 +995,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
       setPriceOpen(false);
       settleDocumentRequest(target.entryId);
       toast.success(
-        price === null
+        terms.priceOnly ? `Price set at ${formatDocumentRequestPrice(price!)}.` : price === null
           ? "Allowed. Files are shared as they're found."
           : `Allowed at ${formatDocumentRequestPrice(price)}. Files are shared after payment.`,
       );
@@ -1036,6 +1019,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
       paymentRequired:
         priceTerms?.paymentRequired ?? priceTarget?.paymentRequired ?? false,
       lockedAmountCents: priceTerms?.lockedAmountCents ?? null,
+      initialAmountCents: priceTerms?.initialAmountCents ?? null,
+      priceOnly: priceTerms?.priceOnly ?? priceTarget?.priceOnly ?? false,
       purpose: priceTerms?.purpose ?? null,
       recipientEmail: priceTerms?.recipientEmail ?? null,
       periodStart: priceTerms?.periodStart ?? null,
@@ -1212,31 +1197,36 @@ export function useFeedActionables(): UseFeedActionablesResult {
     if (!userId) return [];
     const items: FeedActionable[] = [];
 
-    // An enrolled request can reach its payment gate while the owner has no
-    // consent decision pending. The live received projection supplies the
-    // setup task; an old or free request never projects explicit false.
-    const payoutState = remotePayoutSetup?.token === vaultOwnerToken
-      ? remotePayoutSetup.state : "loading";
-    if (payoutSetupCandidate &&
-        (!vaultOwnerToken || payoutState === "setup" || payoutState === "unavailable")) {
-      const setupNeeded = payoutState === "setup";
+    // One current setup action per request. SSE refreshes this same projection
+    // after bank setup or price save; no independent account-state cache can
+    // keep an obsolete CTA alive.
+    const setupEntryIds = new Set<string>();
+    const setupCandidates = new Map(
+      [...(receivedOverflowItems ?? []), ...(consentItems ?? [])].map((entry) => [entry.id, entry]),
+    );
+    for (const entry of setupCandidates.values()) {
+      if (entry.metadata?.direction !== "incoming") continue;
+      const setup = documentRequestEntrySetup(entry);
+      if (!setup || setup === "price" && ownerDocumentDecision(entry)) continue;
+      setupEntryIds.add(entry.id);
+      const label = resolveConsentRequesterLabel({ counterpartLabel: entry.counterpart_label });
+      const reviewHref = buildConsentCenterHref("pending", { requestId: entry.id, from: "/one/feed" });
       items.push({
-        id: "drive-payout-setup",
+        id: `consent:${entry.id}`,
         icon: ConsentAgentIcon,
         iconTone: "capability",
-        title: setupNeeded ? "Set up US payouts" : "Check US payouts",
-        description: setupNeeded
-          ? "Finish setup before requesters can pay."
-          : "Check payout setup before requesters pay.",
-        href: buildConsentCenterHref("pending", { requestId: payoutSetupCandidate.id, from: "/one/feed" }),
-        actions: [{
-          key: "setup-payouts",
-          label: setupNeeded ? "Set up US payouts" : "Check US payouts",
+        title: label,
+        description: documentRequestSetupLabel(setup, true),
+        href: reviewHref,
+        chevron: setup === "unavailable",
+        actions: setup === "unavailable" ? [] : [{
+          key: setup === "payouts" ? "setup-payouts" : "setup-price",
+          label: documentRequestSetupLabel(setup, true),
           tone: "primary",
-          run: () => router.push(ROUTES.PROFILE_MY_DATA),
+          run: () => router.push(documentRequestSetupHref(setup)),
         }],
-        sortAt: parseConsentInstant(payoutSetupCandidate.issued_at) ?? firstSeenAt("drive-payout-setup"),
-        displayTimestamp: parseConsentInstant(payoutSetupCandidate.issued_at),
+        sortAt: parseConsentInstant(entry.issued_at) ?? firstSeenAt(`consent:${entry.id}`),
+        displayTimestamp: parseConsentInstant(entry.issued_at),
       });
     }
 
@@ -1294,7 +1284,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
         // put one request in "Needs you" twice (a chevron-only consent row and
         // the real one). The connections lane owns them: it carries the inline
         // Confirm/Decline and the scoped Review route.
-        if (!isConsentFeedActionable(entry)) continue;
+        if (!isConsentFeedActionable(entry) || setupEntryIds.has(entry.id)) continue;
         if (isOwnerConsentQueueEntry(entry)) {
           queueEntries.push(entry);
           continue;
@@ -1335,17 +1325,17 @@ export function useFeedActionables(): UseFeedActionablesResult {
           chevron: !documentDecision,
           actions: documentDecision
             ? [
-                {
+                ...(!documentDecision.priceOnly ? [{
                   key: "deny",
                   label: "Deny",
                   tone: "danger",
                   disabled: !vaultOwnerToken,
                   confirm: true,
                   run: () => declineDocumentRequest(entryId, documentDecision),
-                },
+                } satisfies FeedActionButton] : []),
                 {
                   key: "allow",
-                  label: "Allow",
+                  label: documentDecision.priceOnly ? "Set price" : "Allow",
                   tone: "success",
                   disabled: !vaultOwnerToken,
                   run: () =>
@@ -1885,8 +1875,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
     firstSeenAt,
     locationRequests,
     receivedGrants,
-    payoutSetupCandidate,
-    remotePayoutSetup,
+    receivedOverflowItems,
     sentPayments,
     circleMemberInvites,
     locationRefresh,

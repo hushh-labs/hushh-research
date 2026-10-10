@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 296,
+  "expected_migration_version": 297,
   "migration_version_policy": "minimum",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -61,7 +61,8 @@
     "erase_tombstoned_push_registrations",
     "restore_legacy_push_projection",
     "preserve_drive_owner_delivery_basis",
-    "preserve_drive_request_owner_payout"
+    "preserve_drive_request_owner_payout",
+    "notify_document_owner_earning_changed"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -1693,7 +1694,8 @@
       "details_submitted",
       "payouts_enabled",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "account_ready"
     ],
     "pkm_packet_orders": [
       "id",

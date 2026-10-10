@@ -21,6 +21,7 @@ const state = vi.hoisted(() => ({
   approve: vi.fn(),
   decide: vi.fn(),
   allow: vi.fn(),
+  setRequestPrice: vi.fn(),
   prepareRevocation: vi.fn(),
   prepare: vi.fn(),
   prepareStream: vi.fn(),
@@ -859,6 +860,67 @@ describe("exact-file document review", () => {
     const decision = (overrides: Record<string, unknown> = {}) => partial({ durableAvailable: true,
       search: null, bulkShare: null, allowAvailable: true, paymentRequired: true,
       ownerAllowed: false, priceCents: null, ...overrides });
+
+    it("blocks preparation for bank setup and resumes the price decision on a state event", async () => {
+      state.status.mockResolvedValue(pending());
+      state.review.mockResolvedValue(decision({
+        ownerPayoutAccountReady: false, ownerPriceRequired: true,
+        preparationError: "owner_payout_required",
+      }));
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      expect(await screen.findByRole("link", { name: "Link payouts" })).toHaveAttribute(
+        "href", expect.stringContaining("/one/profile/payouts?from=%2Fone%2Fconsent%3Ftab%3Dpending"),
+      );
+      expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
+      expect(state.startRequestSearch).not.toHaveBeenCalled();
+      expect(state.prepare).not.toHaveBeenCalled();
+      state.review.mockResolvedValue(decision({ ownerPayoutAccountReady: true, ownerPriceRequired: true }));
+      await act(async () => window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: { requestId } })));
+      expect(await screen.findByRole("button", { name: "Allow" })).toBeVisible();
+      expect(screen.queryByRole("link", { name: "Link payouts" })).toBeNull();
+      expect(state.startRequestSearch).not.toHaveBeenCalled();
+    });
+
+    it("shows Set price for a paused trusted request without starting a search", async () => {
+      state.status.mockResolvedValue(pending());
+      state.review.mockResolvedValue(decision({
+        trustedAuto: true, allowAvailable: false, ownerPayoutAccountReady: true,
+        ownerPriceRequired: true, preparationError: "owner_price_required",
+      }));
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      expect(await screen.findByRole("link", { name: "Set price" })).toHaveAttribute(
+        "href", expect.stringContaining("/one/profile/request-pricing?from=%2Fone%2Fconsent%3Ftab%3Dpending"),
+      );
+      expect(screen.queryByText("Preparing automatic sharing")).toBeNull();
+      expect(state.startRequestSearch).not.toHaveBeenCalled();
+      expect(state.prepareStream).not.toHaveBeenCalled();
+    });
+
+    it.each([null, 1200])("prices a trusted request with draft %s without granting new consent", async (draftPrice) => {
+      state.status.mockResolvedValue(pending());
+      state.review.mockResolvedValue(decision({
+        trustedAuto: true, allowAvailable: false, priceOnlyAvailable: true,
+        ownerPayoutAccountReady: true, ownerPriceRequired: draftPrice === null,
+        priceCents: draftPrice, preparationError: draftPrice === null ? "owner_price_required" : null,
+      }));
+      state.setRequestPrice.mockImplementation(async () => {
+        state.review.mockResolvedValue(decision({ trustedAuto: true, allowAvailable: false,
+          priceOnlyAvailable: false, ownerPayoutAccountReady: true, ownerPriceRequired: false,
+          priceCents: 2000 }));
+        return { requestId, revision: 1, status: "pending" };
+      });
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Set price" }));
+      expect(priceSheet.props?.priceOnly).toBe(true);
+      expect(priceSheet.props?.initialAmountCents).toBe(draftPrice);
+      expect(screen.queryByText("Preparing automatic sharing")).toBeNull();
+      expect(screen.queryByRole("button", { name: /Deny/ })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Submit $20" }));
+      await waitFor(() => expect(state.setRequestPrice).toHaveBeenCalledExactlyOnceWith(
+        "owner-a", requestId, { revision: 0, amountCents: 2000 }, expect.any(Function),
+      ));
+      expect(state.allow).not.toHaveBeenCalled();
+    });
 
     it("searches nothing before Allow, then runs the automatic flow at the owner's price", async () => {
       let allowed = false;
