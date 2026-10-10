@@ -69,7 +69,40 @@ class TestFailureIsNotAnAnswer:
 
 
 class TestPromptBoundary:
-    async def test_the_gene_sees_the_question_the_period_and_only_approved_values(self):
+    async def test_the_answer_is_written_from_the_person_s_memory_document(self):
+        # The whole point of this lane: the answer comes from the person's own
+        # living memory, sliced to what they approved -- not from a file fetch.
+        seen: list[str] = []
+
+        async def runner(prompt):
+            seen.append(prompt)
+            return {"answer": "ok"}
+
+        memory = (
+            "# Memory\n\n## Account\n\n| Detail | Value |\n| --- | --- |\n"
+            "| Name | Ankit Kumar Singh |\n| Initial | A |\n"
+            "| Picture | https://example.test/a.png |\n\n"
+            "## Travel\n\n| Detail | Value |\n| --- | --- |\n| Trips 0 City | Tokyo |\n"
+        )
+        await AnswerComposer(runner=runner).compose(
+            question="How much on travel?",
+            projection={"memory": memory, "values": PROJECTION},
+            period={"start": "2026-01-01", "end": "2026-12-31"},
+        )
+        prompt = seen[0]
+        assert "How much on travel?" in prompt
+        assert "2026-01-01 to 2026-12-31" in prompt
+        # Who the person is travels with the answer.
+        assert "Ankit Kumar Singh" in prompt
+        assert "| Initial | A |" in prompt
+        assert "https://example.test/a.png" in prompt
+        # And the approved values, structured, so figures can be cited exactly.
+        assert "Tokyo" in prompt
+        assert "limited to what they approved" in prompt
+
+    async def test_a_bare_projection_still_works(self):
+        # Older callers send values with no memory document; that is handled
+        # rather than refused.
         seen: list[str] = []
 
         async def runner(prompt):
@@ -77,16 +110,15 @@ class TestPromptBoundary:
             return {"answer": "ok"}
 
         await AnswerComposer(runner=runner).compose(
-            question="How much on travel?",
-            projection=PROJECTION,
-            period={"start": "2026-01-01", "end": "2026-12-31"},
+            question="How much on travel?", projection=PROJECTION
         )
-        prompt = seen[0]
-        assert "How much on travel?" in prompt
-        assert "2026-01-01 to 2026-12-31" in prompt
-        assert "Tokyo" in prompt
-        # It is told these are the only inputs it has.
-        assert "the only information you have" in prompt
+        assert "Tokyo" in seen[0]
+
+    async def test_an_empty_memory_and_empty_values_is_nothing_to_answer_from(self):
+        with pytest.raises(AnswerComposerError):
+            await composer({"answer": "x"}).compose(
+                question="q", projection={"memory": "", "values": {}}
+            )
 
 
 def test_schema_requires_an_answer_string():

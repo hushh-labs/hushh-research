@@ -127,6 +127,16 @@ export interface AnswerableWork {
   requesterUserId: string;
   /** The requester's published ECDH key, so the device can seal in one pass. */
   recipientKey: { keyId: string; publicKeyJwk: JsonWebKey; algorithm?: string | null };
+  /**
+   * The owner's own public identity, as the requester already sees it on the
+   * profile. Carried so the answer's memory document is a record of a person
+   * rather than a bag of fields.
+   */
+  ownerIdentity?: {
+    displayName?: string | null;
+    email?: string | null;
+    photoUrl?: string | null;
+  } | null;
 }
 
 export class AnswerRequestService {
@@ -241,7 +251,7 @@ export class AnswerRequestService {
   static async compose(
     firebaseIdToken: string,
     requestId: string,
-    projection: Record<string, unknown>,
+    projection: { memory: string; values: Record<string, unknown> },
   ): Promise<{ answerMode: "agent" | "projection"; answer: string | null; covers?: string[]; gaps?: string[] }> {
     if (!firebaseIdToken) throw new Error("Sign in to compose this answer");
     const response = await ApiService.apiFetch(`${requestPath(requestId)}/compose`, {

@@ -281,6 +281,130 @@ class TestRefundRetry:
         second.Refund.create.assert_not_called()
 
 
+class TestOnePaymentBuysOneAnswer:
+    """A payment buys that answer. It is not a subscription to the owner."""
+
+    async def test_a_second_question_needs_its_own_approval_and_payment(self, answer_engine):  # noqa: F811
+        service, first_id, digest = await _approved(answer_engine)
+        _mark_paid(answer_engine, first_id, digest)
+        await service.deliver(owner_user_id=OWNER, request_id=first_id, envelope=ENVELOPE)
+
+        # The same requester asks again. Paying once must not carry over.
+        second = await service.create(
+            requester_user_id=REQUESTER,
+            owner_user_id=OWNER,
+            question="And what about last December specifically?",
+        )
+        second_id = second["requestId"]
+
+        with answer_engine.begin() as connection:
+            status = connection.execute(
+                text("SELECT status FROM pkm_answer_requests WHERE request_id=:r"),
+                {"r": second_id},
+            ).scalar()
+            orders = connection.execute(
+                text("SELECT count(*) FROM pkm_answer_payment_orders WHERE request_id=:r"),
+                {"r": second_id},
+            ).scalar()
+        # Back to the owner for approval, with no order and no price.
+        assert status == "awaiting_owner"
+        assert orders == 0
+
+        # And it is not answerable until it is approved and paid.
+        with pytest.raises(AnswerRequestError, match="request_not_answerable"):
+            await service.assert_answerable(owner_user_id=OWNER, request_id=second_id)
+
+    async def test_the_answer_is_fetchable_only_by_its_own_requester(self, answer_engine):  # noqa: F811
+        service, request_id, digest = await _approved(answer_engine)
+        _mark_paid(answer_engine, request_id, digest)
+        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+
+        # The person who paid can read it.
+        answer = await service.fetch_answer(requester_user_id=REQUESTER, request_id=request_id)
+        assert answer["ciphertext"]
+
+        # Nobody else can, including the owner.
+        for other in ("someone-else", OWNER):
+            with pytest.raises(AnswerRequestError, match="answer_unavailable"):
+                await service.fetch_answer(requester_user_id=other, request_id=request_id)
+
+    async def test_approval_creates_no_standing_grant(self, answer_engine):  # noqa: F811
+        service, request_id, _digest = await _approved(answer_engine)
+        with answer_engine.begin() as connection:
+            # The approval records which scopes this one question may use and
+            # nothing else: no consent token, no durable grant row.
+            scopes = connection.execute(
+                text(
+                    "SELECT count(*) FROM pkm_answer_request_scopes"
+                    " WHERE request_id=:r AND approved"
+                ),
+                {"r": request_id},
+            ).scalar()
+            audits = connection.execute(
+                text("SELECT count(*) FROM consent_audit WHERE user_id=:u"),
+                {"u": OWNER},
+            ).scalar()
+        assert scopes == 1
+        assert audits == 0
+
+
+class TestAFailedAnswerRetriesThenRefunds:
+    async def test_a_request_the_device_never_answers_expires_and_refunds(self, answer_engine):  # noqa: F811
+        # The sweep leaves a failed request queued, so it retries on the next
+        # unlock. If it never succeeds, the deadline is the backstop.
+        service, request_id, digest = await _approved(answer_engine)
+        _mark_paid(answer_engine, request_id, digest)
+        with answer_engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE pkm_answer_requests"
+                    " SET answer_deadline_at = clock_timestamp() - INTERVAL '1 hour'"
+                    " WHERE request_id = :r"
+                ),
+                {"r": request_id},
+            )
+
+        worker = PkmAnswerWorkWorker(_db(answer_engine), stripe_api=Mock())
+        outcome = await worker.run_timeouts(max_jobs=5)
+        assert outcome["expired"] == 1
+        assert outcome["refunds_filed"] == 1
+
+        with answer_engine.begin() as connection:
+            row = (
+                connection.execute(
+                    text(
+                        "SELECT r.status, f.reason FROM pkm_answer_requests r"
+                        " JOIN pkm_answer_payment_refunds f ON f.request_id = r.request_id"
+                        " WHERE r.request_id=:r"
+                    ),
+                    {"r": request_id},
+                )
+                .mappings()
+                .first()
+            )
+        assert row["status"] == "expired"
+        assert row["reason"] == "answer_timeout"
+
+    async def test_a_delivered_answer_is_never_expired_out_from_under_it(self, answer_engine):  # noqa: F811
+        service, request_id, digest = await _approved(answer_engine)
+        _mark_paid(answer_engine, request_id, digest)
+        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+        with answer_engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE pkm_answer_requests"
+                    " SET answer_deadline_at = clock_timestamp() - INTERVAL '1 hour'"
+                    " WHERE request_id = :r"
+                ),
+                {"r": request_id},
+            )
+        outcome = await PkmAnswerWorkWorker(_db(answer_engine), stripe_api=Mock()).run_timeouts(
+            max_jobs=5
+        )
+        # The delivery exists, so the sweep must not claim it.
+        assert outcome["expired"] == 0
+
+
 class TestPayouts:
     async def test_a_delivered_answer_earns_gross_minus_commission(self, answer_engine):  # noqa: F811
         service, request_id, digest = await _approved(answer_engine, amount=10_000)

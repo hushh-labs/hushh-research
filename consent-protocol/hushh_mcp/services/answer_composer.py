@@ -63,15 +63,34 @@ def _prompt(
     projection: Mapping[str, Any],
     period: Mapping[str, str] | None,
 ) -> str:
-    body = json.dumps(projection, ensure_ascii=False, sort_keys=True)[:MAX_PROJECTION_CHARS]
-    lines = [
-        "Question:",
-        str(question or "").strip(),
-        "",
-    ]
+    """Build the prompt from the person's own memory document.
+
+    The device sends `{memory, values}`: the approved slice of their living
+    memory, and the same values structured so exact figures can be cited.
+    Older callers may still send a bare projection; that is handled rather
+    than refused.
+    """
+    memory = str(projection.get("memory") or "").strip() if isinstance(projection, Mapping) else ""
+    values = projection.get("values") if isinstance(projection, Mapping) else None
+    if not memory:
+        # No memory document: the whole payload is the values.
+        values = projection
+
+    lines = ["Question:", str(question or "").strip(), ""]
     if period:
         lines += [f"Requested period: {period.get('start')} to {period.get('end')}", ""]
-    lines += ["Approved information (the only information you have):", body]
+    if memory:
+        lines += [
+            "This person's memory, limited to what they approved for this question.",
+            "It opens with who they are, then holds each approved area in full:",
+            memory[:MAX_PROJECTION_CHARS],
+            "",
+        ]
+    if values:
+        lines += [
+            "The same information structured, so you can cite exact figures:",
+            json.dumps(values, ensure_ascii=False, sort_keys=True)[:MAX_PROJECTION_CHARS],
+        ]
     return "\n".join(lines)
 
 
@@ -90,6 +109,11 @@ class AnswerComposer:
     ) -> dict[str, Any]:
         if not isinstance(projection, Mapping) or not projection:
             raise AnswerComposerError("no approved information to answer from")
+        # A payload whose memory and values are both empty has nothing to
+        # answer from, whatever shape it arrived in.
+        if not str(projection.get("memory") or "").strip() and not projection.get("values"):
+            if set(projection) <= {"memory", "values"}:
+                raise AnswerComposerError("no approved information to answer from")
 
         payload = await self._run(
             _prompt(question=question, projection=projection, period=period),

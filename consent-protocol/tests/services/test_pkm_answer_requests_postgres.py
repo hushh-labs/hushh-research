@@ -67,6 +67,24 @@ def answer_engine(connector_postgres_url):  # noqa: F811
         )
         # The lane projects milestones into the Feed; migration 117 owns the
         # real table and only these columns are written here.
+        # The owner's own public identity, carried into the answer's memory
+        # document so it is a record of a person, not a bag of fields.
+        connection.exec_driver_sql(
+            """CREATE TABLE IF NOT EXISTS actor_identity_cache (
+                 user_id TEXT PRIMARY KEY, display_name TEXT, email TEXT)"""
+        )
+        # Consent lifecycle authority. Asserted empty by the standing-grant
+        # test: this lane must not write one.
+        connection.exec_driver_sql(
+            """CREATE TABLE IF NOT EXISTS consent_audit (
+                 id BIGSERIAL PRIMARY KEY, token_id TEXT NOT NULL, user_id TEXT NOT NULL,
+                 agent_id TEXT NOT NULL, scope TEXT NOT NULL, action TEXT NOT NULL,
+                 issued_at BIGINT NOT NULL)"""
+        )
+        connection.exec_driver_sql(
+            """CREATE TABLE IF NOT EXISTS users (
+                 id TEXT PRIMARY KEY, email TEXT, display_name TEXT, photo_url TEXT)"""
+        )
         # Migration 280 owns this; the payout worker reads the owner's Stripe
         # Connect readiness from it.
         connection.exec_driver_sql(
@@ -119,6 +137,9 @@ def answer_engine(connector_postgres_url):  # noqa: F811
 @pytest.fixture(autouse=True)
 def clean(answer_engine):
     with answer_engine.begin() as connection:
+        connection.exec_driver_sql("DELETE FROM consent_audit")
+        connection.exec_driver_sql("DELETE FROM actor_identity_cache")
+        connection.exec_driver_sql("DELETE FROM users")
         connection.exec_driver_sql("DELETE FROM pkm_owner_payout_accounts")
         connection.exec_driver_sql("DELETE FROM pkm_answer_owner_payouts")
         connection.exec_driver_sql("DELETE FROM pkm_answer_payment_refunds")
@@ -139,6 +160,17 @@ def clean(answer_engine):
                    VALUES (:u,'key-1',CAST(:jwk AS JSONB),'ECDH-P256-AES256-GCM')"""
             ),
             {"u": REQUESTER, "jwk": json.dumps({"kty": "EC", "crv": "P-256", "x": "x", "y": "y"})},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO actor_identity_cache (user_id, display_name, email)"
+                " VALUES (:u, 'Ankit Kumar Singh', 'ankit@hushh.ai')"
+            ),
+            {"u": OWNER},
+        )
+        connection.execute(
+            text("INSERT INTO users (id, photo_url) VALUES (:u, 'https://example.test/a.png')"),
+            {"u": OWNER},
         )
         for handle, label in OWNER_SCOPES:
             connection.execute(
@@ -271,6 +303,44 @@ class TestHappyPath:
             )
         assert row["status"] == "answered"
         assert row["owner_earning_status"] == "due"
+
+
+class TestOwnerIdentityTravelsWithTheWork:
+    async def test_the_device_receives_the_owner_s_name_and_photo(self, answer_engine):  # noqa: F811
+        # The answer is written from this person's memory document, which opens
+        # with who they are. The requester already sees all of this on the
+        # profile they asked from.
+        service, request_id = await _ask(answer_engine, StubResolver(["attr.travel.trips"]))
+        approved = await service.approve(
+            owner_user_id=OWNER,
+            request_id=request_id,
+            scopes=["attr.travel.trips"],
+            amount_cents=1000,
+        )
+        _mark_paid(answer_engine, request_id, approved["termsDigest"])
+
+        work = await service.claim_answerable(owner_user_id=OWNER)
+        identity = work[0]["ownerIdentity"]
+        assert identity["displayName"] == "Ankit Kumar Singh"
+        assert identity["email"] == "ankit@hushh.ai"
+        assert identity["photoUrl"] == "https://example.test/a.png"
+
+    async def test_a_missing_identity_does_not_strand_the_answer(self, answer_engine):  # noqa: F811
+        with answer_engine.begin() as connection:
+            connection.exec_driver_sql("DELETE FROM actor_identity_cache")
+            connection.exec_driver_sql("DELETE FROM users")
+        service, request_id = await _ask(answer_engine, StubResolver(["attr.travel.trips"]))
+        approved = await service.approve(
+            owner_user_id=OWNER,
+            request_id=request_id,
+            scopes=["attr.travel.trips"],
+            amount_cents=1000,
+        )
+        _mark_paid(answer_engine, request_id, approved["termsDigest"])
+        work = await service.claim_answerable(owner_user_id=OWNER)
+        # Still answerable; the document simply has no Account section.
+        assert len(work) == 1
+        assert work[0]["ownerIdentity"]["displayName"] is None
 
 
 class TestScopeIsolation:

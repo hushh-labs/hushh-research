@@ -36,6 +36,7 @@ import {
   projectApprovedAnswer,
   type ScopeProjection,
 } from "@/lib/answers/answer-projection";
+import { buildAnswerMemorySlice } from "@/lib/answers/answer-memory-slice";
 
 export interface AnswerSweepParams {
   userId: string;
@@ -68,6 +69,14 @@ export interface AnswerPayload {
   approvedScopes: string[];
   /** The approved projections themselves, keyed by scope. Supporting evidence. */
   approvedInformation: Record<string, unknown>;
+  /**
+   * The person's own memory document, sliced to exactly the approved scopes
+   * and dates, with their name, initial and photo. This is what the answer is
+   * written from -- not a file fetch.
+   */
+  memory: string;
+  /** False when a section of that memory could not be read or was truncated. */
+  memoryComplete: boolean;
   sourceRevisions: Record<string, number | null>;
   excludedByPeriod: number;
   /** Scopes that yielded nothing, so a partial answer cannot read as complete. */
@@ -120,18 +129,28 @@ export async function buildAnswerPayload(
     period,
   });
 
-  // Have the answer written from exactly this projection. A failure is
-  // carried through as 'projection', never dressed up as a written answer.
+  // The approved slice of this person's living memory, in the same shape as
+  // their own memory.md: who they are, then every approved value in full.
+  const memorySlice = buildAnswerMemorySlice({
+    byScope: projected.byScope,
+    sourceRevisions: projected.sourceRevisions,
+    ownerIdentity: work.ownerIdentity ?? null,
+    builtAt: new Date().toISOString(),
+  });
+
+  // Have the answer written from that memory document. A failure is carried
+  // through as 'projection', never dressed up as a written answer.
   let written: { answerMode: "agent" | "projection"; answer: string | null; covers?: string[]; gaps?: string[] } = {
     answerMode: "projection",
     answer: null,
   };
   if (firebaseIdToken && projected.hasContent) {
-    written = await AnswerRequestService.compose(
-      firebaseIdToken,
-      work.requestId,
-      projected.byScope,
-    ).catch(() => ({ answerMode: "projection" as const, answer: null }));
+    written = await AnswerRequestService.compose(firebaseIdToken, work.requestId, {
+      // The memory document is the answer's source of truth; the per-scope
+      // values travel beside it so the gene can cite exact figures.
+      memory: memorySlice.markdown,
+      values: projected.byScope,
+    }).catch(() => ({ answerMode: "projection" as const, answer: null }));
   }
 
   return {
@@ -145,6 +164,8 @@ export async function buildAnswerPayload(
       period,
       approvedScopes: [...work.approvedScopes],
       approvedInformation: projected.byScope,
+      memory: memorySlice.markdown,
+      memoryComplete: memorySlice.complete,
       sourceRevisions: projected.sourceRevisions,
       excludedByPeriod: projected.excludedByPeriod,
       unavailableScopes,

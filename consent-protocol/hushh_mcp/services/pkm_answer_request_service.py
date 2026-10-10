@@ -532,8 +532,36 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
             # can seal in one pass. Reuses the marketplace key store (migration
             # 080) rather than standing up a second key plane, and reads it on
             # this same connection instead of the global client.
+            identity = (
+                self._row(
+                    connection,
+                    """SELECT display_name, email FROM actor_identity_cache
+                   WHERE user_id = :owner LIMIT 1""",
+                    {"owner": owner_user_id},
+                )
+                or {}
+            )
+            photo = (
+                self._row(
+                    connection,
+                    """SELECT photo_url FROM users WHERE id = :owner LIMIT 1""",
+                    {"owner": owner_user_id},
+                )
+                or {}
+            )
+
             ready: list[dict[str, Any]] = []
             for item in out:
+                # The owner's own public identity. The requester already sees
+                # this on the profile they asked from, so including it in the
+                # answer's memory document reveals nothing new -- it just makes
+                # the document a record of the person rather than a bag of
+                # fields.
+                item["ownerIdentity"] = {
+                    "displayName": identity.get("display_name"),
+                    "email": identity.get("email"),
+                    "photoUrl": photo.get("photo_url"),
+                }
                 key = (
                     connection.execute(
                         text(

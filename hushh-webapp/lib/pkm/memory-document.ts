@@ -76,6 +76,8 @@ export interface MemoryDocumentSourceDomain {
  */
 export interface MemoryAccountIdentity {
   displayName?: string | null;
+  /** The letter shown in place of a photo, when there is no photo. */
+  nameInitial?: string | null;
   email?: string | null;
   photoUrl?: string | null;
   verifiedRole?: string | null;
@@ -203,6 +205,7 @@ function renderSectionBody(cards: readonly PkmMemoryCard[]): string[] {
 
 const ACCOUNT_FIELDS: ReadonlyArray<[keyof MemoryAccountIdentity, string]> = [
   ["displayName", "Name"],
+  ["nameInitial", "Initial"],
   ["email", "Email"],
   ["photoUrl", "Picture"],
   ["verifiedRole", "Verified role"],
