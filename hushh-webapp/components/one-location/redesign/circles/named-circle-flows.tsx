@@ -1515,6 +1515,7 @@ export function CircleDetailFlow({
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const loadRequestRef = useRef(0);
   const memberRequestRef = useRef(0);
+  const lastMemberSearchRef = useRef({ circleId, currentUserId, sessionScope, query: memberSearch, loader: onLoadMembersPage });
   const peopleRequestRef = useRef(0);
   const peopleSubmitInFlightRef = useRef(false);
   const cancelInviteInFlightRef = useRef(false);
@@ -1532,12 +1533,14 @@ export function CircleDetailFlow({
     }
   };
 
-  const reload = async (): Promise<
+  const reload = async (memberQuery = memberSearch): Promise<
     OneLocationCircleDetail | OneLocationCircleOverview | null
   > => {
     const requestId = ++loadRequestRef.current;
+    const memberRequestId = ++memberRequestRef.current;
     setLoadError(null);
     setMembersLoading(true);
+    setMemberLoadingMore(false);
     if (!circleId) {
       setCircle(null);
       setLoadError("This Circle link is incomplete.");
@@ -1555,31 +1558,34 @@ export function CircleDetailFlow({
             onLoadMembersPage!(circleId, {
               page: 1,
               limit: 50,
-              query: memberSearch.trim() || undefined,
+              query: memberQuery.trim() || undefined,
             }),
           ])
         : [await onLoad(circleId), null];
       if (requestId !== loadRequestRef.current) return null;
-      applyOverview(nextCircle);
+      // The paged overview is already visible. Reapplying it here would
+      // overwrite edits or saved changes made while its roster was pending.
+      if (!usesPagedMembers) applyOverview(nextCircle);
+      if (memberRequestId !== memberRequestRef.current) return nextCircle;
       setMembersLoading(false);
       setMembersLoaded(true);
       if (nextMembersPage) {
         setMemberRows(nextMembersPage.items);
-        if (!memberSearch.trim()) setOrbitMembers(nextMembersPage.items);
+        if (!memberQuery.trim()) setOrbitMembers(nextMembersPage.items);
         setMemberPage(nextMembersPage.page);
         setMemberHasMore(nextMembersPage.hasMore);
         setMemberTotalCount(nextMembersPage.totalCount);
       } else {
         const completeMembers = (nextCircle as OneLocationCircleDetail).members;
         setMemberRows(completeMembers);
-        if (!memberSearch.trim()) setOrbitMembers(completeMembers);
+        if (!memberQuery.trim()) setOrbitMembers(completeMembers);
         setMemberPage(1);
         setMemberHasMore(false);
         setMemberTotalCount(completeMembers.length);
       }
       return nextCircle;
     } catch (error) {
-      if (requestId !== loadRequestRef.current) return null;
+      if (requestId !== loadRequestRef.current || memberRequestId !== memberRequestRef.current) return null;
       setMembersLoading(false);
       setLoadError(
         error instanceof Error ? error.message : "Could not load this Circle.",
@@ -1603,7 +1609,7 @@ export function CircleDetailFlow({
     setMemberSearch("");
     setSavingName(false);
     peopleRequestRef.current += 1;
-    void reload();
+    void reload("");
     // Reset on selection, owner or unlock changes. Unrelated page refreshes
     // must not refetch the focused detail.
     return () => {
@@ -1733,7 +1739,16 @@ export function CircleDetailFlow({
 
   useEffect(() => {
     if (!usesPagedMembers || !circleId || !onLoadMembersPage) return;
+    const previous = lastMemberSearchRef.current;
+    const scopeChanged = previous.circleId !== circleId || previous.currentUserId !== currentUserId || previous.sessionScope !== sessionScope;
+    lastMemberSearchRef.current = { circleId, currentUserId, sessionScope, query: scopeChanged ? "" : memberSearch, loader: onLoadMembersPage };
+    // reload owns the initial roster and scope resets; search only reads a
+    // changed query. All roster reads share one generation with pagination.
+    if (scopeChanged || (previous.query === memberSearch && previous.loader === onLoadMembersPage)) return;
     const requestId = ++memberRequestRef.current;
+    setMembersLoading(true);
+    setMemberLoadingMore(false);
+    setLoadError(null);
     const timer = window.setTimeout(() => {
       void onLoadMembersPage(circleId, {
         page: 1,
@@ -1743,6 +1758,7 @@ export function CircleDetailFlow({
         .then((result) => {
           if (requestId !== memberRequestRef.current) return;
           setMemberRows(result.items);
+          setMembersLoading(false);
           setMembersLoaded(true);
           if (!memberSearch.trim()) setOrbitMembers(result.items);
           setMemberPage(result.page);
@@ -1751,16 +1767,20 @@ export function CircleDetailFlow({
         })
         .catch((error) => {
           if (requestId !== memberRequestRef.current) return;
+          setMembersLoading(false);
           setLoadError(
             circleFlowErrorMessage(error, "Could not load Circle members."),
           );
         });
     }, 250);
-    return () => window.clearTimeout(timer);
-  }, [circleId, memberSearch, onLoadMembersPage, usesPagedMembers]);
+    return () => {
+      window.clearTimeout(timer);
+      if (requestId === memberRequestRef.current) memberRequestRef.current += 1;
+    };
+  }, [circleId, currentUserId, sessionScope, memberSearch, onLoadMembersPage, usesPagedMembers]);
 
   const loadMoreMembers = async () => {
-    if (!onLoadMembersPage || !memberHasMore || memberLoadingMore) return;
+    if (!onLoadMembersPage || !memberHasMore || membersLoading || memberLoadingMore) return;
     const requestId = ++memberRequestRef.current;
     setMemberLoadingMore(true);
     try {

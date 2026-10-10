@@ -95,12 +95,13 @@ describe("named Circle flows", () => {
     vi.clearAllMocks();
   });
 
-  it("retains the selected circle identity and shows fresh overview before the roster resolves", async () => {
+  it.each([false, true])("retains the selected identity and an early rename through roster loading (saved: %s)", async (saveRename) => {
     let overview!: (value: OneLocationCircleDetail) => void;
     let roster!: (value: OneLocationCircleMemberPage) => void;
     const props = detailProps(vi.fn());
     const onLoadOverview = vi.fn(() => new Promise<OneLocationCircleDetail>((resolve) => { overview = resolve; }));
-    const onLoadMembersPage = vi.fn(() => new Promise<OneLocationCircleMemberPage>((resolve) => { roster = resolve; }));
+    const pendingRoster = new Promise<OneLocationCircleMemberPage>((resolve) => { roster = resolve; });
+    const onLoadMembersPage = vi.fn(() => pendingRoster);
     render(<CircleDetailFlow circleId="emergency" initialCircleSummary={{ id: "emergency", name: "Emergency contacts", memberCount: 3 }}
       {...props} onLoadOverview={onLoadOverview} onLoadMembersPage={onLoadMembersPage} />);
     expect(screen.getByRole("heading", { name: "Emergency contacts" })).toBeInTheDocument();
@@ -111,9 +112,41 @@ describe("named Circle flows", () => {
     expect(screen.getByRole("heading", { name: "Updated circle" })).toBeInTheDocument();
     expect(screen.getByRole("status", { name: "Loading circle members" })).toBeInTheDocument();
     expect(screen.queryByText("No members found")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit", exact: true }));
+    fireEvent.change(await screen.findByLabelText("Circle name"), { target: { value: "My renamed circle" } });
+    if (saveRename) {
+      fireEvent.click(screen.getByRole("button", { name: "Save", exact: true }));
+      await waitFor(() => expect(screen.queryByLabelText("Circle name")).not.toBeInTheDocument());
+    }
     await act(async () => roster({ items: circle("emergency", "Updated circle").members, page: 1, hasMore: false, totalCount: 1 }));
+    if (saveRename) {
+      expect(screen.getByRole("heading", { name: "My renamed circle" })).toBeInTheDocument();
+    } else {
+      expect(screen.getByLabelText("Circle name")).toHaveValue("My renamed circle");
+      expect(screen.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+      fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+    }
     expect(screen.getByText("Owner")).toBeInTheDocument();
     expect(screen.queryByRole("status", { name: "Loading circle members" })).not.toBeInTheDocument();
+  });
+
+  it("keeps a newer member search when the initial roster finishes late", async () => {
+    const current = { ...circle("family", "Family"), memberCount: 8 };
+    const asha = { ...current.members[0]!, userId: "asha", displayName: "Asha Rao", role: "member" as const };
+    let initialRoster!: (page: OneLocationCircleMemberPage) => void;
+    const pending = new Promise<OneLocationCircleMemberPage>((resolve) => { initialRoster = resolve; });
+    const onLoadMembersPage = vi.fn((_id: string, options: { query?: string }) => options.query
+      ? Promise.resolve({ items: [asha], page: 1, hasMore: false, totalCount: 1 })
+      : pending);
+    render(<CircleDetailFlow circleId="family" {...detailProps(vi.fn())}
+      onLoadOverview={async () => current} onLoadMembersPage={onLoadMembersPage} />);
+    fireEvent.change(await screen.findByRole("textbox", { name: "Search members" }), { target: { value: "Asha" } });
+    await screen.findByText("Asha Rao");
+    await act(async () => initialRoster({ items: [...current.members, asha], page: 1, hasMore: false, totalCount: 8 }));
+    expect(screen.getByRole("textbox", { name: "Search members" })).toHaveValue("Asha");
+    expect(screen.getByText("Asha Rao")).toBeInTheDocument();
+    expect(screen.queryByText("Owner")).not.toBeInTheDocument();
+    expect(screen.getByText("1 match")).toBeInTheDocument();
   });
 
   it("keeps a failed first roster distinct from an empty circle and recovers on retry", async () => {
