@@ -3306,6 +3306,19 @@ def _oauth_client_credentials(request: Request, form: dict[str, Any]) -> tuple[s
     ).strip() or None
 
 
+@router.get("/.well-known/oauth-protected-resource/mcp")
+async def mcp_protected_resource_metadata(request: Request):
+    if not developer_api_enabled():
+        raise developer_api_disabled_error()
+    origin = _oauth_public_origin(request)
+    return {
+        "resource": f"{origin}/mcp/",
+        "authorization_servers": [origin],
+        "scopes_supported": ["mcp:tools"],
+        "bearer_methods_supported": ["header"],
+    }
+
+
 @router.get("/.well-known/oauth-authorization-server")
 async def oauth_authorization_server_metadata(request: Request):
     if not developer_api_enabled():

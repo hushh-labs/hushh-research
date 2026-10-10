@@ -129,7 +129,8 @@ Authorization: Bearer <developer-token>
 
 OAuth is an additional transport-authentication option for hosts such as Claude that cannot attach a static bearer header. It does **not** replace the consent lifecycle or grant any personal information access.
 
-- Discovery: `GET /.well-known/oauth-authorization-server`
+- Protected resource discovery: `GET /.well-known/oauth-protected-resource/mcp` returns the canonical `/mcp/` resource and authorization server. An unauthenticated or invalid-token `/mcp/` request returns a `WWW-Authenticate` Bearer challenge with this metadata URL.
+- Authorization server discovery: `GET /.well-known/oauth-authorization-server`
 - Authorization: `GET /oauth/authorize` with `response_type=code`, a registered `redirect_uri`, and `code_challenge_method=S256`
 - Token and refresh: `POST /oauth/token` with confidential-client authentication and PKCE `code_verifier`
 - Revocation: `POST /oauth/revoke`
