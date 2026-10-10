@@ -155,6 +155,9 @@ def clean(answer_engine):
         connection.exec_driver_sql("DELETE FROM users")
         connection.exec_driver_sql("DELETE FROM stripe_owner_payout_accounts")
         connection.exec_driver_sql("DELETE FROM pkm_owner_payout_accounts")
+        # Child-first: webhook events, refunds and payouts all reference the
+        # obligation row, which the order's trigger mirrors.
+        connection.exec_driver_sql("DELETE FROM pkm_answer_payment_webhook_events")
         connection.exec_driver_sql("DELETE FROM pkm_answer_owner_payouts")
         connection.exec_driver_sql("DELETE FROM pkm_answer_payment_refunds")
         connection.exec_driver_sql("DELETE FROM pkm_answer_requests")

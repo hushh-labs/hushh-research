@@ -111,6 +111,107 @@ class TestRepeatedCheckout:
         assert amount == 1000
 
 
+class TestRepeatedCheckoutThroughTheService:
+    """A second checkout call must not leave a payable orphan session.
+
+    The class above covers the database invariant; this one drives the actual
+    service method, which is where the session is minted or reused.
+    """
+
+    @staticmethod
+    def _stripe(url="https://checkout.stripe.com/c/pay/cs_new"):
+        from unittest.mock import Mock as _Mock
+
+        api = _Mock()
+        api.checkout.Session.create.return_value = {
+            "id": "cs_new",
+            "url": url,
+            "expires_at": int(__import__("time").time()) + 1800,
+        }
+        return api
+
+    async def test_an_unchanged_live_session_is_reused_not_reminted(self, answer_engine):  # noqa: F811
+        service, request_id, digest = await _approved(answer_engine)
+        from hushh_mcp.services.pkm_answer_payment_service import PkmAnswerPaymentService
+
+        api = self._stripe()
+        payments = PkmAnswerPaymentService(_db(answer_engine), stripe_api=api)
+        first = await payments.checkout(requester_user_id=REQUESTER, request_id=request_id)
+        second = await payments.checkout(requester_user_id=REQUESTER, request_id=request_id)
+
+        # One session, handed back twice. Minting a second and nulling the
+        # first would leave a payable session settlement then rejects.
+        assert api.checkout.Session.create.call_count == 1
+        assert first["checkoutUrl"] == second["checkoutUrl"]
+        api.checkout.Session.expire.assert_not_called()
+
+    async def test_a_reprice_expires_the_old_session_before_minting_a_new_one(
+        self,
+        answer_engine,  # noqa: F811
+    ):
+        service, request_id, digest = await _approved(answer_engine)
+        from hushh_mcp.services.pkm_answer_payment_service import PkmAnswerPaymentService
+
+        api = self._stripe()
+        payments = PkmAnswerPaymentService(_db(answer_engine), stripe_api=api)
+        await payments.checkout(requester_user_id=REQUESTER, request_id=request_id)
+
+        # The owner re-prices, which changes the terms digest.
+        with answer_engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE pkm_answer_requests SET amount_cents = 2000,"
+                    " terms_digest = :d WHERE request_id = :r"
+                ),
+                {"r": request_id, "d": "c" * 64},
+            )
+        await payments.checkout(requester_user_id=REQUESTER, request_id=request_id)
+
+        assert api.checkout.Session.create.call_count == 2
+        # The superseded session is closed at Stripe, so it cannot be paid.
+        api.checkout.Session.expire.assert_called_once()
+        assert api.checkout.Session.expire.call_args.args[0] == "cs_new"
+
+    async def test_an_already_paid_order_refuses_another_checkout(self, answer_engine):  # noqa: F811
+        # Two guards stand in front of a second charge. This one is the inner
+        # order check: the request is still 'approved' but the order is paid.
+        service, request_id, digest = await _approved(answer_engine)
+        _mark_paid(answer_engine, request_id, digest)
+        with answer_engine.begin() as connection:
+            connection.execute(
+                text("UPDATE pkm_answer_requests SET status='approved' WHERE request_id=:r"),
+                {"r": request_id},
+            )
+        from hushh_mcp.services.pkm_answer_payment_service import (
+            AnswerPaymentError,
+            PkmAnswerPaymentService,
+        )
+
+        api = self._stripe()
+        with pytest.raises(AnswerPaymentError, match="payment_already_paid"):
+            await PkmAnswerPaymentService(_db(answer_engine), stripe_api=api).checkout(
+                requester_user_id=REQUESTER, request_id=request_id
+            )
+        api.checkout.Session.create.assert_not_called()
+
+    async def test_a_request_already_being_answered_refuses_a_checkout(self, answer_engine):  # noqa: F811
+        # And the outer guard: once paid, the request leaves 'approved', so a
+        # late checkout attempt is refused before the order is even read.
+        service, request_id, digest = await _approved(answer_engine)
+        _mark_paid(answer_engine, request_id, digest)
+        from hushh_mcp.services.pkm_answer_payment_service import (
+            AnswerPaymentError,
+            PkmAnswerPaymentService,
+        )
+
+        api = self._stripe()
+        with pytest.raises(AnswerPaymentError, match="payment_not_ready"):
+            await PkmAnswerPaymentService(_db(answer_engine), stripe_api=api).checkout(
+                requester_user_id=REQUESTER, request_id=request_id
+            )
+        api.checkout.Session.create.assert_not_called()
+
+
 class TestCancellationPaymentRace:
     async def test_cancelling_a_paid_request_files_exactly_one_refund(self, answer_engine):  # noqa: F811
         service, request_id, digest = await _approved(answer_engine)
@@ -172,6 +273,145 @@ class TestCancellationPaymentRace:
         assert refund == "owner_declined"
         # A refunded answer must not also pay the owner.
         assert payout == "void"
+
+
+class TestPaymentArrivingAfterTheRequestClosed:
+    """Stripe retries for hours, and a request can close inside that window.
+
+    If settlement only looks at the order, the money is taken, no answer is
+    ever owed, and no refund obligation is recorded anywhere.
+    """
+
+    @staticmethod
+    async def _settle_webhook(engine, request_id, digest, attempt, event_id):
+        import hashlib
+        import hmac
+        import json
+        import time
+
+        from hushh_mcp.services.pkm_answer_payment_service import (
+            PAYMENT_KIND,
+            PkmAnswerPaymentService,
+        )
+
+        body = json.dumps(
+            {
+                "id": event_id,
+                "object": "event",
+                "type": "checkout.session.completed",
+                "data": {
+                    "object": {
+                        "id": "cs_test_late",
+                        "object": "checkout.session",
+                        "client_reference_id": request_id,
+                        "metadata": {
+                            "payment_kind": PAYMENT_KIND,
+                            "request_id": request_id,
+                            "checkout_attempt_id": attempt,
+                            "terms_digest": digest,
+                        },
+                        "mode": "payment",
+                        "payment_status": "paid",
+                        "amount_total": 1000,
+                        "currency": "usd",
+                        "livemode": False,
+                        "payment_intent": "pi_late_" + event_id,
+                    }
+                },
+            }
+        ).encode()
+        stamp = int(time.time())
+        mac = hmac.new(
+            b"whsec_payment_test_secret_value", f"{stamp}.".encode() + body, hashlib.sha256
+        ).hexdigest()
+        await PkmAnswerPaymentService(_db(engine)).process_webhook(
+            payload=body, signature=f"t={stamp},v1={mac}"
+        )
+
+    @staticmethod
+    def _open_checkout(engine, request_id, digest, attempt):
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    """INSERT INTO pkm_answer_payment_orders
+                       (request_id,owner_user_id,requester_user_id,amount_cents,
+                        terms_digest,status,checkout_attempt_id,stripe_checkout_session_id)
+                       VALUES (:r,:o,:q,1000,:d,'checkout_open',:a,'cs_test_late')"""
+                ),
+                {"r": request_id, "o": OWNER, "q": REQUESTER, "d": digest, "a": attempt},
+            )
+
+    async def test_a_payment_landing_after_cancellation_is_refunded(self, answer_engine):  # noqa: F811
+        service, request_id, digest = await _approved(answer_engine)
+        attempt = "77777777-8888-9999-aaaa-bbbbbbbbbbbb"
+        self._open_checkout(answer_engine, request_id, digest, attempt)
+
+        # The requester cancels while the payment is still in flight.
+        await service.cancel(requester_user_id=REQUESTER, request_id=request_id)
+        await self._settle_webhook(answer_engine, request_id, digest, attempt, "evt_cancel")
+
+        with answer_engine.begin() as connection:
+            row = (
+                connection.execute(
+                    text(
+                        """SELECT o.status AS order_status, r.status AS request_status, f.reason
+                       FROM pkm_answer_payment_orders o
+                       JOIN pkm_answer_requests r ON r.request_id = o.request_id
+                       LEFT JOIN pkm_answer_payment_refunds f ON f.request_id = o.request_id
+                       WHERE o.request_id = :r"""
+                    ),
+                    {"r": request_id},
+                )
+                .mappings()
+                .first()
+            )
+
+        assert row["order_status"] == "paid"
+        assert row["request_status"] == "cancelled"
+        # Money was taken for an answer nobody will produce.
+        assert row["reason"] == "requester_cancelled"
+
+    async def test_a_payment_landing_after_the_owner_declined_is_refunded(self, answer_engine):  # noqa: F811
+        service, request_id, digest = await _approved(answer_engine)
+        attempt = "66666666-8888-9999-aaaa-bbbbbbbbbbbb"
+        self._open_checkout(answer_engine, request_id, digest, attempt)
+        await service.decline(owner_user_id=OWNER, request_id=request_id)
+        await self._settle_webhook(answer_engine, request_id, digest, attempt, "evt_decline")
+
+        with answer_engine.begin() as connection:
+            reason = connection.execute(
+                text("SELECT reason FROM pkm_answer_payment_refunds WHERE request_id=:r"),
+                {"r": request_id},
+            ).scalar()
+        assert reason == "owner_declined"
+
+    async def test_a_normal_payment_still_becomes_answerable_with_no_refund(
+        self,
+        answer_engine,  # noqa: F811
+    ):
+        # Negative control: the refund path must not fire on the happy path.
+        service, request_id, digest = await _approved(answer_engine)
+        attempt = "55555555-8888-9999-aaaa-bbbbbbbbbbbb"
+        self._open_checkout(answer_engine, request_id, digest, attempt)
+        await self._settle_webhook(answer_engine, request_id, digest, attempt, "evt_ok")
+
+        with answer_engine.begin() as connection:
+            row = (
+                connection.execute(
+                    text(
+                        """SELECT r.status, r.answer_deadline_at IS NOT NULL AS has_deadline,
+                              (SELECT count(*) FROM pkm_answer_payment_refunds f
+                               WHERE f.request_id = r.request_id) AS refunds
+                       FROM pkm_answer_requests r WHERE r.request_id = :r"""
+                    ),
+                    {"r": request_id},
+                )
+                .mappings()
+                .first()
+            )
+        assert row["status"] == "answering"
+        assert row["has_deadline"] is True
+        assert row["refunds"] == 0
 
 
 class TestRefundRetry:

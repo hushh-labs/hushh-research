@@ -19,6 +19,7 @@ owner's device produces; this module only decides whether the work is paid for.
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -40,6 +41,8 @@ from hushh_mcp.services.external_connector_lifecycle_store import (
 #: Registered in the Stripe webhook dispatcher. An unregistered kind would fall
 #: through to the Drive handler, which returns early and reports success to
 #: Stripe — taking money and never settling. See api/routes/drive_request_payments.py.
+logger = logging.getLogger(__name__)
+
 PAYMENT_KIND = "pkm_answer"
 
 MIN_ANSWER_PRICE_CENTS = 100
@@ -153,6 +156,8 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
         require_payment_configuration()
         key, _webhook_secret, origin = _config()
 
+        expire_sessions: list[str] = []
+
         def reserve(connection):
             request = self._row(
                 connection,
@@ -198,9 +203,28 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                         "attempt": attempt_id,
                     },
                 )
+            elif (
+                order["status"] == "checkout_open"
+                and order["stripe_checkout_session_id"]
+                and order["stripe_checkout_url"]
+                and order["amount_cents"] == request["amount_cents"]
+                and order["terms_digest"] == request["terms_digest"]
+                and order["stripe_checkout_expires_at"] is not None
+                and order["stripe_checkout_expires_at"] > _now()
+            ):
+                # Nothing about the terms changed and the session is still
+                # live: hand back the SAME session. Minting a second one and
+                # nulling the first leaves a payable Stripe session whose
+                # attempt id settlement will reject -- the requester pays and
+                # the order never settles.
+                return {**request, "reuse": order}
             else:
-                # Re-quote against the current terms: the owner may have
-                # re-priced, which must invalidate any open session.
+                # The terms changed or the session lapsed. Expire the old
+                # session at Stripe before re-quoting, so it cannot be paid
+                # into an attempt that no longer exists.
+                stale_session = order["stripe_checkout_session_id"]
+                if stale_session:
+                    expire_sessions.append(stale_session)
                 connection.execute(
                     text(
                         """UPDATE pkm_answer_payment_orders
@@ -220,6 +244,19 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             return {**request, "checkout_attempt_id": attempt_id}
 
         reserved = await self._transaction(reserve)
+
+        if "reuse" in reserved:
+            open_order = reserved["reuse"]
+            return {
+                "checkoutUrl": open_order["stripe_checkout_url"],
+                "amountCents": open_order["amount_cents"],
+            }
+
+        for stale in expire_sessions:
+            try:
+                self.stripe_api.checkout.Session.expire(stale, api_key=key)
+            except Exception:  # noqa: BLE001 - an already-expired session is fine
+                logger.info("answer_checkout.stale_session_expire_skipped")
 
         session = self.stripe_api.checkout.Session.create(
             mode="payment",
@@ -393,17 +430,56 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             )
             # Only now does the owner's device have authorized work to do, and
             # only now does the fulfilment clock start.
-            connection.execute(
+            moved = connection.execute(
                 text(
                     """UPDATE pkm_answer_requests
                        SET status = 'answering',
                            answer_deadline_at = clock_timestamp()
                                + make_interval(hours => :hours),
                            updated_at = clock_timestamp()
-                       WHERE request_id = :request AND status = 'approved'"""
+                       WHERE request_id = :request AND status = 'approved'
+                       RETURNING request_id"""
                 ),
                 {"request": request_id, "hours": ANSWER_DEADLINE_HOURS},
-            )
+            ).first()
+
+            if moved is None:
+                # The request closed while the payment was in flight: Stripe
+                # retries for hours and a requester can cancel, or an owner
+                # decline, inside that window. The money is taken and no
+                # answer will ever be owed, so the duty to refund it is filed
+                # here, in the same transaction that took it. Without this the
+                # payment simply sits as a paid order nobody owes anything for.
+                from hushh_mcp.services.pkm_answer_work_worker import file_refund
+
+                closed = self._row(
+                    connection,
+                    """SELECT status FROM pkm_answer_requests
+                       WHERE request_id = :request""",
+                    {"request": request_id},
+                )
+                reason = {
+                    "cancelled": "requester_cancelled",
+                    "declined": "owner_declined",
+                    "expired": "answer_timeout",
+                }.get(str((closed or {}).get("status") or ""), "request_closed")
+                # `request_closed` is not a refund reason the table accepts, so
+                # an unexpected state is reconciled by hand rather than
+                # silently dropped.
+                if reason == "request_closed":
+                    connection.execute(
+                        text(
+                            """UPDATE pkm_answer_payment_orders
+                               SET reconciliation_required = TRUE,
+                                   reconciliation_reason = 'request_closed',
+                                   reconciliation_at = clock_timestamp(),
+                                   updated_at = clock_timestamp()
+                               WHERE request_id = :request"""
+                        ),
+                        {"request": request_id},
+                    )
+                else:
+                    file_refund(connection, request_id, reason)
 
         await self._transaction(settle)
         self._wake_owner_device(request_id)
