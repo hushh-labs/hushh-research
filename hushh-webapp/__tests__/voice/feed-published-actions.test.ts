@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { listKaiActionsForSurface } from "@/lib/voice/kai-action-gateway";
+import { listKaiActionsForSurface } from "@/lib/kai/actions/kai-action-gateway";
 
 /**
  * The Feed screen published nothing to voice at all until this was added --

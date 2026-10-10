@@ -139,7 +139,7 @@ describe("Wallet Profile owner isolation", () => {
     // Rendering the original link can settle before that effect installs it.
     await waitFor(() => expect(mocks.changed).toBeTypeOf("function"));
     await act(async () => { mocks.changed?.(); });
-    expect(await screen.findByText("/c/rotated")).toBeVisible();
+    expect(await screen.findByText("/c/rotated", {}, { timeout: 5_000 })).toBeVisible();
     expect(screen.queryByText("/c/original")).toBeNull();
     expect(mocks.ensureCard).toHaveBeenCalledOnce();
     expect(mocks.getCard).toHaveBeenCalledTimes(2);

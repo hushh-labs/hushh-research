@@ -55,7 +55,7 @@ import {
   getAppScrollRoot,
   useScrollReset,
 } from "@/lib/navigation/use-scroll-reset";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -140,8 +140,8 @@ import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import {
   VOICE_CONFIRM_DATA_KEY,
   VOICE_DISAMBIGUATION_DATA_KEY,
-} from "@/lib/voice/voice-action-card";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+} from "@/lib/kai/actions/voice-action-card";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 import { getDirectoryPersonDescription } from "./directory-person-label";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import {

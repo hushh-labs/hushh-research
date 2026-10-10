@@ -96,7 +96,7 @@ import {
   usePublishVoiceSurfaceMetadata,
   useVoiceSurfaceControlTracking,
   type VoiceSurfacePublisherRole,
-} from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/voice-surface-metadata";
 import { trackEvent } from "@/lib/observability/client";
 import { preferPassphraseUnlockForAutomation } from "@/lib/testing/native-test";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";

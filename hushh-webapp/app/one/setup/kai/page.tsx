@@ -20,7 +20,7 @@ import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-ac
 import {
   usePublishVoiceSurfaceMetadata,
   type VoiceSurfacePublisherRole,
-} from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/voice-surface-metadata";
 import {
   KaiProfileService,
   computeRiskScore,

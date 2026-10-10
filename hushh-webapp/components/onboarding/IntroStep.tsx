@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 import { GuestPreview } from "@/components/onboarding/guest-preview";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { ROUTES } from "@/lib/navigation/routes";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 export function IntroStep({ onLogin }: { onLogin?: () => void }) {
   const [previewReady, setPreviewReady] = useState(false);

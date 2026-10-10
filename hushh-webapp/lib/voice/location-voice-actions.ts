@@ -1,5 +1,5 @@
-import { listKaiActionsForSurface } from "@/lib/voice/kai-action-gateway";
-import type { VoiceSurfaceActionDefinition } from "@/lib/voice/voice-types";
+import { listKaiActionsForSurface } from "@/lib/kai/actions/kai-action-gateway";
+import type { VoiceSurfaceActionDefinition } from "@/lib/kai/actions/voice-types";
 
 // Wired in the generated gateway but with no way to actually run -- publishing
 // one would offer a voice command guaranteed to fail. Shared across every

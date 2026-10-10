@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   deriveVoiceCapabilityState,
   projectKaiActionCapability,
-} from "@/lib/voice/capability-projection";
+} from "@/lib/kai/actions/capability-projection";
 import type { OneVoiceContextSnapshot } from "@/lib/voice/screen-context-builder";
-import type { AppRuntimeState } from "@/lib/voice/voice-types";
+import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
 
 function runtime(overrides: Partial<AppRuntimeState> = {}): AppRuntimeState {
   return {

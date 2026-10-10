@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mailDisplayLabel } from "@/lib/copy/mail-terminology";
 import { humanizeMemorySegment } from "@/lib/pkm/humanize-segment";
 import { humanizeConsentScope } from "@/lib/consent/consent-display";
-import { getKaiActionById, searchKaiActions } from "@/lib/voice/kai-action-gateway";
+import { getKaiActionById, searchKaiActions } from "@/lib/kai/actions/kai-action-gateway";
 
 describe("Mail presentation vocabulary", () => {
   it.each([

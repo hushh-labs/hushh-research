@@ -167,7 +167,7 @@ import {
   usePublishVoiceSurfaceMetadata,
   useVoiceSurfaceControlTracking,
   type VoiceSurfaceActionDefinition,
-} from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/voice-surface-metadata";
 
 type ConsentTab = "requests" | "active" | "history" | "connections";
 type ConsentManagerMode = ConsentCenterMode;

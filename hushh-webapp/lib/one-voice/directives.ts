@@ -34,7 +34,7 @@ import {
 } from "@/lib/navigation/profile-pane";
 import { ROUTES, buildPersonProfileRoute } from "@/lib/navigation/routes";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 
 export const ONE_VOICE_FOCUS_PENDING_EVENT = "one-voice:focus-pending" as const;
 export const ONE_VOICE_REFRESH_EVENT = "one-voice:refresh" as const;

@@ -6,7 +6,7 @@ import {
   readActionUsage,
   recordActionUse,
   usageBoostFor,
-} from "@/lib/voice/action-usage-memory";
+} from "@/lib/search/action-usage-memory";
 
 const USER = "user_1";
 const DAY = 1000 * 60 * 60 * 24;

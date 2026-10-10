@@ -20,7 +20,7 @@ import {
 } from "@/lib/navigation/routes";
 import { useRiaClientWorkspaceState } from "@/components/ria/use-ria-client-workspace-state";
 import { Database, Loader2, Wallet } from "@/components/icons";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { RIA_TONE_BADGE } from "@/lib/ria/ria-tone";
 
 function formatStatusLabel(status?: string | null) {

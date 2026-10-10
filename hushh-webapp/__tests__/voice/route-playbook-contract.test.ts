@@ -1,7 +1,7 @@
 import surfaceMap from "@/frontend-native-surface-map.generated.json";
 import { APP_ROUTE_LAYOUT_CONTRACT, resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
 import { PUBLIC_ROUTES, PUBLIC_ROUTE_SEMANTICS } from "@/lib/seo/site";
-import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
+import { deriveVoiceRouteScreen } from "@/lib/kai/actions/route-screen-derivation";
 import { describe, expect, it } from "vitest";
 
 describe("One route voice playbooks", () => {

@@ -1,0 +1,48 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "one_wallet_card",
+  "surface_title": "Wallet Profile",
+  "defaults": {
+    "reachability": {
+      "routes": [
+        "/one/wallet-card"
+      ],
+      "screens": [
+        "one_wallet_card"
+      ],
+      "hidden_navigable": true,
+      "navigation_prerequisites": ["Signed-in user; destination retains its existing access checks."]
+    },
+    "guard_ids": [
+      "auth_signed_in"
+    ],
+    "speaker_persona": "one"
+  },
+  "actions": [
+    {
+      "action_id": "route.wallet_profile_cards",
+      "label": "Back to Wallet cards",
+      "meaning": "Navigates from Wallet Profile to wallet cards.",
+      "aliases": [
+        "back to wallet cards"
+      ],
+      "search_keywords": [
+        "wallet profile",
+        "back to wallet cards"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/wallet"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "guard_ids": [
+        "auth_signed_in"
+      ]
+    }
+  ],
+  "search": {}
+}

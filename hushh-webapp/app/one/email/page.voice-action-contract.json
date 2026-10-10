@@ -1,0 +1,48 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "email_agent",
+  "surface_title": "Mail",
+  "defaults": {
+    "reachability": {
+      "routes": [
+        "/one/email"
+      ],
+      "screens": [
+        "email_agent"
+      ],
+      "hidden_navigable": true,
+      "navigation_prerequisites": ["Signed-in user; destination retains its existing access checks."]
+    },
+    "guard_ids": [
+      "auth_signed_in"
+    ],
+    "speaker_persona": "one"
+  },
+  "actions": [
+    {
+      "action_id": "route.mail_connections",
+      "label": "Open Mail connection",
+      "meaning": "Navigates from Mail to open mail connection.",
+      "aliases": [
+        "open mail connection"
+      ],
+      "search_keywords": [
+        "mail",
+        "open mail connection"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/gmail"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "guard_ids": [
+        "auth_signed_in"
+      ]
+    }
+  ],
+  "search": {}
+}

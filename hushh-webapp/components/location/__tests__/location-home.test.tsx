@@ -93,7 +93,7 @@ vi.mock("@/lib/one-location/one-location-state-resource", () => ({
     write: vi.fn(),
   },
 }));
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
   usePublishVoiceSurfaceMetadata: (metadata: unknown) =>
     harness.publish(metadata),
 }));

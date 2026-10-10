@@ -159,8 +159,8 @@ import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
-import { VOICE_CONFIRM_DATA_KEY } from "@/lib/voice/voice-action-card";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { VOICE_CONFIRM_DATA_KEY } from "@/lib/kai/actions/voice-action-card";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { currentPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
@@ -269,7 +269,7 @@ import {
 import {
   usePublishVoiceSurfaceMetadata,
   useVoiceSurfaceControlTracking,
-} from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/voice-surface-metadata";
 import {
   PersonalKnowledgeModelService,
   type PersonalKnowledgeModelMetadata,

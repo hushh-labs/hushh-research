@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: { apiFetch: mocks.apiFetch },
 }));
-vi.mock("@/lib/voice/kai-action-gateway", () => ({
+vi.mock("@/lib/kai/actions/kai-action-gateway", () => ({
   getKaiActionById: mocks.action,
 }));
 vi.mock("@/lib/one-location/service", () => ({

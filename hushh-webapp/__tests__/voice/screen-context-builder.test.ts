@@ -15,12 +15,12 @@ import {
   buildStructuredScreenContext,
   enforceArrayDimensionCap,
 } from "@/lib/voice/screen-context-builder";
-import type { AppRuntimeState } from "@/lib/voice/voice-types";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 import {
   clearVoiceSurfaceMetadata,
   publishVoiceSurfaceMetadata,
-} from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/voice-surface-metadata";
 
 function makeRuntimeState(
   pathname: string,
