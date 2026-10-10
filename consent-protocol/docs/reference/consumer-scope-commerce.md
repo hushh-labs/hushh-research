@@ -2147,3 +2147,26 @@ fixture choice; deployment must not silently transfer the existing binding.
 Headless readback still confirms the counterpart's unlocked private Azure setup
 and the primary's absence of a phone, vault or owner-cloud setup. Commerce and
 live admission remain disabled; both reviewers have no financial receipts.
+
+### Qualified candidate and reviewer fixture continuation — 2026-10-10 UTC
+
+The replay correction passed the complete local core bundle and independent
+source review, then was committed and pushed as `092eb14ed` on the original
+infrastructure branch. Full hosted CI found a recorded-save fixture that supplied
+proposal responses without establishing the authenticated owner and confirmed
+Shared placement now required by Memory preparation. The fixture establishes
+those two inputs with scoped, restored spies. Runtime owner and placement checks
+and the completion/zero-gap assertions remain intact; the recorded save and
+private-routing files pass together (30 tests). A new exact candidate must pass
+core and hosted CI before shared Dev deployment.
+
+The founder subsequently authorized reuse of the recorded phone. At 02:07Z the
+dedicated temporary transport was re-enabled with its original expiry and owner/
+Sandbox binding. Canonical verified-phone ownership remains unique; reuse goes
+through its existing transactional claim flow. No phone claim, vault creation or
+owner Azure OAuth is implied by configuring the transport. The task-owned empty
+restore database was verified empty and without other sessions, deleted and
+confirmed absent at 02:12Z. The retained recovery backup and application records
+were preserved. Reconciliation remains enabled with timestamped healthy aggregate
+observations. Host plugin discovery still reports official Stripe as uninstalled;
+application SDK credentials do not replace that OAuth connection.

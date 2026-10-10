@@ -1,6 +1,5 @@
 import "fake-indexeddb/auto";
 
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -47,6 +46,8 @@ import {
 import { sourceChunkRange, sourceChunkText } from "@/lib/pkm/pkm-source-chunks";
 import { planSecretCaptures, UnguardedSecretError } from "@/lib/pkm/secret-span-guard";
 import { ApiService } from "@/lib/services/api-service";
+import { AuthService } from "@/lib/services/auth-service";
+import { recordedMemoryServerAnswer, type MemoryRecording } from "../fixtures/pkm/context-transfer-recording";
 
 const USER = "owner-synthetic";
 const VAULT_KEY = "ab".repeat(32);
@@ -559,34 +560,22 @@ describe("context transfer, recorded from the memory agents", () => {
   const RECORDING_PATH = path.join(FIXTURES, "context-transfer.recording.v1.json");
   const RECORD = process.env.PKM_CONTEXT_TRANSFER_RECORD === "1";
   const sha = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
-  type RecordedStep = { text: string; answer: Record<string, unknown> };
-  type Recording = { version: 1; document_sha256: string; steps: Record<string, RecordedStep> };
-  const recording: Recording = RECORD
+  const recording: MemoryRecording = RECORD
     ? { version: 1, document_sha256: sha(DOCUMENT), steps: {} }
     : JSON.parse(readFileSync(RECORDING_PATH, "utf8"));
 
-  function serverAnswer(text: string): Record<string, unknown> {
-    const key = sha(text);
-    if (!recording.steps[key]) {
-      if (!RECORD) throw new Error("No recorded server answer for this step; re-record (context_transfer_agents.py).");
-      const backend = path.resolve(__dirname, "../../../consent-protocol");
-      const output = execFileSync(path.join(backend, ".venv/bin/python"), ["-m", "tests.services.context_transfer_agents"], {
-        cwd: backend,
-        input: text,
-        env: {
-          ...process.env,
-          TESTING: "true",
-          APP_SIGNING_KEY: "test_secret_key_for_pytest_only_32chars_min",
-          VAULT_DATA_KEY: "0".repeat(64),
-        },
-      });
-      recording.steps[key] = { text, answer: JSON.parse(output.toString("utf8")) };
-    }
-    return { agent_id: "agent_pkm_structure", agent_name: "PKM Structure Agent", model: "recorded", ...recording.steps[key]!.answer };
-  }
+  const serverAnswer = (text: string) => recordedMemoryServerAnswer({
+    text, recording, record: RECORD, backend: path.resolve(__dirname, "../../../consent-protocol"),
+  });
 
   async function runRecorded(transform: (answer: Record<string, unknown>) => Record<string, unknown> = (answer) => answer) {
     const actual = await vi.importActual<typeof import("@/lib/agent/agent-pkm-memory")>("@/lib/agent/agent-pkm-memory");
+    // This recording exercises the Shared preparation client. Authentication and
+    // placement must be explicit even when proposal responses are prerecorded.
+    const owner = vi.spyOn(AuthService, "getCurrentUser")
+      .mockReturnValue({ uid: USER } as ReturnType<typeof AuthService.getCurrentUser>);
+    const placement = vi.spyOn(ApiService, "getPersonalAgentStatus")
+      .mockResolvedValue({ hostingMode: "shared" });
     const fetch = vi.spyOn(ApiService, "apiFetch").mockImplementation(async (url: string, init?: RequestInit) => {
       expect(url).toBe("/api/pkm/memory/proposals");
       const { message } = JSON.parse(String(init?.body)) as { message: string };
@@ -598,10 +587,15 @@ describe("context transfer, recorded from the memory agents", () => {
       prepare: ({ text, signal }) =>
         actual.previewAgentPkmMemory({ userId: USER, message: text, currentDomains: [], vaultOwnerToken: "token", signal }),
     });
-    const job = await createPkmSaveJob({ userId: USER, message: DOCUMENT, currentDomains: [], now: state.clock });
-    await runPkmSaveJob(job, deps);
-    fetch.mockRestore();
-    return { job, server, coverage: buildPkmSaveJobCoverage(job).coverage, receipt: buildPkmSaveJobReceipt(job).receipt };
+    try {
+      const job = await createPkmSaveJob({ userId: USER, message: DOCUMENT, currentDomains: [], now: state.clock });
+      await runPkmSaveJob(job, deps);
+      return { job, server, coverage: buildPkmSaveJobCoverage(job).coverage, receipt: buildPkmSaveJobReceipt(job).receipt };
+    } finally {
+      fetch.mockRestore();
+      placement.mockRestore();
+      owner.mockRestore();
+    }
   }
 
   it("saves every stated line or accounts for it, with zero unaccounted", async () => {
