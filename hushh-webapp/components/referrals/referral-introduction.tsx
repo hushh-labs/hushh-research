@@ -5,7 +5,7 @@ import { useEffect, useRef } from "react";
 
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { ArrowLeft, ArrowRight, ShieldCheck } from "@/components/icons";
+import { ArrowLeft, ArrowRight } from "@/components/icons";
 import { Button } from "@/lib/morphy-ux/button";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
@@ -69,9 +69,8 @@ export function ReferralIntroduction({ onContinue, onBack, busy }: ReferralIntro
           </div>
 
           <div className={styles.copy}>
-            <p className={styles.eyebrow}><span /> ONE IS BETTER WITH YOUR PEOPLE</p>
             <h1 ref={titleRef} id="referral-welcome-title" className={styles.title} tabIndex={-1}>
-              Life’s better.<br /><span>Together.</span>
+              Life’s better{" "}<br /><span>together.</span>
             </h1>
             <p className={styles.description}>
               Give your people their own private agent.<br className={styles.desktopBreak} />
@@ -88,9 +87,6 @@ export function ReferralIntroduction({ onContinue, onBack, busy }: ReferralIntro
                 <ArrowRight aria-hidden="true" className="size-[18px]" />
               </span>
             </Button>
-            <p className={styles.reassurance}>
-              <ShieldCheck aria-hidden="true" /> Your people. Their choice. Always private.
-            </p>
           </div>
 
           <div className={styles.artwork}>
