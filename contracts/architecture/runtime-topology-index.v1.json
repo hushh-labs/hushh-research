@@ -1503,6 +1503,17 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
+        "pkm_answer_payment_refunds",
+        "pkm_answer_owner_payouts"
+      ],
+      "id": "pkm_answer_settlement",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Durable settlement for the paid-answer lane, on the existing Drive work drain. A refund obligation is written in the same transaction as the decline, cancellation, empty answer or deadline expiry that caused it, then claimed under a lease and retried on its own backoff with a stable per-request idempotency key. An owner earning becomes due only when an answer is delivered with content, pays gross minus 300 bps commission to the owner's Stripe Connect account, and is voided if the order is refunded."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
         "pkm_credit_subscription_cancellations"
       ],
       "id": "pkm_credit_subscription_cancellations",
@@ -6099,7 +6110,7 @@
     "action_gateway": "8d8b67504e2ce0d4444518f2dbee48b5bee842363720e5a96e17c629bf4f3aae",
     "agent_registry": "01b1ae85c91c4e85dd879f023bdc41a3878b473107342bc63528de0b0c453d2e",
     "cache_manifest": "5eff3c647e67b8c7f2a50fdc079673ef4bb2282806b0d99276857309c0d9db8f",
-    "data_plane": "d7020fbac2ca482c4cdda5c3e976bcc27a5b93120114005b53bf23ede42b1c2f",
+    "data_plane": "00b8a21a251cea9c3a60330ac16808bae79eb39ec665dbdd8502edf9000a18c7",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "3dc81d307ef8cf9932ca3f80c2d54915515161968d0303feccea401e8afebce9",
     "route_index": "66a2e90d49450052362002e2d9d069880f963fcdc35eb41bfe11a4a1c5cc0881",
@@ -6118,6 +6129,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 147,
     "semantic_routes": 14,
-    "table_families": 97
+    "table_families": 98
   }
 }
