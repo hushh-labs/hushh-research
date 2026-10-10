@@ -22,6 +22,7 @@ from hushh_mcp.runtime_providers import (
     build_generate_content_config,
     build_managed_runtime_client,
 )
+from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +168,9 @@ class AttributeLearner:
 
                 if isinstance(self.client, Client):
                     gene = _load_attribute_gene()
-                    model_name = str(gene.model_config_for_runtime().name)
+                    # A gene is an AgentSubagentConfig: its model is `.model`.
+                    # model_config_for_runtime() exists only on the top-level manifest.
+                    model_name = resolve_fleet_model_name(gene.model.name)
                     model = Gemini(model=model_name, client=self.client)
                     agent = build_single_turn_agent(
                         gene,

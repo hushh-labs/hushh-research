@@ -7,11 +7,9 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from google.adk.models import Gemini
-
 from hushh_mcp.hushh_adk.manifest import AgentSubagentConfig, ManifestLoader
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
-from hushh_mcp.runtime_providers import build_managed_runtime_client
+from hushh_mcp.runtime_providers import build_managed_regional_gemini_adk_model
 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 
 _MANIFEST_PATH = Path(__file__).with_name("agent.yaml")
@@ -90,12 +88,16 @@ async def run_connected_systems_gene(
         raise ValueError("Connected Systems gene authority is required")
 
     gene = load_connected_systems_gene(gene_id)
+    if str(gene.model.provider or "").strip().lower() != "gemini":
+        raise RuntimeError(f"Connected Systems gene must run on managed Gemini: {gene_id}")
     model_name = resolve_fleet_model_name(str(gene.model.name))
-    client = build_managed_runtime_client(gene.model.provider)
     agent = build_single_turn_agent(
         gene,
         output_schema=output_schema,
-        model=Gemini(model=model_name, client=client),
+        # Not Gemini(client=build_managed_runtime_client(...)): with more than one
+        # configured Vertex location that client is a VertexRegionalClient, which
+        # ADK 2.9's Gemini.client (typed genai.Client) rejects.
+        model=build_managed_regional_gemini_adk_model(model_name),
     )
     result = await run_single_turn(
         agent,

@@ -2310,53 +2310,63 @@ async def analyze_stream_generator(
             )
         await asyncio.sleep(0.2)
 
-        synthesis_payload = await asyncio.wait_for(
-            synthesize_debate_recommendation_card(
-                ticker=ticker,
-                risk_profile=risk_profile,
-                user_context=full_user_context,
-                renaissance_context=renaissance_context,
-                fundamental_payload={
-                    "summary": fundamental_insight.summary,
-                    "recommendation": fundamental_insight.recommendation,
-                    "confidence": fundamental_insight.confidence,
-                    "business_moat": fundamental_insight.business_moat,
-                    "financial_resilience": fundamental_insight.financial_resilience,
-                    "growth_efficiency": fundamental_insight.growth_efficiency,
-                    "bull_case": fundamental_insight.bull_case,
-                    "bear_case": fundamental_insight.bear_case,
-                    "key_metrics": fundamental_insight.key_metrics,
-                    "quant_metrics": fundamental_insight.quant_metrics,
-                },
-                sentiment_payload={
-                    "summary": sentiment_insight.summary,
-                    "recommendation": sentiment_insight.recommendation,
-                    "confidence": sentiment_insight.confidence,
-                    "sentiment_score": sentiment_insight.sentiment_score,
-                    "key_catalysts": sentiment_insight.key_catalysts,
-                },
-                valuation_payload={
-                    "summary": valuation_insight.summary,
-                    "recommendation": valuation_insight.recommendation,
-                    "confidence": valuation_insight.confidence,
-                    "valuation_metrics": valuation_insight.valuation_metrics,
-                    "peer_comparison": valuation_insight.peer_comparison,
-                    "price_targets": valuation_insight.price_targets,
-                },
-                debate_payload={
-                    "decision": debate_result.decision,
-                    "confidence": debate_result.confidence,
-                    "consensus_reached": debate_result.consensus_reached,
-                    "agent_votes": debate_result.agent_votes,
-                    "dissenting_opinions": debate_result.dissenting_opinions,
-                    "final_statement": debate_result.final_statement,
-                },
-                highlights=debate_highlights,
-                user_id=user_id,
-                consent_token=consent_token,
-            ),
-            timeout=min(remaining_timeout(), 30.0),
-        )
+        # Synthesis runs after the analysts and the debate have finished. If it
+        # outlives its budget, keep that completed work with the fallback card
+        # instead of ending the whole analysis as ANALYZE_TIMEOUT. The inner
+        # budget is shorter so its own fallback normally fires first.
+        synthesis_budget = min(remaining_timeout(), 30.0)
+        try:
+            synthesis_payload = await asyncio.wait_for(
+                synthesize_debate_recommendation_card(
+                    ticker=ticker,
+                    risk_profile=risk_profile,
+                    user_context=full_user_context,
+                    renaissance_context=renaissance_context,
+                    fundamental_payload={
+                        "summary": fundamental_insight.summary,
+                        "recommendation": fundamental_insight.recommendation,
+                        "confidence": fundamental_insight.confidence,
+                        "business_moat": fundamental_insight.business_moat,
+                        "financial_resilience": fundamental_insight.financial_resilience,
+                        "growth_efficiency": fundamental_insight.growth_efficiency,
+                        "bull_case": fundamental_insight.bull_case,
+                        "bear_case": fundamental_insight.bear_case,
+                        "key_metrics": fundamental_insight.key_metrics,
+                        "quant_metrics": fundamental_insight.quant_metrics,
+                    },
+                    sentiment_payload={
+                        "summary": sentiment_insight.summary,
+                        "recommendation": sentiment_insight.recommendation,
+                        "confidence": sentiment_insight.confidence,
+                        "sentiment_score": sentiment_insight.sentiment_score,
+                        "key_catalysts": sentiment_insight.key_catalysts,
+                    },
+                    valuation_payload={
+                        "summary": valuation_insight.summary,
+                        "recommendation": valuation_insight.recommendation,
+                        "confidence": valuation_insight.confidence,
+                        "valuation_metrics": valuation_insight.valuation_metrics,
+                        "peer_comparison": valuation_insight.peer_comparison,
+                        "price_targets": valuation_insight.price_targets,
+                    },
+                    debate_payload={
+                        "decision": debate_result.decision,
+                        "confidence": debate_result.confidence,
+                        "consensus_reached": debate_result.consensus_reached,
+                        "agent_votes": debate_result.agent_votes,
+                        "dissenting_opinions": debate_result.dissenting_opinions,
+                        "final_statement": debate_result.final_statement,
+                    },
+                    highlights=debate_highlights,
+                    user_id=user_id,
+                    consent_token=consent_token,
+                    timeout_seconds=max(1.0, synthesis_budget - 1.0),
+                ),
+                timeout=synthesis_budget,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("[Kai Stream] Synthesis timed out for %s; using fallback", ticker)
+            synthesis_payload = {"error": "LLM_SYNTHESIS_FAILED: timeout", "fallback": True}
         analysis_degraded = len(degraded_agents) > 0
         if analysis_degraded:
             analysis_mode = "degraded"

@@ -2086,12 +2086,13 @@ export class RiaService {
   }
 
   static async getCrdScrapeJobStatus(
+    idToken: string,
     jobId: string,
     options?: { signal?: AbortSignal },
   ): Promise<CrdScrapeJobResult> {
-    const response = await ApiService.apiFetch(
+    const response = await authFetch(
       `/api/ria/crd-scrape-jobs/${encodeURIComponent(jobId)}`,
-      { method: "GET", signal: options?.signal },
+      { method: "GET", idToken, signal: options?.signal },
     );
     return toJsonOrThrow<CrdScrapeJobResult>(response);
   }

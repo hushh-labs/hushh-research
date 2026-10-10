@@ -189,7 +189,9 @@ class LocationCommandBrain:
                 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 
                 gene = _load_transcriber_gene()
-                model_name = resolve_fleet_model_name(gene.model_config_for_runtime().name)
+                # A gene is an AgentSubagentConfig: its model is `.model`.
+                # model_config_for_runtime() exists only on the top-level manifest.
+                model_name = resolve_fleet_model_name(gene.model.name)
                 agent = build_single_turn_agent(
                     gene,
                     output_schema=_TRANSCRIPTION_SCHEMA,
