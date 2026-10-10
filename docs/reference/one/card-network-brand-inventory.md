@@ -9,12 +9,12 @@ It records the network marks shown against a card the owner already holds in
 their own wallet. A card mark identifies a card; it never selects a payment
 method, authorises a charge, or implies a partnership with the network.
 
-## Why a card may show a lettermark instead
+## Why a card may show a generic icon instead
 
 `components/wallet/card-network-mark.tsx` renders in two tiers. When a network's
 official artwork is recorded in `CARD_MARK_ASSETS`, that artwork renders
-unmodified in a transparent cell. Until then the brand falls back to a plain
-lettermark tile that is Hussh's own and claims to be nobody's logo.
+unmodified in a transparent cell. Until then the brand uses a generic card icon
+with its network name. The icon is not network artwork.
 
 Nothing about the detection changes between the tiers: `detectBrand` in
 `hushh-webapp/lib/wallet/card-validation.ts` already classifies every card from
@@ -26,14 +26,14 @@ its BIN, and the mark simply reflects what it found.
 | --- | --- | --- |
 | Visa | _not yet recorded_ | [Visa brand centre](https://usa.visa.com/run-your-business/small-business-tools/payment-technology/visa-brand-guidelines.html) |
 | Mastercard | _not yet recorded_ | [Mastercard brand centre](https://brand.mastercard.com/brandcenter/mastercard-brand-mark.html) |
-| American Express | _not yet recorded_ | [American Express merchant marks](https://www.americanexpress.com/us/merchant/) |
-| Discover | _not yet recorded_ | [Discover Global Network acceptance marks](https://www.discoverglobalnetwork.com/) |
-| RuPay | _not yet recorded_ | [NPCI RuPay brand assets](https://www.npci.org.in/what-we-do/rupay/product-overview) |
-| JCB | _not yet recorded_ | [JCB brand assets](https://www.global.jcb/en/) |
-| UnionPay | _not yet recorded_ | [UnionPay International brand](https://www.unionpayintl.com/en/) |
+| American Express | `hushh-webapp/public/brand/cards/amex.svg` | [American Express static logo](https://www.aexp-static.com/cdaas/one/statics/axp-static-assets/1.8.0/package/dist/img/logos/dls-logo-bluebox-solid.svg), linked by its merchant site |
+| Discover | `hushh-webapp/public/brand/cards/discover.svg` | [Discover Global Network logo](https://www.discoverglobalnetwork.com/content/dam/discover/en_us/dgn/images/global/logos/discover-network-logo.svg) |
+| RuPay | `hushh-webapp/public/brand/cards/rupay.png` | User-supplied RuPay reference, 2026-10-10 (`codex-clipboard-4aa9c7eb-cc2f-4edb-ade3-1c6cb340a832.png`), used unchanged at the user's request |
+| JCB | `hushh-webapp/public/brand/cards/jcb.svg` | [JCB emblem](https://www.global.jcb/en/common/images/svg/jcb_emblem_logo.svg) |
+| UnionPay | `hushh-webapp/public/brand/cards/unionpay.png` | [UnionPay International logo](https://www.unionpayintl.com/imp_file/global/en/static/images/logo.png) |
 | Mir | _not yet recorded_ | [NSPK Mir brand](https://mironline.ru/) |
 | Elo | _not yet recorded_ | [Elo brand](https://www.elo.com.br/) |
-| Diners Club | _not yet recorded_ | [Diners Club International](https://www.dinersclub.com/) |
+| Diners Club | `hushh-webapp/public/brand/cards/diners.svg` | [Diners Club header logo](https://www.dinersclub.com/content/experience-fragments/diners-club/home-header-xf/master/_jcr_content/root/header/image.coreimg.svg/1779939792007/dci-logo-default.svg) |
 | Verve | _not yet recorded_ | [Verve brand](https://vervecard.com/) |
 
 ## Handling rules
@@ -57,7 +57,7 @@ These mirror the provider inventory, because the obligation is the same.
 
 1. Obtain the file from the network's own brand resource, not from a third-party
    CDN or an icon pack.
-2. Save it as `public/brand/cards/<brand>.svg`, where `<brand>` is exactly the
+2. Save it as `public/brand/cards/<brand>.svg` (or the original raster format), where `<brand>` is exactly the
    `CardBrand` value from `hushh-webapp/lib/wallet/card-validation.ts`.
 3. Add the entry to `CARD_MARK_ASSETS` in
    `components/wallet/card-network-mark.tsx`.

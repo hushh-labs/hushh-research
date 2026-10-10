@@ -1310,6 +1310,38 @@
     }
   },
   {
+    "route": "/wallet/open",
+    "mode": "hidden",
+    "exemptionReason": "Anonymous encrypted-file reader outside the signed-in shell; all card decryption stays on the recipient device.",
+    "voicePlaybook": {
+      "playbookId": "route.wallet.encrypted_file.open",
+      "purpose": "Let the recipient choose an encrypted card file and decrypt it locally without an account or upload.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain that the file and its password are required without asking for their contents.",
+        "cancelled": "Respect cancellation and keep decrypted card information hidden.",
+        "failed": "Offer a local retry without claiming the card opened.",
+        "timeout": "Keep the card hidden and offer one safe retry.",
+        "callbackError": "Keep private values out of recovery messages.",
+        "routeMismatch": "Use only the verified encrypted-file reader route."
+      },
+      "completionBoundary": "The card is open only after authenticated decryption completes locally for the current file and password. No recipient delivery is inferred.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Never ask for, interpret, log or transmit the chosen file, password or decrypted card."
+    },
+    "backVerification": {
+      "cases": [{ "href": "/wallet/open", "expected": null }],
+      "kind": "surface-owned",
+      "reason": "Standalone anonymous file reader has no authenticated app parent; closing the page clears in-memory card information."
+    }
+  },
+  {
     "route": "/c/[token]",
     "mode": "hidden",
     "exemptionReason": "Public Wallet Profile route is a standalone unauthenticated scan surface outside the signed-in app shell.",
