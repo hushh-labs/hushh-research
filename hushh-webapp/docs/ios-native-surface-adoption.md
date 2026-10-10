@@ -1,6 +1,6 @@
 # iOS Native Controls and Liquid Glass
 
-Implementation owner: frontend/native shell. Reviewed against source on 2026-10-09.
+Implementation owner: frontend/native shell. Reviewed against source on 2026-10-10.
 This is a component inventory and bounded adoption reference, not a claim that every
 candidate is implemented or released.
 
@@ -58,10 +58,50 @@ Focused recovery verification: 185 cases across lifecycle, navigation, plugin
 contracts, Profile navigation and owner-scoped draft continuity pass, as does
 typecheck. Restoring the old pre-discovery concealment makes the recovery test
 fail; the guard was restored. Design, static performance and native-contract
-checks pass. Exact installation and physical acceptance are still outstanding.
-No transition-frame or physical Release performance acceptance is inferred from
-the earlier functional receipts. The black-material cause remains unverified;
-this recovery avoids the failing custom composition rather than declaring it fixed.
+checks, 51 host-native support cases and the canonical core at `b912ddcf0f`
+pass. Later harness/documentation changes require their own final-head core;
+these results are not exact-head CI or release acceptance.
+
+### Installed recovery checkpoint — 2026-10-10
+
+The physical iPhone 16e runs the recovery implementation `b5e8e9783f`,
+`com.hushh.app` 1.4.0 (69), Debug configuration, iOS 27.2, UAT backend.
+Product installation and runner-only preparation were separate. Subsequent
+runner builds relinked a local application product; they did **not** reinstall
+that product or change the installed-candidate identity below.
+
+| Installed artifact | SHA-256 |
+| --- | --- |
+| Application executable | `1a8da7d7b521bdf35b531b87cfa57046584defc334e4c99298259c544571fb22` |
+| Packaged index | `0d87c623955d1d41a553944ed344e4e2889bf1469c803cf6075121313f94bf43` |
+| Runtime contract | `aa822769e2547459e63e38784b039f3b80ed905c1d426cb7834606fab1fc3f69` |
+
+Attach-only functional results on the unlocked session:
+
+| Shared family | Observed result / qualification limit |
+| --- | --- |
+| Bottom destinations and Search | Chat/One/Connect/Feed/Chat, Search and History isolation passed; standard native navigation positively required |
+| Profile nested panels | Existing seven-family settings journey passed, including view-only Vault methods and unsent support-type selection; no method or report submission |
+| History and Profile | Initial batch: three passed, one failed at Profile admission after closing History. Targeted rerun passed ten cycles each after requiring actual React modal retirement, not only native navigation readiness |
+| Drawer gesture and keyboard | Bidirectional History opening/closing, stationary WebView frame, composer restoration, one composer and navigation restoration passed |
+| Status/header canvas | In-memory pixel comparison matched; no private screenshot or hierarchy retained |
+| Appearance and Accent | Light/Dark × Blue/Molten Gold × Chat/One/Connect/Feed passed all 16 route combinations; actual Accent options acknowledged, navigation present, original preferences and unlocked Chat restored |
+| Recovery admission | Final runner asserted native editor, History opener/Close and Profile Close absent; React composer present, privacy cover retired and normal unlocked Chat retained |
+
+The appearance runner executable SHA-256 is
+`cb8652e8731137c754b7b6d9d6b35eaac5e39523e7a69c599f8196473643351b`.
+The native Back/material audit remains a separate opted-in native-candidate
+branch of the existing test; the recovery appearance path does not certify it.
+
+The first failed batch remains part of the result, not replaced with a blanket
+green batch claim. These receipts verify functional interactions and sampled
+geometry, not exact document/editor object identity, uninterrupted material
+pixels or three physical Release performance runs. iPad remains unqualified.
+No transition-frame, accessibility or Release performance acceptance is inferred
+from functional receipts. The black-material cause remains unverified; recovery
+avoids the failing custom composition rather than declaring it fixed. The native
+History rebuild and broader adoption remain qualification-only work after the
+recovery visual gate, not enabled product behavior.
 
 Older experimental wrappers requiring regions/apertures select their existing web
 navigation fallback, rather than reserving an unready native bar. The recovery

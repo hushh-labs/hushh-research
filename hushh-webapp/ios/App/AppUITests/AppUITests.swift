@@ -186,6 +186,9 @@ final class AppUITests: XCTestCase {
         for identifier in ["native-dock-editor", "chat-history-toggle", "chat-history-close", "profile-close"] {
             let control = app.descendants(matching: .any).matching(identifier: identifier).firstMatch
             print("NATIVE_CONTROL_ADMISSION control=\(identifier.replacingOccurrences(of: "-", with: "_")) present=\(control.exists) hittable=\(control.exists && control.isHittable)")
+            if ProcessInfo.processInfo.environment["HUSHH_RUN_RECOVERY_SMOKE"] == "true" {
+                XCTAssertFalse(control.exists, "Recovery re-admitted an experimental native control")
+            }
         }
         let continuity = app.buttons["native-panel-continuity"].firstMatch
         if let json = continuity.exists ? continuity.value as? String : nil,
@@ -664,11 +667,19 @@ final class AppUITests: XCTestCase {
                 XCTAssertTrue(waitForAdmittedControl(close))
                 XCTAssertFalse(bar.exists && bar.isHittable, "Native navigation escaped full-height History")
                 close.tap()
+                // Native navigation readiness does not retire the React
+                // scrim. Do not target base controls through a closing modal.
+                let historyRetired = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: close)
+                XCTAssertEqual(XCTWaiter.wait(for: [historyRetired], timeout: 10), .completed,
+                               "History did not retire before opening Profile")
                 XCTAssertTrue(waitForAdmittedControl(bar), "Native navigation did not return after History")
                 XCTAssertTrue(waitForAdmittedControl(profileOpen)); profileOpen.tap()
                 XCTAssertTrue(waitForAdmittedControl(profileClose))
                 XCTAssertFalse(bar.exists && bar.isHittable, "Native navigation escaped full-height Profile")
                 profileClose.tap()
+                let profileRetired = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: profileClose)
+                XCTAssertEqual(XCTWaiter.wait(for: [profileRetired], timeout: 10), .completed,
+                               "Profile did not retire before returning to Chat")
                 XCTAssertTrue(waitForAdmittedControl(bar), "Native navigation did not return after Profile")
                 XCTAssertTrue(waitForAdmittedControl(composer))
                 XCTAssertEqual(webView.frame, hostFrame, "Recovery replaced or shifted the WebView")
@@ -2277,8 +2288,17 @@ final class AppUITests: XCTestCase {
         app.activate()
         let hosts = app.webViews.matching(identifier: "native-webview")
         let web = hosts.firstMatch
+        let recovery = ProcessInfo.processInfo.environment["HUSHH_RUN_RECOVERY_SMOKE"] == "true"
         XCTAssertTrue(web.waitForExistence(timeout: 15))
         XCTAssertFalse(web.buttons["Unlock"].exists, "Normal vault unlock is required")
+
+        func closeProfile() {
+            let close = app.buttons["Close Profile"].firstMatch
+            XCTAssertTrue(waitForAdmittedControl(close), "THEME_CLOSE_NOT_ADMITTED")
+            close.tap()
+            let retired = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: close)
+            XCTAssertEqual(XCTWaiter.wait(for: [retired], timeout: 10), .completed, "THEME_PROFILE_NOT_RETIRED")
+        }
 
         func openPreferences() {
             let close = app.buttons["Close Profile"].firstMatch
@@ -2323,7 +2343,34 @@ final class AppUITests: XCTestCase {
             if !selected(label) { radio.tap() }
             let acknowledged = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in selected(label) }, object: web)
             XCTAssertEqual(XCTWaiter.wait(for: [acknowledged], timeout: 5), .completed, "THEME_SELECTION_NOT_ACKNOWLEDGED")
-            app.buttons["Close Profile"].firstMatch.tap()
+            closeProfile()
+        }
+
+        let accent = web.descendants(matching: .any).matching(NSPredicate(
+            format: "label == %@", "App accent color"
+        )).firstMatch
+        func selectedAccent() -> String? {
+            ["Blue", "Molten Gold"].first {
+                (accent.value as? String) == $0 || accent.staticTexts[$0].exists
+            }
+        }
+        func selectAccent(_ name: String) {
+            openPreferences()
+            guard waitForAdmittedControl(accent), let current = selectedAccent() else {
+                XCTFail("RECOVERY_ACCENT_NOT_ADMITTED"); return
+            }
+            if current != name {
+                accent.tap()
+                // The target differs from the current trigger value, so its
+                // explicit name identifies the option rather than trigger text.
+                let option = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", name)).firstMatch
+                guard waitForAdmittedControl(option) else { XCTFail("RECOVERY_ACCENT_OPTION_NOT_ADMITTED"); return }
+                option.tap()
+                let applied = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in selectedAccent() == name }, object: accent)
+                XCTAssertEqual(XCTWaiter.wait(for: [applied], timeout: 5), .completed, "RECOVERY_ACCENT_NOT_APPLIED")
+            }
+            XCTAssertFalse(app.buttons["profile-accent"].exists, "Recovery exposed a native Accent duplicate")
+            closeProfile()
         }
 
         openPreferences()
@@ -2331,9 +2378,15 @@ final class AppUITests: XCTestCase {
             XCTFail("THEME_ORIGINAL_SELECTION_UNKNOWN")
             return // Never change a preference whose restoration value is unknown.
         }
+        let originalAccent = recovery ? selectedAccent() : nil
+        if recovery && originalAccent == nil {
+            closeProfile()
+            XCTFail("RECOVERY_ORIGINAL_ACCENT_UNKNOWN"); return
+        }
         addTeardownBlock {
             // XCTest teardown also runs after fail-fast assertions. No sign-out,
             // new app process, storage injection or OS appearance changes.
+            if let originalAccent { selectAccent(originalAccent) }
             openPreferences()
             selectTheme(original)
             self.perfTapNav(app, label: "Chat")
@@ -2345,11 +2398,33 @@ final class AppUITests: XCTestCase {
             XCTAssertFalse(web.buttons["Unlock"].exists, "Theme restoration lost the session")
             print("NATIVE_THEME_RESTORED original_preference_unlocked_chat=true")
         }
-        app.buttons["Close Profile"].firstMatch.tap()
+        closeProfile()
         var hadBackAuditFailure = false
         for theme in ["Light", "Dark"] {
             openPreferences()
             selectTheme(theme)
+            if recovery {
+                for name in ["Blue", "Molten Gold"] {
+                    selectAccent(name)
+                    for destination in ["Chat", "One", "Connect", "Feed"] {
+                        perfTapNav(app, label: destination)
+                        let bar = app.descendants(matching: .any).matching(identifier: "one-native-navigation").firstMatch
+                        let selectedTab = bar.buttons[destination]
+                        let settled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: selectedTab)
+                        XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 10), .completed, "RECOVERY_THEME_ROUTE_NOT_SETTLED")
+                        XCTAssertTrue(waitForAdmittedControl(bar), "Recovery lost native bottom navigation")
+                        XCTAssertFalse(web.buttons["Unlock"].exists, "Recovery appearance changes lost the warm session")
+                        XCTAssertFalse(app.buttons["chat-history-toggle"].exists, "Recovery exposed a custom native header")
+                        XCTAssertFalse(app.segmentedControls["profile-appearance"].exists, "Recovery exposed a native Appearance duplicate")
+                        XCTAssertEqual(hosts.count, 1)
+                        assertStatusCanvasMatchesHeader(expectedDark: theme == "Dark")
+                        print("RECOVERY_THEME_ROUTE theme=\(theme) accent=\(name == "Blue" ? "blue" : "gold") tab=\(destination) matching=true")
+                    }
+                }
+                // Native Back/material audit below remains required for its
+                // opted-in candidate, not this deliberately React recovery.
+                continue
+            }
             for destination in ["Chat", "One", "Connect", "Feed"] {
                 perfTapNav(app, label: destination)
                 let bar = app.descendants(matching: .any).matching(identifier: "one-native-navigation").firstMatch
