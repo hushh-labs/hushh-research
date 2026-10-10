@@ -1,5 +1,7 @@
 "use client";
 import { activeNotificationKeyId } from "@/lib/notifications/preview-keys";
+import { chatAlertIsVisible } from "@/lib/notifications/chat-alert-visibility";
+import { ChatSystemNotifications } from "@/lib/notifications/chat-system-notifications";
 import { dispatchCircleChatChanged } from "@/lib/circle-chat/events";
 
 /**
@@ -1686,7 +1688,22 @@ export function ConsentNotificationProvider({
       if (["direct_message", "location_circle_message"].includes(msgType ?? "")) {
         if (!user?.uid || data.recipient_key_id && data.recipient_key_id !== activeNotificationKeyId(user?.uid) || data.user_id && data.user_id !== user.uid) return;
       }
-      if (user?.uid && !documentShareRequestId) detail.accepted = true;
+      if (user?.uid && !documentShareRequestId) detail.accepted =
+        ["direct_message", "location_circle_message"].includes(msgType ?? "") ? chatAlertIsVisible(data) : true;
+
+      if (["direct_message_read", "location_circle_chat_read"].includes(msgType ?? "") && user?.uid) {
+        const keyId = activeNotificationKeyId(user.uid);
+        if (keyId && data.recipient_key_id === keyId) void ChatSystemNotifications.clearRead({
+          threadId: String(data.circle_id || data.conversation_id || ""), keyId,
+          ...(data.chat_sequence ? { sequence: Number(data.chat_sequence) } : {}),
+          ...(data.chat_read_before ? { before: Number(data.chat_read_before) } : {}),
+          ...(data.chat_read_message_id ? { messageId: String(data.chat_read_message_id) } : {}),
+          ...(data.chat_badge_count !== undefined ? { badgeCount: Number(data.chat_badge_count) } : {}),
+          ...(data.chat_badge_version !== undefined ? { badgeVersion: Number(data.chat_badge_version) } : {}),
+        });
+        CacheSyncService.onFeedExternalReadChanged(user.uid);
+        if (msgType === "direct_message_read") { dispatchFeedStateChanged("action"); return; }
+      }
 
       // Suppress only identifiable replays. A bare grant/request id is the
       // notification's subject, not a delivery identity, and reusing it here

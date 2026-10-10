@@ -16,7 +16,7 @@ function browserPermission(): BrowserPermission {
 }
 
 /** Explicit permission action for browser and native notification registration. */
-export function FeedPushPrompt() {
+export function FeedPushPrompt({ context = "feed" }: { context?: "feed" | "chat" } = {}) {
   const { deliveryMode, retryPushRegistration, isRetryingPushRegistration } =
     useConsentNotificationState();
   const [permission, setPermission] = useState<BrowserPermission>("unsupported");
@@ -29,7 +29,7 @@ export function FeedPushPrompt() {
   if (deliveryMode === "push_active") {
     return null;
   }
-  if (permission === "unsupported" || permission === "granted") return null;
+  if (permission === "unsupported") return null;
 
   const enable = async () => {
     if (Capacitor.isNativePlatform()) {
@@ -41,6 +41,7 @@ export function FeedPushPrompt() {
       retryPushRegistration();
       return;
     }
+    if (permission === "granted") { retryPushRegistration(); return; }
     let result: BrowserPermission;
     try {
       result = await Notification.requestPermission();
@@ -60,18 +61,21 @@ export function FeedPushPrompt() {
       <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
         {permission === "denied"
           ? Capacitor.isNativePlatform() ? "Allow notifications in device settings to get message alerts." : "Notifications are blocked for One in this browser. Allow them in site settings to get alerts."
+          : permission === "granted" ? "Reconnect notifications to receive message alerts."
+          : context === "chat" ? "Allow device notifications to hear new messages when you leave this chat."
           : "Get notifications for direct messages, Circle chats, and requests."}
       </p>
-      {permission === "default" || (permission === "denied" && Capacitor.isNativePlatform()) ? (
+      {permission === "default" || permission === "granted" || (permission === "denied" && Capacitor.isNativePlatform()) ? (
         <Button
           type="button"
           variant="none"
           effect="fade"
           size="compact"
+          className="min-h-11 shrink-0"
           disabled={isRetryingPushRegistration}
           onClick={() => void enable()}
         >
-          {permission === "denied" ? "Open settings" : "Turn on"}
+          {permission === "denied" ? "Open settings" : permission === "granted" ? "Retry" : "Turn on"}
         </Button>
       ) : null}
     </div>

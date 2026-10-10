@@ -94,6 +94,96 @@ describe("named Circle flows", () => {
     vi.clearAllMocks();
   });
 
+  it("guides a new circle through a failed add, retry, confirmed membership, and opening chat", async () => {
+    let current = circle("family", "Family");
+    const props = detailProps(vi.fn(async () => current));
+    props.onLoadEligibleConnections = vi.fn(async () => ({
+      eligibleConnections: current.memberCount === 1 ? [{
+        connectionId: "connection-asha", userId: "asha", displayName: "Asha Rao",
+      }] : [],
+      pendingInvites: [],
+      remainingCapacity: 20 - current.memberCount,
+    }));
+    props.onInviteConnections = vi.fn()
+      .mockRejectedValueOnce(new Error("Try again"))
+      .mockImplementation(async () => {
+        current = { ...current, memberCount: 2, members: [...current.members, {
+          userId: "asha", displayName: "Asha Rao", role: "member",
+          phoneVerified: true, secureLocationReady: true,
+        }] };
+      });
+    const onComplete = vi.fn();
+    render(<CircleDetailFlow circleId="family" livingCircleExperience memberSetup
+      onMemberSetupComplete={onComplete} renderChat={() => <p>Circle conversation</p>} {...props} />);
+    expect(await screen.findByRole("heading", { name: "Add your first member" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "Members" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Chat" })).toBeDisabled();
+    expect(screen.getByText("Circle conversation")).not.toBeVisible();
+    fireEvent.click(await screen.findByRole("button", { name: "Add Asha Rao to Family" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Try again"));
+    const retry = screen.getByRole("button", { name: "Add Asha Rao to Family" });
+    await waitFor(() => expect(retry).toBeEnabled());
+    expect(screen.queryByRole("button", { name: "Open chat" })).toBeNull();
+    fireEvent.click(retry);
+    fireEvent.click(retry);
+    await screen.findByRole("heading", { name: "Your Circle is ready" });
+    expect(props.onInviteConnections).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("tab", { name: "Chat" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Open chat" }));
+    expect(screen.getByText("Circle conversation")).toBeVisible();
+    expect(onComplete).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { count: 1, chatIntent: false, view: "Members" },
+    { count: 2, chatIntent: false, view: "Chat" },
+    { count: 1, chatIntent: true, view: "Chat" },
+  ])("opens $view for count=$count and chatIntent=$chatIntent without a creation flag", async ({ count, chatIntent, view }) => {
+    const props = detailProps(async () => ({ ...circle("family", "Family"), memberCount: count }));
+    render(<CircleDetailFlow circleId="family" livingCircleExperience chatIntent={chatIntent}
+      renderChat={() => <p>Circle conversation</p>} {...props} />);
+    await screen.findByRole("heading", { name: "Family" });
+    await waitFor(() => expect(screen.getByRole("tab", { name: view })).toHaveAttribute("aria-selected", "true"));
+    if (count === 1 && !chatIntent) {
+      // Established solo circles can still contain history after members leave.
+      expect(screen.getByRole("tab", { name: "Chat" })).toBeEnabled();
+    }
+  });
+
+  it("retains an explicit chat entry after consuming its URL intent and refreshing the roster", async () => {
+    const props = detailProps(vi.fn(async () => circle("family", "Family")));
+    const renderChat = () => <p>Circle conversation</p>;
+    const { rerender } = render(<CircleDetailFlow circleId="family" livingCircleExperience chatIntent
+      renderChat={renderChat} {...props} />);
+    await screen.findByRole("heading", { name: "Family" });
+    rerender(<CircleDetailFlow circleId="family" livingCircleExperience chatIntent={false}
+      reloadSignal={1} renderChat={renderChat} {...props} />);
+    await waitFor(() => expect(props.onLoad).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("tab", { name: "Chat" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Circle conversation")).toBeVisible();
+  });
+
+  it("offers recovery without eligible connections and waits for membership after sharing a code", async () => {
+    const current = { ...circle("family", "Family"), activeInviteCode: {
+      id: "code-1", circleId: "family", code: "2345-6789-ABCD", expiresAt: null,
+    } };
+    const props = detailProps(vi.fn(async () => current));
+    props.onLoadEligibleConnections = vi.fn(async () => ({
+      eligibleConnections: [], pendingInvites: [], remainingCapacity: 19,
+    }));
+    render(<CircleDetailFlow circleId="family" livingCircleExperience memberSetup
+      renderChat={() => <p>Circle conversation</p>} {...props} />);
+    expect(await screen.findByRole("link", { name: "Find people" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: /Invite code/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Share invite" }));
+    await waitFor(() => expect(props.onShareCode).toHaveBeenCalledWith(current, current.activeInviteCode.code));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.getByRole("tab", { name: "Members" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Chat" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Open chat" })).toBeNull();
+    expect(props.onInviteConnections).not.toHaveBeenCalled();
+  });
+
   it.each(["tap", "drop"] as const)(
     "adds a Connect circle candidate by %s and refreshes the orbit, roster, and eligible list",
     async (method) => {

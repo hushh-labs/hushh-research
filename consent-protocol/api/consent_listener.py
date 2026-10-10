@@ -425,6 +425,12 @@ def _user_state_notify_callback(connection, pid, channel, payload: str) -> None:
             return
 
         def _schedule() -> None:
+            if event_type == "location_circle_message":
+                from hushh_mcp.services.circle_chat_notifications import (
+                    wake_circle_chat_push_worker,
+                )
+
+                wake_circle_chat_push_worker()
             task = asyncio.create_task(_push_to_consent_queue(user_id, data))
             _background_notify_tasks.add(task)
             task.add_done_callback(_background_notify_tasks.discard)

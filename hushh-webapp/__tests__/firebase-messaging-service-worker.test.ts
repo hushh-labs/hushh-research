@@ -32,6 +32,7 @@ function createHarness(options: {
     navigate?: "success" | "failure" | "unavailable";
   }>;
   deliveredTags?: string[];
+  failFirstShow?: boolean;
 }) {
   const handlers = new Map<string, ServiceWorkerHandler>();
   const shown: Array<{ title: string; options?: Record<string, unknown> }> = [];
@@ -41,6 +42,7 @@ function createHarness(options: {
   const navigatedUrls: string[] = [];
   const closedTags: string[] = [];
   let focusCount = 0;
+  let showAttempts = 0;
   const clientState = options.clientState ?? "visible";
   const definitions =
     options.clients ??
@@ -133,11 +135,12 @@ function createHarness(options: {
         title: string,
         notificationOptions?: Record<string, unknown>,
       ) => {
+        if (options.failFirstShow && showAttempts++ === 0) throw new Error("presentation unavailable");
         shown.push({ title, options: notificationOptions });
       },
-      getNotifications: async ({ tag }: { tag: string }) =>
+      getNotifications: async ({ tag }: { tag?: string } = {}) =>
         (options.deliveredTags || [])
-          .filter((candidate) => candidate === tag)
+          .filter((candidate) => !tag || candidate === tag)
           .map((candidate) => ({
             close: () => closedTags.push(candidate),
           })),
@@ -173,6 +176,12 @@ function createHarness(options: {
   vm.runInContext(source, context);
 
   return {
+    hideClients() { clients.forEach(client => { client.visibilityState = "hidden"; client.focused = false; }); },
+    async message(data: Record<string, unknown>) {
+      let pending = Promise.resolve<unknown>(undefined);
+      handlers.get("message")?.({ data, waitUntil: promise => { pending = promise; } });
+      await pending;
+    },
     async installKey(keyId: string = fixture.keyId) {
       const decode = (value: string) => Uint8Array.from(Buffer.from(value, "base64url"));
       const key = await webcrypto.subtle.importKey("pkcs8", decode(fixture.privateKey), { name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
@@ -650,4 +659,29 @@ it("renders sealed authoritative Circle identity and suppresses pushes after acc
   await harness.push(data.type, data);
   expect(harness.shown).toHaveLength(1);
   expect(harness.clientMessages).toHaveLength(0);
+});
+
+
+const chatData = (sequence: string, messageId = `m${sequence}`) => ({ type: "location_circle_message",
+  circle_id: "11111111-2222-3333-4444-555555555555", recipient_key_id: fixture.keyId, message_id: messageId,
+  chat_sequence: sequence, chat_expires_at: String(Math.floor(Date.now() / 1000) + 60) });
+it("does not alert an acknowledged message again after its chat hides", async () => {
+  const h = createHarness({ acknowledgeVisibleDelivery: true }); await h.installKey();
+  await h.push("location_circle_message", chatData("10")); h.hideClients();
+  await h.push("location_circle_message", chatData("10")); expect(h.shown).toHaveLength(0);
+  await h.push("location_circle_message", chatData("11")); expect(h.shown).toHaveLength(1);
+});
+it("retries a message whose system presentation failed", async () => {
+  const h = createHarness({ clientState: "none", failFirstShow: true }); await h.installKey();
+  await expect(h.push("location_circle_message", chatData("10"))).rejects.toThrow("presentation unavailable");
+  await h.push("location_circle_message", chatData("10")); expect(h.shown).toHaveLength(1);
+  await h.push("location_circle_message", chatData("10")); expect(h.shown).toHaveLength(1);
+});
+it("keeps read frontiers monotonic and scoped to the active recipient key", async () => {
+  const h = createHarness({ clientState: "none" }); await h.installKey();
+  const read = { type: "hushh:chat_read", keyId: fixture.keyId, threadId: chatData("1").circle_id };
+  await h.message({ ...read, sequence: 10 }); await h.message({ ...read, sequence: 4 });
+  await h.push("location_circle_message", chatData("9")); expect(h.shown).toHaveLength(0);
+  await h.message({ ...read, keyId: "other-owner-key", sequence: 999 });
+  await h.push("location_circle_message", chatData("11")); expect(h.shown).toHaveLength(1);
 });

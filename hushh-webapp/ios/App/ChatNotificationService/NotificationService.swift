@@ -5,7 +5,6 @@ import UIKit
 final class NotificationService: UNNotificationServiceExtension {
     private var handler: ((UNNotificationContent) -> Void)?
     private var best: UNNotificationContent?
-    private var original: UNNotificationContent?
     private var expectedKey: String?
     private let completionLock = NSLock()
 
@@ -13,11 +12,21 @@ final class NotificationService: UNNotificationServiceExtension {
         completionLock.lock()
         handler = contentHandler
         best = request.content
-        original = request.content
-        expectedKey = request.content.userInfo["recipient_key_id"] as? String
+        expectedKey = ChatPreviewKeys.recipientKey(request.content.userInfo)
         completionLock.unlock()
         guard let content = request.content.mutableCopy() as? UNMutableNotificationContent else { finish(); return }
         let info = content.userInfo
+        if let key = ChatPreviewKeys.recipientKey(info) {
+            let version = (info["chat_badge_version"] as? String).flatMap(Double.init)
+            if !ChatPreviewKeys.applyBadge(keyId: key, version: version, action: {}) { content.badge = nil }
+        }
+        completionLock.lock(); best = content; completionLock.unlock()
+        if ChatPreviewKeys.isRead(info) {
+            // iOS requires the filtering entitlement to discard an accepted push.
+            // Keep completion exactly once, without replaying sound or unread badge.
+            content.title = "Messages read"; content.body = ""; content.sound = nil; content.badge = nil
+            completionLock.lock(); best = content; completionLock.unlock(); finish(); return
+        }
         guard let context = info["preview_context"] as? String else { finish(); return }
         let preview = (info["chat_preview"] as? String).flatMap { ChatPreviewKeys.open(sealed: $0, context: context) }
         let identity = (info["chat_identity"] as? String).flatMap { ChatPreviewKeys.open(sealed: $0, context: context) }
@@ -75,7 +84,21 @@ final class NotificationService: UNNotificationServiceExtension {
     private func finish() {
         completionLock.lock()
         guard let callback = handler, let current = best else { completionLock.unlock(); return }
-        let content = expectedKey.map { ChatPreviewKeys.matches(keyId: $0) } == false ? original ?? current : current
+        var content = current
+        if (expectedKey == nil || expectedKey.map({ ChatPreviewKeys.matches(keyId: $0) }) == false),
+           let sanitized = current.mutableCopy() as? UNMutableNotificationContent {
+            sanitized.title = "New message"; sanitized.body = "Open Hussh to view your messages"
+            sanitized.sound = nil; sanitized.badge = nil
+            content = sanitized
+        }
+        if let key = expectedKey, let sanitized = content.mutableCopy() as? UNMutableNotificationContent {
+            let version = (content.userInfo["chat_badge_version"] as? String).flatMap(Double.init)
+            if !ChatPreviewKeys.applyBadge(keyId: key, version: version, action: {}) { sanitized.badge = nil }
+            if ChatPreviewKeys.isRead(content.userInfo) {
+                sanitized.title = "Messages read"; sanitized.body = ""; sanitized.sound = nil; sanitized.badge = nil
+            }
+            content = sanitized
+        }
         handler = nil
         best = nil
         completionLock.unlock()
