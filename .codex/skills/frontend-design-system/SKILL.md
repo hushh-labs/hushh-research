@@ -46,12 +46,7 @@ Non-owned surfaces:
 8. `hushh-webapp/docs/ios-native-surface-adoption.md`
 
 ## Workflow
-
-For hybrid iOS controls, use the current renderer/family boundaries in
-`hushh-webapp/docs/ios-native-surface-adoption.md`. Do not conceal a React control
-while waiting to discover its replacement. A family that moves or overlaps a
-React drawer remains coherent React until the entire native presentation has
-parity evidence; automatic DOM-inferred replacement is not a component mapper.
+Hybrid iOS renderer, overlap and first-paint gates: `hushh-webapp/docs/ios-native-surface-adoption.md`.
 1. Read design-system and frontend architecture docs before touching shared UI.
 2. Decide the owning layer first: stock UI, Morphy UX, or app-ui.
 3. Keep route-container ownership with shared shells.
