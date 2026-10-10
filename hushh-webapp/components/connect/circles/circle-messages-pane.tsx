@@ -14,6 +14,7 @@ import { CircleChat } from "./circle-chat";
 import { AgentDockPortal } from "@/components/agent/agent-dock";
 import { ArrowLeft, MessageCircle, Plus, UsersRound } from "@/components/icons";
 import styles from "./circle-messages-pane.module.css";
+import peopleStyles from "@/components/direct-messages/direct-messages-page.module.css";
 
 function GroupAvatar({ name, photoUrl }: { name: string; photoUrl?: string | null }) {
   return <span className={styles.groupAvatar} aria-hidden="true">
@@ -135,10 +136,14 @@ export function CircleMessagesPane({ active = true, initialCircleId = null, onTh
     </aside>
     <section className={styles.thread} data-thread-open={Boolean(selected) || undefined} aria-label={selected ? `${selected.name} messages` : "Circle messages"}>
       {selected && session ? <>
-        <header className={styles.threadHeader}>
+        <header className={peopleStyles.threadHeader}>
+          <div className={peopleStyles.threadHeaderContent}>
           <button type="button" className={styles.back} aria-label="Back to circles" onClick={closeThread}><ArrowLeft aria-hidden="true" className="size-5" /></button>
+          <div className={peopleStyles.threadIdentity}>
           <GroupAvatar name={selected.name} photoUrl={selected.photoUrl} />
-          <span className={styles.rowText}><strong>{selected.name}</strong><span>{selected.memberCount} {selected.memberCount === 1 ? "member" : "members"}</span></span>
+          <div className={peopleStyles.threadTitle}><h2>{selected.name}</h2><p>{selected.memberCount} {selected.memberCount === 1 ? "member" : "members"}</p></div>
+          </div>
+          </div>
         </header>
         <CircleChat key={`${session.userId}:${session.circleId}:${session.vaultOwnerToken}`} session={session} circleName={selected.name} initialOpen active={active} collapsible={false} chatLane chatLaneTheme={theme} />
       </> : <div className={styles.placeholder}><UsersRound aria-hidden="true" className="size-8" /><p>Select a circle to start chatting.</p></div>}

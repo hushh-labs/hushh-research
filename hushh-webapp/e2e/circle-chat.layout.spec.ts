@@ -14,6 +14,7 @@ test.beforeAll(async () => {
   const { Scanner } = await import("@tailwindcss/oxide");
   const scanner = new Scanner({});
   const candidates = new Set<string>();
+  let moduleCss = "";
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "circle-chat-layout-"));
   try {
     await build({ configFile: false, logLevel: "error", oxc: { jsx: { runtime: "automatic", development: false } },
@@ -21,6 +22,8 @@ test.beforeAll(async () => {
         if (!id.includes("node_modules") && /\.[tj]sx?$/.test(id)) for (const candidate of scanner.scanFiles([{ content: source, extension: "tsx" }])) candidates.add(candidate);
       } }],
       resolve: { alias: [
+        ...["@/hooks/use-auth", "@/lib/vault/vault-context", "@/lib/one-location/service"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/circle-chat-boundary.ts") })),
+        { find: "next/navigation", replacement: path.join(root, "e2e/fixtures/direct-chat-navigation.tsx") },
         { find: "@/components/consent/notification-provider", replacement: path.join(root, "e2e/fixtures/circle-chat-notification-boundary.ts") },
         { find: "@/lib/services/circle-chat-service", replacement: path.join(root, "e2e/fixtures/circle-chat-boundary.ts") },
         { find: "@/lib/services/api-service", replacement: path.join(root, "e2e/fixtures/circle-chat-http-boundary.ts") },
@@ -31,6 +34,7 @@ test.beforeAll(async () => {
       build: { outDir, emptyOutDir: false, lib: { entry: path.join(root, "e2e/fixtures/circle-chat.tsx"), name: "Fixture", formats: ["iife"], fileName: () => "fixture.js" } },
     });
     script = fs.readFileSync(path.join(outDir, "fixture.js"), "utf8");
+    moduleCss = fs.readdirSync(outDir).filter(file => file.endsWith(".css")).map(file => fs.readFileSync(path.join(outDir, file), "utf8")).join("\n");
   } finally { fs.rmSync(outDir, { recursive: true, force: true }); }
   const { compile } = await import("tailwindcss");
   const compiler = await compile(fs.readFileSync(path.join(root, "app/globals.css"), "utf8").replace(/^@source\s+[^;]+;\s*$/gm, ""), {
@@ -39,7 +43,7 @@ test.beforeAll(async () => {
       return { path: file, base: path.dirname(file), content: fs.readFileSync(file, "utf8") };
     },
   });
-  css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
+  css = stripAppFontFaces(compiler.build([...candidates])) + moduleCss + productFontStyle();
 });
 async function mount(page: Page, dark = false, workspace = false) {
   await page.route("http://localhost/fixture-person-*.webp", (route) => {
@@ -52,6 +56,45 @@ async function mount(page: Page, dark = false, workspace = false) {
   await awaitProductFont(page);
   await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
   await page.bringToFront();
+}
+
+for (const width of [320, 1440]) {
+  for (const dark of [false, true]) {
+    test(`Circle Messages uses the shared dock without a second field surface at ${width}px ${dark ? "dark" : "light"}`, async ({ page }) => {
+      page.on("pageerror", error => console.error("Circle lane runtime", error.message));
+      await page.setViewportSize({ width, height: 844 });
+      await page.route("http://localhost/circle-lane-fixture*", route => route.fulfill({ contentType: "text/html", body: `<!doctype html><html class="${dark ? "dark" : ""}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>` }));
+      await page.goto("http://localhost/circle-lane-fixture?lane=1");
+      await page.addScriptTag({ content: script });
+      await awaitProductFont(page);
+      const editor = page.getByRole("textbox", { name: "Message" });
+      await expect(editor).toBeVisible();
+      const header = page.getByRole("heading", { name: "Weekend friends" });
+      await expect(header).toBeVisible();
+      const identityGap = await header.evaluate(el => {
+        const identity = el.parentElement!.parentElement!;
+        const avatar = identity.firstElementChild!.getBoundingClientRect();
+        return el.getBoundingClientRect().left - avatar.right;
+      });
+      expect(identityGap).toBeGreaterThanOrEqual(0);
+      expect(identityGap).toBeLessThanOrEqual(16);
+      await editor.fill("Hello circle");
+      await expect(page.getByRole("button", { name: "Send message", exact: true })).toBeEnabled();
+      const geometry = await editor.evaluate(el => {
+        const field = el.closest('[data-slot="input-group"]')!;
+        const composer = el.closest('[data-circle-chat-composer]')!;
+        return { width: document.documentElement.scrollWidth, viewport: innerWidth,
+          fieldBorder: getComputedStyle(field).borderTopWidth,
+          composerShadow: getComputedStyle(composer).boxShadow,
+          editorHeight: el.getBoundingClientRect().height };
+      });
+      expect(geometry.width).toBeLessThanOrEqual(geometry.viewport + 1);
+      expect(geometry.fieldBorder).toBe("0px");
+      expect(geometry.composerShadow).toBe("none");
+      expect(geometry.editorHeight).toBeGreaterThanOrEqual(44);
+      await page.screenshot({ path: test.info().outputPath(`circle-lane-${width}-${dark ? "dark" : "light"}.png`) });
+    });
+  }
 }
 
 for (const width of [320, 393, 430, 768, 1440]) {
