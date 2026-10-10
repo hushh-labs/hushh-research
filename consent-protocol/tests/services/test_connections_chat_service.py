@@ -190,7 +190,7 @@ async def test_find_people_tool_flow():
         ],
     )
     out = await svc.handle_turn(user_id="u1", message="find people named Sam", consent_token=_TOKEN)
-    fake.search_directory.assert_called_once_with("u1", query="Sam")
+    fake.search_directory.assert_called_once_with("u1", query="Sam", name_only=True)
     assert out["response"] == "I found Sam Lee."
 
 

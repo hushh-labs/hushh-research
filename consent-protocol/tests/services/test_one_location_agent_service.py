@@ -4338,9 +4338,9 @@ def test_directory_candidate_search_filters_before_pagination(
         "candidate_user_id": None,
         "candidate_user_ids": None,
         "query": "cara",
-        "identifier_search": False,
-        "exact_email": None,
-        "exact_phone": None,
+        "name_search": True,
+        "email_contains": "%cara%",
+        "phone_contains": None,
         "exact_name": "cara",
         "name_prefix": "cara%",
         "word_prefix": "% cara%",
@@ -4408,23 +4408,27 @@ def test_directory_search_matches_prefixes_not_substrings() -> None:
 @pytest.mark.parametrize(
     ("query", "email", "phone"),
     [
-        ("Friend@Example.test", "friend@example.test", None),
-        ("+1 (555) 010-0002", None, "15550100002"),
+        ("Friend@Example.test", "%friend@example.test%", None),
+        ("friend@", "%friend@%", None),
+        ("friend", "%friend%", None),
+        ("+1 (555) 010-0002", None, "%15550100002%"),
+        ("5550100002", "%5550100002%", "%5550100002%"),
+        ("5", "%5%", "%5%"),
+        ("_!%", "%!_!!!%%", None),
     ],
 )
-def test_directory_identifier_search_is_exact_and_phone_is_verified(
+def test_directory_identifier_search_is_partial_and_phone_is_verified(
     query: str, email: str | None, phone: str | None
 ) -> None:
     service = RecipientDirectoryProbe()
     service.search_directory_candidates(owner_user_id="owner", query=query)
 
-    assert service.params["identifier_search"] is True
-    assert service.params["exact_email"] == email
-    assert service.params["exact_phone"] == phone
-    assert "LOWER(BTRIM(a.email)) = :exact_email" in service.sql
+    assert service.params["email_contains"] == email
+    assert service.params["phone_contains"] == phone
+    assert "LOWER(BTRIM(a.email)) LIKE :email_contains ESCAPE '!'" in service.sql
     assert "a.phone_verified = TRUE" in service.sql
-    assert "REGEXP_REPLACE(a.phone_number, '[^0-9]', '', 'g') = :exact_phone" in service.sql
-    assert ":identifier_search = FALSE AND" in service.sql
+    assert "REGEXP_REPLACE(a.phone_number, '[^0-9]', '', 'g') LIKE :phone_contains" in service.sql
+    assert ":name_search = TRUE AND" in service.sql
     assert "LIKE :email_prefix" not in service.sql
 
 

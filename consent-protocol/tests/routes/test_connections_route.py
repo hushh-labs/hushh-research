@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -50,7 +51,8 @@ def test_create_request_returns_typed_conflict_when_pair_is_already_connected():
     }
 
 
-def test_directory_lists_items():
+@pytest.mark.parametrize("name_only", [False, True])
+def test_directory_lists_items(name_only):
     client = _client()
     with patch("api.routes.one.connections.ConnectionsService") as svc_cls:
         svc_cls.return_value.search_directory.return_value = {
@@ -58,9 +60,15 @@ def test_directory_lists_items():
             "page": 1,
             "hasMore": False,
         }
-        resp = client.get("/api/one/connections/directory?query=bo")
+        resp = client.get(
+            "/api/one/connections/directory",
+            params={"query": "bo", **({"name_only": "true"} if name_only else {})},
+        )
     assert resp.status_code == 200
     assert resp.json() == {"items": [], "page": 1, "hasMore": False}
+    svc_cls.return_value.search_directory.assert_called_once_with(
+        "user-a", query="bo", page=1, limit=20, audience="all", name_only=name_only
+    )
 
 
 def test_directory_identity_outage_returns_retryable_503():

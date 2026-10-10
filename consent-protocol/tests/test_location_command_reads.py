@@ -160,7 +160,19 @@ async def test_names_and_relationship_are_observed_without_identifiers_or_keys()
         and "secret@" not in serialized
         and "never" not in serialized
     )
-    assert service._connections.search_directory.call_args.args == ("owner",)
+    service._connections.search_directory.assert_called_once_with(
+        "owner", query="Abdul", page=1, limit=20, name_only=True
+    )
+
+
+@pytest.mark.asyncio
+async def test_connections_read_keeps_its_existing_name_filter_and_pagination():
+    service = fixture()
+    await service.read("connections", query="Abdul", page=2, limit=10)
+    service._connections.list_connections_page.assert_called_once_with(
+        "owner", query="Abdul", page=2, limit=10
+    )
+    service._connections.search_directory.assert_not_called()
 
 
 @pytest.mark.asyncio
