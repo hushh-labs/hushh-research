@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { SaveLocationModal } from "../../components/one-location/onboarding/save-location-modal";
 import { useSessionChromeSuppression } from "../../lib/auth/use-session-chrome-suppression";
@@ -18,10 +18,18 @@ function Harness() {
   const [open, setOpen] = useState(true);
   const [saving, setSaving] = useState(false);
   useSessionChromeSuppression(window.placeFixture.onboarding);
-  window.finishPlaceSave = () => {
-    setSaving(false);
-    setOpen(false);
-  };
+  useEffect(() => {
+    const finishSave = () => {
+      setSaving(false);
+      setOpen(false);
+    };
+    window.finishPlaceSave = finishSave;
+    return () => {
+      if (window.finishPlaceSave === finishSave) {
+        Reflect.deleteProperty(window, "finishPlaceSave");
+      }
+    };
+  }, []);
   return (
     <>
       <div data-app-scroll-root="true">Location settings</div>

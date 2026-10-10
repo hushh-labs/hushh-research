@@ -184,6 +184,7 @@ test.describe("Place-saving flow with persistent app chrome", () => {
     const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "place-saving-flow-"));
     await build({
       configFile: false,
+      publicDir: false,
       logLevel: "error",
       plugins: [{
         name: "place-saving-boundaries",
