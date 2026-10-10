@@ -41,8 +41,12 @@
 .share { grid-column: 2; grid-row: 1; border: 1px solid var(--border); }
 .share:only-child { grid-column: 1 / -1; }
 .message { grid-column: 1 / -1; grid-row: 2; }
-.manage { grid-column: 1 / -1; grid-row: 3; background: transparent; }
-.relationship { grid-column: 1 / -1; grid-row: 4; justify-self: center; font-size: 13px; }
+/* Request scope sits with the file actions, above Manage access. Without an
+   explicit row a third auto-placed button skips the occupied Manage row and
+   lands underneath it. */
+.requestScope { grid-column: 1 / -1; grid-row: 3; }
+.manage { grid-column: 1 / -1; grid-row: 4; background: transparent; }
+.relationship { grid-column: 1 / -1; grid-row: 5; justify-self: center; font-size: 13px; }
 .actions .relationship { min-height: 44px; margin-top: 4px; padding: 10px 20px; font-size: 13px; font-weight: 500; }
 
 .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 96px; padding: 16px; text-align: center; }

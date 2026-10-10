@@ -7,6 +7,8 @@ from .a2a import well_known_router as a2a_well_known_router
 from .advisors import router as advisors_router
 from .agent_chat import router as agent_chat_router
 from .agent_feedback import router as agent_feedback_router
+from .answer_requests import router as answer_requests_router
+from .answer_work_drain import router as answer_work_drain_router
 from .business_suggestions import router as business_suggestions_router
 from .calendar import router as calendar_router
 from .capability_runtime import router as capability_runtime_router
@@ -84,6 +86,8 @@ router.include_router(marketplace_requests_router)
 router.include_router(pkm_packets_router)
 router.include_router(directory_claims_router)
 router.include_router(packet_orders_router)
+router.include_router(answer_requests_router)
+router.include_router(answer_work_drain_router)
 router.include_router(credits_router)
 router.include_router(payouts_router)
 router.include_router(career_router)

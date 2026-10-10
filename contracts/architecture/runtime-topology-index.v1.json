@@ -1480,6 +1480,50 @@
       "primary_access_path": "Feature-flagged personal-agent reservation, BYOC setup, provider provisioning, lifecycle replay, and the parked provider-deprovision intent design"
     },
     {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
+        "pkm_answer_deliveries"
+      ],
+      "id": "pkm_answer_deliveries",
+      "lifecycle_status": "customer0",
+      "owner": "vault-pkm-governance",
+      "primary_access_path": "The owner's unlocked device produces the answer from decrypted PKM within the approved scopes, seals it to the requester's ECDH P-256 recipient key and posts the envelope; the requester fetches and decrypts it on their own device. The server is a blind relay, exactly as in the marketplace delivery sweep."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "pkm_answer_payment_orders",
+        "pkm_answer_payment_obligations",
+        "pkm_answer_payment_webhook_events"
+      ],
+      "id": "pkm_answer_payment_authority",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Sibling of drive_request_payment_authority for the question lane. A USD Stripe Checkout order opens only after the owner approves a question at a whole-dollar price from 100 to 50000 cents. The signed Stripe webhook, routed on payment_kind 'pkm_answer', settles only when the session, attempt, amount, currency and terms_digest all match the locked order; a per-lane event table makes a replayed event a no-op. Refunds cover owner decline, requester cancellation, fulfilment timeout and an empty answer."
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "pkm_answer_requests",
+        "pkm_answer_request_scopes"
+      ],
+      "id": "pkm_answer_requests",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Paid answers on a connected person's profile: any active connection submits a question through Request scope; the required semantic resolver stage proposes scopes, deterministic fail-closed validation drops anything the owner does not hold or that another person may never request, and the owner approves the exact question, the exact scopes and a whole-dollar price. The approved terms are fixed by a terms_digest covering question, scopes, both participants and the quote."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "pkm_answer_payment_refunds",
+        "pkm_answer_owner_payouts"
+      ],
+      "id": "pkm_answer_settlement",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Durable settlement for the paid-answer lane, on the existing Drive work drain. A refund obligation is written in the same transaction as the decline, cancellation, empty answer or deadline expiry that caused it, then claimed under a lease and retried on its own backoff with a stable per-request idempotency key. An owner earning becomes due only when an answer is delivered with content, pays gross minus 300 bps commission to the owner's Stripe Connect account, and is voided if the order is refunded."
+    },
+    {
       "data_class": "workflow_state",
       "exact_tables": [
         "pkm_credit_subscription_cancellations"
@@ -5506,6 +5550,7 @@
           "people.profile.connect",
           "people.profile.manage_consent",
           "people.profile.remove_connection",
+          "people.profile.request_scope",
           "people.profile.review_information_request",
           "route.person_profile"
         ],
@@ -6178,21 +6223,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
-    "action_gateway": "af5117fd06fb5cdcb99ea3e743412033d9e25d009bb4aa58a5ab446cf4fdc64c",
+    "action_gateway": "3ac47552bcd39ef7d6a5749dac34af846a41aa6eb37508bd2b1a40488b6bc7ca",
     "agent_registry": "01b1ae85c91c4e85dd879f023bdc41a3878b473107342bc63528de0b0c453d2e",
     "cache_manifest": "a755d259334378b86771604d20c27dcc668c6f97bb954f483548ba1c3bdcb755",
-    "data_plane": "0b02a91bf31bff8b998b6a5528d07470967eef030967d6230ec564813da01fff",
+    "data_plane": "cad40004b0f28a684e301242eb7cd58a73d3964b1c8dd1d34bc69d6011fa61af",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "5ee18c7736ee4ebb02a623048e6dfd71e18d2362a525b115bdae46dcb8054531",
-    "route_index": "35cc5509957aca01af57e1a00629708963ffd8a9eae3884622e65536f38ad54e",
+    "route_index": "3c3c1fd90b2cef732571058961c9bb7231df8e6252606dfe5cc3759e76b86c9f",
     "route_layout": "29de8eadf566988e4158093d2a42ffb0d584e7b8332db005c86fabc6dd1f575e",
-    "surface_map": "999a523df5d71ed512ebbd0c51a3c3eeee9fea743201c0f672d0defde7af7212",
+    "surface_map": "ca15dd9488c38a5785656af10380d5cdb9fc44f0eb034d8f5edf0dfa200fde4d",
     "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 236,
+    "actions": 237,
     "agents": 19,
     "aliases": 4,
     "decision_required": 2,
@@ -6200,6 +6245,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 150,
     "semantic_routes": 14,
-    "table_families": 95
+    "table_families": 99
   }
 }
