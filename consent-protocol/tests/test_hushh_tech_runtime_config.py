@@ -41,16 +41,31 @@ def test_passkey_rp_ids_are_derived_from_the_active_frontend_origin():
     module = _module()
 
     assert module._canonical_passkey_allowed_rp_ids("https://dev.one.hushh.ai") == (
-        "localhost,127.0.0.1,dev.one.hushh.ai"
+        "localhost,127.0.0.1,dev.one.hushh.ai,dev.one.hussh.ai"
     )
     assert module._canonical_passkey_allowed_rp_ids("https://uat.one.hushh.ai/") == (
-        "localhost,127.0.0.1,uat.one.hushh.ai"
+        "localhost,127.0.0.1,uat.one.hushh.ai,uat.one.hussh.ai"
     )
     assert module._canonical_passkey_allowed_rp_ids("https://one.hushh.ai") == (
-        "localhost,127.0.0.1,one.hushh.ai"
+        "localhost,127.0.0.1,one.hushh.ai,one.hussh.ai"
     )
     assert module._canonical_passkey_allowed_rp_ids("http://localhost:3000") == (
         "localhost,127.0.0.1"
+    )
+
+    assert module._canonical_passkey_allowed_rp_ids("https://uat.one.hussh.ai") == (
+        "localhost,127.0.0.1,uat.one.hushh.ai,uat.one.hussh.ai"
+    )
+    assert module._canonical_passkey_allowed_rp_ids("https://unknown.hussh.ai") == (
+        "localhost,127.0.0.1,unknown.hussh.ai"
+    )
+    assert (
+        module._cors_with_frontend_aliases("https://dev.one.hushh.ai", "https://dev.one.hushh.ai")
+        == "https://dev.one.hushh.ai,https://dev.one.hussh.ai"
+    )
+    assert (
+        module._cors_with_frontend_aliases("https://dev.one.hushh.ai", "https://unrelated.example")
+        == "https://unrelated.example"
     )
 
 

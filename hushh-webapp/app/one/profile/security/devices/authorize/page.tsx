@@ -18,6 +18,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { ApiService } from "@/lib/services/api-service";
 import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 import { buildTrustedDevicePasskeyHandoff } from "@/lib/vault/trusted-device-passkey-handoff";
+import { resolvePasskeyEnvironment } from "@/lib/vault/passkey-rp";
 
 function requiredParam(
   params: { get(name: string): string | null },
@@ -29,10 +30,7 @@ function requiredParam(
 function trustedDeviceEnvironment(
   hostname: string,
 ): "dev" | "uat" | "production" {
-  const normalized = hostname.trim().toLowerCase();
-  if (normalized === "one.hushh.ai") return "production";
-  if (normalized === "dev.one.hushh.ai") return "dev";
-  return "uat";
+  return resolvePasskeyEnvironment(hostname) ?? "uat";
 }
 
 function authorizationErrorMessage(payload: unknown): string {

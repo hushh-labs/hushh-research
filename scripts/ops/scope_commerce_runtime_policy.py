@@ -136,5 +136,5 @@ def apply_policy(config: dict[str, Any], policy: dict[str, Any]) -> dict[str, An
 def validate_passkey_origin(args: argparse.Namespace, parser, canonical, normalize) -> None:
     canonical_passkey_rp_ids = canonical(args.app_frontend_origin)
     if args.passkey_allowed_rp_ids and normalize(args.passkey_allowed_rp_ids) != normalize(canonical_passkey_rp_ids):
-        parser.error("--passkey-allowed-rp-ids must contain only localhost, 127.0.0.1, " "and the APP_FRONTEND_ORIGIN host")
+        parser.error("--passkey-allowed-rp-ids must contain only localhost, 127.0.0.1, " "and the APP_FRONTEND_ORIGIN host with its declared same-environment alias")
     args.passkey_allowed_rp_ids = canonical_passkey_rp_ids
