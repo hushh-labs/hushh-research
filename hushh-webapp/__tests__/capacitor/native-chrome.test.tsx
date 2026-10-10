@@ -12,8 +12,8 @@ import { isCurrentNativeControlAppearance } from "@/lib/capacitor/native-control
 import { DockEventFence, type DockEvent, type DockState } from "@/lib/capacitor/native-dock";
 import { NativeAgentDock } from "@/components/agent/native-agent-dock";
 import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
-import { NativePanelPoseWriter, type NativePanelPose } from "@/lib/capacitor/native-panel-presentation";
-import { nativePresentationAdmission, syncNativePresentationRegions, useNativeFullWindowOverlayReady, type NativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
+import { NativePanelPoseWriter, useNativePanelPresentation, type NativePanelPose } from "@/lib/capacitor/native-panel-presentation";
+import { nativePresentationAdmission, setNativePresentationRegionIsolation, syncNativePresentationRegions, useNativeFullWindowOverlayReady, waitForNativeDrawerCoverageRelease, type NativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
 import { AgentDockProvider, useAgentDockState } from "@/components/agent/agent-dock";
 import { useNativeDockPort, useNativeDockPorts, type NativeDockPort } from "@/components/agent/native-dock-port";
 
@@ -26,7 +26,7 @@ vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked
 vi.mock("@/components/profile/profile-workspace-page", () => ({ ProfilePage: () => null }));
 
 const bridge = vi.hoisted(() => ({ platform: "ios", documentId: "document-a", callbacks: new Map<string, (event: unknown) => void>(),
-  listeners: new Map<string, Set<(event: unknown) => void>>(), setPresentationRegions: vi.fn(),
+  listeners: new Map<string, Set<(event: unknown) => void>>(), setPresentationRegions: vi.fn(), applyPanelPose: vi.fn(), retirePanel: vi.fn(),
   subscribe: vi.fn(), prepare: vi.fn(), prepareBackReplacement: vi.fn(), prepareHistoryReplacement: vi.fn(), activate: vi.fn(), update: vi.fn(), suspend: vi.fn(), retire: vi.fn(), restoreFocus: vi.fn(), confirmChoice: vi.fn(), getCapabilities: vi.fn(), setCanvasAppearance: vi.fn() }));
 const dockBridge = vi.hoisted(() => ({ callbacks: new Map<string, (event: unknown) => void>(),
   subscribe: vi.fn(), getCapabilities: vi.fn(), apply: vi.fn(), retire: vi.fn(), suspend: vi.fn(), consumeDraft: vi.fn(), beginEditingTransition: vi.fn(), confirmEvent: vi.fn() }));
@@ -47,9 +47,13 @@ vi.mock("@capacitor/core", () => ({
     return { remove: async () => { listeners.delete(callback); if (!listeners.size) bridge.callbacks.delete(name); } };
   } }),
 }));
+const privacy = vi.hoisted(() => ({ callbacks: new Set<(event: { generation: number; shielded: boolean; appIsActive: boolean }) => void>() }));
 vi.mock("@/lib/capacitor/session-privacy", () => ({ nativeDocumentId: () => bridge.documentId,
   getNativeSessionPrivacyState: async () => ({ generation: 0, shielded: false, appIsActive: true }),
-  subscribeNativeSessionPrivacy: async () => ({ remove: async () => undefined }) }));
+  subscribeNativeSessionPrivacy: async (callback: (event: { generation: number; shielded: boolean; appIsActive: boolean }) => void) => {
+    privacy.callbacks.add(callback);
+    return { remove: async () => { privacy.callbacks.delete(callback); } };
+  } }));
 vi.mock("@/lib/voice/voice-surface-metadata", () => ({ useVoiceSurfaceMetadata: () => null, getVoiceSurfaceMetadata: () => null }));
 const projection = { kind: "back" as const, label: "Go back", enabled: true,
   appearance: "light" as const, accentHex: "#112233", foregroundHex: "#223344",
@@ -359,6 +363,8 @@ describe("native chrome presentation lease", () => {
     bridge.getCapabilities.mockReset().mockResolvedValue({ contractVersion: 2, families: ["back"], independentControls: true });
     bridge.setCanvasAppearance.mockReset().mockImplementation(async (value) => value);
     bridge.setPresentationRegions.mockReset().mockImplementation(async (value) => value);
+    bridge.applyPanelPose.mockReset().mockImplementation(async (value) => value);
+    bridge.retirePanel.mockReset().mockImplementation(async (value) => value);
     bridge.prepare.mockReset().mockImplementation(async (value: ChromeProjection) => ({ ...value, phase: "prepared" }));
     bridge.prepareBackReplacement.mockReset().mockImplementation(async (value: ChromeProjection) => ({ ...value, phase: "prepared" }));
     bridge.prepareHistoryReplacement.mockReset().mockImplementation(async (value: ChromeProjection) => ({ ...value, phase: "prepared" }));
@@ -372,6 +378,79 @@ describe("native chrome presentation lease", () => {
       retireNativeChrome("owner-a", undefined, controlId as ChromeProjection["controlId"])));
   });
   afterEach(async () => { cleanup(); await act(async () => { await Promise.resolve(); }); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+  it("stops pose delivery on teardown but retires only after the matching uncovered receipt", async () => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history"],
+      independentControls: true, reservedPresentationRegions: true, fullWindowOverlays: true, drawerClipping: true });
+    function Panel() {
+      const ref = useRef<HTMLDivElement>(null);
+      const attach = useNativePanelPresentation("profile", "synthetic-owner", ref, true);
+      useLayoutEffect(() => { if (ref.current) ref.current.getAnimations = () => []; }, []);
+      return <div ref={attach} data-native-panel-group="profile" />;
+    }
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      x: 150, y: 0, width: 390, height: window.innerHeight, bottom: window.innerHeight } as DOMRect);
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    await getNativeChromeCapabilities();
+    setNativePresentationRegionIsolation(true, true, "profile");
+    expect(await syncNativePresentationRegions()).toBe(true);
+    const view = render(<Panel />);
+    await waitFor(() => expect(bridge.applyPanelPose).toHaveBeenCalled());
+    const captured = bridge.applyPanelPose.mock.calls.at(-1)![0] as NativePanelPose;
+    const poseCount = bridge.applyPanelPose.mock.calls.length;
+    view.unmount();
+    await act(async () => { await Promise.resolve(); });
+    expect(bridge.retirePanel).not.toHaveBeenCalled();
+    const delayed = deferred<NativePresentationRegions>();
+    bridge.setPresentationRegions.mockReturnValueOnce(delayed.promise);
+    setNativePresentationRegionIsolation(false);
+    await waitFor(() => expect(bridge.setPresentationRegions.mock.calls.at(-1)?.[0].covered).toBe(false));
+    expect(bridge.retirePanel).not.toHaveBeenCalled();
+    expect(bridge.applyPanelPose).toHaveBeenCalledTimes(poseCount);
+    const release = bridge.setPresentationRegions.mock.calls.at(-1)![0];
+    await act(async () => { delayed.resolve(release); });
+    await waitFor(() => expect(bridge.retirePanel).toHaveBeenCalledOnce());
+    expect(bridge.retirePanel).toHaveBeenCalledWith(expect.objectContaining({
+      documentId: captured.documentId, ownerEpoch: captured.ownerEpoch, generation: captured.generation }));
+  });
+  it("does not mistake a superseded release or reopening for uncovered admission", async () => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history"],
+      independentControls: true, reservedPresentationRegions: true, fullWindowOverlays: true, drawerClipping: true });
+    await getNativeChromeCapabilities();
+    setNativePresentationRegionIsolation(true, true, "profile");
+    expect(await syncNativePresentationRegions()).toBe(true);
+    const retired = vi.fn();
+    const waiting = waitForNativeDrawerCoverageRelease(bridge.documentId, 0).then(retired);
+    const delayed = deferred<NativePresentationRegions>();
+    bridge.setPresentationRegions.mockReturnValueOnce(delayed.promise);
+    setNativePresentationRegionIsolation(false);
+    await waitFor(() => expect(bridge.setPresentationRegions.mock.calls.at(-1)?.[0].covered).toBe(false));
+    const obsolete = bridge.setPresentationRegions.mock.calls.at(-1)![0];
+    setNativePresentationRegionIsolation(true, true, "profile");
+    expect(await syncNativePresentationRegions()).toBe(true);
+    await act(async () => { delayed.resolve(obsolete); });
+    expect(retired).not.toHaveBeenCalled();
+    setNativePresentationRegionIsolation(false);
+    expect(await syncNativePresentationRegions()).toBe(true);
+    await waiting;
+    expect(retired).toHaveBeenCalledExactlyOnceWith("released");
+  });
+  it.each(["privacy", "timeout"])("ends normal-retirement waiting fail-closed on %s", async reason => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history"],
+      independentControls: true, reservedPresentationRegions: true, fullWindowOverlays: true, drawerClipping: true });
+    await getNativeChromeCapabilities();
+    setNativePresentationRegionIsolation(true, true, "profile");
+    expect(await syncNativePresentationRegions()).toBe(true);
+    const callbacks = privacy.callbacks.size;
+    if (reason === "timeout") vi.useFakeTimers();
+    try {
+      const waiting = waitForNativeDrawerCoverageRelease(bridge.documentId, 0);
+      await act(async () => { await Promise.resolve(); });
+      if (reason === "privacy") privacy.callbacks.forEach(callback => callback({ generation: 1, shielded: true, appIsActive: false }));
+      else await vi.advanceTimersByTimeAsync(3001);
+      expect(await waiting).toBe(reason === "privacy" ? "invalidated" : "uncertain");
+      expect(privacy.callbacks.size).toBe(callbacks);
+    } finally { vi.useRealTimers(); setNativePresentationRegionIsolation(false); await syncNativePresentationRegions(); }
+  });
   it("admits full-height panes only after current coverage and rejects an open-close-reopen receipt", async () => {
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history", "agent-surface"],
       independentControls: true, reservedPresentationRegions: true, fullWindowOverlays: true, drawerClipping: true });

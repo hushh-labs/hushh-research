@@ -3,7 +3,7 @@
 import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { getNativeChromeCapabilities, nativeChrome, type ChromeFrame } from "./native-chrome";
 import { getNativeSessionPrivacyState, nativeDocumentId, subscribeNativeSessionPrivacy } from "./session-privacy";
-import { nativeDrawerPresentationAdmission, useNativePresentationRegionRevision } from "./native-presentation-regions";
+import { nativeDrawerPresentationAdmission, useNativePresentationRegionRevision, waitForNativeDrawerCoverageRelease } from "./native-presentation-regions";
 
 export type NativePanelIdentity = {
   documentId: string; ownerEpoch: string; group: "profile" | "history"; generation: number;
@@ -176,9 +176,14 @@ export function useNativePanelPresentation(group: "profile" | "history", owner: 
       window.removeEventListener("resize", viewportChanged);
       for (const event of ["transitionrun", "transitionend", "transitioncancel", "animationstart", "animationend", "animationcancel"]) panel.removeEventListener(event, wake);
       if (panels.get(panel) === entry) panels.delete(panel);
-      if (writer) void nativeChrome.retirePanel(identity).catch(() => {
-        // Uncertain retirement remains noninteractive; it is not retried.
-      });
+      if (writer) {
+        const retire = () => nativeChrome.retirePanel(identity).catch(() => undefined);
+        // The writer is already stopped. Clearing its final clip before native
+        // applies uncovered regions would blank the base during normal exit.
+        // Native still fences this exact owner/generation after rapid reopening.
+        if (clipping) void waitForNativeDrawerCoverageRelease(identity.documentId, privacyGeneration).then(retire);
+        else void retire();
+      }
     };
   }, [group, owner, node, recovery, enabled, coverageOnly]);
   return attach;

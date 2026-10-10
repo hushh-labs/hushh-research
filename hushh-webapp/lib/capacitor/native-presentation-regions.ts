@@ -2,7 +2,7 @@
 
 import { useLayoutEffect, useState, useSyncExternalStore, type RefObject } from "react";
 import { getNativeChromeCapabilities, peekNativeChromeCapabilities, nativeChrome } from "./native-chrome";
-import { getNativeSessionPrivacyState, nativeDocumentId } from "./session-privacy";
+import { getNativeSessionPrivacyState, nativeDocumentId, subscribeNativeSessionPrivacy, type NativeSessionPrivacyState } from "./session-privacy";
 
 export type NativePresentationRegions = {
   documentId: string;
@@ -178,6 +178,47 @@ export function nativePresentationAdmission() {
 export function nativeDrawerPresentationAdmission(group: "profile" | "history") {
   return accepted?.documentId === nativeDocumentId() && accepted.covered && accepted.drawer === group &&
     accepted.revision === revision ? nativePresentationAdmission() : undefined;
+}
+
+/** Stop the writer before calling this. Normal teardown keeps the last bounded
+ * presentation until current coverage is released; privacy or uncertainty ends
+ * the wait so the captured generation can retire fail-closed. No action replay. */
+export function waitForNativeDrawerCoverageRelease(documentId: string, privacyGeneration: number):
+  Promise<"released" | "invalidated" | "uncertain"> {
+  return new Promise(resolve => {
+    let finished = false, privacyValidated = false;
+    let handle: Awaited<ReturnType<typeof subscribeNativeSessionPrivacy>> | undefined;
+    const finish = (result: "released" | "invalidated" | "uncertain") => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer); listeners.delete(inspect);
+      void handle?.remove().catch(() => undefined);
+      resolve(result);
+    };
+    const inspect = () => {
+      if (documentId !== nativeDocumentId()) { finish("invalidated"); return; }
+      if (privacyValidated && !covered && accepted?.documentId === documentId &&
+          accepted.revision === revision && accepted.covered === false &&
+          accepted.privacyGeneration === privacyGeneration) finish("released");
+    };
+    const observePrivacy = (state: NativeSessionPrivacyState) => {
+      if (state.shielded || !state.appIsActive || state.generation !== privacyGeneration) {
+        finish("invalidated"); return;
+      }
+      privacyValidated = true; inspect();
+    };
+    const timer = setTimeout(() => finish("uncertain"), 3000);
+    listeners.add(inspect);
+    inspect();
+    void (async () => {
+      try {
+        const subscription = await subscribeNativeSessionPrivacy(observePrivacy);
+        if (finished) { await subscription.remove(); return; }
+        handle = subscription;
+        observePrivacy(await getNativeSessionPrivacyState());
+      } catch { finish("uncertain"); }
+    })();
+  });
 }
 
 /** Reconcile a current presentation after another shell owner supersedes its

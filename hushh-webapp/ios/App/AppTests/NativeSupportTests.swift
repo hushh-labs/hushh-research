@@ -127,8 +127,23 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(container.applyDrawerCoverage(history, group: "history", privacy: privacy + 1, revision: 4))
         XCTAssertTrue(container.retire(group: "history", document: "synthetic", ownerEpoch: "history-epoch", generation: 2))
         XCTAssertEqual(container.baseVisibleFrame, .zero, "Uncertain/retired coverage must not paint over the drawer")
+        regions(5, drawer: "profile")
+        let terminal = NativePanelPose(document: "synthetic", ownerEpoch: "exit-epoch", generation: 3,
+            sequence: 1, privacyGeneration: privacy, frame: container.bounds, offset: container.bounds.width,
+            opacity: 1, settled: false)
+        XCTAssertTrue(container.applyDrawerCoverage(terminal, group: "profile", privacy: privacy, revision: 5))
+        XCTAssertEqual(container.baseVisibleFrame, container.bounds)
+        regions(6, drawer: nil) // Apply release before clearing the captured pose.
+        XCTAssertTrue(container.retire(group: "profile", document: "synthetic", ownerEpoch: "exit-epoch", generation: 3))
+        XCTAssertEqual(container.baseVisibleFrame, container.bounds, "Normal release-then-retire must never blank exposed glass")
+        regions(7, drawer: "profile")
+        let reopened = NativePanelPose(document: "synthetic", ownerEpoch: "reopened-epoch", generation: 4,
+            sequence: 1, privacyGeneration: privacy, frame: container.bounds, offset: 80, opacity: 1, settled: false)
+        XCTAssertTrue(container.applyDrawerCoverage(reopened, group: "profile", privacy: privacy, revision: 7))
+        XCTAssertFalse(container.retire(group: "profile", document: "synthetic", ownerEpoch: "exit-epoch", generation: 3))
+        XCTAssertEqual(container.baseVisibleFrame.width, 80, "Late cleanup cannot clear a reopened presentation")
         container.conceal()
-        regions(5, drawer: nil)
+        regions(8, drawer: nil)
         XCTAssertEqual(container.baseVisibleFrame, .zero)
         XCTAssertTrue(container.underlay.isHidden, "Region release must never clear privacy")
         XCTAssertTrue(web.superview === container)
