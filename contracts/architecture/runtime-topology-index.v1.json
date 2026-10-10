@@ -1781,6 +1781,19 @@
       "lifecycle_status": "current",
       "owner": "vault-pkm-governance",
       "primary_access_path": "vault setup, unlock-status, wrapper selection, and account deletion services"
+    },
+    {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
+        "wallet_card_registrations",
+        "wallet_card_share_requests",
+        "wallet_card_access_grants",
+        "wallet_card_access_audit"
+      ],
+      "id": "wallet_temporary_card_access",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Owner-confirmed canonical Wallet commits register saved payment cards automatically, including older cards refreshed by the owner's Share action. Owner grants bind individual active connections; authenticated recipients read only their current grant."
     }
   ],
   "database_retirements": [
@@ -6226,7 +6239,7 @@
     "action_gateway": "3ac47552bcd39ef7d6a5749dac34af846a41aa6eb37508bd2b1a40488b6bc7ca",
     "agent_registry": "01b1ae85c91c4e85dd879f023bdc41a3878b473107342bc63528de0b0c453d2e",
     "cache_manifest": "a755d259334378b86771604d20c27dcc668c6f97bb954f483548ba1c3bdcb755",
-    "data_plane": "cad40004b0f28a684e301242eb7cd58a73d3964b1c8dd1d34bc69d6011fa61af",
+    "data_plane": "7727da48cd292e891190a8567e799662d4484fe2730cc00039fd74402eb313f9",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "5ee18c7736ee4ebb02a623048e6dfd71e18d2362a525b115bdae46dcb8054531",
     "route_index": "3c3c1fd90b2cef732571058961c9bb7231df8e6252606dfe5cc3759e76b86c9f",
@@ -6245,6 +6258,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 150,
     "semantic_routes": 14,
-    "table_families": 99
+    "table_families": 100
   }
 }

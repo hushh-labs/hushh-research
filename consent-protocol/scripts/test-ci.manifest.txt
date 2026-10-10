@@ -663,6 +663,9 @@ tests/routes/test_direct_messages_route.py
 
 # Direct-message attachment history, replay and authorization on isolated PostgreSQL.
 tests/test_direct_message_feed_projection_postgres.py
+tests/services/test_wallet_card_access_service.py
+tests/routes/test_wallet_card_access_route.py
+tests/test_wallet_card_access_postgres.py
 
 # Scheduled mail by voice: migration 275 shape and rollback guard, the owner-local
 # send-time rules, and the schedule/list/cancel tools against the sealed ledger.

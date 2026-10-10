@@ -2,7 +2,16 @@
 
 import { useState } from "react";
 import { Check, Copy, RefreshCw } from "@/components/icons";
-import { ProfilePaneDeleteIcon } from "@/components/profile/profile-pane-icons";
+import {
+  ProfilePaneAccountIcon,
+  ProfilePaneCalendarIcon,
+  ProfilePaneCardIcon,
+  ProfilePaneCardNetworkIcon,
+  ProfilePaneDeleteIcon,
+  ProfilePaneGlobeIcon,
+  ProfilePaneKeyIcon,
+  ProfilePaneSecurityIcon,
+} from "@/components/profile/profile-pane-icons";
 import { SettingsGroup, SettingsPresentationProvider, SettingsRow } from "@/components/profile/settings-ui";
 import profileStyles from "@/components/profile/profile-your-account.module.css";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
@@ -25,13 +34,13 @@ export function WalletSavedCardDetails({ card, name, pan, numberUnavailable = fa
   const expiry = `${String(card.expiryMonth).padStart(2, "0")}/${String(card.expiryYear).slice(-2)}`;
   const network = cardNetworkLabel(card.brand);
   const rows = [
-    { label: "Card number", value: pan ? formatCardNumber(card.brand, pan) : numberUnavailable ? "Unavailable" : "Loading…", copy: onCopyCardNumber },
-    { label: "Name on card", value: name || "Not provided", copyValue: name },
-    { label: "Card network", value: network, copyValue: network },
-    { label: "Expiry (MM/YY)", value: expiry, copyValue: expiry, copyLabel: "Copy expiry date" },
-    { label: "CVV", value: "Hidden" },
-    { label: "PIN (optional)", value: "Hidden if saved" },
-    { label: "Issuing region", value: card.issuingRegion || "Not provided", copyValue: card.issuingRegion },
+    { icon: ProfilePaneCardIcon, label: "Card number", value: pan ? formatCardNumber(card.brand, pan) : numberUnavailable ? "Unavailable" : "Loading…", copy: onCopyCardNumber },
+    { icon: ProfilePaneAccountIcon, label: "Name on card", value: name || "Not provided", copyValue: name },
+    { icon: ProfilePaneCardNetworkIcon, label: "Card network", value: network, copyValue: network },
+    { icon: ProfilePaneCalendarIcon, label: "Expiry (MM/YY)", value: expiry, copyValue: expiry, copyLabel: "Copy expiry date" },
+    { icon: ProfilePaneSecurityIcon, label: "CVV", value: "Hidden" },
+    { icon: ProfilePaneKeyIcon, label: "PIN (optional)", value: "Hidden if saved" },
+    { icon: ProfilePaneGlobeIcon, label: "Issuing region", value: card.issuingRegion || "Not provided", copyValue: card.issuingRegion },
   ];
 
   const copy = async (row: typeof rows[number]) => {
@@ -57,7 +66,7 @@ export function WalletSavedCardDetails({ card, name, pan, numberUnavailable = fa
   return <SettingsPresentationProvider separatorInset density="compact">
     <section aria-label="Saved card details" className={`${profileStyles.walletContent} space-y-4`}>
       <SettingsGroup title="Card details">
-        {rows.map((row) => <SettingsRow key={row.label} density="compact" title={row.label} trailing={
+        {rows.map((row) => <SettingsRow key={row.label} density="compact" icon={row.icon} iconTone="transparent" title={row.label} trailing={
           <span className="flex min-w-0 items-center justify-end gap-2">
             <span className="min-w-0 break-words text-right">{row.value}</span>
             {row.label === "Card number" && numberUnavailable && onRetryNumber ? <button type="button" className="inline-flex size-11 shrink-0 items-center justify-center text-[color:var(--app-accent)]" aria-label="Retry card number" onClick={onRetryNumber} disabled={disabled}><RefreshCw className="size-4" aria-hidden="true" /></button> : null}

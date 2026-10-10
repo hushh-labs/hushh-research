@@ -35,6 +35,7 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { WalletSavedCardDetails } from "./wallet-saved-card-details";
 import { WalletSavedCardSharing } from "./wallet-saved-card-sharing";
+import { WalletCardAccessService } from "@/lib/services/wallet-card-access-service";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import {
@@ -213,7 +214,7 @@ export function WalletWorkspace() {
       }
     };
   }, [renderedOwnerId]);
-  const { vaultKey, getVaultOwnerToken } = useVault();
+  const { vaultKey, vaultOwnerToken, getVaultOwnerToken } = useVault();
   const [demoProfile, setDemoProfile] = useState<WalletDemoProfile | null>(null);
   // Read the token getter through a ref: its identity changes with the vault
   // context, and putting it in effect deps re-ran the list load on every render.
@@ -340,10 +341,10 @@ export function WalletWorkspace() {
     [cards, deferredQuery],
   );
   const vaultContext = useCallback(() => {
-    const token = getVaultOwnerTokenRef.current();
+    const token = vaultOwnerToken && getVaultOwnerTokenRef.current();
     if (!user?.uid || !vaultKey || !token) return null;
     return { userId: user.uid, vaultKey, vaultOwnerToken: token };
-  }, [user?.uid, vaultKey]);
+  }, [user?.uid, vaultKey, vaultOwnerToken]);
   useEffect(() => {
     if (!user?.uid) { setDemoProfile(null); return; }
     setDemoProfile({ ownerId: user.uid, displayName: user.displayName?.trim() || null, shareUrl: null, cardPayload: null, memberSince: user.metadata?.creationTime });
@@ -685,9 +686,8 @@ export function WalletWorkspace() {
     setRemoveTarget(null);
     if (!target) return;
     const current = vaultContextRef.current();
-    if (current?.userId !== target.context.userId || current.vaultKey !== target.context.vaultKey ||
-        current.vaultOwnerToken !== target.context.vaultOwnerToken) return;
-    void morphyToast.promise(removeCard(target.card.cardId, target.context), {
+    if (!current || current.userId !== target.context.userId || current.vaultKey !== target.context.vaultKey) return;
+    void morphyToast.promise(removeCard(target.card.cardId, current), {
       loading: "Removing card…",
       success: "Card removed.",
       error: "The card could not be removed.",
@@ -743,7 +743,7 @@ export function WalletWorkspace() {
         onRemove={() => requestRemove(focusedCard)}
         disabled={Boolean(busyCardId)}
       />
-      <WalletSavedCardSharing key={`${renderedOwnerId}:${numberScopeRevision}`} card={focusedCard} getContext={getCardShareContext} disabled={Boolean(busyCardId)} />
+      <WalletSavedCardSharing key={`${renderedOwnerId}:${numberScopeRevision}:${focusedCard.cardId}`} card={focusedCard} getContext={getCardShareContext} disabled={Boolean(busyCardId)} />
 
     </div>
   ) : null}
@@ -941,6 +941,16 @@ export function WalletWorkspace() {
                       card,
                       surface: "web",
                       source: "one_wallet_add",
+                      reserveCardId: async () => {
+                        let registered: string | null = null;
+                        try {
+                          const token = await user!.getIdToken();
+                          if (activeOwnerIdRef.current !== context.userId) throw new Error("Wallet changed.");
+                          registered = (await WalletCardAccessService.reserve(token, context.vaultOwnerToken, crypto.randomUUID())).cardId;
+                        } catch { /* A backend rollout must not prevent saving an unverified card. */ }
+                        if (activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) throw new Error("Wallet changed.");
+                        return registered;
+                      },
                     });
                     const current = vaultContextRef.current();
                     if (activeOwnerIdRef.current !== context.userId || !current || current.vaultKey !== context.vaultKey) return;

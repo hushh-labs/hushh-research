@@ -129,13 +129,51 @@ lowercase letters/digits/single internal dots, reserved/blocked labels rejected)
 
 Public QR resolves count aggregate visits only, without identifying scanners.
 Saved payment-card secrets remain in the encrypted `wallet` PKM domain.
-Sharing a selected payment card uses the existing authenticated direct-message
-send contract and its connection/block checks. Only encrypted card copies enter
-messages; CVV and PIN are excluded. The relationship-scoped, paginated Location
-recipient directory projects each person's existing `publicPersonRef` after
-pagination, together with their registered recipient key. It does not add
-directory visibility or sending permission. Per-card send receipts remain in
-the owner's encrypted `wallet` secrets. No new endpoint or schema is introduced.
+Temporary sharing of manually added cards uses the existing direct-message
+transaction, connection/block checks and durable Feed projection. A successful
+share creates a recipient-specific grant and an opaque message reference
+atomically. Feed displays “[Sender name] shared their card with you” and a
+“View card” action for both ordinary connections and Trusted Circle recipients.
+The grant is resolved from recipient-bound server records, never message text
+or persisted Feed metadata. Each share remains separate from ordinary chat
+grouping. Failed transactions create neither a grant nor a notification.
+
+The `/api/one/wallet/card-access` endpoints are:
+
+| Method | Suffix | Authority and behavior |
+| --- | --- | --- |
+| POST | `/registrations` | Matching Firebase identity and vault-owner consent reserve a server card ID. Only a subsequent canonical Wallet PKM mutation activates manual origin. |
+| GET | `/cards/{card_id}` | Owner-only sharing readiness and grant status. No card-verification prompt is required. Older saved cards register through an owner-confirmed Wallet metadata refresh when shared. |
+| GET | `/connections` | Owner-only searchable active connections with explicit Trusted Circle membership. |
+| POST | `/cards/{card_id}/grants` | Owner-only, idempotent, per-recipient 5/10/15-minute grants and transactional messages. |
+| DELETE | `/grants/{grant_id}` | Owner-only revocation. |
+| GET | `/grants/{grant_id}` | Authenticated recipient-only view; checks expiry, revocation, origin and relationship. |
+| POST | `/grants/{grant_id}/verify` | Fresh same-user Firebase provider authentication after the server challenge for non-trusted recipients. |
+
+Responses are private and non-cacheable. The encrypted server projection contains
+only network, last four digits, expiry and normalized issuing region; no PAN,
+name, CVV, PIN or vault key enters grants or notification metadata. Removing the
+card revokes access. Explicit owner-added Trusted Circle members skip additional
+verification; ordinary connection mirror records do not grant this exemption.
+
+Rollout requires migration `302_wallet_temporary_card_access.sql`, the existing
+direct-message encryption key and `WALLET_CARD_ACCESS_ENABLED=true` (default off).
+The PKM commit derives an encrypted sharing projection from validated card
+summaries after client metadata normalization. It binds each envelope to the
+owner and card ID; activation additionally requires the current committed
+manifest revision. Confirmed Wallet mutations register existing owner-entered
+payment cards automatically; unknown references, system cards and other owners'
+cards remain excluded. Manifest metadata may include this
+encrypted projection, never plaintext card credentials. Random encryption
+nonces are excluded from mutation retry fingerprints. Missing keys leave the
+owner's save available but sharing unavailable. Existing encrypted records are
+never classified by a bulk database backfill; the owner's Share action refreshes
+their canonical Wallet metadata, preserving the original card details.
+The native viewer stays unavailable until active capture protection is supported.
+The browser viewer clears on hide/expiry and offers no copy, export or print,
+but cannot prevent device screenshots or external cameras. Old encrypted-copy
+readers and owner receipts remain compatible; previously sent copies cannot be
+recalled. Profile, Referral and NWS sharing are unchanged.
 See [Wallet](../one/wallet.md) and the
 [Wallet Profile contract](../../superpowers/specs/2026-08-03-wallet-card-contract.md).
 

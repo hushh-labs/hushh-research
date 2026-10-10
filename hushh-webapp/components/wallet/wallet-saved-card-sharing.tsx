@@ -1,19 +1,17 @@
 "use client";
+
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Copy, Share2 } from "@/components/icons";
-import { SettingsGroup, SettingsPresentationProvider, SettingsRow } from "@/components/profile/settings-ui";
+import { ProfilePaneInviteIcon, ProfilePaneSecurityIcon } from "@/components/profile/profile-pane-icons";
+import { SettingsDetailPanel, SettingsGroup, SettingsPresentationProvider, SettingsRow } from "@/components/profile/settings-ui";
 import profileStyles from "@/components/profile/profile-your-account.module.css";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Checkbox } from "@/components/ui/checkbox";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
-import { findCardShareRecipients, prepareSavedCardFile, shareSavedCard, type CardShareContext } from "@/lib/services/wallet-card-share-service";
+import type { CardShareContext } from "@/lib/services/wallet-card-share-service";
+import { WalletCardAccessService, type CardAccessRecipient, type CardAccessState } from "@/lib/services/wallet-card-access-service";
 import { WalletService, type WalletCardSummary, type WalletCardShareReceipt } from "@/lib/services/wallet-service";
-import type { OneLocationRecipient } from "@/lib/one-location/types";
-import { shareFile } from "@/lib/share/share-file";
-import { isShareCancellationError } from "@/lib/share/share-link";
-import { resolveShareableAppOrigin } from "@/lib/share/app-origin";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import styles from "./wallet-saved-card-sharing.module.css";
@@ -22,156 +20,126 @@ export function WalletSavedCardSharing({ card, getContext, disabled }: {
   card: WalletCardSummary; getContext: (cardId: string) => CardShareContext | null; disabled: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState("anyone");
-  const [password, setPassword] = useState("");
-  const [confirmation, setConfirmation] = useState("");
-  const [preparedFile, setPreparedFile] = useState<File | null>(null);
-  const [readerUrl, setReaderUrl] = useState<string | null>(null);
-  const generation = useRef(0);
-  const dispatching = useRef(false);
   const [query, setQuery] = useState("");
-  const [recipients, setRecipients] = useState<OneLocationRecipient[]>([]);
+  const [recipients, setRecipients] = useState<CardAccessRecipient[]>([]);
+  const [selected, setSelected] = useState<Record<string, CardAccessRecipient>>({});
+  const [duration, setDuration] = useState<5 | 10 | 15>(10);
   const [hasMore, setHasMore] = useState(false);
-  const [selected, setSelected] = useState<OneLocationRecipient | null>(null);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [state, setState] = useState<CardAccessState | null>(null);
+  const [stateFailed, setStateFailed] = useState(false);
   const [busy, setBusy] = useState(false);
-  const sending = useRef(false);
-  const [receipts, setReceipts] = useState<WalletCardShareReceipt[] | null>(null);
-  const [receiptFailed, setReceiptFailed] = useState(false);
   const [revision, setRevision] = useState(0);
-  const reset = useCallback(() => {
-    generation.current += 1;
-    setPassword(""); setConfirmation(""); setPreparedFile(null); setReaderUrl(null); setBusy(false);
-    setQuery(""); setSelected(null); setRecipients([]); setLoading(false); setFailed(false);
-  }, []);
+  const [receipts, setReceipts] = useState<WalletCardShareReceipt[]>([]);
+  const generation = useRef(0);
+  const sending = useRef(false);
+  // Keep this key across uncertain delivery retries, never extend the original grant.
+  const attempt = useRef<{ fingerprint: string; id: string } | null>(null);
   const close = useCallback(() => {
-    if (dispatching.current) return;
-    reset(); setOpen(false);
-  }, [reset]);
+    generation.current += 1;
+    setOpen(false); setQuery(""); setSelected({}); setRecipients([]); setBusy(false);
+  }, []);
   useBackLayer(ROUTES.ONE_WALLET, open ? 3 : 0, () => { close(); return true; });
-  useEffect(() => { reset(); setOpen(false); }, [card.cardId, getContext, reset]);
+  useEffect(() => { close(); setState(null); setReceipts([]); attempt.current = null; }, [card.cardId, getContext, close]);
   useEffect(() => {
     let cancelled = false;
     const context = getContext(card.cardId);
     if (!context) return;
-    setReceipts(null);
+    setStateFailed(false);
+    void WalletCardAccessService.state(context, card.cardId).then(result => {
+      if (!cancelled && context.isCurrent()) setState(result);
+    }).catch(() => { if (!cancelled && context.isCurrent()) { setState(null); setStateFailed(true); } });
     void WalletService.listCardShareReceipts({ ...context, cardId: card.cardId }).then(result => {
-      if (!cancelled && context.isCurrent()) { setReceipts(result); setReceiptFailed(false); }
-    }).catch(() => { if (!cancelled && context.isCurrent()) setReceiptFailed(true); });
+      if (!cancelled && context.isCurrent()) setReceipts(result);
+    }).catch(() => { /* Historical copies never determine current grant state. */ });
     return () => { cancelled = true; };
   }, [card.cardId, getContext, revision]);
   useEffect(() => {
-    if (!open || mode !== "hushh") return;
+    if (!open) return;
     let cancelled = false;
+    setLoading(true); setFailed(false);
     const timer = window.setTimeout(() => {
       const context = getContext(card.cardId);
-      if (!context) { setOpen(false); return; }
-      setLoading(true); setFailed(false); setSelected(null);
-      void findCardShareRecipients(context, query).then(result => {
-        if (!cancelled && context.isCurrent()) { setRecipients(result.items.filter(item => item.userId !== context.userId && item.publicPersonRef)); setHasMore(result.hasMore); }
+      if (!context) { close(); return; }
+      void WalletCardAccessService.recipients(context, query).then(result => {
+        if (!cancelled && context.isCurrent()) { setRecipients(result.items); setHasMore(result.hasMore); }
       }).catch(() => { if (!cancelled && context.isCurrent()) setFailed(true); })
         .finally(() => { if (!cancelled && context.isCurrent()) setLoading(false); });
     }, 200);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [open, mode, query, card.cardId, getContext, revision]);
+  }, [open, query, card.cardId, getContext, revision, close]);
   useEffect(() => {
-    const hide = () => { if (document.visibilityState === "hidden") { reset(); setOpen(false); } };
+    const hide = () => { if (document.visibilityState === "hidden") close(); };
     document.addEventListener("visibilitychange", hide);
     return () => { generation.current += 1; document.removeEventListener("visibilitychange", hide); };
-  }, [reset]);
-  const actionContext = () => {
-    const context = getContext(card.cardId);
-    const request = generation.current;
-    return context ? { ...context, isCurrent: () => request === generation.current && context.isCurrent() } : null;
-  };
-  const prepare = async () => {
-    const context = actionContext();
-    if (!context || busy || password.length < 12 || password !== confirmation) return;
-    setBusy(true); setPreparedFile(null);
-    try {
-      const origin = resolveShareableAppOrigin();
-      if (!origin) throw new Error("Public reader unavailable.");
-      const url = new URL(ROUTES.WALLET_CARD_OPEN, origin).toString();
-      const file = await prepareSavedCardFile(context, card.cardId, password, url);
-      if (context.isCurrent()) { setPreparedFile(file); setReaderUrl(url); setPassword(""); setConfirmation(""); }
-    } catch { if (context.isCurrent()) morphyToast.error("Could not prepare this card. Try again."); }
-    finally { if (context.isCurrent()) setBusy(false); }
-  };
-  const copyReaderUrl = async () => {
-    if (!readerUrl || busy) return;
-    try { await navigator.clipboard.writeText(readerUrl); morphyToast.success("Opening link copied."); }
-    catch { morphyToast.error("Could not copy the opening link."); }
-  };
-  const sharePrepared = async () => {
-    if (!preparedFile || dispatching.current || !getContext(card.cardId)?.isCurrent()) return;
-    const request = generation.current;
-    dispatching.current = true; setBusy(true);
-    try {
-      // Separate click after preparation retains user activation for Web Share.
-      const result = await shareFile({ file: preparedFile, title: "Encrypted card" });
-      morphyToast.success(result === "download" ? "Encrypted file downloaded." : "Encrypted file shared.");
-      if (request === generation.current) { reset(); setOpen(false); }
-    } catch (error) {
-      if (!isShareCancellationError(error)) morphyToast.error("Could not share the encrypted file. Try again.");
-    } finally { dispatching.current = false; setBusy(false); }
-  };
+  }, [close]);
   const send = async () => {
-    const context = actionContext();
-    if (!context || !selected || sending.current) return;
-    const request = generation.current;
+    const base = getContext(card.cardId);
+    const refs = Object.keys(selected).sort();
+    if (!base || !refs.length || sending.current) return;
+    const requestGeneration = generation.current;
+    const context = { ...base, isCurrent: () => requestGeneration === generation.current && base.isCurrent() };
+    const fingerprint = JSON.stringify([base.userId, card.cardId, refs, duration]);
+    if (attempt.current?.fingerprint !== fingerprint) attempt.current = { fingerprint, id: crypto.randomUUID() };
     sending.current = true; setBusy(true);
     try {
-      const promise = shareSavedCard(context, card.cardId, selected);
-      void morphyToast.promise(promise, { loading: "Sharing securely…", success: "Card shared securely.", error: (error: unknown) => error instanceof Error ? error.message : "Could not share this card." });
-      const result = await promise;
+      if (!state?.eligible) await WalletService.prepareCardSharing({ ...context, cardId: card.cardId });
       if (!context.isCurrent()) return;
-      reset(); setOpen(false);
-      if (result.receiptSaved) { setRevision(value => value + 1); }
-      else morphyToast.info("Card sent. The recipient list could not be updated.");
-    } catch { /* The action promise owns its notification. */ }
-    finally { sending.current = false; if (request === generation.current) setBusy(false); }
+      await WalletCardAccessService.share(context, card.cardId, refs, duration, attempt.current.id);
+      if (!context.isCurrent()) return;
+      attempt.current = null; close(); setRevision(value => value + 1);
+      morphyToast.success("Card shared.");
+    } catch { if (context.isCurrent()) morphyToast.error("Could not confirm sharing. Retry to check the same request."); }
+    finally { sending.current = false; if (context.isCurrent()) setBusy(false); }
+  };
+  const revoke = async (id: string) => {
+    const context = getContext(card.cardId);
+    if (!context || busy) return;
+    setBusy(true);
+    try {
+      await WalletCardAccessService.revoke(context, id);
+      if (context.isCurrent()) { setRevision(value => value + 1); morphyToast.success("Access revoked."); }
+    } catch { if (context.isCurrent()) morphyToast.error("Could not revoke access. Try again."); }
+    finally { if (context.isCurrent()) setBusy(false); }
   };
   return <SettingsPresentationProvider separatorInset density="compact">
     <section className={`${profileStyles.walletContent} space-y-4`} aria-label="Card sharing">
-      <Button variant="secondary" size="compact" onClick={() => { if (!dispatching.current) { reset(); setMode("anyone"); setOpen(true); } }} disabled={disabled || busy}><Share2 className="size-4" aria-hidden="true" />Share card</Button>
-      <SettingsGroup title="Shared with">
-        {receipts?.length ? [...receipts].reverse().map(receipt => <SettingsRow key={receipt.messageId} title={receipt.recipientName} description="Sent encrypted card details" trailing={new Date(receipt.sentAt).toLocaleDateString()} />) : <SettingsRow title={receiptFailed ? "Could not load recipients" : receipts ? "Not shared with anyone yet" : "Loading recipients…"} />}
+      <SettingsGroup title="Sharing">
+        <SettingsRow icon={ProfilePaneInviteIcon} iconTone="transparent" title="Share card"
+          description="Temporary access for your connections."
+          chevron onClick={() => setOpen(true)} disabled={disabled || busy} />
+        {stateFailed ? <SettingsRow title="Retry" onClick={() => setRevision(value => value + 1)} /> : null}
       </SettingsGroup>
-      <Dialog open={open} onOpenChange={value => { if (!value) close(); }}>
-        <DialogContent className={`${styles.dialog} max-h-[85dvh] overflow-y-auto sm:max-w-[820px]`}>
-          <DialogHeader className="text-left"><DialogTitle>Share card</DialogTitle><DialogDescription>{mode === "anyone" ? "Send a password-protected file. No account needed. CVV and PIN stay private." : "Send to a connected Hushh person. CVV and PIN stay private."}</DialogDescription></DialogHeader>
-          <Tabs value={mode} onValueChange={value => { if (!busy) { reset(); setMode(value); } }}>
-            <TabsList className="w-full" aria-label="Share method"><TabsTrigger value="anyone" disabled={busy}>Anyone</TabsTrigger><TabsTrigger value="hushh" disabled={busy}>Hushh Chat</TabsTrigger></TabsList>
-            <TabsContent value="anyone" className="space-y-4 pt-3">
-              {preparedFile ? <>
-                <p role="status">Encrypted file ready.</p>
-                <p className={styles.hint}>Send the file and password separately. Anyone with both can open this copy.</p>
-                <Button className="w-full" disabled={busy} onClick={() => void sharePrepared()}>{busy ? "Sharing…" : "Share encrypted file"}</Button>
-                <Button variant="secondary" size="compact" disabled={busy} onClick={() => void copyReaderUrl()}><Copy className="size-4" aria-hidden="true" />Copy opening link</Button>
-                <Button variant="secondary" size="compact" disabled={busy} onClick={() => { reset(); }}>Use another password</Button>
-              </> : <form className="space-y-4" onSubmit={event => { event.preventDefault(); void prepare(); }}>
-                <div className={styles.field}><label htmlFor="card-share-password">Password</label><Input id="card-share-password" type="password" autoComplete="new-password" placeholder="At least 12 characters" value={password} maxLength={256} onChange={event => { generation.current += 1; setPreparedFile(null); setBusy(false); setPassword(event.target.value); }} /></div>
-                <div className={styles.field}><label htmlFor="card-share-confirmation">Confirm password</label><Input id="card-share-confirmation" type="password" autoComplete="new-password" value={confirmation} maxLength={256} onChange={event => { generation.current += 1; setPreparedFile(null); setBusy(false); setConfirmation(event.target.value); }} /></div>
-                <Button type="submit" className="w-full" disabled={busy || password.length < 12 || password !== confirmation}>{busy ? "Encrypting…" : "Prepare encrypted file"}</Button>
-              </form>}
-              <p className={styles.hint}>Recipients open the file at <a className="text-[color:var(--app-accent)] underline" href={readerUrl ?? ROUTES.WALLET_CARD_OPEN} target="_blank" rel="noopener noreferrer">Open encrypted card</a>. Exported copies cannot be recalled.</p>
-            </TabsContent>
-            <TabsContent value="hushh" className="space-y-4 pt-3">
-          <Input aria-label="Find a Hushh person" placeholder="Search people" value={query} onChange={event => { generation.current += 1; setSelected(null); setRecipients([]); setLoading(true); setFailed(false); setQuery(event.target.value); }} disabled={busy} />
-          {loading ? <p role="status" className="text-xs text-muted-foreground">Finding people…</p> : failed ? <Button variant="secondary" size="compact" onClick={() => { setLoading(true); setRevision(value => value + 1); }}>Retry people</Button> : <div className="max-h-64 overflow-y-auto">
-            {recipients.map(recipient => <button type="button" key={recipient.userId} aria-pressed={selected?.userId === recipient.userId} disabled={busy || !recipient.keyId || !recipient.publicKeyJwk} onClick={() => setSelected(recipient)} className="flex min-h-14 w-full items-center justify-between gap-3 rounded-xl px-3 text-left text-sm hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-[color:var(--app-accent)] aria-pressed:bg-muted disabled:opacity-50">
-              <span>{recipient.displayName}</span><span className="text-xs text-muted-foreground">{recipient.keyId && recipient.publicKeyJwk ? selected?.userId === recipient.userId ? "Selected" : "" : "Needs to unlock Hushh"}</span>
-            </button>)}
-            {!recipients.length ? <p className="py-3 text-xs text-muted-foreground">No people found.</p> : null}
-            {hasMore ? <p className="py-2 text-xs text-muted-foreground">Search by name to find more people.</p> : null}
-          </div>}
-          {selected ? <p className="text-[13px]">Share {card.nickname || "this card"}, ending {card.last4}, with <strong>{selected.displayName}</strong>? They receive a copy in Chat.</p> : null}
-          <Button disabled={!selected || busy || loading} onClick={() => void send()}>{busy ? "Sharing…" : "Share securely"}</Button>
-            </TabsContent>
-          </Tabs>
-        </DialogContent>
-      </Dialog>
+      <SettingsGroup title="Shared with">
+        {state?.grants.length ? state.grants.map(grant => <SettingsRow key={grant.id} icon={ProfilePaneInviteIcon} iconTone="transparent"
+          title={grant.recipientName} description={grant.status === "active" ? `Until ${new Date(grant.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : grant.status === "revoked" ? "Access revoked" : "Access expired"}
+          trailing={grant.status === "active" ? <Button variant="secondary" size="compact" disabled={busy} onClick={() => void revoke(grant.id)}>Revoke</Button> : undefined} />)
+          : <SettingsRow icon={ProfilePaneInviteIcon} iconTone="transparent" title={stateFailed ? "Could not load shared access." : state ? "No active shares" : "Loading shares…"} />}
+      </SettingsGroup>
+      {receipts.length ? <SettingsGroup title="Previously sent copies">
+        {[...receipts].reverse().map(receipt => <SettingsRow key={receipt.messageId} icon={ProfilePaneInviteIcon} iconTone="transparent" title={receipt.recipientName}
+          description="Sent copy · cannot be recalled" trailing={new Date(receipt.sentAt).toLocaleDateString()} />)}
+      </SettingsGroup> : null}
+      <SettingsDetailPanel open={open} onOpenChange={value => { if (!value) close(); }} title="Share card" description="Share masked card details with your connections."
+        mobilePresentation="sheet" desktopMaxWidth="820px" surfaceClassName={`${profileStyles.walletContent} ${styles.accessSurface}`}
+        footer={<Button className="w-full" disabled={busy || !Object.keys(selected).length} onClick={() => void send()}>{busy ? "Sharing…" : `Share with ${Object.keys(selected).length}`}</Button>}>
+        <div className="space-y-4">
+          <Input aria-label="Search connections" placeholder="Search connections" value={query} disabled={busy} onChange={event => setQuery(event.target.value)} />
+          <div className="max-h-64 overflow-y-auto" aria-label="Connections">
+            {loading ? <p role="status">Finding connections…</p> : failed ? <Button variant="secondary" onClick={() => setRevision(value => value + 1)}>Retry connections</Button> : recipients.map(recipient => <label key={recipient.personRef} className="flex min-h-14 items-center gap-3 rounded-xl px-3 py-2 text-[13px]">
+              <Avatar className="size-8"><AvatarImage src={recipient.photoUrl || undefined} alt="" /><AvatarFallback>{recipient.displayName.slice(0, 1)}</AvatarFallback></Avatar>
+              <span className="min-w-0 flex-1 break-words">{recipient.displayName}{recipient.trusted ? <span className="flex items-center gap-1 text-xs text-muted-foreground"><ProfilePaneSecurityIcon size={14} />Trusted Circle</span> : null}</span>
+              <Checkbox aria-label={`Share with ${recipient.displayName}`} checked={Boolean(selected[recipient.personRef])} disabled={busy}
+                onCheckedChange={checked => setSelected(previous => { const next = { ...previous }; if (checked === true) next[recipient.personRef] = recipient; else delete next[recipient.personRef]; return next; })} />
+            </label>)}
+            {!loading && !failed && !recipients.length ? <p className="py-3 text-xs text-muted-foreground">No connections found.</p> : null}
+            {hasMore ? <p className="text-xs text-muted-foreground">Search by name to find more connections.</p> : null}
+          </div>
+          <fieldset><legend className="mb-2 text-[13px]">Access time</legend><div className="flex gap-2">{([5, 10, 15] as const).map(minutes => <Button key={minutes} variant={duration === minutes ? "default" : "secondary"} size="compact" aria-pressed={duration === minutes} disabled={busy} onClick={() => setDuration(minutes)}>{minutes} minutes</Button>)}</div></fieldset>
+          <p className="text-xs text-muted-foreground">People outside your Trusted Circle verify their identity before viewing. CVV and PIN stay private.</p>
+        </div>
+      </SettingsDetailPanel>
     </section>
   </SettingsPresentationProvider>;
 }
