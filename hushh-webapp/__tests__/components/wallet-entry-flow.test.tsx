@@ -61,6 +61,7 @@ vi.mock("@/lib/services/wallet-service", async () => {
       ...actual.WalletService,
       isEnabled: () => true,
       listCardPresentations: async (...args: unknown[]) => (await serviceMock.listCardSummaries(...args)).map((summary: unknown) => ({ summary, cardholderName: "Test Cardholder" })),
+      listCardShareReceipts: vi.fn().mockResolvedValue([]),
       deleteCard: serviceMock.deleteCard,
       getCard: serviceMock.getCard,
       addCard: serviceMock.addCard,
@@ -100,6 +101,7 @@ describe("Wallet visit introduction", () => {
     authMock.user = { uid: "user_1" };
     vaultMock.locked = false;
     serviceMock.listCardSummaries.mockResolvedValue([]);
+    serviceMock.getCard.mockReset();
   });
   afterEach(() => vi.clearAllMocks());
   const enter = async () => {
@@ -146,8 +148,13 @@ describe("Wallet visit introduction", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     expect(screen.getByLabelText("Name on card")).toHaveValue("");
   });
-  it("keeps real cards behind Continue and opens masked saved details with recipients", async () => {
-    serviceMock.listCardSummaries.mockResolvedValue(makeCards(2));
+  it("keeps real cards behind Continue and opens unlocked saved details with recipients", async () => {
+    const cards = makeCards(2);
+    serviceMock.listCardSummaries.mockResolvedValue(cards);
+    serviceMock.getCard.mockResolvedValue({
+      summary: cards[0],
+      secrets: { pan: "4242424242421000", cardholderName: "Test Cardholder" },
+    });
     render(<WalletWorkspace />);
     await enter();
     expect(screen.queryByTestId("wallet-preview-collection")).toBeNull();
@@ -155,17 +162,21 @@ describe("Wallet visit introduction", () => {
     expect(serviceMock.getCard).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
     const details = within(screen.getByRole("region", { name: "Saved card details" }));
-    expect(details.getByText("•••• •••• •••• 1000")).toBeVisible();
+    expect(await details.findByText("4242 4242 4242 1000")).toBeVisible();
     expect(details.getByText("Test Cardholder")).toBeVisible();
     expect(details.getByText("Visa")).toBeVisible();
-    expect(screen.getByText("Card recipients")).toBeVisible();
+    expect(await screen.findByText("Not shared with anyone yet")).toBeVisible();
     expect(screen.queryByRole("button", { name: "Show card details" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Reveal saved details" })).toBeNull();
-    expect(serviceMock.getCard).not.toHaveBeenCalled();
+    expect(serviceMock.getCard).toHaveBeenCalledWith({ userId: "user_1", vaultOwnerToken: "owner_token", vaultKey: "vault_key", cardId: "card_0" });
   });
   it("returns a saved payment card to Cards while retaining the three system cards", async () => {
     const summary = { ...makeCards(1)[0], cardId: "saved", nickname: "New card", last4: "4242" };
     serviceMock.addCard.mockResolvedValue({ cardId: "saved", summary });
+    serviceMock.getCard.mockResolvedValue({
+      summary,
+      secrets: { pan: "4242424242424242", cardholderName: "New card" },
+    });
     render(<WalletWorkspace />);
     await enter();
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
@@ -181,9 +192,9 @@ describe("Wallet visit introduction", () => {
     expect(screen.getByRole("button", { name: "Open Agent One Profile" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "All (4)" })).toBeEnabled();
     expect(screen.queryByTestId("wallet-preview-collection")).toBeNull();
-    expect(within(screen.getByRole("region", { name: "Saved card details" })).getByText("•••• •••• •••• 4242")).toBeVisible();
-    expect(screen.getByText("Card recipients")).toBeVisible();
-    expect(serviceMock.getCard).not.toHaveBeenCalled();
+    expect(await within(screen.getByRole("region", { name: "Saved card details" })).findByText("4242 4242 4242 4242")).toBeVisible();
+    expect(await screen.findByText("Not shared with anyone yet")).toBeVisible();
+    expect(serviceMock.getCard).toHaveBeenCalledWith({ userId: "user_1", vaultOwnerToken: "owner_token", vaultKey: "vault_key", cardId: "saved" });
   });
   it("removes the form and card details when the vault locks", async () => {
     const page = render(<WalletWorkspace />);

@@ -4,6 +4,8 @@
 // `window.__walletScenario`, set by the spec before the fixture script runs.
 import React from "react";
 import { detectBrand } from "../../lib/wallet/card-validation";
+import { createEncryptedCardFile } from "../../lib/wallet/wallet-card-file";
+import type { CardShareContext } from "../../lib/services/wallet-card-share-service";
 
 type FixtureCard = {
   cardId: string;
@@ -22,6 +24,7 @@ type FixtureCard = {
 
 type Scenario = {
   cards?: number;
+  networkCards?: boolean;
   locked?: boolean;
   delayMs?: number;
   error?: boolean;
@@ -61,6 +64,7 @@ function cards(): FixtureCard[] {
       return { ...base, cardId: `${base.cardId}_${index}`, nickname: `Card ${index + 1}` };
     });
   }
+  if (scenario().networkCards && !store.some(card => card.cardId.startsWith("card_network_"))) store = ["visa", "mastercard", "amex", "discover", "diners", "jcb", "unionpay", "rupay", "mir", "elo", "verve", "other"].map(brand => ({ ...SYNTHETIC[0]!, cardId: `card_network_${brand}`, nickname: brand === "rupay" ? "RuPay" : brand, brand }));
   return store;
 }
 
@@ -72,6 +76,7 @@ function summaryOf(card: FixtureCard) {
 }
 
 export class WalletService {
+  static async listCardShareReceipts() { return []; }
   static isEnabled() {
     return true;
   }
@@ -124,6 +129,18 @@ export class WalletService {
     );
   }
 }
+
+export class OneLocationService {
+  static async listRecipientsPage() { return { items: [{ userId: "synthetic-recipient", publicPersonRef: "person-recipient", displayName: "Test Recipient", keyId: "recipient-key", publicKeyJwk: { kty: "EC" } }], hasMore: false, page: 1 }; }
+}
+
+export const findCardShareRecipients = () => OneLocationService.listRecipientsPage();
+export const shareSavedCard = async () => { throw new Error("No delivery from the layout fixture."); };
+export const prepareSavedCardFile = async (context: CardShareContext, cardId: string, password: string) => {
+  const saved = await WalletService.getCard({ cardId });
+  if (!saved || !context.isCurrent()) throw new Error("Fixture card unavailable.");
+  return createEncryptedCardFile({ ...saved.summary, pan: saved.secrets.pan, cardholderName: saved.secrets.cardholderName } as Parameters<typeof createEncryptedCardFile>[0], password);
+};
 
 // Secrets vault: the fixture never stages a Secrets card offer, so nothing is
 // decrypted or filed. Inert, like the Wallet service, so the layout bundle

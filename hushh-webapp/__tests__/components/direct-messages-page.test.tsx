@@ -101,6 +101,12 @@ vi.mock("@/lib/morphy-ux/morphy", () => ({
   morphyToast: mocks.morphyToast,
 }));
 
+// The recipient viewer's unlock/decryption lifecycle has its own production
+// component tests. This suite verifies Chat never renders/indexes its envelope.
+vi.mock("@/components/wallet/wallet-shared-card-message", () => ({
+  WalletSharedCardMessage: () => <section aria-label="Shared payment card">Shared payment card</section>,
+}));
+
 vi.mock("@/lib/services/direct-messages-service", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/services/direct-messages-service")>()),
   DIRECT_MESSAGE_MAX_LENGTH: 2_000,
@@ -463,6 +469,22 @@ describe("DirectMessagesPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start voice call" }));
     expect(mocks.morphyToast.info).toHaveBeenCalledWith("Calls are not available yet.");
     expect(mocks.router.push).not.toHaveBeenCalled();
+  });
+
+  it("keeps encrypted card envelopes out of message previews, search, replies, and editing", async () => {
+    const content = 'hushh-wallet-card:v1:{"ciphertext":"synthetic-encrypted-payload"}';
+    mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation, items: [{ id: "encrypted-card", conversationId: "conversation-1", senderIsViewer: true, content, createdAt: "2026-10-10T10:00:00Z", readAt: null, reactions: [] }], canSend: true, disconnectedNotice: null, nextBefore: null });
+    renderConnectionThread();
+    await screen.findByRole("region", { name: "Shared payment card" });
+    expect(document.body).not.toHaveTextContent(content);
+    fireEvent.keyDown(screen.getByRole("button", { name: "Message options" }), { key: "Enter" });
+    await screen.findByRole("menuitem", { name: "Reply" });
+    expect(screen.queryByRole("menuitem", { name: "Edit" })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Reply" }));
+    expect(document.body).not.toHaveTextContent("synthetic-encrypted-payload");
+    fireEvent.click(screen.getByRole("button", { name: "Search messages" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search messages" }), { target: { value: "synthetic-encrypted-payload" } });
+    expect(screen.queryByRole("region", { name: "Shared payment card" })).toBeNull();
   });
 
   it("offers the full emoji picker and opens One chat for voice", async () => {

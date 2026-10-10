@@ -118,8 +118,9 @@ selects it, and clears the draft. Failed saves retain the draft for retry. The
 card ID, so reload, renaming and incoming information do not change the artwork.
 The owner-only presentation includes the entered cardholder name. It is read
 from the encrypted secrets branch and never copied into the summary/index or
-chat projection. Default faces show only the last four number digits; full
-number, CVV and PIN remain behind explicit reveal. Locking the vault or changing
+chat projection. Collection faces show only the last four number digits; the
+selected card in an unlocked Wallet shows the full number. CVV and PIN stay
+hidden. Locking the vault or changing
 accounts drops the presentation. Reads that fail do not become an empty wallet,
 and writes use the current snapshot revision to preserve concurrent additions.
 
@@ -216,8 +217,61 @@ whitespace-only PIN input is omitted before validation and saving.
 
 ### Card browsing gestures
 
-The Cards overview presents one full card above a compact lower stack. Vertical scrolling unfolds the remaining cards; reduced-motion users receive a static, fully unfolded list. A left drag or horizontal trackpad scroll opens card-local summary controls; full details continue through the existing Wallet reveal flow. The first-use swipe hint is scoped to the account and device through OnboardingLocalService. The swipe panel shows identity fields or masked payment metadata, using the Profile row styling. It contains no second View details button and never decrypts payment secrets.
+The Cards overview presents one full card above a compact lower stack. Vertical scrolling unfolds the remaining cards; reduced-motion users receive a static, fully unfolded list. A left drag or horizontal trackpad scroll opens card-local summary controls; selecting a card opens its details. The first-use swipe hint is scoped to the account and device through OnboardingLocalService. The overview swipe panel shows identity fields or masked payment metadata, using the Profile row styling. It contains no second View details button and never decrypts payment secrets.
 
+
+### Saved payment card numbers and encrypted Chat copies
+
+Selecting a saved payment card in an unlocked Wallet displays its full number
+on that face and in Card details. The collection remains a metadata projection.
+Owner, key, tab, selection, visibility and unmount changes invalidate delayed
+number reads and clear the selected number. CVV and PIN remain hidden.
+
+The Hussh Chat share option requires choosing one person and confirming the selected card.
+Canonical direct-message permission must allow sending, and the recipient must
+have a registered secure key. The device encrypts only PAN, cardholder name,
+network, expiry and region with a random AES-GCM key, wrapped separately for the
+sender and recipient through the existing P-256 recipient-key seam. The
+authenticated payload binds both participants, the saved card and a unique
+share ID. CVV and PIN never enter the message.
+
+Chat previews, search and replies show “Shared payment card”; encrypted card
+messages cannot be edited into ordinary text. The recipient unlocks their
+Wallet and explicitly opens the details on their device. Acknowledged sends
+are recorded under that card's encrypted secrets and displayed in Shared with.
+Existing Wallet-wide grants are labelled Wallet access separately. These are
+snapshot copies: deleting the saved card or disconnecting cannot recall a copy
+already received. If a required private key is unavailable, ask for a new share.
+
+### Password-protected copies for anyone
+
+Share card opens an 820px panel with the same 20px/28px gutters and compact
+typography as Wallet Add. Anyone is the default method; Hussh Chat remains a
+separate connected-recipient method. The owner chooses and confirms a password
+of at least 12 characters, then prepares an encrypted file before a separate
+Share encrypted file click. The shared file helper uses the system sheet where
+available and downloads the same file otherwise. Cancellation never claims
+delivery or starts a download. Generic exports do not invent recipient receipts.
+
+`wallet-card-file.ts` projects only PAN, cardholder name, network, expiry and
+region. A random 16-byte salt and PBKDF2-SHA256 with 600,000 iterations derive
+a 256-bit AES-GCM key through the export-encryption seam. Authenticated metadata
+binds the version and KDF parameters. The neutral `encrypted-card.json` package
+contains no account/card identifier, password, CVV or PIN. Owner/card/password,
+visibility and dialog lifecycle changes invalidate pending preparation.
+
+The exact `/wallet/open` route is anonymous, outside the signed-in shell, and
+analytics exempt. It reads a bounded local file and decrypts on the recipient's
+device; it does not upload, persist or send card information to an API or model.
+Malformed versions/KDF settings are rejected before derivation, oversized files
+before reading, and incorrect passwords/tampering never reveal details. Changing
+the file/password, hiding the page or unmounting invalidates delayed plaintext.
+
+Send the password separately from the file. Anyone with both can open the copy;
+the file has no expiry or recall. Recipients need no Hussh account, connection,
+vault unlock or app installation. The reader route must be deployed to the
+configured public app origin before people on other devices can use that URL;
+localhost alone is only a developer preview.
 
 ### Complete card images
 

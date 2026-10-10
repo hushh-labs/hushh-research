@@ -91,6 +91,8 @@ import { useChatAlertVisibility } from "@/lib/notifications/chat-alert-visibilit
 import { useVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 import styles from "./direct-messages-page.module.css";
+import { WalletSharedCardMessage } from "@/components/wallet/wallet-shared-card-message";
+import { isWalletCardShare, walletMessagePreview } from "@/lib/wallet/wallet-card-share";
 
 type ThreadState = {
   conversation: DirectMessageConversation | null;
@@ -217,7 +219,7 @@ function conversationPreview(conversation: DirectMessageConversation): string {
   if (!latest) return "Start a conversation";
   if (latest.deletedForEveryoneAt) return "Message deleted";
   const prefix = latest.senderIsViewer ? "You: " : "";
-  const preview = `${prefix}${latest.content || (latest.attachment ? latest.attachment.kind[0]!.toUpperCase() + latest.attachment.kind.slice(1) : "")}`.replace(/\s+/g, " ").trim();
+  const preview = `${prefix}${walletMessagePreview(latest.content) || (latest.attachment ? latest.attachment.kind[0]!.toUpperCase() + latest.attachment.kind.slice(1) : "")}`.replace(/\s+/g, " ").trim();
   const maxLength = 88;
   return preview.length > maxLength
     ? `${preview.slice(0, maxLength - 1).trimEnd()}…`
@@ -848,7 +850,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const normalizedMessageSearch = messageSearchQuery.trim().toLocaleLowerCase();
   const visibleMessages = normalizedMessageSearch
     ? messages.filter((message) =>
-        [message.content, message.replyTo?.content]
+        [walletMessagePreview(message.content), message.replyTo ? walletMessagePreview(message.replyTo.content) : null]
           .filter(Boolean)
           .join(" ")
           .toLocaleLowerCase()
@@ -1564,12 +1566,10 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                     {message.replyTo ? (
                                       <div className={styles.replyPreview}>
                                         <span>{message.replyTo.senderIsViewer ? "You" : selectedLabel}</span>
-                                        <p>{message.replyTo.content}</p>
+                                        <p>{walletMessagePreview(message.replyTo.content)}</p>
                                       </div>
                                     ) : null}
-                                    {message.content ? <p className="whitespace-pre-wrap break-words">
-                                      {message.content}
-                                    </p> : null}
+                                    {isWalletCardShare(message.content) ? <WalletSharedCardMessage key={`${message.id}:${activeConversationId}`} content={message.content} peerPersonRef={thread.peerPersonRef} senderIsViewer={message.senderIsViewer} /> : message.content ? <p className="whitespace-pre-wrap break-words">{message.content}</p> : null}
                                     <MessageAttachment message={message} getIdToken={() => {
                                       if (!user) throw new Error("Sign in to open this attachment.");
                                       return user.getIdToken();
@@ -1650,7 +1650,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                         Reply
                                       </DropdownMenuItem>
                                     ) : null}
-                                    {message.senderIsViewer && !message.deletedForEveryoneAt ? (
+                                    {message.senderIsViewer && !message.deletedForEveryoneAt && !isWalletCardShare(message.content) ? (
                                       <DropdownMenuItem onSelect={() => startEditing(message)}>
                                         <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
                                         Edit
@@ -1741,7 +1741,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                       <div className={styles.composerReplyPreview}>
                         <div>
                           <strong>Replying to {replyingTo.senderIsViewer ? "yourself" : selectedLabel}</strong>
-                          <span>{replyingTo.content}</span>
+                          <span>{walletMessagePreview(replyingTo.content)}</span>
                         </div>
                         <button
                           type="button"

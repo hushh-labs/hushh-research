@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createEncryptedCardFile } from "../lib/wallet/wallet-card-file";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
 import {
   resolveSignedInShellContentOffset,
@@ -21,6 +22,7 @@ const BOUNDARY_MODULES = [
   "@/lib/referral/use-referral-stream",
   "@/lib/vault/vault-context",
   "@/lib/services/wallet-service",
+  "@/lib/services/wallet-card-share-service",
   "@/lib/services/api-service",
   "@/lib/services/consent-center-service",
   "@/lib/consent/use-consent-actions",
@@ -109,7 +111,7 @@ test.beforeAll(async () => {
   }
 });
 
-type Scenario = { cards?: number; locked?: boolean; delayMs?: number; artworkGallery?: boolean };
+type Scenario = { cards?: number; networkCards?: boolean; locked?: boolean; delayMs?: number; artworkGallery?: boolean };
 
 const PROBES = `
 window.__walletFrames = [];
@@ -147,7 +149,7 @@ window.__sampleWallet = (ms) => {
 };
 `;
 
-type FixtureOptions = { height?: number; shell?: boolean };
+type FixtureOptions = { height?: number; shell?: boolean; secure?: boolean; reader?: boolean };
 
 function inlineStyle(style: Record<string, unknown>): string {
   return Object.entries(style)
@@ -191,25 +193,33 @@ async function open(
   scenario: Scenario = {},
   options: FixtureOptions = {},
 ) {
-  const { height = 852, shell = false } = options;
+  const { height = 852, shell = false, secure = false, reader = false } = options;
   await page.setViewportSize({ width, height });
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.route("http://wallet-fixture.local/**", async (route) => {
+  const origin = secure ? "https://wallet-fixture.test" : "http://wallet-fixture.local";
+  await page.route(`${origin}/**`, async (route) => {
     const requestUrl = new URL(route.request().url());
     const assetPath = requestUrl.searchParams.get("url") ?? requestUrl.pathname;
     if (assetPath === "/wallet/wallet-cards-hero.webp") {
       await route.fulfill({ body: walletHero, contentType: "image/webp" });
       return;
     }
+    if (/^\/brand\/cards\/[a-z]+\.(svg|png)$/.test(assetPath)) {
+      await route.fulfill({ body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType: assetPath.endsWith(".svg") ? "image/svg+xml" : "image/png" });
+      return;
+    }
     await route.abort();
   });
   const fixture = shell ? shellMarkup() : '<div id="root"></div>';
-  await page.setContent(
-    `<!doctype html><html class="${theme === "dark" ? "dark" : ""}"><head><base href="http://wallet-fixture.local/"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body class="bg-background text-foreground" data-ambient-chrome-primed="true" style="margin:0">${fixture}</body></html>`,
-  );
+  const html = `<!doctype html><html class="${theme === "dark" ? "dark" : ""}"><head><base href="${origin}/"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body class="bg-background text-foreground" data-ambient-chrome-primed="true" style="margin:0">${fixture}</body></html>`;
+  if (secure) {
+    await page.route(`${origin}/`, route => route.fulfill({ body: html, contentType: "text/html" }));
+    await page.goto(`${origin}/`);
+  } else await page.setContent(html);
   await awaitProductFont(page);
   await page.addScriptTag({ content: `window.__walletScenario = ${JSON.stringify(scenario)};${PROBES}` });
+  if (reader) await page.addScriptTag({ content: "window.__encryptedCardReader = true;" });
   return errors;
 }
 
@@ -302,7 +312,9 @@ for (const [width, count] of [[320, 10], [375, 10], [390, 10], [430, 10], [1440,
         await expect(layers).toHaveCount(count + 3);
         await expect(stack).toHaveAttribute("data-expanded", "true");
         // Exercise a saved payment record independently of the system cards.
-        const last = stack.locator("li[data-gesture-card^=card_]").last().getByRole("button").first();
+        const lastCard = stack.locator("li[data-gesture-card^=card_]").last();
+        const lastCardId = await lastCard.getAttribute("data-gesture-card");
+        const last = lastCard.getByRole("button").first();
         const maskedNumber = (await last.locator('[data-slot="wallet-card-number"] > [aria-hidden="true"]').allTextContents()).join(" ");
         // Keep the details consistent with the face across network groupings,
         // while independently requiring only the final four digits to appear.
@@ -311,9 +323,14 @@ for (const [width, count] of [[320, 10], [375, 10], [390, 10], [430, 10], [1440,
         await expect(page.getByTestId("wallet-selected-card")).toBeVisible();
         const details = page.getByRole("region", { name: "Saved card details", exact: true });
         await expect(details).toBeVisible();
-        await expect(details.getByText(maskedNumber, { exact: true })).toBeVisible();
+        const selectedFace = page.getByTestId("wallet-selected-card").getByTestId("wallet-card-face");
+        await expect(selectedFace).toHaveAttribute("data-revealed", "true");
+        const fullNumber = (await selectedFace.locator('[data-slot="wallet-card-number"] > [aria-hidden="true"]').allTextContents()).join(" ");
+        expect(fullNumber).toMatch(/^\d[\d ]+\d$/);
+        expect(fullNumber.replace(/ /g, "").endsWith(maskedNumber.slice(-4))).toBe(true);
+        await expect(details.getByText(fullNumber, { exact: true })).toBeVisible();
         await expect(details.getByText("Hidden", { exact: true })).toBeVisible();
-        expect(await page.evaluate(() => window.__walletEvents ?? [])).toEqual([]);
+        expect(await page.evaluate(() => window.__walletEvents ?? [])).toContain(`reveal:${lastCardId}`);
         await page.getByRole("button", { name: "All cards", exact: true }).click();
       }
       await page.emulateMedia({ reducedMotion: "reduce" });
@@ -546,8 +563,8 @@ test("Add saves typed card details, keeps optional fields empty, and preserves i
   await expect(face.locator('[data-slot="wallet-card-expiry"]')).toContainText("09/32");
   await expect(face.getByTestId("card-network-wordmark-mastercard")).toBeVisible();
   await expect(face.locator('[data-slot="wallet-card-number"]')).toContainText("4444");
-  await expect(face).not.toContainText("5555555555554444");
-  await expect(face).toHaveAttribute("data-revealed", "false");
+  await expect(face).toContainText("5555555555554444");
+  await expect(face).toHaveAttribute("data-revealed", "true");
   const artwork = await face.getAttribute("data-card-artwork");
   await selected.getByRole("button", { name: "All cards", exact: true }).click();
   const saved = page.locator('[data-gesture-card="card_saved_1"]');
@@ -560,7 +577,7 @@ test("Add saves typed card details, keeps optional fields empty, and preserves i
   await expect(saved.getByTestId("wallet-card-face")).toHaveAttribute("data-card-artwork", artwork!);
   await expect(saved.locator('[data-slot="wallet-card-holder"]')).toContainText("SAMIRA ALEXANDRA RIVERA-WASHINGTON");
   await expect(saved.locator('[data-slot="wallet-card-expiry"]')).toContainText("09/32");
-  expect(await page.evaluate(() => window.__walletEvents)).toEqual(["add"]);
+  expect(await page.evaluate(() => window.__walletEvents)).toEqual(["add", "reveal:card_saved_1"]);
   expect(errors).toEqual([]);
 });
 
@@ -666,6 +683,8 @@ for (const width of [390, 1440]) {
     await mount(page);
     await page.getByRole("button", { name: "Everyday", exact: true }).click();
     const details = page.getByRole("region", { name: "Saved card details" });
+    await expect(details).toContainText("4242 4242 4242 4242");
+    await expect(page.getByTestId("wallet-selected-card").getByTestId("wallet-card-face")).toHaveAttribute("data-revealed", "true");
     await expect(details.getByRole("button", { name: "Copy card number" })).toBeVisible();
     await expect(details.getByText("Hidden", { exact: true })).toBeVisible();
     const remove = details.getByRole("button", { name: "Remove card", exact: true });
@@ -690,6 +709,66 @@ for (const width of [390, 1440]) {
     await expect(page.getByTestId("one-wallet-remove-confirm")).toBeVisible();
     await page.getByTestId("one-wallet-remove-cancel").click();
     await expect(details).toBeVisible();
+  });
+
+  test(`Encrypted card sharing: logos and recipient confirmation fit at ${width}px`, async ({ page }) => {
+    const errors = await open(page, width, "light", { networkCards: true }, { height: 844, shell: true, secure: true });
+    await mount(page);
+    await page.getByRole("button", { name: "Search cards" }).click();
+    await page.getByRole("textbox", { name: "Search cards" }).fill("RuPay");
+    await page.getByRole("button", { name: /^RuPay ·/ }).click();
+    const face = page.getByTestId("wallet-selected-card").getByTestId("wallet-card-face");
+    await expect(face).toHaveAttribute("data-revealed", "true");
+    const logo = face.getByTestId("card-network-wordmark-rupay").locator("img");
+    await expect.poll(() => logo.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0)).toBe(true);
+    expect(await logo.evaluate(el => { const box = el.getBoundingClientRect(), card = el.closest('[data-testid="wallet-card-face"]')!.getBoundingClientRect(); return box.left >= card.left && box.right <= card.right && box.top >= card.top && box.bottom <= card.bottom; })).toBe(true);
+    await face.screenshot({ path: test.info().outputPath("wallet-rupay-card.png") });
+    await page.getByRole("button", { name: "Share card", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("tab", { name: "Anyone", exact: true })).toHaveAttribute("data-state", "active");
+    await expect.poll(() => dialog.evaluate(el => Math.abs(el.getBoundingClientRect().width - document.querySelector('[data-testid="wallet-card-browser"]')!.getBoundingClientRect().width))).toBeLessThan(1);
+    expect(await dialog.locator("input").first().evaluate(el => getComputedStyle(el).fontSize)).toBe("12px");
+    await dialog.getByLabel("Password", { exact: true }).fill("synthetic-long-password");
+    await dialog.getByLabel("Confirm password", { exact: true }).fill("synthetic-long-password");
+    await dialog.getByRole("button", { name: "Prepare encrypted file" }).click();
+    await expect(dialog.getByRole("button", { name: "Share encrypted file" })).toBeEnabled();
+    expect(await dialog.locator("input").count()).toBe(0);
+    await dialog.getByRole("tab", { name: "Hushh Chat" }).click();
+    await dialog.getByRole("button", { name: "Test Recipient", exact: true }).click();
+    await expect(dialog.getByRole("button", { name: "Share securely" })).toBeEnabled();
+    await expect(dialog).toContainText("ending 4242, with Test Recipient");
+    await dialog.getByRole("textbox", { name: "Find a Hushh person" }).fill("Changed query");
+    await expect(dialog.getByRole("button", { name: "Share securely" })).toBeDisabled();
+    await page.screenshot({ path: test.info().outputPath("wallet-encrypted-card-sharing.png") });
+    await page.keyboard.press("Escape");
+    await expect(dialog).not.toBeVisible();
+    await expect(page.getByTestId("wallet-selected-card")).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+}
+
+for (const width of [320, 390, 1440]) {
+  test(`Anonymous encrypted file reader opens a synthetic card locally at ${width}px`, async ({ page }) => {
+    const errors = await open(page, width, "light", {}, { secure: true, reader: true });
+    await page.addScriptTag({ content: script });
+    const file = await createEncryptedCardFile({ pan: "6200000000000001234", cardholderName: "SYNTHETIC RECIPIENT WITH A LONG NAME ".repeat(3).slice(0, 100), brand: "unionpay", expiryMonth: 4, expiryYear: 2030, issuingRegion: "US" }, "synthetic-long-password");
+    await page.getByLabel("Encrypted card file").setInputFiles({ name: file.name, mimeType: file.type, buffer: Buffer.from(await file.arrayBuffer()) });
+    await page.getByLabel("Password", { exact: true }).fill("wrong-password");
+    await page.getByRole("button", { name: "Open card", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Open card", exact: true })).toBeEnabled();
+    await expect(page.getByRole("region", { name: "Shared card details" })).not.toBeVisible();
+    await page.getByLabel("Password", { exact: true }).fill("synthetic-long-password");
+    await page.getByRole("button", { name: "Open card", exact: true }).click();
+    const details = page.getByRole("region", { name: "Shared card details" });
+    await expect(details).toContainText("6200000000000001234".replace(/(.{4})(?=.)/g, "$1 "));
+    await expect(details).not.toContainText("CVV");
+    await expect(details).not.toContainText("PIN");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(await details.locator('[data-slot="settings-row-trailing"]').evaluateAll(elements => elements.slice(0, 2).every(el => { const value = el.firstElementChild as HTMLElement; return value.scrollWidth <= value.clientWidth + 1 && getComputedStyle(value).textOverflow !== "ellipsis"; }))).toBe(true);
+    await page.getByRole("button", { name: "Hide card", exact: true }).click();
+    await expect(details).not.toBeVisible();
+    await expect(page.getByLabel("Password", { exact: true })).toHaveValue("");
+    expect(errors).toEqual([]);
   });
 }
 

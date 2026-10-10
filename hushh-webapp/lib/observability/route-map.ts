@@ -93,6 +93,7 @@ export const ROUTE_ID_VALUES = [
   "one_wallet_card",
   "one_wallet",
   "wallet_card_public",
+  "wallet_card_open",
   "portfolio_shared",
   "ria_home",
   "ria_onboarding",
@@ -336,6 +337,8 @@ export function resolveRouteId(rawPathname: string): RouteId {
   if (pathname === "/circle/join") return "one_location_circle_join";
   if (pathname === ROUTES.ONE_WALLET_CARD) return "one_wallet_card";
   if (pathname === ROUTES.ONE_WALLET) return "one_wallet";
+  // Anonymous local decryption remains exempt from analytics.
+  if (pathname === ROUTES.WALLET_CARD_OPEN) return "wallet_card_open";
   // The scanned page emits no analytics of its own (isAnalyticsExemptRoute),
   // so this ID is never attached to a page view. It exists because "unknown"
   // is not inert: callers that fall through to it log the raw pathname, and on

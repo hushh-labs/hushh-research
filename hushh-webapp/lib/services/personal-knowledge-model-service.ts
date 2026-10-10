@@ -4491,6 +4491,7 @@ export class PersonalKnowledgeModelService {
     explanation: string;
     confirmation: PkmUserConfirmation;
     applyMutation: (base: Record<string, unknown>) => Record<string, unknown>;
+    mayPublish?: () => boolean;
   }): Promise<StoreDomainDataResult> {
     const domain = "wallet";
     const build = async (
@@ -4563,7 +4564,10 @@ export class PersonalKnowledgeModelService {
     );
 
     return runRuntimeSecretCommitWithRetry<StoreDomainDataResult>({
-      send: () => this.storeDomainData(built),
+      send: () => {
+        if (params.mayPublish && !params.mayPublish()) throw new DOMException("The effect session changed.", "AbortError");
+        return this.storeDomainData({ ...built, mayPublish: params.mayPublish });
+      },
       rebuildAfterConflict: async () => {
         const cache = CacheService.getInstance();
         cache.invalidate(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(params.userId, domain));

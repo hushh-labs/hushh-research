@@ -128,7 +128,14 @@ same. The `username` payload field is optional and server-validated (3–30
 lowercase letters/digits/single internal dots, reserved/blocked labels rejected).
 
 Public QR resolves count aggregate visits only, without identifying scanners.
-Payment-card secrets remain exclusively in the encrypted `wallet` PKM domain.
+Saved payment-card secrets remain in the encrypted `wallet` PKM domain.
+Sharing a selected payment card uses the existing authenticated direct-message
+send contract and its connection/block checks. Only encrypted card copies enter
+messages; CVV and PIN are excluded. The relationship-scoped, paginated Location
+recipient directory projects each person's existing `publicPersonRef` after
+pagination, together with their registered recipient key. It does not add
+directory visibility or sending permission. Per-card send receipts remain in
+the owner's encrypted `wallet` secrets. No new endpoint or schema is introduced.
 See [Wallet](../one/wallet.md) and the
 [Wallet Profile contract](../../superpowers/specs/2026-08-03-wallet-card-contract.md).
 

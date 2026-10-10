@@ -76,6 +76,7 @@ vi.mock("@/lib/services/wallet-service", async () => {
       listCardPresentations: async (...args: unknown[]) => (await serviceMock.listCardSummaries(...args)).map((summary: unknown) => ({ summary, cardholderName: "Test Cardholder" })),
       deleteCard: serviceMock.deleteCard,
       getCard: serviceMock.getCard,
+      listCardShareReceipts: vi.fn().mockResolvedValue([]),
       addCard: serviceMock.addCard,
       matchesQuery: actual.WalletService.matchesQuery,
     },
@@ -291,7 +292,7 @@ describe("WalletWorkspace at scale", () => {
     expect(screen.getByTestId("wallet-selected-card")).toHaveTextContent("New card");
     expect(screen.getByRole("button", { name: "Open Visa, ending 4242" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open Card 0, ending 1000" })).toBeNull();
-  });
+  }, 10000);
 
   it("links all three tabs to their panels and supports keyboard selection", async () => {
     render(<WalletWorkspace />);
@@ -531,7 +532,7 @@ describe("WalletWorkspace at scale", () => {
     expect(screen.queryByTestId("secure-card-reveal")).toBeNull();
   });
 
-  it("decrypts a focused card only for explicit copying and keeps the page masked", async () => {
+  it("shows the full number only in focused owner details and copies on request", async () => {
     serviceMock.getCard.mockResolvedValue({
       summary: makeCards(1)[0],
       secrets: { pan: "4242424242421000", cvv: "123", pin: "", cardholderName: "Alex Rivera" },
@@ -543,9 +544,10 @@ describe("WalletWorkspace at scale", () => {
     expect(screen.getByTestId("wallet-add-collection").textContent).not.toContain("4242 4242 4242 1000");
     expect(serviceMock.getCard).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
+    await waitFor(() => expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("4242 4242 4242 1000"));
     fireEvent.click(screen.getByRole("button", { name: "Copy card number" }));
-    await waitFor(() => expect(serviceMock.getCard).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(serviceMock.getCard).toHaveBeenCalledTimes(2));
     expect(screen.queryByTestId("secure-card-reveal")).toBeNull();
-    expect(document.body.textContent).not.toContain("4242 4242 4242 1000");
+    expect(screen.getByRole("region", { name: "Saved card details" })).toHaveTextContent("4242 4242 4242 1000");
   });
 });

@@ -4587,7 +4587,7 @@ class OneLocationAgentService:
             )
             SELECT page_rows.user_id, page_rows.display_name, page_rows.email,
                    page_rows.phone_number, page_rows.phone_verified,
-                   page_rows.photo_url, page_rows.is_ria,
+                   page_rows.photo_url, page_rows.is_ria, profile.public_person_ref,
                    recipient_key.key_id, recipient_key.public_key_jwk,
                    recipient_key.algorithm,
                    recipient_key.created_at AS key_created_at,
@@ -4605,6 +4605,7 @@ class OneLocationAgentService:
                    ) END AS connected_from_contacts
             FROM total
             LEFT JOIN page_rows ON TRUE
+            LEFT JOIN actor_profiles profile ON profile.user_id = page_rows.user_id
             LEFT JOIN LATERAL (
               SELECT key.key_id, key.public_key_jwk, key.algorithm, key.created_at
               FROM one_location_recipient_keys key
