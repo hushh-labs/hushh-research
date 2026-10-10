@@ -465,6 +465,33 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
             request_id: metadataString(item.metadata, "request_id")}) || undefined,
         }),
       };
+    // Paid answers. Each row goes to the card that owns the decision: the
+    // owner's row to the review, the requester's to the price and later the
+    // answer. The generic consent path would grant the scopes without ever
+    // showing the question or what it costs.
+    case "answer_request_received":
+    case "answer_request_payment_ready":
+    case "answer_request_declined":
+    case "answer_delivered": {
+      const answerRequestId = metadataString(item.metadata, "request_id");
+      const copy: Record<string, [string, string]> = {
+        answer_request_received: ["Question asked", "Review the question and what it would use, then set a price."],
+        answer_request_payment_ready: ["Answer priced", "They approved your question. Pay to have it answered."],
+        answer_request_declined: ["Question declined", "They declined this question. Anything paid is refunded in full."],
+        answer_delivered: ["Answer ready", "Open the answer they sent you."],
+      };
+      const [label, description] = copy[item.event_type] ?? ["Question", ""];
+      return {
+        icon,
+        domainLabel,
+        label,
+        description,
+        href: buildConsentCenterHref(
+          item.event_type === "answer_request_declined" ? "previous" : "pending",
+          { requestId: answerRequestId ? `answer_request:${answerRequestId}` : undefined },
+        ),
+      };
+    }
     case "connection_withdrawn":
       return {
         icon: UserRound, domainLabel, label: who === "Someone" ? "Connection" : who,
