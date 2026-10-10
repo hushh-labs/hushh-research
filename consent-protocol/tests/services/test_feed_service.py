@@ -85,7 +85,15 @@ class _QueuedDb:
 
     def execute_raw(self, sql: str, params: dict):
         self.raw_calls.append((sql, params))
-        data = self.raw_results.pop(0) if self.raw_results else []
+        if sql.startswith("\nWITH keyed"):
+            query = self.queries.pop(0)
+            data = (
+                [{"unread_count": query.count}]
+                if "SELECT count(*) AS unread_count" in sql
+                else query.data
+            )
+        else:
+            data = self.raw_results.pop(0) if self.raw_results else []
         return SimpleNamespace(data=data)
 
 
@@ -160,17 +168,12 @@ def test_list_feed_uses_bounded_keyset_pagination_and_exact_unread_count() -> No
     assert [item["id"] for item in result["items"]] == ["10", "9"]
     assert result["next_cursor"] == "9"
     assert result["unread_count"] == 41
-    assert ("eq", ("user_id", "user-1"), {}) in list_query.calls
-    assert (
-        "select",
-        ("id,source_domain,event_type,actor_label,metadata,source_row_id,read_at,created_at",),
-        {},
-    ) in list_query.calls
-    assert ("lt", ("id", 11), {}) in list_query.calls
-    assert ("order", ("id",), {"desc": True}) in list_query.calls
-    assert ("limit", (3,), {}) in list_query.calls
-    assert ("select", ("id",), {"count": "exact"}) in count_query.calls
-    assert ("limit", (0,), {}) in count_query.calls
+    sql, params = service._db.raw_calls[0]
+    assert params == {"user_id": "user-1", "cursor": 11, "page_size": 3}
+    assert "FROM grouped WHERE" in sql
+    assert "row_number() OVER (PARTITION BY thread_key ORDER BY id DESC)" in sql
+    assert "LIMIT :page_size" in sql
+    assert service._db.raw_calls[-1][1] == {"user_id": "user-1"}
 
 
 def test_mark_read_is_tenant_scoped_and_never_unbounded() -> None:
@@ -453,7 +456,7 @@ def test_direct_message_feed_body_is_only_a_recipient_scoped_transient_preview(
     # The Feed row itself remains plaintext-free; only the authenticated DTO
     # acquires the result of opening the message envelope.
     assert list_query.data[0]["metadata"] == {}
-    sql, params = service._db.raw_calls[0]
+    sql, params = service._db.raw_calls[1]
     assert "feed.user_id = :viewer_user_id" in sql
     assert "conversation.participant_a_user_id = message.sender_user_id" in sql
     assert "conversation.participant_b_user_id = message.sender_user_id" in sql
@@ -569,7 +572,7 @@ def test_list_feed_enriches_connection_rows_with_counterpart_photo() -> None:
     assert result["items"][0]["metadata"]["counterpart_photo_url"] == (
         "https://cdn.example.test/kushal.jpg"
     )
-    assert "connection_requests" in service._db.raw_calls[0][0]
+    assert "connection_requests" in service._db.raw_calls[1][0]
     assert "counterpart_user_id" not in result["items"][0]["metadata"]
 
 
@@ -610,7 +613,7 @@ def test_list_feed_enriches_location_grant_rows_with_counterpart_photo() -> None
     assert result["items"][0]["metadata"]["counterpart_photo_url"] == (
         "https://cdn.example.test/ankit.jpg"
     )
-    assert "one_location_share_grants" in service._db.raw_calls[0][0]
+    assert "one_location_share_grants" in service._db.raw_calls[1][0]
 
 
 def test_durable_identity_gives_same_person_photo_to_mixed_feed_events() -> None:
@@ -810,3 +813,25 @@ def test_legacy_duration_event_prefers_its_authoritative_grant_id() -> None:
 
     assert rows[0]["metadata"]["counterpart_photo_url"] == "https://example.test/person.png"
     assert grant_id in service._db.raw_calls[0][1]["grant_ids_json"]
+
+
+def test_grouped_chat_metadata_is_computed_and_not_copied_from_storage():
+    item = FeedService._to_item(
+        {
+            "id": 21,
+            "event_type": "location_circle_message",
+            "metadata": {"chat_unread_count": 9999, "circle_name": "Family"},
+            "thread_key": "circle:c1",
+            "thread_message_count": 12,
+            "thread_unread_count": 3,
+        }
+    )
+    assert item["metadata"]["chat_thread_key"] == "circle:c1"
+    assert item["metadata"]["chat_message_count"] == 12
+    assert item["metadata"]["chat_unread_count"] == 3
+    assert (
+        FeedService._to_item(
+            {"id": 1, "metadata": {"chat_thread_key": "direct:foreign", "chat_unread_count": 99}}
+        )["metadata"]
+        == {}
+    )

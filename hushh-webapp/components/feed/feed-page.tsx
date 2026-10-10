@@ -72,6 +72,7 @@ import {
 import { daysSinceToday } from "@/lib/feed/feed-timestamp";
 import {
   appendFeedPage,
+  feedItemIdentity,
   createFeedPaginationState,
   isFeedIdAtOrBefore,
   latestFeedId,
@@ -630,11 +631,11 @@ function FeedPageSession({
       ...pagination.additionalItems,
     ]) {
       if (isFeedItemHidden(item, isLocalCrmBuildEnabled())) continue;
-      if (seen.has(item.id)) continue;
+      if (seen.has(feedItemIdentity(item))) continue;
       if (clearedThroughId && isFeedIdAtOrBefore(item.id, clearedThroughId)) {
         continue;
       }
-      seen.add(item.id);
+      seen.add(feedItemIdentity(item));
       const previous = previousItemsRef.current.get(item.id);
       merged.push(
         previous &&

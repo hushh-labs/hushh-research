@@ -91,10 +91,10 @@ export const CircleChatService = {
   async read(session: CircleChatSession, sequence: number): Promise<void> {
     const { activeNotificationKeyId } = await import("@/lib/notifications/preview-keys");
     const keyId = activeNotificationKeyId(session.userId);
-    await apiJson(`${root(session)}/read`, { ...options(session), method: "POST", body: JSON.stringify({ sequence }) });
+    const read = await apiJson<{ chatBadgeCount?: number; chatBadgeVersion?: number }>(`${root(session)}/read`, { ...options(session), method: "POST", body: JSON.stringify({ sequence }) });
     if (keyId) {
       const { ChatSystemNotifications } = await import("@/lib/notifications/chat-system-notifications");
-      await ChatSystemNotifications.clearRead({ threadId: session.circleId, keyId, sequence });
+      await ChatSystemNotifications.clearRead({ threadId: session.circleId, keyId, sequence, badgeCount: read?.chatBadgeCount, badgeVersion: read?.chatBadgeVersion });
     }
     CircleChatService.refreshFeedRead(session.userId);
   },

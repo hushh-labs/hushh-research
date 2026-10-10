@@ -132,7 +132,7 @@ def dispatch_direct_message_pushes() -> int:
                 event_id=f"direct-message:{message}",
                 kind="direct_message",
                 link=f"/one/messages?token={route_token}",
-                tag=f"direct-message:{message}",
+                tag=f"direct-chat:{conversation}",
                 context=context,
                 data={
                     "route_token": route_token,

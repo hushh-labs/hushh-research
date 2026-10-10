@@ -9,6 +9,16 @@ let nativeOperations: Promise<unknown> = Promise.resolve();
 let pending: Promise<PushDeviceRegistration> | null = null;
 let owner: string | null = null;
 let activeKey: string | null = null;
+const keyListeners = new Set<() => void>();
+function setActiveKey(key: string | null): void {
+  if (activeKey === key) return;
+  activeKey = key;
+  for (const listener of keyListeners) listener();
+}
+export function subscribeNotificationKey(listener: () => void): () => void {
+  keyListeners.add(listener);
+  return () => { keyListeners.delete(listener); };
+}
 export function activeNotificationKeyId(userId?: string): string | null { return userId && owner !== userId ? null : activeKey; }
 export async function clearCurrentNotificationDevice(userId?: string): Promise<void> {
   const departingOwner = userId ?? owner;
@@ -88,7 +98,7 @@ async function webKeys(userId: string, generation: number): Promise<PushDeviceRe
   } finally { db.close(); }
 }
 export async function prepareNotificationDevice(userId: string): Promise<PushDeviceRegistration> {
-  if (owner !== userId) { revision++; pending = null; activeKey = null; owner = userId; }
+  if (owner !== userId) { revision++; pending = null; owner = userId; setActiveKey(null); }
   const generation = revision;
   if (!pending) {
     if (Capacitor.isNativePlatform()) {
@@ -106,14 +116,14 @@ export async function prepareNotificationDevice(userId: string): Promise<PushDev
   try {
     const device = await pending;
     if (generation !== revision || owner !== userId) throw new Error("Notification session changed");
-    activeKey = device.keyId;
+    setActiveKey(device.keyId);
     return device;
   }
   catch (error) { if (generation === revision) pending = null; throw error; }
 }
 export async function clearNotificationDevice(userId: string, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted || owner !== null && owner !== userId) return;
-  revision++; pending = null; owner = null; activeKey = null;
+  revision++; pending = null; owner = null; setActiveKey(null);
   if (Capacitor.isNativePlatform()) {
     const operation = nativeOperations.catch(() => {}).then(async () => {
       const { HushhNotifications } = await import("@/lib/capacitor");

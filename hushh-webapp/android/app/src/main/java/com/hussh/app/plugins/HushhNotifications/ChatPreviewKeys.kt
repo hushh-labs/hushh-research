@@ -93,6 +93,16 @@ object ChatPreviewKeys {
     }
     @Synchronized fun active(context: Context): Boolean = prefs(context).contains("active")
     @Synchronized fun matches(context: Context, keyId: String): Boolean = prefs(context).getString("active", null)?.let { JSONObject(it).optString("keyId") == keyId } ?: false
+    @Synchronized fun legacyKey(context: Context, userId: String): String? {
+        val record = prefs(context).getString("active", null)?.let { JSONObject(it) } ?: return null
+        val owner = encode(MessageDigest.getInstance("SHA-256").digest(userId.toByteArray(Charsets.UTF_8)))
+        return if (record.optString("owner") == owner) record.optString("keyId") else null
+    }
+    @Synchronized fun legacyHashKey(context: Context, ownerHash: String): String? {
+        val record = prefs(context).getString("active", null)?.let { JSONObject(it) } ?: return null
+        val hash = decode(record.optString("owner")).joinToString("") { "%02x".format(it) }
+        return if (hash == ownerHash) record.optString("keyId") else null
+    }
     @Synchronized fun open(context: Context, sealed: String, binding: String): JSONObject? = runCatching {
         require(sealed.length <= 2600 && binding.length <= 160)
         val envelope = JSONArray(sealed)

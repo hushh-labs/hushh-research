@@ -60,6 +60,33 @@ POSTGRES_BIGINT_MAX = 9_223_372_036_854_775_807
 _FEED_SELECT_COLUMNS = (
     "id,source_domain,event_type,actor_label,metadata,source_row_id,read_at,created_at"
 )
+# Keep immutable events for audit/read watermarks. Group their presentation
+# before pagination, so an older page cannot repeat an already-listed chat.
+_GROUPED_FEED_CTE = """
+WITH keyed AS (
+  SELECT f.*,
+    CASE WHEN f.source_domain = 'location' AND f.event_type = 'location_circle_message'
+      AND NULLIF(f.metadata->>'circle_id', '') IS NOT NULL
+      THEN 'circle:' || (f.metadata->>'circle_id')
+    WHEN f.source_domain = 'connections' AND f.event_type = 'direct_message_received'
+      AND c.id IS NOT NULL THEN 'direct:' || c.id::text
+    ELSE 'feed:' || f.id::text END AS thread_key
+  FROM feed_events f
+  LEFT JOIN messages m ON f.source_domain = 'connections'
+    AND f.event_type = 'direct_message_received' AND m.id = CASE
+      WHEN f.source_row_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+      THEN f.source_row_id::uuid ELSE NULL END
+  LEFT JOIN conversations c ON c.id = m.conversation_id AND (
+    (c.participant_a_user_id = m.sender_user_id AND c.participant_b_user_id = :user_id)
+    OR (c.participant_b_user_id = m.sender_user_id AND c.participant_a_user_id = :user_id))
+  WHERE f.user_id = :user_id
+), ranked AS (
+  SELECT keyed.*, row_number() OVER (PARTITION BY thread_key ORDER BY id DESC) AS thread_rank,
+    count(*) OVER (PARTITION BY thread_key) AS thread_message_count,
+    count(*) FILTER (WHERE read_at IS NULL) OVER (PARTITION BY thread_key) AS thread_unread_count
+  FROM keyed
+), grouped AS (SELECT * FROM ranked WHERE thread_rank = 1)
+"""
 _COUNTERPART_PHOTO_KEY = "counterpart_photo_url"
 _LOCATION_GRANT_EVENT_TYPES = frozenset(
     {
@@ -326,10 +353,20 @@ class FeedService:
         """
         bounded_limit = max(1, min(limit, _MAX_LIMIT))
         db = self._get_db()
-        query = db.table("feed_events").select(_FEED_SELECT_COLUMNS).eq("user_id", user_id)
-        if cursor is not None:
-            query = query.lt("id", cursor)
-        rows = query.order("id", desc=True).limit(bounded_limit + 1).execute().data or []
+        rows = (
+            db.execute_raw(
+                _GROUPED_FEED_CTE
+                + """
+          SELECT id, source_domain, event_type, actor_label, metadata, source_row_id, created_at,
+            CASE WHEN thread_unread_count > 0 THEN NULL ELSE read_at END AS read_at,
+            thread_key, thread_message_count, thread_unread_count
+          FROM grouped WHERE (CAST(:cursor AS bigint) IS NULL OR id < CAST(:cursor AS bigint))
+          ORDER BY id DESC LIMIT :page_size
+        """,
+                {"user_id": user_id, "cursor": cursor, "page_size": bounded_limit + 1},
+            ).data
+            or []
+        )
         has_more = len(rows) > bounded_limit
         rows = rows[:bounded_limit]
         rows = self._with_counterpart_photos(user_id, rows)
@@ -925,15 +962,17 @@ class FeedService:
 
     def unread_count(self, user_id: str) -> int:
         db = self._get_db()
-        response = (
-            db.table("feed_events")
-            .select("id", count="exact")
-            .eq("user_id", user_id)
-            .is_("read_at", None)
-            .limit(0)
-            .execute()
+        rows = (
+            db.execute_raw(
+                _GROUPED_FEED_CTE
+                + """
+          SELECT count(*) AS unread_count FROM grouped WHERE thread_unread_count > 0
+        """,
+                {"user_id": user_id},
+            ).data
+            or []
         )
-        return int(response.count or 0)
+        return int(rows[0]["unread_count"] or 0) if rows else 0
 
     def mark_read(self, user_id: str, *, up_to_id: int) -> dict[str, Any]:
         """Mark unread items read, up to and including ``up_to_id``.
@@ -956,6 +995,11 @@ class FeedService:
     @staticmethod
     def _to_item(row: dict[str, Any], viewer_user_id: str | None = None) -> dict[str, Any]:
         metadata = _safe_feed_metadata(row.get("metadata"))
+        if str(row.get("thread_key", "")).startswith(("circle:", "direct:")):
+            # Computed from authenticated source rows, never persisted metadata.
+            metadata["chat_thread_key"] = str(row["thread_key"])
+            metadata["chat_message_count"] = min(9999, int(row.get("thread_message_count") or 0))
+            metadata["chat_unread_count"] = min(9999, int(row.get("thread_unread_count") or 0))
         if row.get("event_type") == _DIRECT_MESSAGE_RECEIVED_EVENT:
             # These fields originate only from `_with_direct_message_previews`.
             # Do not admit a message preview or conversation id from persisted
