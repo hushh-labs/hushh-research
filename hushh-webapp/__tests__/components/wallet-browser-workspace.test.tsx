@@ -23,7 +23,7 @@ const authMock = vi.hoisted(() => ({
   user: { uid: "user_1" } as { uid: string } | null,
 }));
 const trackEventMock = vi.hoisted(() => vi.fn());
-const vaultMock = vi.hoisted(() => ({ locked: false }));
+const vaultMock = vi.hoisted(() => ({ locked: false, token: "owner_token" }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => navigationMock.pathname,
@@ -42,8 +42,8 @@ vi.mock("@/lib/observability/client", () => ({
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () =>
     vaultMock.locked
-      ? { vaultKey: null, getVaultOwnerToken: () => null }
-      : { vaultKey: "vault_key", getVaultOwnerToken: () => "owner_token" },
+      ? { vaultKey: null, vaultOwnerToken: null, getVaultOwnerToken: () => null }
+      : { vaultKey: "vault_key", vaultOwnerToken: vaultMock.token, getVaultOwnerToken: () => vaultMock.token },
 }));
 
 vi.mock("@/components/vault/vault-unlock-dialog", () => ({
@@ -100,6 +100,7 @@ describe("Wallet video browser workspace", () => {
   beforeEach(() => {
     authMock.user = { uid: "user_1" };
     vaultMock.locked = false;
+    vaultMock.token = "owner_token";
     navigationMock.search = "";
     serviceMock.listCardSummaries.mockResolvedValue(makeCards(2));
     serviceMock.deleteCard.mockResolvedValue(undefined);
@@ -128,8 +129,8 @@ describe("Wallet video browser workspace", () => {
     expect(screen.queryByText("Card recipients")).toBeNull();
     expect(screen.queryByRole("button", { name: "Remove card" })).toBeNull();
   });
-  it("confirms removal and preserves the card when cancelled", async () => {
-    await open();
+  it("confirms removal after token renewal and preserves the card when cancelled", async () => {
+    const view = await open();
     fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
     fireEvent.click(screen.getByRole("button", { name: "Remove card", exact: true }));
     expect(await screen.findByTestId("one-wallet-remove-confirm")).toBeVisible();
@@ -138,8 +139,11 @@ describe("Wallet video browser workspace", () => {
     await waitFor(() => expect(screen.queryByTestId("one-wallet-remove-confirm")).toBeNull());
     expect(screen.getByTestId("wallet-selected-card")).toHaveTextContent("Card 0");
     fireEvent.click(screen.getByRole("button", { name: "Remove card", exact: true }));
+    await screen.findByTestId("one-wallet-remove-confirm-action");
+    vaultMock.token = "renewed_owner_token";
+    view.rerender(<WalletWorkspace />);
     fireEvent.click(await screen.findByTestId("one-wallet-remove-confirm-action"));
-    await waitFor(() => expect(serviceMock.deleteCard).toHaveBeenCalledWith(expect.objectContaining({ userId: "user_1", cardId: "card_0" })));
+    await waitFor(() => expect(serviceMock.deleteCard).toHaveBeenCalledWith(expect.objectContaining({ userId: "user_1", cardId: "card_0", vaultOwnerToken: "renewed_owner_token" })));
   });
   it.each(["owner", "lock"])("cancels a pending removal after a %s change", async (change) => {
     const view = await open();

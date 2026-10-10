@@ -29,6 +29,7 @@ import base64
 import json
 import logging
 import math
+import os
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlsplit
@@ -102,6 +103,15 @@ _GROUPED_FEED_COUNT_SELECT = """
 """
 _GROUPED_FEED_PAGE_SQL = _GROUPED_FEED_CTE + _GROUPED_FEED_PAGE_SELECT
 _GROUPED_FEED_COUNT_SQL = _GROUPED_FEED_CTE + _GROUPED_FEED_COUNT_SELECT
+_WALLET_GROUPED_FEED_CTE = _GROUPED_FEED_CTE.replace(
+    "    WHEN f.source_domain = 'connections'",
+    "    WHEN wg.id IS NOT NULL THEN 'wallet-access:' || wg.id::text\n    WHEN f.source_domain = 'connections'",
+).replace(
+    "  WHERE f.user_id = :user_id",
+    "  LEFT JOIN wallet_card_access_grants wg ON wg.message_id=m.id "
+    "AND wg.recipient_user_id=:user_id AND wg.owner_user_id=m.sender_user_id\n"
+    "  WHERE f.user_id = :user_id",
+)
 _COUNTERPART_PHOTO_KEY = "counterpart_photo_url"
 _LOCATION_GRANT_EVENT_TYPES = frozenset(
     {
@@ -370,7 +380,7 @@ class FeedService:
         db = self._get_db()
         rows = (
             db.execute_raw(
-                _GROUPED_FEED_PAGE_SQL,
+                self._grouped_feed_sql(count=False),
                 {"user_id": user_id, "cursor": cursor, "page_size": bounded_limit + 1},
             ).data
             or []
@@ -379,6 +389,7 @@ class FeedService:
         rows = rows[:bounded_limit]
         rows = self._with_counterpart_photos(user_id, rows)
         rows = self._with_direct_message_previews(user_id, rows)
+        rows = self._with_wallet_card_grants(user_id, rows)
         rows = self._with_drive_payment_status(user_id, rows)
         next_cursor = str(rows[-1]["id"]) if has_more and rows else None
         return {
@@ -686,6 +697,64 @@ class FeedService:
             enriched.append(next_row)
         return enriched
 
+    def _wallet_card_access_installed(self):
+        if os.getenv("WALLET_CARD_ACCESS_ENABLED", "").lower() not in {"1", "true", "yes"}:
+            return False
+        try:
+            rows = (
+                self._get_db()
+                .execute_raw(
+                    "SELECT to_regclass('public.wallet_card_access_grants') IS NOT NULL AS available",
+                    {},
+                )
+                .data
+                or []
+            )
+            return bool(rows and rows[0].get("available") is True)
+        except Exception:
+            return False
+
+    def _grouped_feed_sql(self, *, count):
+        cte = (
+            _WALLET_GROUPED_FEED_CTE if self._wallet_card_access_installed() else _GROUPED_FEED_CTE
+        )
+        return cte + (_GROUPED_FEED_COUNT_SELECT if count else _GROUPED_FEED_PAGE_SELECT)
+
+    def _with_wallet_card_grants(self, user_id, rows):
+        ids = [
+            str(row["source_row_id"])
+            for row in rows
+            if row.get("event_type") == "direct_message_received"
+            and _direct_message_source_id(row.get("source_row_id"))
+        ]
+        if not ids or not self._wallet_card_access_installed():
+            return rows
+        try:
+            links = (
+                self._get_db()
+                .execute_raw(
+                    """SELECT g.message_id::text AS source_row_id,g.id::text AS grant_id
+ FROM wallet_card_access_grants g JOIN messages m ON m.id=g.message_id
+ JOIN conversations c ON c.id=m.conversation_id
+ WHERE g.recipient_user_id=:viewer AND g.owner_user_id=m.sender_user_id
+ AND m.deleted_for_everyone_at IS NULL AND m.deleted_for_recipient_at IS NULL
+ AND m.id=ANY(CAST(:ids AS uuid[]))
+ AND ((c.participant_a_user_id=g.owner_user_id AND c.participant_b_user_id=:viewer)
+ OR (c.participant_b_user_id=g.owner_user_id AND c.participant_a_user_id=:viewer))""",
+                    {"viewer": user_id, "ids": ids},
+                )
+                .data
+                or []
+            )
+        except Exception as exc:
+            logger.warning("feed.wallet_card_lookup_unavailable error=%s", type(exc).__name__)
+            return rows
+        by_id = {str(row["source_row_id"]): str(row["grant_id"]) for row in links}
+        return [
+            {**row, "_wallet_card_grant_id": by_id.get(str(row.get("source_row_id", "")))}
+            for row in rows
+        ]
+
     def _with_direct_message_previews(
         self, user_id: str, rows: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
@@ -976,7 +1045,7 @@ class FeedService:
         db = self._get_db()
         rows = (
             db.execute_raw(
-                _GROUPED_FEED_COUNT_SQL,
+                self._grouped_feed_sql(count=True),
                 {"user_id": user_id},
             ).data
             or []
@@ -1004,6 +1073,7 @@ class FeedService:
     @staticmethod
     def _to_item(row: dict[str, Any], viewer_user_id: str | None = None) -> dict[str, Any]:
         metadata = _safe_feed_metadata(row.get("metadata"))
+        metadata.pop("wallet_card_grant_id", None)
         if str(row.get("thread_key", "")).startswith(("circle:", "direct:")):
             # Computed from authenticated source rows, never persisted metadata.
             metadata["chat_thread_key"] = str(row["thread_key"])
@@ -1038,6 +1108,10 @@ class FeedService:
             preview = _direct_message_preview(row.get(_DIRECT_MESSAGE_PREVIEW_FIELD))
             if preview is not None:
                 metadata["message_preview"] = preview
+            grant_id = _direct_message_source_id(row.get("_wallet_card_grant_id"))
+            if grant_id:
+                metadata["wallet_card_grant_id"] = grant_id
+                metadata.pop("message_preview", None)
         if (
             row.get("event_type") == "document_share_outcome"
             and metadata.get("feed_audience") == "recipient"

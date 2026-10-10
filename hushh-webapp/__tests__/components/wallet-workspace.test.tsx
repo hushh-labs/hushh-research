@@ -23,7 +23,7 @@ const authMock = vi.hoisted(() => ({
   user: { uid: "user_1" } as { uid: string } | null,
 }));
 const trackEventMock = vi.hoisted(() => vi.fn());
-const vaultMock = vi.hoisted(() => ({ locked: false }));
+const vaultMock = vi.hoisted(() => ({ locked: false, tokenReady: true }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => navigationMock.pathname,
@@ -44,8 +44,8 @@ vi.mock("@/lib/observability/client", () => ({
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () =>
     vaultMock.locked
-      ? { vaultKey: null, getVaultOwnerToken: () => null }
-      : { vaultKey: "vault_key", getVaultOwnerToken: () => "owner_token" },
+      ? { vaultKey: null, vaultOwnerToken: null, getVaultOwnerToken: () => null }
+      : { vaultKey: "vault_key", vaultOwnerToken: vaultMock.tokenReady ? "owner_token" : null, getVaultOwnerToken: () => vaultMock.tokenReady ? "owner_token" : null },
 }));
 
 vi.mock("@/components/vault/vault-unlock-dialog", () => ({
@@ -104,6 +104,18 @@ function makeCards(count: number) {
 }
 
 describe("WalletWorkspace at scale", () => {
+  it("loads cards when the owner token arrives after the vault key", async () => {
+    vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValueOnce(true);
+    vaultMock.tokenReady = false;
+    serviceMock.listCardSummaries.mockResolvedValue([]);
+    const view = render(<WalletWorkspace />);
+    await screen.findByTestId("one-wallet-locked");
+    expect(serviceMock.listCardSummaries).not.toHaveBeenCalled();
+    vaultMock.tokenReady = true;
+    view.rerender(<WalletWorkspace />);
+    await waitFor(() => expect(serviceMock.listCardSummaries).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Add", exact: true })).toBeEnabled());
+  });
   it("refreshes the profile QR after a remote rotation without reopening Wallet", async () => {
     const card = { status: "active", displayName: "Ada", cardPayload: { full_name: "Ada" }, shareTokenVersion: 1 } as WalletCardRecord;
     const rotated = { ...card, shareTokenVersion: 2 };
@@ -376,6 +388,7 @@ describe("WalletWorkspace at scale", () => {
   beforeEach(() => {
     authMock.user = { uid: "user_1" };
     vaultMock.locked = false;
+    vaultMock.tokenReady = true;
     navigationMock.search = "";
     navigationMock.replace.mockReset();
     serviceMock.listCardSummaries.mockResolvedValue(makeCards(4));

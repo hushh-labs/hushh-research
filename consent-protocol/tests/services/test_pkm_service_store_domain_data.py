@@ -1,3 +1,4 @@
+import base64
 import json
 import re
 import threading
@@ -19,6 +20,119 @@ from hushh_mcp.services.personal_knowledge_model_service import (
 def _unwrap(value):
     """Unwrap a JsonParam marker (used for JSONB-array RPC params) if present."""
     return value.value if isinstance(value, JsonParam) else value
+
+
+@pytest.mark.asyncio
+async def test_wallet_commit_seals_source_without_destabilizing_retries(monkeypatch):
+    from hushh_mcp.services.pkm_mutation_contracts import PkmMutationPlanV2
+    from hushh_mcp.services.wallet_card_access_projection import (
+        PROJECTION_KEY,
+        WalletCardSourceCipher,
+    )
+
+    monkeypatch.setenv(
+        "DIRECT_MESSAGE_ENCRYPTION_KEY_V1", base64.urlsafe_b64encode(bytes(range(32))).decode()
+    )
+    monkeypatch.setenv("WALLET_CARD_ACCESS_ENABLED", "true")
+    service = PersonalKnowledgeModelService()
+    service._db = _StubDb()
+    service._domain_registry = _StubDomainRegistry()
+    monkeypatch.setattr(
+        service, "_continuous_refresh_tokens_for_domain_write", AsyncMock(return_value=[])
+    )
+    card_id = "card_11111111-1111-4111-8111-111111111111"
+    summary = {
+        "card_count": 1,
+        "cards": [
+            {
+                "card_id": card_id,
+                "brand": "visa",
+                "last4": "0042",
+                "expiry_month": 4,
+                "expiry_year": 2030,
+                "issuing_region": "US",
+            }
+        ],
+    }
+    manifest = service._normalize_manifest_payload(
+        user_id="user-wallet",
+        domain="wallet",
+        payload={
+            "manifest_version": 1,
+            "summary_projection": {**summary, PROJECTION_KEY: {"cards": [{"forged": True}]}},
+            "paths": [{"json_path": "cards", "path_type": "array"}],
+        },
+        structure_decision={
+            "action": "create_domain",
+            "target_domain": "wallet",
+            "json_paths": ["cards"],
+        },
+        upgrade_commit=False,
+    )
+    assert (
+        "cards" not in manifest.summary_projection
+        and PROJECTION_KEY not in manifest.summary_projection
+    )
+    plan = PkmMutationPlanV2.model_validate(
+        _confirmed_create_plan(user_id="user-wallet", domain="wallet", scope="cards")
+    )
+
+    async def commit(raw_summary):
+        result = await service._commit_confirmed_domain_mutation_v2(
+            user_id="user-wallet",
+            domain="wallet",
+            normalized_segments={
+                "root": {
+                    "ciphertext": "opaque-client-ciphertext",
+                    "iv": "opaque-client-iv",
+                    "tag": "opaque-client-tag",
+                    "algorithm": "AES-256-GCM",
+                }
+            },
+            normalized_manifest=manifest,
+            normalized_mutation_plan=plan,
+            upgrade_claim=None,
+            preservation_receipt=None,
+            summary=raw_summary,
+            write_projections=None,
+            current_version=0,
+            prior_manifest=None,
+            legacy_blob_present=False,
+        )
+        assert result["success"] is True
+        call = service._db.rpc_calls[-1]
+        assert call["function_name"] == "commit_pkm_domain_mutation_v4"
+        return call["params"]
+
+    first, second = await commit(summary), await commit(summary)
+    projection = first["p_manifest_row"]["summary_projection"][PROJECTION_KEY]
+    retry = second["p_manifest_row"]["summary_projection"][PROJECTION_KEY]
+    assert projection["cardIds"] == [card_id]
+    sealed = projection["cards"][0]
+    assert set(sealed) == {"cardId", "content_ciphertext", "content_iv", "content_algorithm"}
+    assert sealed["content_iv"] != retry["cards"][0]["content_iv"]
+    assert json.loads(
+        WalletCardSourceCipher().open(
+            {**sealed, "id": card_id, "conversation_id": "", "sender_user_id": "user-wallet"}
+        )
+    ) == {
+        "brand": "visa",
+        "last4": "0042",
+        "expiryMonth": 4,
+        "expiryYear": 2030,
+        "issuingRegion": "US",
+    }
+    assert (
+        "cards" not in first["p_summary_patch"] and PROJECTION_KEY not in first["p_summary_patch"]
+    )
+    assert PROJECTION_KEY not in json.dumps(_unwrap(first["p_event_rows"]))
+    assert first["p_request_fingerprint"] == second["p_request_fingerprint"]
+    monkeypatch.setenv("WALLET_CARD_ACCESS_ENABLED", "false")
+    disabled = await commit(summary)
+    assert disabled["p_manifest_row"]["summary_projection"][PROJECTION_KEY]["cards"] == []
+    assert disabled["p_request_fingerprint"] == first["p_request_fingerprint"]
+    changed = await commit({**summary, "cards": [{**summary["cards"][0], "last4": "1111"}]})
+    assert changed["p_request_fingerprint"] != first["p_request_fingerprint"]
 
 
 @pytest.mark.parametrize(

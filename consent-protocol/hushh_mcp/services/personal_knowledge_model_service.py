@@ -2622,6 +2622,12 @@ class PersonalKnowledgeModelService:
         manifest_row["summary_projection"] = self._json_object(
             manifest_row.get("summary_projection")
         )
+        from hushh_mcp.services.wallet_card_access_projection import (
+            fingerprint_manifest,
+            wallet_manifest_source,
+        )
+
+        wallet_source = wallet_manifest_source(user_id, domain, summary, manifest_row)
         path_rows = [
             self._serialize_manifest_path(normalized_manifest, path)
             for path in normalized_manifest.paths
@@ -2807,7 +2813,12 @@ class PersonalKnowledgeModelService:
                     "expected_content_revision": current_version,
                     "next_content_revision": next_version,
                     "segments": normalized_segments,
-                    "manifest": manifest_row,
+                    "manifest": fingerprint_manifest(manifest_row),
+                    **(
+                        {"wallet_card_access_source": wallet_source}
+                        if wallet_source is not None
+                        else {}
+                    ),
                     "paths": path_rows,
                     "scopes": scope_rows,
                     "summary": discovery_summary,
