@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { CalendarAgentIcon } from "@/components/icons/agents";
 import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
 import type { FeedItem } from "@/lib/services/feed-service";
 import {
@@ -399,6 +400,9 @@ describe("notification-backed Feed projection renderers", () => {
     expect(presented.description).not.toBe("");
     expect(`${presented.label} ${presented.description}`).not.toContain(sensitive);
     expect(presented.href).toBe(href);
+    if (eventType.startsWith("calendar_")) {
+      expect(presented.icon).toBe(CalendarAgentIcon);
+    }
   });
 });
 
