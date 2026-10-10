@@ -53,7 +53,7 @@ Non-owned surfaces:
 2. Keep plugin method names and service-layer contracts aligned across platforms.
 3. Treat service-layer native/web branching as part of the same contract, not a follow-up.
 4. Separate retained presentation, current action binding, interaction/accessibility eligibility and privacy. Capability/layout receipts are admission evidence, not rendered transition acceptance; use the adoption reference's qualification rules.
-5. Treat keyboard movement as eligibility/geometry, not automatic host retirement. Validate deliberate focus cancellation separately from uncertainty; refresh compatible admission without replacing unchanged presentation. Commit initial coverage with its authored pose, and withdraw failed presentation sources immediately.
+5. Treat keyboard movement as eligibility/geometry, not automatic host retirement. Validate deliberate focus cancellation separately from uncertainty; require fresh system geometry for keyboard acceptance. Refresh compatible admission without replacing unchanged presentation. Fence superseded layout failures as well as receipts; current failures remain fail-closed. Commit initial coverage with its authored pose, and withdraw failed presentation sources immediately.
 
 ## Handoff Rules
 

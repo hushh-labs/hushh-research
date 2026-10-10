@@ -144,8 +144,18 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(container.baseVisibleFrame.width, 200,
             "Atomic first coverage must expose the retained plane without a zero-frame intermediate state")
         XCTAssertFalse(control.isUserInteractionEnabled)
+        XCTAssertTrue(container.drawerCoverageIsSuperseded(entering, group: "profile", privacy: privacy, revision: 7),
+            "An already committed atomic pose is a no-op, not a failed drawer lifetime")
+        XCTAssertFalse(container.drawerCoverageIsSuperseded(entering, group: "profile", privacy: privacy + 1, revision: 7))
+        XCTAssertFalse(container.drawerCoverageIsSuperseded(entering, group: "history", privacy: privacy, revision: 7))
+        let foreignDuplicate = NativePanelPose(document: "synthetic", ownerEpoch: "different-owner", generation: 4,
+            sequence: 1, privacyGeneration: privacy, frame: container.bounds, offset: 200, opacity: 1, settled: false)
+        XCTAssertFalse(container.drawerCoverageIsSuperseded(foreignDuplicate, group: "profile", privacy: privacy, revision: 7),
+            "Sequence coincidence must never admit another owner as a superseded delivery")
         let stale = NativePanelPose(document: "synthetic", ownerEpoch: "stale-entry", generation: 4,
             sequence: 2, privacyGeneration: privacy, frame: container.bounds, offset: 300, opacity: 1, settled: false)
+        XCTAssertFalse(container.drawerCoverageIsSuperseded(stale, group: "profile", privacy: privacy, revision: 7),
+            "A changed owner cannot be treated as an overtaken presentation")
         XCTAssertFalse(container.setRegions(document: "synthetic", revision: 8,
             viewport: container.bounds.size, top: 100, bottom: 150, isolated: true,
             covered: true, privacyGeneration: privacy, drawer: "profile", initialPose: stale))
@@ -162,8 +172,56 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(container.applyDrawerCoverage(reopened, group: "profile", privacy: privacy, revision: 9))
         XCTAssertFalse(container.retire(group: "profile", document: "synthetic", ownerEpoch: "exit-epoch", generation: 3))
         XCTAssertEqual(container.baseVisibleFrame.width, 80, "Late cleanup cannot clear a reopened presentation")
+        // Initial sampling and the ordinary pose writer have independent
+        // bridge deliveries. A newest region must not fail or rewind pixels
+        // when its same-owner initial pose loses that ordering race.
+        let sampled = NativePanelPose(document: "synthetic", ownerEpoch: "reopened-epoch", generation: 5,
+            sequence: 2, privacyGeneration: privacy, frame: container.bounds, offset: 100, opacity: 1, settled: false)
+        let advanced = NativePanelPose(document: "synthetic", ownerEpoch: "reopened-epoch", generation: 5,
+            sequence: 3, privacyGeneration: privacy, frame: container.bounds, offset: 120, opacity: 1, settled: false)
+        XCTAssertTrue(container.applyDrawerCoverage(advanced, group: "profile", privacy: privacy, revision: 9))
+        let foreignSample = NativePanelPose(document: "synthetic", ownerEpoch: "foreign-owner", generation: 5,
+            sequence: 2, privacyGeneration: privacy, frame: container.bounds, offset: 100, opacity: 1, settled: false)
+        XCTAssertFalse(container.setRegions(document: "synthetic", revision: 10,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: true,
+            covered: true, privacyGeneration: privacy, drawer: "profile", initialPose: foreignSample))
+        let malformedSample = NativePanelPose(document: "synthetic", ownerEpoch: "reopened-epoch", generation: 5,
+            sequence: 2, privacyGeneration: privacy, frame: container.bounds,
+            offset: container.bounds.width + 1, opacity: 1, settled: false)
+        XCTAssertFalse(container.setRegions(document: "synthetic", revision: 10,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: true,
+            covered: true, privacyGeneration: privacy, drawer: "profile", initialPose: malformedSample))
+        XCTAssertTrue(container.acceptsPresentationRevision(9, privacyGeneration: privacy))
+        XCTAssertEqual(container.groupPose("profile"), advanced)
+        XCTAssertTrue(container.setRegions(document: "synthetic", revision: 10,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: true,
+            covered: true, privacyGeneration: privacy, drawer: "profile", initialPose: sampled))
+        XCTAssertEqual(container.groupPose("profile"), advanced)
+        XCTAssertEqual(container.baseVisibleFrame.width, 120, "Region admission must preserve newer geometry")
+        XCTAssertTrue(container.acceptsPresentationRevision(10, privacyGeneration: privacy))
+        XCTAssertFalse(container.acceptsPresentationRevision(9, privacyGeneration: privacy))
+        XCTAssertFalse(control.isUserInteractionEnabled, "Layout admission never grants covered actions")
+        let ulp = CGFloat(Float(container.bounds.width).ulp)
+        let noisy = NativePanelPose(document: "synthetic", ownerEpoch: "pixel-epoch", generation: 6,
+            sequence: 1, privacyGeneration: privacy,
+            frame: CGRect(x: -ulp, y: 0, width: container.bounds.width + ulp, height: container.bounds.height),
+            offset: 150, opacity: 1, settled: false)
+        XCTAssertTrue(container.setRegions(document: "synthetic", revision: 11,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: true,
+            covered: true, privacyGeneration: privacy, drawer: "profile", initialPose: noisy),
+            "Observed WebKit transform round-off cannot retire a full-height drawer/dock")
+        let outside = NativePanelPose(document: "synthetic", ownerEpoch: "pixel-epoch", generation: 6,
+            sequence: 2, privacyGeneration: privacy,
+            frame: CGRect(x: -0.01, y: 0, width: container.bounds.width + 0.01, height: container.bounds.height),
+            offset: 150, opacity: 1, settled: false)
+        XCTAssertFalse(container.setRegions(document: "synthetic", revision: 12,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: true,
+            covered: true, privacyGeneration: privacy, drawer: "profile", initialPose: outside),
+            "Machine precision must not become a permissive CSS-pixel containment margin")
+        XCTAssertEqual(container.groupPose("profile"), noisy)
+        XCTAssertTrue(container.acceptsPresentationRevision(11, privacyGeneration: privacy))
         container.conceal()
-        regions(10, drawer: nil)
+        regions(12, drawer: nil)
         XCTAssertEqual(container.baseVisibleFrame, .zero)
         XCTAssertTrue(container.underlay.isHidden, "Region release must never clear privacy")
         XCTAssertTrue(web.superview === container)
@@ -294,9 +352,13 @@ final class NativeSupportTests: XCTestCase {
         host.safeAreaRegions = []
         host.view.backgroundColor = .clear
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
-        let parent = UIViewController(); parent.view.backgroundColor = .systemBackground
+        let parent = UIViewController()
+        let container = NativePresentationContainer(
+            webView: WKWebView(frame: window.bounds), basePresentation: .contentBacked)
+        parent.view = container
+        parent.view.backgroundColor = .systemBackground
         window.rootViewController = parent; window.isHidden = false
-        parent.addChild(host); parent.view.addSubview(host.view); host.didMove(toParent: parent)
+        parent.addChild(host); container.install(host.view, id: "agent-dock", group: nil); host.didMove(toParent: parent)
         host.view.frame = CGRect(x: 16, y: 700, width: 358, height: 100)
         defer { model.clear(); host.view.removeFromSuperview(); host.removeFromParent(); window.isHidden = true }
         host.view.layoutIfNeeded()
@@ -419,6 +481,25 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(editor.text, "Hello 👋")
         XCTAssertEqual(editor.selectedRange, selected)
         XCTAssertEqual(sends, 0)
+        // Actual overlay admission must release native focus independently of
+        // a queued React/plugin apply, without destroying the retained draft.
+        XCTAssertTrue(editor.becomeFirstResponder())
+        XCTAssertTrue(container.setRegions(document: "synthetic", revision: 1,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: false))
+        XCTAssertTrue(editor.isFirstResponder, "Compatible geometry must retain editing")
+        XCTAssertTrue(container.setRegions(document: "synthetic", revision: 2,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: true))
+        XCTAssertFalse(editor.isFirstResponder, "Confirmed modal admission must release native editor focus")
+        XCTAssertTrue(model.editor === editor)
+        XCTAssertEqual(editor.text, "Hello 👋")
+        XCTAssertEqual(editor.selectedRange, selected)
+        XCTAssertTrue(container.setRegions(document: "synthetic", revision: 3,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: false))
+        XCTAssertTrue(editor.becomeFirstResponder())
+        XCTAssertFalse(container.setRegions(document: "synthetic", revision: 2,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: true))
+        XCTAssertTrue(editor.isFirstResponder, "Rejected stale coverage cannot interrupt resumed editing")
+        editor.resignFirstResponder()
         model.awaitingConsumption = true
         model.consumeText()
         XCTAssertFalse(editor.placeholderLabel.isHidden,

@@ -131,9 +131,40 @@ async function measure(
 }
 
 test.describe("Profile pane custom close layout", () => {
-  test("keeps the right-safe-area declaration on the actual custom button", () => {
+  test("keeps negotiated full-height drawers edge-to-edge before coverage acknowledgment", async ({ page }) => {
+    const globals = fs.readFileSync(path.join(WEBAPP_ROOT, "app/globals.css"), "utf8");
+    const start = globals.indexOf("/* Acknowledged native seats bound web overlays; panel motion stays React. */");
+    const end = globals.indexOf("/* Opt-in stationary chrome:", start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.setContent(`<style>
+      :root { --native-overlay-top: 116px; --native-overlay-bottom: 149px; }
+      section { position: fixed; inset: 0; }
+      ${globals.slice(start, end)}
+    </style>
+    <section id="profile" data-testid="profile-pane" data-slot="sheet-content" data-sheet-side="right"></section>
+    <section id="preview" data-profile-preview></section>
+    <section id="history" data-agent-history-drawer data-slot="sheet-content" data-sheet-side="left"></section>`);
+    for (const mode of [
+      { classes: "native-reserved-chrome native-full-window-overlays", top: 0, height: 844 },
+      { classes: "native-reserved-chrome", top: 116, height: 579 },
+      { classes: "", top: 0, height: 844 },
+    ]) {
+      await page.evaluate(classes => { document.documentElement.className = classes; }, mode.classes);
+      // No coverage attribute: initial sampling must already use authored
+      // full-height geometry, while the separate admission gate stays closed.
+      for (const family of ["profile", "preview", "history"]) {
+        const bounds = await page.locator(`#${family}`).evaluate(node => node.getBoundingClientRect().toJSON());
+        expect(bounds.y, `${mode.classes}:${family}`).toBeCloseTo(mode.top, 0);
+        expect(bounds.height, `${mode.classes}:${family}`).toBeCloseTo(mode.height, 0);
+      }
+    }
+  });
+
+  test("keeps the right-safe-area declaration on the owning Close slot", () => {
     const source = fs.readFileSync(PROFILE_PANE_SOURCE, "utf8");
-    const closeMarkup = source.match(/<SheetClose[\s\S]*?<\/SheetClose>/)?.[0];
+    const closeMarkup = source.match(/<NativeChatChrome\s+kind="close"[\s\S]*?<\/NativeChatChrome>/)?.[0];
 
     expect(closeMarkup).toBeDefined();
     expect(closeMarkup).toContain(

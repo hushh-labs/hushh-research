@@ -13,6 +13,67 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
+### Drawer admission regression repair — 2026-10-09
+
+Source baseline: `a4a7610a6751`. The attach-only iPhone material journey
+reproduced dock retirement at layout admission, before native dock application.
+The rejected initial Profile frame started 116 CSS pixels below the viewport
+and ended 149 pixels above its bottom. The shared reserved-region selector had
+higher specificity than the full-height override. The override now matches its
+specificity; owner/privacy validation remains unchanged. A computed-layout
+regression covers Profile, its opening preview and History before coverage
+acknowledgment, plus old-wrapper/web fallbacks. Restoring the broken selector
+reproduces the 116-pixel displacement. Chromium and WebKit both exercise it.
+
+Region and pose freshness are independent. Superseded layout failures cannot
+retire a current dock. When an ordinary pose overtakes a compatible region's
+initial pose, native retains newer geometry only for the same document, drawer,
+owner, generation and privacy. Its receipt distinguishes retained geometry from
+application of the requested initial pose. Malformed geometry and current
+failures remain rejected; no choice, navigation or submission is replayed.
+Nearest web/native tests include wrong-owner/malformed-offset rejection and
+negative controls for the actual ordering regressions.
+
+The software-keyboard journey exposed a second real admission failure:
+WebKit's transformed full-width rectangle measured 390.000030517578 CSS pixels.
+Native containment now admits at most two Float32 representable steps at the
+viewport scale, not a CSS-pixel margin. The nearest native regression rejects
+even a 0.01-pixel out-of-bounds rectangle and retains all owner/privacy fences.
+The keyboard harness also previously skipped the Profile interruption using a
+stale hidden-keyboard sample. It now always exercises that interruption after
+typing and requires fresh post-close CSS/UIKit geometry. The speculative extra
+focus cancellation was removed; existing focus and draft owners are retained.
+
+| Family | Renderer / operation owner | Qualification boundary |
+| --- | --- | --- |
+| Stationary History opener and Cloud/Puppy | Retained NativeChrome / existing React actions | Debug iPhone candidate; transition evidence required |
+| Agent Dock / chat input | One retained native editor / existing React draft, submission and voice owners | Keyboard, IME, attachments and privacy acceptance remain separate |
+| Profile / History panels, moving Close and Preferences | Full-height React / existing gesture and feature owners | No stationary header portal or second drawer engine |
+| Bottom navigation | Retained standard UITabBar / existing React navigation owner | Native label fallback in XCUI stays scoped to that bar |
+| Other routes, older wrappers, Android and iPad | Existing qualified renderer / existing owner | No broader adoption or iPad enablement from this repair |
+
+The material pilot still clips native chrome using asynchronous React poses.
+This repair is not proof of first-touch pixel continuity, uniformly dimmed
+scrims or the one-display-interval pose target. Release performance, accessibility
+and exact-candidate physical qualification remain required before promotion.
+Debug diagnostics contain only fixed refusal/stage codes and bounded public
+geometry; they conceal on privacy transitions and never include editor contents,
+account/lease identities or provider error bodies.
+
+Physical Debug functional proof on the installed 1.4.0 (69) UAT-backed candidate:
+the held partial Profile drag had four observed samples and zero missing native
+plane samples; ten Profile, ten History and ten Cloud/Puppy cycles completed.
+Profile and History measured top 0/bottom 844 CSS pixels, retained their native
+base and returned to the native dock without an interactive web duplicate. This
+is geometry/interaction admission evidence, not first-frame or hitch acceptance.
+The same attach-only batch passed ten Chat ↔ One cycles with the Unicode/multiline
+draft preserved, software-keyboard clearance and one WebView/editor. Both cases
+completed with zero failures or skips; the synthetic draft was cleared through
+its existing editor owner. The same-source executable SHA-256 is
+`ba0bf116fcd647e482437caf3013c803bbb846630c323ebfc57e865a8066862d`;
+packaged index SHA-256 is
+`5e128f8bc0bc6e6ff57fe984c4f11b992720501da79ed76d861b0d70c1f91bcb`.
+
 ### Keyboard retention and atomic first coverage — 2026-10-09
 
 Baseline: `9f8705948f36`. This bounded correction retains the existing Debug

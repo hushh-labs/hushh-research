@@ -47,6 +47,7 @@ export class NativePanelPoseWriter {
     const pose = this.pending;
     this.pending = undefined; this.sending = true;
     const started = performance.now();
+    let superseded = false;
     try {
       const ack = await new Promise<NativePanelReceipt>((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error("NATIVE_PANEL_ACK_UNCERTAIN")), 3000);
@@ -59,11 +60,12 @@ export class NativePanelPoseWriter {
           ack.presentationRegionRevision !== pose.presentationRegionRevision) {
         throw new Error("NATIVE_PANEL_ACK_UNCONFIRMED");
       }
-      if (ack.presentationApplied !== false) this.receipt?.(performance.now() - started);
+      superseded = ack.presentationApplied === false;
+      if (!superseded) this.receipt?.(performance.now() - started);
     } catch { if (!this.retired) { this.retire(); this.failed(); } }
     finally {
       this.sending = false;
-      if (!this.retired && this.pending && this.refresh) {
+      if (!this.retired && (this.pending || superseded) && this.refresh) {
         // Read geometry and its timestamp together at the next owned frame.
         // Never stamp an old queued transform as though it were fresh.
         this.pending = undefined;

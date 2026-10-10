@@ -413,6 +413,9 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
     private var viewport = CGSize.zero
     private var observers = [NSObjectProtocol]()
     private var requestedVisible = false
+    #if DEBUG
+    private var admissionProbe: NativeTestStatusLabel?
+    #endif
     private var compositor: NativePresentationContainer? { bridge?.viewController?.view as? NativePresentationContainer }
     private var layoutState = NativeDockLayoutState()
     private lazy var model = NativeDockModel()
@@ -431,9 +434,29 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
     override func load() {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("--hushh-native-chrome-diagnostics"), let parent = self.bridge?.viewController?.view {
+                let probe = NativeTestStatusLabel(frame: .zero, showOverlay: false)
+                probe.accessibilityIdentifier = "native-dock-admission"
+                probe.translatesAutoresizingMaskIntoConstraints = false
+                parent.addSubview(probe)
+                NSLayoutConstraint.activate([
+                    probe.leadingAnchor.constraint(equalTo: parent.leadingAnchor),
+                    probe.topAnchor.constraint(equalTo: parent.safeAreaLayoutGuide.topAnchor),
+                    probe.widthAnchor.constraint(equalToConstant: 1), probe.heightAnchor.constraint(equalToConstant: 1),
+                ])
+                probe.update(status: "none")
+                self.admissionProbe = probe
+            }
+            #endif
             for name in [UIApplication.willResignActiveNotification, HushhSessionPrivacyShield.presentationDidChange] {
                 self.observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
                     guard let self, #available(iOS 26.0, *) else { return }
+                    #if DEBUG
+                    let probePrivacy = HushhSessionPrivacyShield.shared.snapshot()
+                    self.admissionProbe?.accessibilityElementsHidden = notification.name == UIApplication.willResignActiveNotification ||
+                        !probePrivacy.appIsActive || probePrivacy.shielded
+                    #endif
                     // Release is not admission. A fresh owner-fenced apply is
                     // required; a queued JS revocation must never flash text.
                     self.requestedVisible = false; self.model.visible = false; self.model.interactionEnabled = false
@@ -454,7 +477,22 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
             }
         }
     }
-    deinit { observers.forEach(NotificationCenter.default.removeObserver) }
+    private func rejectApply(_ call: CAPPluginCall, code: String) {
+        #if DEBUG
+        // Fixed refusal codes only. Never expose editor text, the call object,
+        // identities, attachments or provider errors through the opt-in probe.
+        admissionProbe?.update(status: code)
+        let privacy = HushhSessionPrivacyShield.shared.snapshot()
+        admissionProbe?.accessibilityElementsHidden = !privacy.appIsActive || privacy.shielded
+        #endif
+        call.reject(code)
+    }
+    deinit {
+        observers.forEach(NotificationCenter.default.removeObserver)
+        #if DEBUG
+        admissionProbe?.removeFromSuperview()
+        #endif
+    }
     @objc func getCapabilities(_ call: CAPPluginCall) {
         call.resolve(["contractVersion": 1, "supported": admitted,
                       "underlayPresentation": compositor != nil && compositor?.contentBackedPresentation != true,
@@ -479,13 +517,15 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
                   let acknowledgedEdit = call.getInt("acknowledgedEdit"), acknowledgedEdit >= 0,
                   let editorRevision = call.getInt("editorRevision"), editorRevision >= 0,
                   editorRevision < HushhSessionPrivacyState.maximumJavaScriptSafeGeneration else {
-                call.reject("NATIVE_DOCK_INVALID"); return
+                if let self { self.rejectApply(call, code: "NATIVE_DOCK_INVALID") }
+                else { call.reject("NATIVE_DOCK_INVALID") }
+                return
             }
             let shield = HushhSessionPrivacyShield.shared
             shield.observeDocument(identity.document)
             let privacy = shield.snapshot()
             guard shield.acceptsDocument(identity.document), privacy.appIsActive, !privacy.shielded,
-                  call.getInt("privacyGeneration") == privacy.generation else { call.reject("NATIVE_DOCK_DOCUMENT_RETIRED"); return }
+                  call.getInt("privacyGeneration") == privacy.generation else { self.rejectApply(call, code: "NATIVE_DOCK_DOCUMENT_RETIRED"); return }
             guard self.compositor?.acceptsPresentationRevision(call.getInt("presentationRegionRevision"),
                 privacyGeneration: call.getInt("privacyGeneration")) != false else {
                 call.resolve(["documentId": identity.document, "ownerEpoch": identity.owner,
@@ -495,7 +535,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
             let replacing = self.fence.identity != identity
             let changingEditor = mode == "text" && self.editorContext != context
             let replacingText = mode == "text" && self.editorRevision != editorRevision
-            guard self.fence.apply(identity, sequence: sequence) else { call.reject("NATIVE_DOCK_STALE"); return }
+            guard self.fence.apply(identity, sequence: sequence) else { self.rejectApply(call, code: "NATIVE_DOCK_STALE"); return }
             if replacing || changingEditor { self.model.clear() }
             if mode == "text" { self.editorContext = context; self.editorRevision = editorRevision }
             self.context = context
@@ -529,7 +569,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             self.model.emit = { [weak self] kind, action, attachment, text, range in self?.emit(kind: kind, action: action, attachment: attachment, text: text, range: range) }
             self.model.changedHeight = { [weak self] in self?.layoutDock() }
-            guard let parent = self.bridge?.viewController else { call.reject("NATIVE_DOCK_HOST_MISSING"); return }
+            guard let parent = self.bridge?.viewController else { self.rejectApply(call, code: "NATIVE_DOCK_HOST_MISSING"); return }
             if self.hosting == nil {
                 let host = NativeDockHostingController(rootView: NativeAgentDockView(model: self.model))
                 host.safeAreaRegions = []

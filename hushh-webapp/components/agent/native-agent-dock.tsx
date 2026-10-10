@@ -290,18 +290,23 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
     };
     // Conceal the fallback before preparation. It is never an active second editor.
     presentationOwner = presentation.current; ports.present(true); setActive(true);
+    let admissionStage = 0;
     pending.current = pending.current.then(async () => {
       const isCurrent = () => identity.current === lease && !failed.current &&
         sequence === update.current && applyGeneration === generation.current;
       if (!isCurrent()) return;
+      admissionStage = 1;
       const privacy = await boundedDock(getNativeSessionPrivacyState());
       if (privacy.shielded || !privacy.appIsActive || !isCurrent()) return;
+      admissionStage = 2;
       if (reservedRegions.current && !await syncNativePresentationRegions()) return;
       // Layout admission is asynchronous too. It cannot authorize a snapshot
       // invalidated by an overlay, owner change or newer draft while waiting.
       if (!isCurrent()) return;
+      admissionStage = 3;
       const ack = await boundedDock(nativeDock.apply({ ...snapshot, ...nativePresentationAdmission(), privacyGeneration: privacy.generation }));
       if (!isCurrent()) return;
+      admissionStage = 4;
       if (!sameDock(lease, ack) || ack.updateSequence !== sequence || ack.phase !== "active") throw new Error("NATIVE_DOCK_ACK_UNCONFIRMED");
       if (ack.presentationApplied === false) return;
       if (underlay.current && ack.layout && sequence === update.current && applyGeneration === generation.current) {
@@ -313,8 +318,17 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
       }
       if (ack.layout && sequence === update.current && applyGeneration === generation.current &&
           fence.current?.acceptLayout(ack.layout, sequence, privacy.generation, snapshot.viewport)) ports.setLayout(ack.layout);
-    }).catch(async () => {
+    }).catch(async error => {
       if (identity.current !== lease || sequence !== update.current || applyGeneration !== generation.current) return;
+      if (window.__HUSHH_NATIVE_TEST__?.enabled === true && shell) {
+        // Opt-in public stage codes only; no error object, editor projection,
+        // account/lease identity or provider response enters diagnostics.
+        const codes = ["NATIVE_DOCK_ACK_UNCERTAIN", "NATIVE_DOCK_REFUSED", "NATIVE_DOCK_ACK_UNCONFIRMED",
+          "NATIVE_REGIONS_GEOMETRY_INVALID", "NATIVE_REGIONS_ACK_UNCERTAIN", "NATIVE_REGIONS_ACK_UNCONFIRMED",
+          "NATIVE_REGIONS_INVALID", "NATIVE_REGIONS_STALE", "NATIVE_REGIONS_PRIVACY_STALE", "NATIVE_REGIONS_INITIAL_POSE_INVALID"];
+        shell.dataset.nativeDockFailureStage = String(admissionStage);
+        shell.dataset.nativeDockFailureCode = String(error instanceof Error ? codes.indexOf(error.message) + 1 : 0);
+      }
       failed.current = true;
       try {
         const ack = await retireDock(lease);

@@ -805,7 +805,7 @@ final class NativeVaultLayoutProbe {
                             "overflowAuto", "recoveryTop", "recoveryBottom", "recoveryInside", "recoveryHits",
                             "unlockHits", "unlockClicks", "unlockAccepted", "chatCount", "chatFocused",
                             "chatDisabled", "chatInert", "chatHit", "chatWidth", "chatHeight",
-                            "methodClicks", "methodPointerUps", "passphraseFields", "dockActive",
+                            "methodClicks", "methodPointerUps", "passphraseFields", "dockActive", "dockFailureStage", "dockFailureCode",
                             "drawerKind", "drawerTop", "drawerBottom", "drawerWidth", "drawerViewportHeight",
                             "drawerOwnsTopEdge", "drawerOwnsBottomEdge", "drawerSettled", "drawerLeft", "drawerRight", "drawerPartial"])
             var payload = [String: Any]()
@@ -822,6 +822,15 @@ final class NativeVaultLayoutProbe {
             payload["nativeGuideHeight"] = (webView.superview as? NativePresentationContainer)?.keyboardLayoutGuide.layoutFrame.height
                 ?? webView.keyboardLayoutGuide.layoutFrame.height
             payload["nativeBottomSafeArea"] = webView.safeAreaInsets.bottom
+            payload["regionRefusal"] = (webView.superview as? NativePresentationContainer)?.lastRegionRefusal ?? 0
+            payload["baseEditorFocused"] = (webView.superview as? NativePresentationContainer)?.baseEditorFocused ?? false
+            if let container = webView.superview as? NativePresentationContainer,
+               let frame = container.lastRejectedInitialFrame {
+                for (key, value) in [("initialTopDelta", frame.minY - container.bounds.minY),
+                    ("initialBottomDelta", frame.maxY - container.bounds.maxY),
+                    ("initialWidthDelta", frame.width - container.bounds.width)]
+                    where value.isFinite && abs(value) <= 100_000 { payload[key] = value }
+            }
             // Public Debug admission booleans, never process arguments or
             // private editor state. Activation alone need not apply new flags.
             payload["dockOptIn"] = ProcessInfo.processInfo.arguments.contains("--hushh-native-agent-dock")
@@ -883,6 +892,7 @@ final class NativeVaultLayoutProbe {
       const surfaces = document.querySelectorAll('[data-vault-unlock-surface]');
       const root = document.documentElement;
       const finite = value => { const n = Number.parseFloat(value); return Number.isFinite(n) ? n : undefined; };
+      const dockFailure = document.querySelector('[data-native-dock-failure-code]');
       const result = {
         presentCount: surfaces.length, innerHeight, visualHeight: visualViewport?.height,
         visualTop: visualViewport?.offsetTop, visualScale: visualViewport?.scale,
@@ -891,7 +901,9 @@ final class NativeVaultLayoutProbe {
         unlockClicks: receipt.clicks, unlockAccepted: receipt.accepted,
         methodClicks: receipt.methodClicks, methodPointerUps: receipt.methodPointerUps,
         passphraseFields: document.querySelectorAll('#unlock-passphrase').length,
-        dockActive: Boolean(document.querySelector('[data-native-agent-dock-active]'))
+        dockActive: Boolean(document.querySelector('[data-native-agent-dock-active]')),
+        dockFailureStage: finite(dockFailure?.dataset.nativeDockFailureStage),
+        dockFailureCode: finite(dockFailure?.dataset.nativeDockFailureCode)
       };
       // Authored public pane geometry, not a named AX heading or inferred
       // operation. Neither contents nor account/route labels are read.

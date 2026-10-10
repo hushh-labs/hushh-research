@@ -101,13 +101,14 @@ describe("owned panel pose transport", () => {
     vi.useRealTimers();
   });
   it("does not confirm or replay a superseded coverage receipt, but admits a fresh authored pose", async () => {
-    const failed = vi.fn(), confirmed = vi.fn();
+    const failed = vi.fn(), confirmed = vi.fn(), refresh = vi.fn();
     const send = vi.fn().mockImplementationOnce(async value => ({ ...value, presentationApplied: false }))
       .mockImplementation(async value => value);
-    const writer = new NativePanelPoseWriter(send, failed, confirmed);
+    const writer = new NativePanelPoseWriter(send, failed, confirmed, refresh);
     writer.publish({ ...pose, presentationRegionRevision: 4 });
     await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
     expect(send).toHaveBeenCalledOnce();
+    expect(refresh).toHaveBeenCalledOnce();
     expect(confirmed).not.toHaveBeenCalled();
     writer.publish({ ...pose, sequence: 2, presentationRegionRevision: 5 });
     await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
@@ -276,7 +277,7 @@ describe("private dock asynchronous submission boundary", () => {
     expect(view.getByTestId("voice-seat").hasAttribute("inert")).toBe(false);
     expect(view.getByTestId("voice-seat").classList.contains("bottom-chrome-surface")).toBe(true);
   });
-  it("readmits the current dock after a newer shell layout supersedes its pending region receipt", async () => {
+  it.each([false, true])("readmits the current dock after a newer shell layout supersedes its pending region receipt (refused %s)", async refused => {
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: [], independentControls: true, reservedPresentationRegions: true });
     dockBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, reservedPresentationRegions: true });
     const receipt = deferred<NativePresentationRegions>();
@@ -293,7 +294,7 @@ describe("private dock asynchronous submission boundary", () => {
       height = 100;
       await act(async () => { expect(await syncNativePresentationRegions()).toBe(true); });
       expect(dockBridge.apply).not.toHaveBeenCalled();
-      await act(async () => { receipt.resolve(obsolete); });
+      await act(async () => { if (refused) receipt.reject(new Error("NATIVE_REGIONS_STALE")); else receipt.resolve(obsolete); });
       await waitFor(() => expect(dockBridge.apply).toHaveBeenCalled());
       expect(dockBridge.retire).not.toHaveBeenCalled();
     } finally { seat.remove(); }
@@ -549,7 +550,7 @@ describe("native chrome presentation lease", () => {
       expect(document.documentElement.hasAttribute("data-native-full-window-covered")).toBe(true);
     } finally { seat.remove(); }
   });
-  it("rejects stale region acknowledgments even when returning to the previously accepted layout", async () => {
+  it.each([false, true])("rejects stale region acknowledgments even when returning to the previously accepted layout (refused %s)", async refused => {
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["back"], independentControls: true, reservedPresentationRegions: true });
     const seat = document.createElement("div"); seat.dataset.appTopBar = "true";
     document.body.appendChild(seat);
@@ -565,9 +566,13 @@ describe("native chrome presentation lease", () => {
       const obsolete = bridge.setPresentationRegions.mock.calls[1][0];
       height = 80;
       expect(await syncNativePresentationRegions()).toBe(true);
-      delayed.resolve(obsolete);
+      if (refused) delayed.reject(new Error("NATIVE_REGIONS_STALE")); else delayed.resolve(obsolete);
       expect(await changing).toBe(false);
       expect(document.documentElement.style.getPropertyValue("--native-overlay-top")).toBe("80px");
+      // Supersession is not permission to swallow a current native failure.
+      height = 120;
+      bridge.setPresentationRegions.mockRejectedValueOnce(new Error("NATIVE_REGIONS_STALE"));
+      await expect(syncNativePresentationRegions()).rejects.toThrow("NATIVE_REGIONS_STALE");
     } finally { seat.remove(); }
   });
   it("retains preparation after superseded admission without authorizing or replaying a choice", async () => {

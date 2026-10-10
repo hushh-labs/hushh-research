@@ -4,16 +4,36 @@ import XCTest
 final class AppUITests: XCTestCase {
     /// Use the authored software-keyboard interruption, not an unqualified
     /// hardware Escape injection. This does not reset or navigate the session.
-    private func dismissDockKeyboardThroughProfile(_ app: XCUIApplication) -> Bool {
-        guard softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app) else { return true }
+    private func dismissDockKeyboardThroughProfile(_ app: XCUIApplication, requireInterruption: Bool = false) -> Bool {
+        let layout = app.buttons["native-vault-layout"].firstMatch
+        func fields() -> [String: NSNumber]? {
+            guard layout.exists, let raw = layout.value as? String, let data = raw.data(using: .utf8) else { return nil }
+            return try? JSONSerialization.jsonObject(with: data) as? [String: NSNumber]
+        }
+        var afterSequence: Double?
+        func dismissed() -> Bool {
+            guard !softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app) else { return false }
+            guard layout.exists else { return !requireInterruption } // Established non-instrumented fallback.
+            guard let fields = fields(), let guide = fields["nativeGuideHeight"],
+                  let safeArea = fields["nativeBottomSafeArea"], let open = fields["kbOpen"],
+                  let sequence = fields["sequence"],
+                  afterSequence.map({ sequence.doubleValue > $0 }) ?? true else { return false }
+            // AX can briefly omit the keyboard during a responder handoff.
+            // Require independent system geometry and CSS completion too.
+            return !open.boolValue && guide.doubleValue.isFinite && safeArea.doubleValue.isFinite &&
+                guide.doubleValue <= safeArea.doubleValue + 1
+        }
+        guard requireInterruption || !dismissed() else { return true }
         let profile = app.buttons["Open Profile"].firstMatch
         guard waitForAdmittedControl(profile) else { return false }
         profile.tap()
         let close = app.buttons["Close Profile"].firstMatch
         guard waitForAdmittedControl(close) else { return false }
         close.tap()
+        afterSequence = fields()?["sequence"]?.doubleValue
+        if requireInterruption && afterSequence == nil { return false }
         let hidden = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            !self.softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app)
+            dismissed()
         }, object: app)
         return XCTWaiter.wait(for: [hidden], timeout: 5) == .completed
     }
@@ -214,6 +234,7 @@ final class AppUITests: XCTestCase {
                 print("VAULT_GATE_GEOMETRY control=\(name) x=\(Int(bounds.minX.rounded())) y=\(Int(bounds.minY.rounded())) width=\(Int(bounds.width.rounded())) height=\(Int(bounds.height.rounded())) hittable=\(element.exists && element.isHittable)")
             }
         }
+        reportNativeDockAdmission(app)
         print("NATIVE_AUTOMATION_ADMISSION_CONFIRMED")
     }
 
@@ -1011,6 +1032,8 @@ final class AppUITests: XCTestCase {
             throw XCTSkip("Opt-in native dock warm-session proof")
         }
         let app = XCUIApplication()
+        print("NATIVE_DOCK_STAGE stage=entry")
+        defer { reportNativeDockAdmission(app) }
         guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
             XCTFail("NATIVE_DOCK_REQUIRES_RUNNING_APP"); return
         }
@@ -1059,7 +1082,7 @@ final class AppUITests: XCTestCase {
             returnToRehearsalChat(app)
             if editor.exists && (editor.value as? String) == draft {
                 editor.tap(); editor.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: draft.utf16.count))
-                XCTAssertTrue(dismissDockKeyboardThroughProfile(app), "NATIVE_DOCK_CLEANUP_KEYBOARD_DISMISS_FAILED")
+                XCTAssertTrue(dismissDockKeyboardThroughProfile(app, requireInterruption: true), "NATIVE_DOCK_CLEANUP_KEYBOARD_DISMISS_FAILED")
             }
         }
         let continuity = app.buttons["native-history-continuity"].firstMatch
@@ -1071,9 +1094,12 @@ final class AppUITests: XCTestCase {
             return packet
         }
         let beforeKeyboard = try XCTUnwrap(counters(), "NATIVE_DOCK_KEYBOARD_CONTINUITY_PROBE_UNAVAILABLE")
+        print("NATIVE_DOCK_STAGE stage=keyboard_open")
         editor.tap()
         XCTAssertTrue(waitForSoftwareKeyboard(app), "NATIVE_DOCK_SOFTWARE_KEYBOARD_UNAVAILABLE")
+        print("NATIVE_DOCK_STAGE stage=typing")
         editor.typeText(draft)
+        print("NATIVE_DOCK_STAGE stage=typed")
         XCTAssertTrue((editor.value as? String) == draft, "NATIVE_DOCK_UNICODE_OR_NEWLINE_LOST")
         XCTAssertLessThanOrEqual(editor.frame.maxY, app.keyboards.firstMatch.frame.minY - 4,
             "NATIVE_DOCK_KEYBOARD_OVERLAP")
@@ -1086,11 +1112,15 @@ final class AppUITests: XCTestCase {
         // Public NativeChrome controls retain presentation while interaction
         // is fenced for the keyboard;
         // the existing React Profile opener remains the authored touch path.
-        XCTAssertTrue(dismissDockKeyboardThroughProfile(app), "NATIVE_DOCK_KEYBOARD_DISMISS_FAILED")
-        for _ in 0..<10 {
+        XCTAssertTrue(dismissDockKeyboardThroughProfile(app, requireInterruption: true), "NATIVE_DOCK_KEYBOARD_DISMISS_FAILED")
+        print("NATIVE_DOCK_STAGE stage=keyboard_closed")
+        reportNativeDockAdmission(app)
+        for cycle in 0..<10 {
+            print("NATIVE_DOCK_STAGE stage=one_route cycle=\(cycle + 1)")
             perfTapNav(app, label: "One")
             let dock = app.descendants(matching: .any).matching(identifier: "native-agent-dock").firstMatch
             XCTAssertTrue(dock.waitForExistence(timeout: 10), "NATIVE_DOCK_VOICE_PRESENTATION_UNAVAILABLE")
+            print("NATIVE_DOCK_STAGE stage=chat_route cycle=\(cycle + 1)")
             perfTapNav(app, label: "Chat")
             XCTAssertTrue(editor.waitForExistence(timeout: 10) && editor.isHittable, "NATIVE_DOCK_ROUTE_RETURN_UNAVAILABLE")
             XCTAssertTrue((editor.value as? String) == draft, "NATIVE_DOCK_ROUTE_RETURN_LOST_DRAFT")
@@ -1107,6 +1137,7 @@ final class AppUITests: XCTestCase {
         }
         print("NATIVE_MATERIAL_TEST_BODY_ENTERED")
         let app = XCUIApplication()
+        defer { reportNativeDockAdmission(app) }
         guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
             XCTFail("NATIVE_MATERIAL_REQUIRES_RUNNING_SESSION"); return
         }
@@ -1132,7 +1163,10 @@ final class AppUITests: XCTestCase {
             return state?["visible"] as? Bool == true && state?["interactive"] as? Bool == true
         }
         let editor = app.textViews["native-dock-editor"].firstMatch
-        XCTAssertTrue(waitForAdmittedControl(editor), "NATIVE_MATERIAL_EDITOR_NOT_ADMITTED")
+        guard waitForAdmittedControl(editor) else {
+            reportNativeDockAdmission(app)
+            XCTFail("NATIVE_MATERIAL_EDITOR_NOT_ADMITTED"); return
+        }
         XCTAssertTrue(admitted(), "NATIVE_MATERIAL_NOT_CONTENT_BACKED")
         let profile = app.buttons["Open Profile"].firstMatch
         let history = app.buttons["chat-history-toggle"].firstMatch
@@ -1168,7 +1202,19 @@ final class AppUITests: XCTestCase {
         print("NATIVE_MATERIAL_HELD_DRAWER samples=\(held) missing_plane=\(missing)")
         XCTAssertGreaterThan(held, 0, "NATIVE_MATERIAL_PARTIAL_HOLD_NOT_OBSERVED")
         XCTAssertEqual(missing, 0, "NATIVE_MATERIAL_UNCOVERED_GLASS_HIDDEN_DURING_HOLD")
-        if profileClose.exists && profileClose.isHittable { profileClose.tap() }
+        // Release may either cancel the opening drag or commit the drawer.
+        // Do not tap a transient Close while a cancelled preview is retiring.
+        let released = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            if editor.exists && editor.isHittable { return true }
+            guard profileClose.exists && profileClose.isHittable,
+                  let values = heldMeasurements() else { return false }
+            return values["drawerKind"]?.intValue == 1 && values["drawerSettled"]?.boolValue == true
+        }, object: layout)
+        guard XCTWaiter.wait(for: [released], timeout: 10) == .completed else {
+            reportNativeDockAdmission(app)
+            XCTFail("NATIVE_MATERIAL_HELD_RELEASE_NOT_SETTLED"); return
+        }
+        if !(editor.exists && editor.isHittable) { profileClose.tap() }
         XCTAssertTrue(waitForAdmittedControl(editor), "NATIVE_MATERIAL_HELD_DRAWER_WARM_RETURN_FAILED")
         for (opener, close, family) in [(profile, profileClose, "profile"), (history, historyClose, "history")] {
             for cycle in 0..<10 {
@@ -1249,6 +1295,41 @@ final class AppUITests: XCTestCase {
             print("NATIVE_MATERIAL_CYCLE family=agent_selector completed=\(cycle + 1)")
         }
         print("NATIVE_MATERIAL_RETAINED_COVER_CONFIRMED")
+    }
+
+    private func reportNativeDockAdmission(_ app: XCUIApplication) {
+        let bar = app.descendants(matching: .any).matching(identifier: "one-native-navigation").firstMatch
+        for title in ["Chat", "One"] {
+            let authored = app.buttons["one-native-tab-\(title.lowercased())"].firstMatch
+            let scoped = bar.buttons[title].firstMatch
+            for (kind, target) in [("identifier", authored), ("native_label", scoped)] {
+                let present = target.exists
+                print("NATIVE_TAB_ADMISSION target=\(title.lowercased()) kind=\(kind) present=\(present) hittable=\(present && target.isHittable) enabled=\(present && target.isEnabled)")
+            }
+        }
+        let navigation = app.buttons["native-navigation-presentation"].firstMatch
+        if navigation.exists, let raw = navigation.value as? String, let data = raw.data(using: .utf8),
+           let packet = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            for key in ["visible", "interactive", "covered", "planeVisible", "retained", "accessibilityHidden"] {
+                if let value = packet[key] as? Bool { print("NATIVE_NAVIGATION_ADMISSION key=\(key) value=\(value)") }
+            }
+        }
+        let layout = app.buttons["native-vault-layout"].firstMatch
+        if layout.exists, let raw = layout.value as? String, let data = raw.data(using: .utf8),
+           let packet = try? JSONSerialization.jsonObject(with: data) as? [String: NSNumber] {
+            for key in ["dockActive", "dockFailureStage", "dockFailureCode", "regionRefusal", "initialTopDelta", "initialBottomDelta", "initialWidthDelta", "drawerKind", "drawerSettled", "drawerLeft", "drawerRight", "baseExposureWidth", "kbOpen", "nativeGuideHeight", "baseEditorFocused"] {
+                if let value = packet[key], value.doubleValue.isFinite, abs(value.doubleValue) <= 100_000 {
+                    // Keep finite subpixel evidence: rounding hid geometry
+                    // rejected at the strict native containment boundary.
+                    let bounded = value.doubleValue
+                    print("NATIVE_PUBLIC_GEOMETRY key=\(key) value=\(bounded)")
+                }
+            }
+        }
+        let probe = app.buttons["native-dock-admission"].firstMatch
+        guard probe.exists, let code = probe.value as? String,
+              ["none", "NATIVE_DOCK_INVALID", "NATIVE_DOCK_DOCUMENT_RETIRED", "NATIVE_DOCK_STALE", "NATIVE_DOCK_HOST_MISSING"].contains(code) else { return }
+        print("NATIVE_DOCK_REFUSAL code=\(code)")
     }
 
     func testLocalSessionNativeNavigationDrawerContinuity() throws {
@@ -5535,12 +5616,35 @@ final class AppUITests: XCTestCase {
         // Prefer the authored item identifier already used for admission;
         // finding an item must not then tap a different DOM/label match.
         let authoredTab = app.buttons["one-native-tab-\(label.lowercased())"].firstMatch
+        let nativeTab = app.descendants(matching: .any)
+            .matching(identifier: "one-native-navigation").firstMatch.buttons[label]
+        func admittedNativeTarget() -> XCUIElement? {
+            if authoredTab.exists && authoredTab.isHittable && authoredTab.isEnabled { return authoredTab }
+            // UIKit can omit a UITabBarItem identifier while exposing its
+            // title. The owned native bar bounds this fallback, never the DOM.
+            if nativeTab.exists && nativeTab.isHittable && nativeTab.isEnabled { return nativeTab }
+            return nil
+        }
+        // Keyboard and drawer dismissal complete independently. A hidden
+        // keyboard is not proof that the navigation owner has re-admitted taps.
+        // Never route through an inactive DOM duplicate during that handoff.
+        let admission = app.buttons["native-navigation-presentation"].firstMatch
+        if admission.exists {
+            let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                admittedNativeTarget() != nil
+            }, object: authoredTab)
+            guard XCTWaiter.wait(for: [ready], timeout: 10) == .completed,
+                  let target = admittedNativeTarget() else {
+                reportNativeDockAdmission(app)
+                XCTFail("NATIVE_NAVIGATION_TAP_NOT_ADMITTED"); return
+            }
+            target.tap()
+            return
+        }
         if authoredTab.exists && authoredTab.isHittable {
             authoredTab.tap()
             return
         }
-        let nativeTab = app.descendants(matching: .any)
-            .matching(identifier: "one-native-navigation").firstMatch.buttons[label]
         if nativeTab.exists && nativeTab.isHittable {
             nativeTab.tap()
             return

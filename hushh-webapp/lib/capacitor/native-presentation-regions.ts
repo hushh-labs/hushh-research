@@ -16,6 +16,8 @@ export type NativePresentationRegions = {
   privacyGeneration?: number;
   drawer?: "profile" | "history";
   initialDrawerPose?: NativePanelPose;
+  /** Receipt only: false retains newer acknowledged same-owner geometry. */
+  initialDrawerPoseApplied?: boolean;
 };
 
 let revision = 0;
@@ -145,6 +147,14 @@ export async function syncNativePresentationRegions(): Promise<boolean> {
   const request = { key, promise };
   pending = request;
   try { return await promise; }
+  catch (error) {
+    // Native rejects out-of-order layout work. Its failure belongs to that
+    // superseded projection, not to the current dock/control awaiting it.
+    // A current failure still reaches its owner and retires fail-closed.
+    if (projection.revision !== revision || projection.documentId !== nativeDocumentId() ||
+        capability.atomicDrawerCoverage && measured.drawer && drawerSources.get(measured.drawer) !== currentSource) return false;
+    throw error;
+  }
   finally { if (pending === request) pending = undefined; }
 }
 

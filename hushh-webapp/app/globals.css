@@ -6880,7 +6880,7 @@ html.native-reserved-chrome:not(.native-full-window-overlays):not([data-session-
 
 /* New wrappers acknowledge retained native coverage before admitting the
  * full-height React modal. Older wrappers keep the reserved-region contract. */
-html.native-full-window-overlays:not([data-session-check-active]) :is(
+html.native-reserved-chrome.native-full-window-overlays:not([data-session-check-active]) :is(
   [data-testid="profile-pane"], [data-profile-preview], [data-agent-history-drawer]
 ) {
   top: 0;

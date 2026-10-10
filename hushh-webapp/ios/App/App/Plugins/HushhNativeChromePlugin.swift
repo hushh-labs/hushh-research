@@ -579,6 +579,10 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             if let privacyGeneration { receipt["privacyGeneration"] = privacyGeneration }
             if let drawer { receipt["drawer"] = drawer }
             if let initialPose {
+                // Request binding is echoed below; distinguish actually applied
+                // initial geometry from a newer same-owner pose retained by the
+                // ordered region commit.
+                receipt["initialDrawerPoseApplied"] = compositor.groupPose(drawer!) == initialPose
                 receipt["initialDrawerPose"] = ["documentId": initialPose.document, "ownerEpoch": initialPose.ownerEpoch,
                     "group": drawer!, "generation": initialPose.generation, "sequence": initialPose.sequence,
                     "privacyGeneration": initialPose.privacyGeneration,
@@ -1097,7 +1101,8 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                 offset: offset, opacity: opacity, settled: settled)
             let currentPrivacy = HushhSessionPrivacyShield.shared.snapshot().generation
             let regionRevision = call.getInt("presentationRegionRevision")
-            if compositor.drawerClipping && !compositor.acceptsPresentationRevision(regionRevision, privacyGeneration: privacy) {
+            if compositor.drawerClipping && (!compositor.acceptsPresentationRevision(regionRevision, privacyGeneration: privacy) ||
+                regionRevision.map { compositor.drawerCoverageIsSuperseded(pose, group: group, privacy: currentPrivacy, revision: $0) } == true) {
                 call.resolve(["documentId": document, "ownerEpoch": owner, "group": group,
                     "generation": generation, "sequence": sequence, "privacyGeneration": privacy,
                     "presentationRegionRevision": regionRevision ?? -1, "presentationApplied": false])
