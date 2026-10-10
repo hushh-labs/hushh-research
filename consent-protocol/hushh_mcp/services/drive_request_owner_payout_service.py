@@ -432,13 +432,34 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             or payout["erased_at"] is not None
         ):
             return "held"
+        # Full refunds deliberately preserve the charge's reconciliation fence.
+        # Exact refund evidence may close a zero earning, but never authorize a
+        # positive transfer or clear that fence. Refund and delivery workers can
+        # finish in either order.
+        full_refund_confirmed = bool(
+            refund is not None
+            and refund["status"] == "succeeded"
+            and refund["stripe_refund_id"]
+            and refund["amount_cents"] == payout["gross_amount_cents"]
+            and order["status"] == obligation["status"] == "refunded"
+            and order["stripe_mode"] == obligation["stripe_mode"] == payout["stripe_mode"]
+            and order["stripe_payment_intent_id"]
+            and order["stripe_payment_intent_id"] == obligation["stripe_payment_intent_id"]
+            and (
+                payout["stripe_payment_intent_id"] is None
+                or payout["stripe_payment_intent_id"] == order["stripe_payment_intent_id"]
+            )
+            and order["amount_cents"] == obligation["amount_cents"] == payout["gross_amount_cents"]
+        )
         if payout["status"] == "awaiting_delivery":
             if request["status"] not in _TERMINAL_REQUESTS or order["status"] not in {
                 "paid",
                 "refunded",
             }:
                 return "held"
-            if order["reconciliation_required"] or obligation["reconciliation_required"]:
+            if (
+                order["reconciliation_required"] or obligation["reconciliation_required"]
+            ) and not full_refund_confirmed:
                 return "held"
             unresolved_batch = connection.execute(
                 text("""SELECT EXISTS(SELECT 1 FROM drive_bulk_shares b
@@ -479,10 +500,13 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                 },
             )
             return "awaiting_refund" if amounts["refund_amount_cents"] else "awaiting_fee"
-        if (
-            request["status"] not in _TERMINAL_REQUESTS
-            or order["reconciliation_required"]
-            or obligation["reconciliation_required"]
+        if request["status"] not in _TERMINAL_REQUESTS or (
+            (order["reconciliation_required"] or obligation["reconciliation_required"])
+            and not (
+                full_refund_confirmed
+                and payout["retained_amount_cents"] == 0
+                and payout["refund_amount_cents"] == payout["gross_amount_cents"]
+            )
         ):
             return "held"
         if (

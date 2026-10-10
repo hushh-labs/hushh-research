@@ -475,6 +475,87 @@ def test_erased_fee_resolution_uses_verified_opaque_source_and_actual_fee():
     assert (params["status"], params["earning"], params["allocated"]) == ("due", 588, 59)
 
 
+@pytest.mark.parametrize(
+    ("changed_row", "changes", "expected"),
+    [
+        pytest.param(None, {}, "void", id="verified-full-refund"),
+        pytest.param("refund", None, "held", id="missing-refund"),
+        pytest.param("refund", {"status": "pending"}, "held", id="pending-refund"),
+        pytest.param("refund", {"status": "failed"}, "held", id="failed-refund"),
+        pytest.param("refund", {"stripe_refund_id": None}, "held", id="missing-provider-id"),
+        pytest.param("refund", {"stripe_refund_id": ""}, "held", id="empty-provider-id"),
+        pytest.param("refund", {"amount_cents": 999}, "held", id="wrong-refund-amount"),
+        pytest.param("refund", {"amount_cents": None}, "held", id="unknown-refund-amount"),
+        pytest.param("order", {"status": "paid"}, "held", id="order-still-paid"),
+        pytest.param("obligation", {"status": "paid"}, "held", id="obligation-still-paid"),
+        pytest.param("order", {"stripe_payment_intent_id": ""}, "held", id="missing-intent"),
+        pytest.param(
+            "obligation", {"stripe_payment_intent_id": "pi_other"}, "held", id="wrong-intent"
+        ),
+        pytest.param(
+            "payout", {"stripe_payment_intent_id": "pi_other"}, "held", id="wrong-payout-intent"
+        ),
+        pytest.param("order", {"stripe_mode": "live"}, "held", id="wrong-order-mode"),
+        pytest.param("obligation", {"stripe_mode": "live"}, "held", id="wrong-obligation-mode"),
+        pytest.param("payout", {"stripe_mode": "live"}, "held", id="wrong-payout-mode"),
+        pytest.param("order", {"amount_cents": 999}, "held", id="wrong-order-gross"),
+        pytest.param("obligation", {"amount_cents": 999}, "held", id="wrong-obligation-gross"),
+        pytest.param("payout", {"gross_amount_cents": 999}, "held", id="wrong-payout-gross"),
+        pytest.param(
+            "payout",
+            {"retained_amount_cents": 100, "refund_amount_cents": 900},
+            "held",
+            id="positive-retained-proceeds",
+        ),
+        pytest.param("request", {"status": "pending"}, "held", id="nonterminal-request"),
+    ],
+)
+def test_full_refund_closes_only_verified_zero_earning_without_clearing_fences(
+    changed_row, changes, expected
+):
+    source = {
+        "status": "refunded",
+        "reconciliation_required": True,
+        "stripe_payment_intent_id": "pi_123",
+        "stripe_mode": "test",
+        "amount_cents": 1000,
+    }
+    rows = {
+        "request": {"status": "no_match"},
+        "order": dict(source),
+        "obligation": dict(source),
+        "refund": {"status": "succeeded", "amount_cents": 1000, "stripe_refund_id": "re_123"},
+        "payout": {
+            "status": "awaiting_refund",
+            "erased_at": None,
+            "gross_amount_cents": 1000,
+            "retained_amount_cents": 0,
+            "refund_amount_cents": 1000,
+            "stripe_payment_intent_id": None,
+            "stripe_mode": "test",
+        },
+    }
+    if changed_row is not None:
+        rows[changed_row] = None if changes is None else {**rows[changed_row], **changes}
+    service = DriveRequestOwnerPayoutService(db=Mock(), stripe_api=Mock())
+    service._row = Mock(
+        side_effect=[rows[key] for key in ("request", "order", "obligation", "refund", "payout")]
+    )
+    connection = Mock()
+
+    assert service._advance_delivery(connection, REQUEST) == expected
+    assert rows["order"]["reconciliation_required"] is True
+    assert rows["obligation"]["reconciliation_required"] is True
+    if expected == "held":
+        connection.execute.assert_called_once()  # Only the share lock; no state change.
+    else:
+        assert connection.execute.call_count == 2
+        statement, parameters = connection.execute.call_args.args
+        assert "UPDATE drive_request_owner_payouts" in str(statement)
+        assert "reconciliation_required" not in str(statement)
+        assert parameters == {"request": REQUEST, "status": "void"}
+
+
 def test_erased_delivery_waits_for_exact_refund_then_advances_to_fee():
     payout, obligation = _erased_earning(status="awaiting_refund")
     service = DriveRequestOwnerPayoutService(db=Mock(), stripe_api=Mock())
