@@ -5,13 +5,23 @@ from types import SimpleNamespace
 import pytest
 
 from hushh_mcp.services.direct_messages_service import (
+    MAX_DIRECT_ATTACHMENT_BASE64_LENGTH,
     DirectMessageCipher,
     DirectMessagesError,
     DirectMessagesService,
+    _opened_message_content,
+    _stored_message_content,
+    normalize_direct_attachment,
 )
 
 _CONVERSATION_ID = "11111111-1111-4111-8111-111111111111"
 _MESSAGE_ID = "22222222-2222-4222-8222-222222222222"
+
+
+def test_text_matching_attachment_marker_round_trips_as_plain_message():
+    for text in ("\x1eattachment-v1:not-json", "\x1eescaped-text-v1:hello"):
+        stored = _stored_message_content(text, None)
+        assert _opened_message_content(stored) == (text, None)
 
 
 class _Cipher:
@@ -106,6 +116,86 @@ def test_cipher_fails_closed_when_storage_key_is_missing(monkeypatch):
             sender_user_id="alice",
         )
     assert caught.value.code == "DIRECT_MESSAGE_STORAGE_UNAVAILABLE"
+
+
+def test_attachment_validation_rejects_mismatched_type_and_oversize_before_storage():
+    pdf = b"%PDF-1.4\n1 0 obj\n"
+    payload = {
+        "name": "notes.pdf",
+        "mimeType": "application/pdf",
+        "data": base64.urlsafe_b64encode(pdf).decode("ascii").rstrip("="),
+    }
+    assert normalize_direct_attachment(payload) == {
+        "name": "notes.pdf",
+        "mimeType": "application/pdf",
+        "kind": "document",
+        "size": len(pdf),
+        "bytes": pdf,
+    }
+
+    with pytest.raises(DirectMessagesError) as mismatched:
+        normalize_direct_attachment({**payload, "mimeType": "image/png"})
+    assert mismatched.value.code == "DIRECT_MESSAGE_ATTACHMENT_INVALID"
+
+    with pytest.raises(DirectMessagesError) as oversized:
+        normalize_direct_attachment(
+            {**payload, "data": "A" * (MAX_DIRECT_ATTACHMENT_BASE64_LENGTH + 1)}
+        )
+    assert oversized.value.code == "DIRECT_MESSAGE_ATTACHMENT_TOO_LARGE"
+
+
+def test_attachment_cipher_binds_bytes_to_sender_and_message(monkeypatch):
+    monkeypatch.setenv(
+        "DIRECT_MESSAGE_ENCRYPTION_KEY_V1",
+        base64.urlsafe_b64encode(b"m" * 32).decode("ascii"),
+    )
+    cipher = DirectMessageCipher()
+    document = b"%PDF-1.4\nprivate document"
+    sealed = cipher.seal_attachment(
+        document,
+        conversation_id=_CONVERSATION_ID,
+        message_id=_MESSAGE_ID,
+        sender_user_id="alice",
+    )
+    assert document not in sealed["ciphertext"]
+    assert (
+        cipher.open_attachment(
+            {
+                **sealed,
+                "conversation_id": _CONVERSATION_ID,
+                "message_id": _MESSAGE_ID,
+                "sender_user_id": "alice",
+            }
+        )
+        == document
+    )
+    with pytest.raises(DirectMessagesError) as moved:
+        cipher.open_attachment(
+            {
+                **sealed,
+                "conversation_id": _CONVERSATION_ID,
+                "message_id": _MESSAGE_ID,
+                "sender_user_id": "bob",
+            }
+        )
+    assert moved.value.code == "DIRECT_MESSAGE_ATTACHMENT_UNAVAILABLE"
+
+
+def test_attachment_read_denies_nonparticipant_before_fetching_bytes(monkeypatch):
+    service = _service()
+    monkeypatch.setattr(service, "_message_for_participant", lambda *_args: None)
+    monkeypatch.setattr(
+        service,
+        "_execute_one",
+        lambda *_args, **_kwargs: pytest.fail(
+            "attachment bytes fetched without participant access"
+        ),
+    )
+
+    with pytest.raises(DirectMessagesError) as denied:
+        service.get_attachment("mallory", _CONVERSATION_ID, _MESSAGE_ID)
+
+    assert denied.value.status_code in {403, 404}
 
 
 def test_send_rejects_self_and_empty_messages_before_a_database_write():
@@ -411,6 +501,21 @@ def test_edit_reencrypts_and_reaction_is_persisted_for_the_authenticated_partici
         "viewer_user_id": "alice",
         "emoji": "👍",
     }
+
+
+def test_edit_preserves_encrypted_attachment_metadata(monkeypatch):
+    cipher = _Cipher()
+    attachment = {"name": "photo.png", "mimeType": "image/png", "kind": "photo", "size": 42}
+    monkeypatch.setattr(
+        cipher, "open", lambda _row: _stored_message_content("old caption", attachment)
+    )
+    service = _service(cipher)
+    monkeypatch.setattr(service, "_message_action_row", lambda *_args: _action_message())
+    monkeypatch.setattr(service, "_execute_one", lambda *_args, **_kwargs: {"id": _MESSAGE_ID})
+
+    service.edit_message("alice", _CONVERSATION_ID, _MESSAGE_ID, content="new caption")
+
+    assert _opened_message_content(cipher.sealed[0][0]) == ("new caption", attachment)
 
 
 def test_reaction_adds_a_distinct_emoji_without_replacing_existing_reactions(monkeypatch):

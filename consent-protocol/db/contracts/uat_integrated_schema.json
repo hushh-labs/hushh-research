@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 294,
+  "expected_migration_version": 296,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -38,6 +38,7 @@
     "clear_location_presence_rating_visit",
     "preserve_active_location_rating_visit",
     "require_active_direct_message_connection",
+    "guard_direct_message_attachment_write",
     "guard_direct_message_block_write",
     "guard_direct_message_conversation_write",
     "guard_direct_message_message_write",
@@ -46,6 +47,7 @@
     "notify_direct_message_recipient",
     "project_direct_message_feed_event",
     "remove_direct_message_feed_event",
+    "record_circle_chat_membership_event",
     "circle_chat_membership_ended",
     "circle_chat_recipient_deleted",
     "circle_chat_circle_deleted",
@@ -189,6 +191,14 @@
       "circle_message_id",
       "accepted_at"
     ],
+    "circle_chat_membership_events": [
+      "id",
+      "circle_id",
+      "kind",
+      "subject_user_id",
+      "actor_user_id",
+      "created_at"
+    ],
     "circle_chat_messages": [
       "original_recipient_count",
       "id",
@@ -208,6 +218,12 @@
       "circle_id",
       "user_id",
       "muted"
+    ],
+    "circle_chat_reactions": [
+      "message_id",
+      "user_id",
+      "emoji",
+      "created_at"
     ],
     "circle_chat_recipients": [
       "message_id",
@@ -655,6 +671,14 @@
       "created_at",
       "revoked_at",
       "last_used_at"
+    ],
+    "direct_message_attachments": [
+      "message_id",
+      "ciphertext",
+      "iv",
+      "content_digest",
+      "size_bytes",
+      "created_at"
     ],
     "direct_message_blocks": [
       "id",
