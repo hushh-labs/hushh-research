@@ -4,12 +4,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   finish: vi.fn(),
   skip: vi.fn(),
+  isInitialSetup: true,
+  isReady: true,
 }));
 
 vi.mock("@/components/onboarding/setup/setup-capability-coordinator", () => ({
   SetupCapabilityLoading: ({ label }: { label: string }) => <div>{label}</div>,
   useSetupCapabilityCoordinator: () => ({
-    isReady: true,
+    isReady: mocks.isReady,
+    isInitialSetup: mocks.isInitialSetup,
     isSettling: false,
     finish: mocks.finish,
     skip: mocks.skip,
@@ -17,37 +20,52 @@ vi.mock("@/components/onboarding/setup/setup-capability-coordinator", () => ({
 }));
 
 vi.mock("@/components/calendar/calendar-agent-page", () => ({
-  CalendarAgentPage: () => <div>Calendar connection screen</div>,
+  CalendarAgentPage: ({ showOnboardingIllustration, onFinishSetup, onSkipSetup }: {
+    showOnboardingIllustration: boolean;
+    onFinishSetup: () => void;
+    onSkipSetup: () => void;
+  }) => (
+    <div>
+      Calendar connection screen
+      {showOnboardingIllustration ? <div>Onboarding illustration enabled</div> : null}
+      <button onClick={onFinishSetup}>Finish Calendar setup</button>
+      <button onClick={onSkipSetup}>Skip Calendar setup</button>
+    </div>
+  ),
 }));
 
 import { CalendarOnboardingSetupClient } from "@/app/one/setup/calendar/calendar-onboarding-setup-client";
-import { capabilityCinematicIntroSessionKey } from "@/components/onboarding/setup/capability-cinematic-intro";
 
 describe("CalendarOnboardingSetupClient", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    window.sessionStorage.clear();
+    mocks.isInitialSetup = true;
+    mocks.isReady = true;
   });
 
-  it("shows the first-visit Calendar introduction before the connection screen", () => {
+  it("opens the connection screen directly and retains setup settlement", () => {
     render(<CalendarOnboardingSetupClient />);
-
-    expect(
-      screen.getByRole("heading", { name: "Stay ahead of your schedule." }),
-    ).toBeTruthy();
-    expect(screen.getByText("See what's ahead, and make time for what matters.")).toBeTruthy();
-    expect(screen.getByText("Find time")).toBeTruthy();
-    expect(screen.getByText("Schedule with control")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Continue" })).toBeTruthy();
-    expect(screen.queryByText("Calendar connection screen")).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-
     expect(screen.getByText("Calendar connection screen")).toBeTruthy();
-    expect(
-      window.sessionStorage.getItem(
-        capabilityCinematicIntroSessionKey("calendar"),
-      ),
-    ).toBe("1");
+    expect(screen.getByText("Onboarding illustration enabled")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Stay ahead of your schedule." })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Finish Calendar setup" }));
+    fireEvent.click(screen.getByRole("button", { name: "Skip Calendar setup" }));
+    expect(mocks.finish).toHaveBeenCalledOnce();
+    expect(mocks.skip).toHaveBeenCalledOnce();
+  });
+
+  it("withholds the illustration after durable setup completion", () => {
+    mocks.isInitialSetup = false;
+    render(<CalendarOnboardingSetupClient />);
+    expect(screen.getByText("Calendar connection screen")).toBeTruthy();
+    expect(screen.queryByText("Onboarding illustration enabled")).toBeNull();
+  });
+
+  it("waits for setup readiness before opening Calendar", () => {
+    mocks.isReady = false;
+    render(<CalendarOnboardingSetupClient />);
+    expect(screen.getByText("Preparing Calendar setup…")).toBeTruthy();
+    expect(screen.queryByText("Calendar connection screen")).toBeNull();
   });
 });
