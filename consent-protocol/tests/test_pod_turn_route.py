@@ -73,19 +73,13 @@ def test_puppy_target_uses_owner_device_admission_not_global_env(
 # -- the refusals --------------------------------------------------------------
 
 
-async def test_the_route_is_absent_while_the_flag_is_off(monkeypatch):
-    monkeypatch.setattr(pod_turn, "pod_mode", lambda: True)
-    monkeypatch.setattr(pod_turn, "pod_turn_enabled", lambda: False)
-    with pytest.raises(HTTPException) as exc:
-        await pod_turn.run_pod_turn(payload=_payload(), consent_token="t")
-    assert exc.value.status_code == 404
-
-
-async def test_the_route_is_absent_on_the_hub(monkeypatch):
-    """The hub already has a turn route. A second implementation of the same
-    contract is free to drift from it, so on the hub this must not exist."""
-    monkeypatch.setattr(pod_turn, "pod_mode", lambda: False)
-    monkeypatch.setattr(pod_turn, "pod_turn_enabled", lambda: True)
+@pytest.mark.parametrize("private_mode,capability_enabled", [(True, False), (False, True)])
+async def test_the_route_is_absent_without_private_capability(
+    monkeypatch, private_mode, capability_enabled
+):
+    """Neither a disabled private capability nor the shared hub admits pod turns."""
+    monkeypatch.setattr(pod_turn, "pod_mode", lambda: private_mode)
+    monkeypatch.setattr(pod_turn, "pod_turn_enabled", lambda: capability_enabled)
     with pytest.raises(HTTPException) as exc:
         await pod_turn.run_pod_turn(payload=_payload(), consent_token="t")
     assert exc.value.status_code == 404
@@ -1113,6 +1107,7 @@ async def test_streamed_puppy_disconnect_cancels_the_turn(
     broker = PuppyBroker()
     admission = PodUpgradeAdmission(log_resolver=lambda: None)
     key = ("ha1_turn_owner", "tdv_mac_cancel")
+    request_id = f"cancel-{stop_transport}"
 
     async def send_frame(frame):
         # A real socket write yields; repeated ASGI cancellation must not
@@ -1132,7 +1127,7 @@ async def test_streamed_puppy_disconnect_cancels_the_turn(
         try:
             async for _ in broker.dispatch(
                 key,
-                {"type": "inference.request", "requestId": "cancel-1", "deviceId": key[1]},
+                {"type": "inference.request", "requestId": request_id, "deviceId": key[1]},
             ):
                 raise AssertionError("No model frames precede disconnect.")
         finally:
@@ -1142,7 +1137,7 @@ async def test_streamed_puppy_disconnect_cancels_the_turn(
     response = await pod_turn.pod_turn_stream_route(
         PodTurnRequest(message="hello", runtime_provider="puppy", puppy_device_id=key[1]),
         authorization=f"Bearer {token}",
-        x_request_id="cancel-1",
+        x_request_id=request_id,
     )
 
     async def receive():
@@ -1157,9 +1152,9 @@ async def test_streamed_puppy_disconnect_cancels_the_turn(
     try:
         if stop_transport == "explicit":
             await asyncio.wait_for(started.wait(), timeout=2)
-            body = pod_turn.PodTurnCancellation(request_id="cancel-1", puppy_device_id=key[1])
+            body = pod_turn.PodTurnCancellation(request_id=request_id, puppy_device_id=key[1])
             await _assert_cancel_subject_refusals(local_authority, body, token)
-            assert link.busy_request_id == "cancel-1"
+            assert link.busy_request_id == request_id
             stops = await asyncio.gather(
                 *(
                     pod_turn.pod_turn_cancel_route(body, authorization=f"Bearer {token}")
@@ -1173,7 +1168,7 @@ async def test_streamed_puppy_disconnect_cancels_the_turn(
             serving.cancel()
             await asyncio.gather(serving, return_exceptions=True)
     assert [frame["type"] for frame in frames] == ["inference.request", "inference.cancel"]
-    assert frames[-1]["requestId"] == "cancel-1"
+    assert frames[-1]["requestId"] == request_id
     assert link.pending == {} and link.busy_request_id is None
     assert (await admission.status(incarnation="cancel-fixture"))["activeWork"] == 0
 

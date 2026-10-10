@@ -12,6 +12,7 @@ import json
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import suppress
+from time import monotonic
 from typing import Any
 
 import anyio
@@ -25,6 +26,12 @@ _STREAM_TURN_TASKS: set[asyncio.Task[None]] = set()
 TurnKey = tuple[str, str, str, str, str, str]
 # Transport handles only: admission, consent and update permits retain their owners.
 _CANCELLABLE_TURNS: dict[TurnKey, asyncio.Task[None]] = {}
+# Settled cancellation receipts carry only the exact transport binding. They
+# survive disconnect/explicit-stop races, expire without polling and never
+# imply that an unknown, failed or still-running producer stopped.
+_CANCELLED_TURNS: dict[TurnKey, float] = {}
+CANCEL_RECEIPT_TTL_SECONDS = 60
+MAX_CANCEL_RECEIPTS = 64
 _METADATA = (
     "model",
     "modelReported",
@@ -36,6 +43,20 @@ _METADATA = (
 )
 # Display-only reasoning is bounded apart from the answer; past it, drop quietly.
 MAX_THINKING_CHARS = 65_536
+
+
+def _prune_cancel_receipts() -> None:
+    cutoff = monotonic() - CANCEL_RECEIPT_TTL_SECONDS
+    for key, settled_at in tuple(_CANCELLED_TURNS.items()):
+        if settled_at <= cutoff:
+            _CANCELLED_TURNS.pop(key, None)
+
+
+def _record_cancelled(key: TurnKey) -> None:
+    _prune_cancel_receipts()
+    if len(_CANCELLED_TURNS) >= MAX_CANCEL_RECEIPTS:
+        _CANCELLED_TURNS.pop(next(iter(_CANCELLED_TURNS)))
+    _CANCELLED_TURNS[key] = monotonic()
 
 
 def _settled(task: asyncio.Task[None]) -> None:
@@ -102,8 +123,11 @@ async def stream_turn_events(
     """
     queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue(maxsize=8)
     emitted = False
+    _prune_cancel_receipts()
     if cancellation_key is not None and (
-        cancellation_key in _CANCELLABLE_TURNS or len(_CANCELLABLE_TURNS) >= 32
+        cancellation_key in _CANCELLABLE_TURNS
+        or cancellation_key in _CANCELLED_TURNS
+        or len(_CANCELLABLE_TURNS) >= 32
     ):
         yield 'event: error\ndata: {"code":"PUPPY_BUSY","message":"Puppy is finishing other work."}\n\n'
         return
@@ -140,6 +164,8 @@ async def stream_turn_events(
                 queue.get_nowait()
             queue.put_nowait(("error", {"code": "PUPPY_CANCELLED", "message": "Request stopped."}))
         if cancellation_key is not None and _CANCELLABLE_TURNS.get(cancellation_key) is finished:
+            if finished.cancelled():
+                _record_cancelled(cancellation_key)
             _CANCELLABLE_TURNS.pop(cancellation_key, None)
 
     if cancellation_key is not None:
@@ -161,8 +187,11 @@ async def stream_turn_events(
 
 async def cancel_stream_turn(key: TurnKey) -> bool:
     """Join only the producer selected by the route's verified subject binding."""
+    _prune_cancel_receipts()
     task = _CANCELLABLE_TURNS.get(key)
-    if task is None or task.done():
-        return False
+    if task is None:
+        return key in _CANCELLED_TURNS
+    if task.done():
+        return task.cancelled()
     await _stop(task)
     return task.cancelled()

@@ -218,3 +218,39 @@ async def test_a_device_frame_may_carry_reasoning_and_answer_text_together():
     await feeder
     assert seen == ["Adding. ", "Done."]
     assert "".join(chunk.text for chunk in chunks) == "391"
+
+
+async def test_disconnect_stop_receipt_is_exact_bounded_and_expiring(monkeypatch):
+    """Disconnect may settle the producer before the app's explicit stop arrives."""
+    key = ("owner", "pod", "incarnation", "browser", "device", "request")
+    settled = asyncio.Event()
+
+    async def turn(on_token):
+        try:
+            await on_token("synthetic start")
+            await asyncio.Event().wait()
+        finally:
+            settled.set()
+
+    stream = pod_turn_stream.stream_turn_events(
+        turn, public_error=lambda _: {}, cancellation_key=key
+    )
+    await stream.__anext__()
+    await stream.aclose()
+    assert settled.is_set()
+    assert await pod_turn_stream.cancel_stream_turn(key)
+    for index in range(len(key)):
+        other = tuple("other" if position == index else value for position, value in enumerate(key))
+        assert not await pod_turn_stream.cancel_stream_turn(other)
+    replay = [
+        frame
+        async for frame in pod_turn_stream.stream_turn_events(
+            turn, public_error=lambda _: {}, cancellation_key=key
+        )
+    ]
+    assert len(replay) == 1 and "PUPPY_BUSY" in replay[0]
+    now = pod_turn_stream.monotonic()
+    monkeypatch.setattr(
+        pod_turn_stream, "monotonic", lambda: now + pod_turn_stream.CANCEL_RECEIPT_TTL_SECONDS + 1
+    )
+    assert not await pod_turn_stream.cancel_stream_turn(key)
