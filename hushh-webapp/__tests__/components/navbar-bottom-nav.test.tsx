@@ -116,13 +116,39 @@ describe("Navbar bottom utilities", () => {
     expect(
       (onNavigationRequest.mock.calls[0][0] as CustomEvent).detail,
     ).toMatchObject({
-      href: ROUTES.HOME,
+      href: ROUTES.ONE_HOME,
       source: "tap",
     });
     window.removeEventListener(
       INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
       onNavigationRequest,
     );
+  });
+
+  it.each([
+    [ROUTES.HOME, "Chat"],
+    [ROUTES.ONE_HOME, "One"],
+    [ROUTES.ONE_MESSAGES, "One"],
+  ])("selects %s under the %s primary tab", (pathname, activeLabel) => {
+    navigationMock.pathname = pathname;
+    render(<Navbar />);
+    expect(screen.getByRole("radio", { name: activeLabel })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("opens the root Chat workspace from the One dashboard", () => {
+    render(<Navbar />);
+    const onNavigationRequest = vi.fn();
+    window.addEventListener(INTERNAL_APP_NAVIGATION_REQUEST_EVENT, onNavigationRequest);
+    try {
+      fireEvent.click(screen.getByRole("radio", { name: "Chat" }));
+      expect(onNavigationRequest).toHaveBeenCalledTimes(1);
+      expect((onNavigationRequest.mock.calls[0][0] as CustomEvent).detail).toMatchObject({
+        href: ROUTES.HOME,
+        source: "tap",
+      });
+    } finally {
+      window.removeEventListener(INTERNAL_APP_NAVIGATION_REQUEST_EVENT, onNavigationRequest);
+    }
   });
 
   it("keeps Finance workspace navigation out of the bottom bar", () => {
