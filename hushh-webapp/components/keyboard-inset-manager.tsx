@@ -90,22 +90,35 @@ export function KeyboardInsetManager() {
 
     let disposed = false;
     let rafId = 0;
+    let scrollGeneration = 0;
     const cleanups: Array<() => void> = [];
 
+    const cancelScroll = () => {
+      scrollGeneration++;
+      cancelAnimationFrame(rafId);
+      rafId = 0;
+    };
     const scrollEditableIntoView = (element: HTMLElement | null) => {
+      cancelScroll();
       if (!isEditableElement(element)) return;
       // Fixed keyboard-anchored layers already track visualViewport through
       // --kb-height. Scrolling their autofocus target feeds viewport movement
       // back into that same measurement and makes the command palette jump.
       if (element.closest('[data-keyboard-anchor="bottom"]')) return;
 
-      cancelAnimationFrame(rafId);
+      const generation = scrollGeneration;
       // A native keyboard event lands after focus. Wait for the inset style and
       // the form's keyboard-reduced scroll area to commit, then reveal only the
       // focused control. `nearest` preserves the Figma composition instead of
       // re-centering the whole screen while someone types a phone number.
       rafId = requestAnimationFrame(() => {
+        if (disposed || generation !== scrollGeneration) return;
         rafId = requestAnimationFrame(() => {
+          rafId = 0;
+          if (disposed || generation !== scrollGeneration ||
+              !document.documentElement.classList.contains("kb-open") ||
+              document.activeElement !== element || !element.isConnected ||
+              element.closest('[inert], [aria-hidden="true"]')) return;
           element.scrollIntoView({ block: "nearest" });
         });
       });
@@ -119,14 +132,17 @@ export function KeyboardInsetManager() {
     // nearest scroll container. Covers normal-flow forms (OTP, onboarding,
     // profile) with no per-screen code.
     const onFocusIn = (event: FocusEvent) => {
+      cancelScroll();
       if (!document.documentElement.classList.contains("kb-open")) return;
       scrollEditableIntoView(event.target as HTMLElement | null);
     };
     document.addEventListener("focusin", onFocusIn, true);
+    document.addEventListener("focusout", cancelScroll, true);
     cleanups.push(() =>
       document.removeEventListener("focusin", onFocusIn, true),
     );
-    cleanups.push(() => cancelAnimationFrame(rafId));
+    cleanups.push(() => document.removeEventListener("focusout", cancelScroll, true));
+    cleanups.push(cancelScroll);
 
     if (isNative) {
       // Native: authoritative keyboard height from @capacitor/keyboard, less
@@ -209,6 +225,7 @@ export function KeyboardInsetManager() {
             ),
           );
           const handleKeyboardHide = () => {
+            cancelScroll();
             keyboardPx = 0;
             setKeyboardHeight(0);
           };
@@ -225,6 +242,7 @@ export function KeyboardInsetManager() {
       if (vv) {
         const onViewport = () => {
           const overlap = window.innerHeight - vv.height - vv.offsetTop;
+          if (overlap <= KB_MIN_SHRINK_PX) cancelScroll();
           setKeyboardHeight(overlap > KB_MIN_SHRINK_PX ? overlap : 0);
         };
         vv.addEventListener("resize", onViewport);

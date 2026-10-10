@@ -13,7 +13,7 @@ import { DockEventFence, type DockEvent, type DockState } from "@/lib/capacitor/
 import { NativeAgentDock } from "@/components/agent/native-agent-dock";
 import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
 import { NativePanelPoseWriter, useNativePanelPresentation, type NativePanelPose } from "@/lib/capacitor/native-panel-presentation";
-import { nativePresentationAdmission, setNativePresentationRegionIsolation, syncNativePresentationRegions, useNativeFullWindowOverlayReady, waitForNativeDrawerCoverageRelease, type NativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
+import { nativePresentationAdmission, registerNativeDrawerPose, setNativePresentationRegionIsolation, syncNativePresentationRegions, useNativeFullWindowOverlayReady, waitForNativeDrawerCoverageRelease, type NativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
 import { AgentDockProvider, useAgentDockState } from "@/components/agent/agent-dock";
 import { useNativeDockPort, useNativeDockPorts, type NativeDockPort } from "@/components/agent/native-dock-port";
 
@@ -298,6 +298,46 @@ describe("private dock asynchronous submission boundary", () => {
       expect(dockBridge.retire).not.toHaveBeenCalled();
     } finally { seat.remove(); }
   });
+  it("does not apply an obsolete dock snapshot after delayed region admission", async () => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: [], independentControls: true, reservedPresentationRegions: true });
+    dockBridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, reservedPresentationRegions: true });
+    bridge.setPresentationRegions.mockReset().mockImplementation(async projection => projection);
+    const seat = document.createElement("div"); seat.dataset.appTopBar = "true";
+    document.body.appendChild(seat);
+    let height = 80;
+    vi.spyOn(seat, "getBoundingClientRect").mockImplementation(() => ({ bottom: height } as DOMRect));
+    const view = render(fixture(false, vi.fn()));
+    try {
+      await waitFor(() => expect(dockBridge.apply).toHaveBeenCalled());
+      const baseline = dockBridge.apply.mock.calls.length;
+      bridge.setPresentationRegions.mockImplementationOnce(async projection => {
+        // Change eligibility inside the bridge request, after the dock's
+        // preceding privacy read has passed but before layout returns.
+        act(() => view.rerender(fixture(true, vi.fn())));
+        return projection;
+      });
+      height = 100;
+      act(() => window.dispatchEvent(new Event("resize")));
+      await waitFor(() => expect(bridge.setPresentationRegions.mock.calls.at(-1)![0].top).toBe(100));
+      await waitFor(() => expect(dockBridge.apply.mock.calls.length).toBeGreaterThan(baseline));
+      expect(dockBridge.apply.mock.calls.slice(baseline).every(([state]) => state.interactionEnabled === false)).toBe(true);
+      expect(dockBridge.retire).not.toHaveBeenCalled();
+      view.rerender(fixture(false, vi.fn()));
+      await waitFor(() => expect(dockBridge.apply.mock.calls.at(-1)![0].interactionEnabled).toBe(true));
+    } finally { seat.remove(); }
+  });
+  it("does not retire a newer dock lifetime when an obsolete apply fails", async () => {
+    const receipt = deferred<Record<string, unknown>>();
+    dockBridge.apply.mockReturnValueOnce(receipt.promise);
+    const view = render(fixture(false, vi.fn()));
+    await waitFor(() => expect(dockBridge.apply).toHaveBeenCalledOnce());
+    view.rerender(fixture(true, vi.fn()));
+    await act(async () => { receipt.reject(new Error("Synthetic delayed refusal")); });
+    expect(dockBridge.retire).not.toHaveBeenCalled();
+    view.rerender(fixture(false, vi.fn()));
+    await waitFor(() => expect(dockBridge.apply.mock.calls.length).toBeGreaterThan(1));
+    expect(dockBridge.retire).not.toHaveBeenCalled();
+  });
   it("retires a consumed replica when an overlay invalidates its delayed receipt, without sending or replaying", async () => {
     const onAction = vi.fn();
     const receipt = deferred<{ consumed: boolean; editRevision: number }>();
@@ -433,6 +473,30 @@ describe("native chrome presentation lease", () => {
     expect(await syncNativePresentationRegions()).toBe(true);
     await waiting;
     expect(retired).toHaveBeenCalledExactlyOnceWith("released");
+  });
+  it.each([false, true])("admits coverage and its authored initial pose together; superseded owner %s", async superseded => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: [], independentControls: true,
+      reservedPresentationRegions: true, fullWindowOverlays: true, drawerClipping: true, atomicDrawerCoverage: true });
+    await getNativeChromeCapabilities();
+    setNativePresentationRegionIsolation(false);
+    await syncNativePresentationRegions();
+    const identity = { documentId: bridge.documentId, ownerEpoch: "synthetic-drawer", group: "profile" as const, generation: 10 };
+    const remove = registerNativeDrawerPose(identity, privacyGeneration => ({ ...identity, sequence: 1, privacyGeneration,
+      frame: { x: 0, y: 0, width: 390, height: 844 }, offset: 200, opacity: 1, settled: false }));
+    const delayed = deferred<NativePresentationRegions>();
+    bridge.setPresentationRegions.mockReturnValueOnce(delayed.promise);
+    try {
+      setNativePresentationRegionIsolation(true, true, "profile");
+      await waitFor(() => expect(bridge.setPresentationRegions.mock.calls.at(-1)![0].initialDrawerPose).toBeDefined());
+      const projection = bridge.setPresentationRegions.mock.calls.at(-1)![0];
+      expect(projection.initialDrawerPose).toEqual(expect.objectContaining({ ...identity, sequence: 1, offset: 200, opacity: 1 }));
+      const waiting = syncNativePresentationRegions();
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
+      if (superseded) remove();
+      await act(async () => { delayed.resolve(projection); });
+      expect(await waiting).toBe(!superseded);
+      expect(nativePresentationAdmission().presentationRegionRevision === projection.revision).toBe(!superseded);
+    } finally { remove(); setNativePresentationRegionIsolation(false); await syncNativePresentationRegions(); }
   });
   it.each(["privacy", "timeout"])("ends normal-retirement waiting fail-closed on %s", async reason => {
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history"],
@@ -1276,6 +1340,22 @@ describe("native chrome presentation lease", () => {
     view.rerender(<><ChatHarness handle={handle} /><Blocker open={false} /></>);
     await waitFor(() => expect(bridge.activate.mock.calls.length).toBeGreaterThan(1));
     expect(view.getByText("Authored history")).not.toBeVisible();
+  });
+
+  it("keeps native History installed after confirmed keyboard cancellation of focus", async () => {
+    admitChat(); measureSlot();
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history"], independentControls: true,
+      inPlaceUpdates: true, focusReturn: true });
+    const handle = createRef<NativeChatChromeHandle>();
+    const view = render(<ChatHarness handle={handle} />);
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledOnce());
+    const lifecycle = [bridge.retire.mock.calls.length, bridge.prepare.mock.calls.length, bridge.activate.mock.calls.length];
+    bridge.restoreFocus.mockImplementationOnce(async event => ({ ...event, restored: false, cancellation: "keyboard" }));
+    await act(async () => { expect(await handle.current!.restoreFocus(true)).toBe(false); });
+    expect([bridge.retire.mock.calls.length, bridge.prepare.mock.calls.length, bridge.activate.mock.calls.length]).toEqual(lifecycle);
+    expect(view.queryByRole("button", { name: "Authored history" })).toBeNull();
+    await act(async () => { expect(await handle.current!.restoreFocus(true)).toBe(true); });
+    expect([bridge.retire.mock.calls.length, bridge.prepare.mock.calls.length, bridge.activate.mock.calls.length]).toEqual(lifecycle);
   });
 
   it("returns native History focus without latching DOM fallback and rejects stale owner focus", async () => {

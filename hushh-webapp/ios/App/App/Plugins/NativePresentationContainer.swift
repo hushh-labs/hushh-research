@@ -69,13 +69,27 @@ final class NativePresentationContainer: UIView {
     private(set) var fullWindowCovered = false
     private var privacyConcealed = false
 
-    func setRegions(document: String, revision: Int, viewport: CGSize, top: CGFloat, bottom: CGFloat, isolated: Bool, covered: Bool = false, privacyGeneration: Int? = nil, drawer: String? = nil) -> Bool {
+    func setRegions(document: String, revision: Int, viewport: CGSize, top: CGFloat, bottom: CGFloat, isolated: Bool, covered: Bool = false, privacyGeneration: Int? = nil, drawer: String? = nil, initialPose: NativePanelPose? = nil) -> Bool {
         guard contentBackedPresentation, viewport == bounds.size,
               revision >= 0, regionDocument != document || revision > regionRevision,
               top.isFinite, bottom.isFinite, top >= 0, bottom >= 0,
               top + bottom < viewport.height, !covered || isolated && privacyGeneration != nil,
               regionDocument != document || regionPrivacyGeneration == nil || privacyGeneration != nil,
               drawer == nil || drawerClipping && covered && ["profile", "history"].contains(drawer!) else { return false }
+        // Stage both fences before changing the visible plane. Invalid initial
+        // geometry must not partially commit coverage or a newer revision.
+        var stagedFence: NativePanelPoseFence?
+        if let initialPose {
+            guard let drawer, let privacyGeneration, covered, isolated, !privacyConcealed,
+                  initialPose.document == document,
+                  privacyGeneration == HushhSessionPrivacyShield.shared.snapshot().generation,
+                  bounds.contains(initialPose.frame),
+                  abs(initialPose.frame.minY) <= 1, abs(initialPose.frame.maxY - bounds.height) <= 1,
+                  initialPose.opacity == 0 || initialPose.opacity == 1 else { return false }
+            var fence = fences[drawer] ?? NativePanelPoseFence()
+            guard fence.apply(initialPose, privacy: privacyGeneration) else { return false }
+            stagedFence = fence
+        }
         // Compatible layout/admission updates do not change the last displayed
         // rectangle. Retain those pixels while rejecting choices/poses bound to
         // the old revision; unrelated ownership or privacy never inherits them.
@@ -89,6 +103,10 @@ final class NativePresentationContainer: UIView {
         regionDrawer = drawer
         overlayTop = top; overlayBottom = bottom; overlayIsolated = isolated
         fullWindowCovered = covered
+        if let drawer, let stagedFence {
+            fences[drawer] = stagedFence
+            coverageRevision = revision
+        }
         reconcileBaseVisibility()
         if isolated {
             for id in Array(controls.keys) { setAdmission(id, admitted: false) }

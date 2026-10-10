@@ -3,6 +3,7 @@
 import { useLayoutEffect, useState, useSyncExternalStore, type RefObject } from "react";
 import { getNativeChromeCapabilities, peekNativeChromeCapabilities, nativeChrome } from "./native-chrome";
 import { getNativeSessionPrivacyState, nativeDocumentId, subscribeNativeSessionPrivacy, type NativeSessionPrivacyState } from "./session-privacy";
+import type { NativePanelIdentity, NativePanelPose } from "./native-panel-presentation";
 
 export type NativePresentationRegions = {
   documentId: string;
@@ -14,10 +15,12 @@ export type NativePresentationRegions = {
   covered?: boolean;
   privacyGeneration?: number;
   drawer?: "profile" | "history";
+  initialDrawerPose?: NativePanelPose;
 };
 
 let revision = 0;
 let accepted: NativePresentationRegions | undefined;
+let acceptedKey: string | undefined;
 let pending: { key: string; promise: Promise<boolean> } | undefined;
 let isolated = false;
 let covered = false;
@@ -25,6 +28,18 @@ let drawer: NativePresentationRegions["drawer"];
 const isolatedSeats = new Map<HTMLElement, boolean>();
 const listeners = new Set<() => void>();
 let dockFrame: { documentId: string; revision: number; y: number } | undefined;
+const drawerSources = new Map<NativePanelIdentity["group"], {
+  identity: NativePanelIdentity; sample: (privacyGeneration: number) => NativePanelPose | undefined;
+}>();
+
+/** Authored presentation only. Dormant registration changes no admission. */
+export function registerNativeDrawerPose(identity: NativePanelIdentity,
+  sample: (privacyGeneration: number) => NativePanelPose | undefined) {
+  const source = { identity, sample };
+  drawerSources.set(identity.group, source);
+  if (covered && drawer === identity.group) void syncNativePresentationRegions().catch(() => undefined);
+  return () => { if (drawerSources.get(identity.group) === source) drawerSources.delete(identity.group); };
+}
 
 export function setNativeDockPresentationFrame(documentId: string, revision: number, y: number | null) {
   if (documentId !== nativeDocumentId() || (dockFrame && dockFrame.revision > revision)) return;
@@ -77,13 +92,13 @@ export async function syncNativePresentationRegions(): Promise<boolean> {
   const privacy = capability.fullWindowOverlays ? await getNativeSessionPrivacyState() : undefined;
   const measured = { ...measureRegions(), ...(privacy ? { covered, privacyGeneration: privacy.generation } : {}),
     ...(capability.drawerClipping && covered && drawer ? { drawer } : {}) };
-  const key = JSON.stringify(measured);
-  if (!pending && accepted && JSON.stringify({ documentId: accepted.documentId, viewport: accepted.viewport,
-    top: accepted.top, bottom: accepted.bottom, isolated: accepted.isolated,
-    ...(accepted.covered !== undefined ? { covered: accepted.covered, privacyGeneration: accepted.privacyGeneration } : {}),
-    ...(accepted.drawer ? { drawer: accepted.drawer } : {}) }) === key) { isolateSeats(); return true; }
+  const source = capability.atomicDrawerCoverage && measured.drawer ? drawerSources.get(measured.drawer) : undefined;
+  const currentSource = source?.identity.documentId === measured.documentId ? source : undefined;
+  const key = JSON.stringify([measured, currentSource?.identity]);
+  if (!pending && accepted && acceptedKey === key) { isolateSeats(); return true; }
   if (pending?.key === key) return pending.promise;
-  const projection = { ...measured, revision: ++revision };
+  const initialDrawerPose = privacy && currentSource?.sample(privacy.generation);
+  const projection = { ...measured, revision: ++revision, ...(initialDrawerPose ? { initialDrawerPose } : {}) };
   const promise = (async () => {
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const receipt = await Promise.race([nativeChrome.setPresentationRegions(projection),
@@ -93,6 +108,9 @@ export async function syncNativePresentationRegions(): Promise<boolean> {
         receipt.top !== projection.top || receipt.bottom !== projection.bottom || receipt.isolated !== projection.isolated ||
         receipt.covered !== projection.covered || receipt.privacyGeneration !== projection.privacyGeneration ||
         receipt.drawer !== projection.drawer ||
+        (projection.initialDrawerPose && (!receipt.initialDrawerPose ||
+          ["documentId", "ownerEpoch", "group", "generation", "sequence", "privacyGeneration"].some(field =>
+            receipt.initialDrawerPose![field as keyof NativePanelPose] !== projection.initialDrawerPose![field as keyof NativePanelPose]))) ||
         receipt.viewport.width !== projection.viewport.width || receipt.viewport.height !== projection.viewport.height) {
       throw new Error("NATIVE_REGIONS_ACK_UNCONFIRMED");
     }
@@ -103,7 +121,9 @@ export async function syncNativePresentationRegions(): Promise<boolean> {
     // Privacy readback is asynchronous; a newer cover request can arrive while
     // it is in flight even when the earlier revision check already passed.
     if (projection.revision !== revision || projection.documentId !== nativeDocumentId()) return false;
+    if (capability.atomicDrawerCoverage && measured.drawer && drawerSources.get(measured.drawer) !== currentSource) return false;
     accepted = projection;
+    acceptedKey = key;
     const root = document.documentElement;
     const top = projection.covered ? 0 : projection.top;
     const bottom = projection.covered ? 0 : projection.bottom;

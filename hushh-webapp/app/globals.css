@@ -5571,7 +5571,10 @@ html.kb-open [data-agent-dock-chat] [data-bottom-shell-navigation-slot] {
 html.kb-open [data-agent-dock-chat] [data-bottom-shell-motion-stack] {
   transform: none !important;
 }
-html:not(.kb-resizes) [data-agent-dock-chat] [data-bottom-shell-agent-slot] {
+/* NativeDockPlacement follows UIKit's keyboard guide. Its DOM reservation
+ * stays at the authored resting position; translating it would feed a second
+ * keyboard offset back into the next native projection. */
+html:not(.kb-resizes) [data-agent-dock-chat]:not([data-native-agent-dock]) [data-bottom-shell-agent-slot] {
   translate: 0 calc(max(0px, var(--kb-height, 0px) - var(--app-bottom-shell-height, 0px) + 0.5rem) * -1);
   transition: translate var(--kb-motion-duration) var(--kb-motion-curve);
 }

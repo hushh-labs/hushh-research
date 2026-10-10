@@ -136,14 +136,34 @@ final class NativeSupportTests: XCTestCase {
         regions(6, drawer: nil) // Apply release before clearing the captured pose.
         XCTAssertTrue(container.retire(group: "profile", document: "synthetic", ownerEpoch: "exit-epoch", generation: 3))
         XCTAssertEqual(container.baseVisibleFrame, container.bounds, "Normal release-then-retire must never blank exposed glass")
-        regions(7, drawer: "profile")
-        let reopened = NativePanelPose(document: "synthetic", ownerEpoch: "reopened-epoch", generation: 4,
+        let entering = NativePanelPose(document: "synthetic", ownerEpoch: "atomic-entry", generation: 4,
+            sequence: 1, privacyGeneration: privacy, frame: container.bounds, offset: 200, opacity: 1, settled: false)
+        XCTAssertTrue(container.setRegions(document: "synthetic", revision: 7,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: true,
+            covered: true, privacyGeneration: privacy, drawer: "profile", initialPose: entering))
+        XCTAssertEqual(container.baseVisibleFrame.width, 200,
+            "Atomic first coverage must expose the retained plane without a zero-frame intermediate state")
+        XCTAssertFalse(control.isUserInteractionEnabled)
+        let stale = NativePanelPose(document: "synthetic", ownerEpoch: "stale-entry", generation: 4,
+            sequence: 2, privacyGeneration: privacy, frame: container.bounds, offset: 300, opacity: 1, settled: false)
+        XCTAssertFalse(container.setRegions(document: "synthetic", revision: 8,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: true,
+            covered: true, privacyGeneration: privacy, drawer: "profile", initialPose: stale))
+        XCTAssertEqual(container.baseVisibleFrame.width, 200, "Rejected admission cannot partially commit a newer region")
+        XCTAssertFalse(container.setRegions(document: "synthetic", revision: 8,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: true,
+            covered: true, privacyGeneration: privacy + 1, drawer: "profile", initialPose: entering))
+        XCTAssertTrue(container.setRegions(document: "synthetic", revision: 8,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: false,
+            privacyGeneration: privacy))
+        regions(9, drawer: "profile")
+        let reopened = NativePanelPose(document: "synthetic", ownerEpoch: "reopened-epoch", generation: 5,
             sequence: 1, privacyGeneration: privacy, frame: container.bounds, offset: 80, opacity: 1, settled: false)
-        XCTAssertTrue(container.applyDrawerCoverage(reopened, group: "profile", privacy: privacy, revision: 7))
+        XCTAssertTrue(container.applyDrawerCoverage(reopened, group: "profile", privacy: privacy, revision: 9))
         XCTAssertFalse(container.retire(group: "profile", document: "synthetic", ownerEpoch: "exit-epoch", generation: 3))
         XCTAssertEqual(container.baseVisibleFrame.width, 80, "Late cleanup cannot clear a reopened presentation")
         container.conceal()
-        regions(8, drawer: nil)
+        regions(10, drawer: nil)
         XCTAssertEqual(container.baseVisibleFrame, .zero)
         XCTAssertTrue(container.underlay.isHidden, "Region release must never clear privacy")
         XCTAssertTrue(web.superview === container)
@@ -267,7 +287,7 @@ final class NativeSupportTests: XCTestCase {
     func testDockRetainsEditorAndSelectionAcrossVoiceAndThemeUpdates() throws {
         guard #available(iOS 26.0, *) else { throw XCTSkip("Native dock requires iOS 26") }
         let model = NativeDockModel()
-        model.mode = "text"; model.visible = true; model.editable = true
+        model.mode = "text"; model.visible = true; model.interactionEnabled = true; model.editable = true
         model.micEnabled = true; model.sendEnabled = true
         model.placeholder = "Message One"
         let host = UIHostingController(rootView: NativeAgentDockView(model: model))
@@ -378,6 +398,19 @@ final class NativeSupportTests: XCTestCase {
         var sends = 0
         editor.submit = { sends += 1 }
         XCTAssertTrue(editor.becomeFirstResponder())
+        model.interactionEnabled = false
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        host.view.layoutIfNeeded()
+        XCTAssertTrue(editor.isFirstResponder, "Temporary admission revocation must not dismiss the system keyboard")
+        XCTAssertTrue(model.editor === editor)
+        XCTAssertFalse(editor.delegate?.textView?(editor, shouldChangeTextIn: NSRange(location: 0, length: 0), replacementText: "x") == true)
+        var blockedEvents = 0
+        model.emit = { _, _, _, _, _ in blockedEvents += 1 }
+        XCTAssertFalse(editor.delegate?.textView?(editor, shouldChangeTextIn: NSRange(location: 0, length: 0), replacementText: String(repeating: "x", count: 1200)) == true)
+        model.action("send")
+        XCTAssertEqual(blockedEvents, 0)
+        model.interactionEnabled = true
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
         let selected = editor.selectedRange
         let escape = try XCTUnwrap(editor.keyCommands?.first { $0.input == UIKeyCommand.inputEscape })
         XCTAssertTrue(escape.wantsPriorityOverSystemBehavior, "Escape must reach the idle editor before UIKit focus consumes it")
@@ -501,6 +534,9 @@ final class NativeSupportTests: XCTestCase {
         let ready = expectation(description: "Native lifecycle observers registered")
         DispatchQueue.main.async { ready.fulfill() }
         wait(for: [ready], timeout: 1)
+        #if DEBUG
+        let invalidations = plugin.presentationInvalidations
+        #endif
         let notifications = NotificationCenter.default
         notifications.post(name: UIResponder.keyboardWillShowNotification, object: nil)
         XCTAssertTrue(plugin.keyboardVisible)
@@ -517,6 +553,32 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(plugin.keyboardVisible)
         notifications.post(name: UIResponder.keyboardWillHideNotification, object: nil)
         notifications.post(name: UIResponder.keyboardDidHideNotification, object: nil)
+        XCTAssertFalse(plugin.keyboardVisible)
+        #if DEBUG
+        XCTAssertEqual(plugin.presentationInvalidations, invalidations,
+            "A keyboard cycle must not retire presentation or notify React to replace its native controls")
+        notifications.post(name: UIApplication.willResignActiveNotification, object: nil)
+        XCTAssertGreaterThan(plugin.presentationInvalidations, invalidations,
+            "Privacy still retires the protected presentation immediately")
+        #endif
+    }
+
+    @MainActor
+    func testNativeNavigationDoesNotReadmitDuringAnInterruptedKeyboardDismissal() {
+        let plugin = HushhNativeNavigationPlugin()
+        plugin.load()
+        let ready = expectation(description: "Navigation lifecycle registered")
+        DispatchQueue.main.async { ready.fulfill() }
+        wait(for: [ready], timeout: 1)
+        let center = NotificationCenter.default
+        center.post(name: UIResponder.keyboardWillShowNotification, object: nil)
+        center.post(name: UIResponder.keyboardWillHideNotification, object: nil)
+        XCTAssertTrue(plugin.keyboardVisible)
+        center.post(name: UIResponder.keyboardWillShowNotification, object: nil)
+        center.post(name: UIResponder.keyboardDidHideNotification, object: nil)
+        XCTAssertTrue(plugin.keyboardVisible)
+        center.post(name: UIResponder.keyboardWillHideNotification, object: nil)
+        center.post(name: UIResponder.keyboardDidHideNotification, object: nil)
         XCTAssertFalse(plugin.keyboardVisible)
     }
 

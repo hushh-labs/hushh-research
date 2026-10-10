@@ -105,18 +105,19 @@ final class NativeDockModel: ObservableObject {
     @Published var supportsHold = false
     @Published var muted = false
     @Published var visible = false
+    @Published var interactionEnabled = false
     @Published var attachments = [(String, String, Bool)]()
     @Published var accent = UIColor.tintColor
     weak var editor: DockTextView?
     var emit: ((String, String?, String?, String?, NSRange?) -> Void)?
     var changedHeight: (() -> Void)?
     func action(_ name: String, attachment: String? = nil) {
-        guard visible, editor?.markedTextRange == nil else { return }
+        guard visible, interactionEnabled, editor?.markedTextRange == nil else { return }
         emit?("action", name, attachment, nil, nil)
     }
     func clear() {
         editor?.resignFirstResponder()
-        consumeText(); attachments = []; visible = false; awaitingConsumption = false; awaitingTransition = false
+        consumeText(); attachments = []; visible = false; interactionEnabled = false; awaitingConsumption = false; awaitingTransition = false
     }
     func consumeText() {
         editor?.text = ""; editor?.undoManager?.removeAllActions()
@@ -264,18 +265,21 @@ struct NativeDockEditor: UIViewRepresentable {
         private let model: NativeDockModel
         init(_ model: NativeDockModel) { self.model = model }
         func textViewDidChange(_ textView: UITextView) {
+            guard model.visible, model.interactionEnabled else { return }
             (textView as? DockTextView)?.refreshPlaceholder()
             model.text = textView.text
             model.emit?("edit", nil, nil, textView.text, textView.selectedRange)
             model.changedHeight?()
         }
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+            guard model.editable, model.visible, model.interactionEnabled,
+                  !model.awaitingConsumption, !model.awaitingTransition else { return false }
             // Large paste goes through the owning feature's existing attachment
             // policy; a memory-only input event never becomes a provider send.
             if text.utf16.count >= 1200 || text.components(separatedBy: "\n").count >= 12 {
                 model.emit?("paste", nil, nil, text, range); return false
             }
-            return model.editable && model.visible
+            return true
         }
     }
 }
@@ -332,7 +336,7 @@ struct NativeAgentDockView: View {
                             .accessibilityAction { model.action("voice-tap") }
                             .gesture(DragGesture(minimumDistance: 0)
                                 .onChanged { value in
-                                    guard model.visible else { return }
+                                    guard model.visible, model.interactionEnabled else { return }
                                     if pressStarted == nil {
                                         pressStarted = Date(); cancelled = false; pressWasActive = model.cancelEnabled
                                         if model.supportsHold && !model.cancelEnabled { model.action("capture-start") }
@@ -341,7 +345,7 @@ struct NativeAgentDockView: View {
                                 }
                                 .onEnded { _ in
                                     defer { pressStarted = nil; cancelled = false }
-                                    guard let began = pressStarted, model.visible else { return }
+                                    guard let began = pressStarted, model.visible, model.interactionEnabled else { return }
                                     if cancelled { model.action("capture-cancel") }
                                     else if pressWasActive || !model.supportsHold { model.action("voice-tap") }
                                     else if Date().timeIntervalSince(began) >= 0.25 { model.action("capture-finish") }
@@ -432,7 +436,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
                     guard let self, #available(iOS 26.0, *) else { return }
                     // Release is not admission. A fresh owner-fenced apply is
                     // required; a queued JS revocation must never flash text.
-                    self.requestedVisible = false; self.model.visible = false
+                    self.requestedVisible = false; self.model.visible = false; self.model.interactionEnabled = false
                     self.model.editor?.resignFirstResponder()
                     self.hosting?.view.isHidden = true
                     self.hosting?.view.accessibilityElementsHidden = true
@@ -546,13 +550,17 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             self.hosting?.overrideUserInterfaceStyle = theme.style
             self.requestedVisible = call.getBool("visible") ?? false
-            self.model.visible = self.requestedVisible && self.safe && (call.getBool("interactionEnabled") ?? true) && self.compositor?.overlayIsolated != true
+            self.model.visible = self.requestedVisible && self.safe
+            self.model.interactionEnabled = self.model.visible && (call.getBool("interactionEnabled") ?? true) && self.compositor?.overlayIsolated != true
+            // A real modal takes focus; a temporary admission/disabled echo
+            // does not dismiss the keyboard or replace the retained editor.
+            if self.compositor?.overlayIsolated == true { self.model.editor?.resignFirstResponder() }
             self.hosting?.view.isHidden = !self.requestedVisible || !self.safe
-            self.hosting?.view.isUserInteractionEnabled = self.model.visible
-            self.hosting?.view.accessibilityElementsHidden = !self.model.visible
+            self.hosting?.view.isUserInteractionEnabled = self.model.interactionEnabled
+            self.hosting?.view.accessibilityElementsHidden = !self.model.interactionEnabled
             if self.model.visible { self.compositor?.revealUnderlay(presentationRegionRevision: call.getInt("presentationRegionRevision"),
                 privacyGeneration: call.getInt("privacyGeneration")) }
-            self.compositor?.setAdmission("agent-dock", admitted: self.model.visible,
+            self.compositor?.setAdmission("agent-dock", admitted: self.model.interactionEnabled,
                 presentationRegionRevision: call.getInt("presentationRegionRevision"), privacyGeneration: call.getInt("privacyGeneration"))
             self.layoutDock()
             // Commit actual native layout before transferring the web input.
@@ -603,7 +611,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
         DispatchQueue.main.async { [weak self] in
             guard let self, let identity = self.identity(call), self.fence.identity == identity,
                   #available(iOS 26.0, *) else { call.reject("NATIVE_DOCK_STALE"); return }
-            self.requestedVisible = false; self.model.visible = false
+            self.requestedVisible = false; self.model.visible = false; self.model.interactionEnabled = false
             self.model.editor?.resignFirstResponder()
             // WK drawers cannot interleave with foreground UIKit controls.
             // Retain the editor/host, but conceal the foreground pilot until
@@ -642,7 +650,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
                   let kind = call.getString("kind") else { call.resolve(["valid": false]); return }
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
             let valid = self.fence.confirm(identity, sequence: sequence, applied: applied, editRevision: editRevision, kind: kind,
-                allowed: self.safe && self.requestedVisible && self.model.visible && self.compositor?.overlayIsolated != true && call.getString("context") == self.context &&
+                allowed: self.safe && self.requestedVisible && self.model.visible && self.model.interactionEnabled && self.compositor?.overlayIsolated != true && call.getString("context") == self.context &&
                     call.getInt("editorRevision") == (self.model.mode == "text" ? self.editorRevision : 0) &&
                     call.getInt("privacyGeneration") == privacy.generation)
             call.resolve(["valid": valid])
@@ -656,7 +664,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
             let consumed = self.fence.consume(identity, sequence: sequence, editRevision: edit,
-                allowed: self.safe && self.model.visible && self.model.mode == "text" && self.model.sendEnabled &&
+                allowed: self.safe && self.model.visible && self.model.interactionEnabled && self.model.mode == "text" && self.model.sendEnabled &&
                     self.model.editor?.markedTextRange == nil && call.getString("context") == self.context &&
                     call.getInt("privacyGeneration") == privacy.generation)
             if consumed {
@@ -670,7 +678,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func beginEditingTransition(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, let identity = self.identity(call), let sequence = call.getInt("sequence"),
-                  let edit = call.getInt("editRevision"), self.safe, self.model.visible,
+                  let edit = call.getInt("editRevision"), self.safe, self.model.visible, self.model.interactionEnabled,
                   self.model.mode == "text", !self.model.awaitingConsumption, !self.model.awaitingTransition,
                   self.model.editor?.markedTextRange == nil,
                   call.getString("context") == self.context, call.getInt("editorRevision") == self.editorRevision,
@@ -684,7 +692,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     private func emit(kind: String, action: String?, attachment: String?, text: String?, range: NSRange?) {
-        guard #available(iOS 26.0, *), safe, model.visible, !model.awaitingConsumption, !model.awaitingTransition, let identity = fence.identity else { return }
+        guard #available(iOS 26.0, *), safe, model.visible, model.interactionEnabled, !model.awaitingConsumption, !model.awaitingTransition, let identity = fence.identity else { return }
         if kind == "edit" { fence.edited() }
         let selection = range ?? model.editor?.selectedRange ?? NSRange(location: 0, length: 0)
         var payload = identityPayload(identity)

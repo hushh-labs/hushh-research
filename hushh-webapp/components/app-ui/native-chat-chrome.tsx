@@ -1,6 +1,7 @@
 "use client";
 
 import { NATIVE_PANEL_LAYOUT_EVENT } from "@/lib/capacitor/native-panel-presentation";
+import { NativeChromeFocusCancelled } from "@/lib/capacitor/native-chrome";
 import { appHaptic } from "@/lib/capacitor/app-haptics";
 
 import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
@@ -166,7 +167,15 @@ export function NativeChatChrome(props: Props) {
       }) && isCurrent() && active.ownsInstallation) {
         nativeFocusPending.current = null; pending.resolve(true); return;
       }
-    } catch { /* Unsupported/uncertain focus never replays an action. */ }
+    } catch (error) {
+      if (error instanceof NativeChromeFocusCancelled) {
+        if (nativeFocusPending.current === pending) {
+          nativeFocusPending.current = null; pending.resolve(false);
+        }
+        return; // A confirmed keyboard cancellation retains the native host.
+      }
+      /* Unsupported/uncertain focus never replays an action. */
+    }
     if (!isCurrent() || !active.ownsInstallation) {
       // Cleanup can rebind the same current attempt to a resized replacement.
       // Completion from its retired predecessor must not settle that request.

@@ -3,7 +3,7 @@
 import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { getNativeChromeCapabilities, nativeChrome, type ChromeFrame } from "./native-chrome";
 import { getNativeSessionPrivacyState, nativeDocumentId, subscribeNativeSessionPrivacy } from "./session-privacy";
-import { nativeDrawerPresentationAdmission, useNativePresentationRegionRevision, waitForNativeDrawerCoverageRelease } from "./native-presentation-regions";
+import { nativeDrawerPresentationAdmission, registerNativeDrawerPose, useNativePresentationRegionRevision, waitForNativeDrawerCoverageRelease } from "./native-presentation-regions";
 
 export type NativePanelIdentity = {
   documentId: string; ownerEpoch: string; group: "profile" | "history"; generation: number;
@@ -93,12 +93,14 @@ export function useNativePanelPresentation(group: "profile" | "history", owner: 
     if (!owner || !panel || !enabled) return;
     let cancelled = false, frame = 0, sequence = 0, privacyGeneration = -1;
     let writer: NativePanelPoseWriter | undefined;
+    let unregisterDrawer: (() => void) | undefined;
     let handle: Awaited<ReturnType<typeof subscribeNativeSessionPrivacy>> | undefined;
     let previous = "";
     let clipping = false;
     const identity: NativePanelIdentity = { documentId: nativeDocumentId(), ownerEpoch: crypto.randomUUID(), group, generation: ++generation };
     const entry: Entry = { identity, confirmed: false, offset: 0, frame: { x: 0, y: 0, width: 0, height: 0 } };
     const fail = () => {
+      unregisterDrawer?.(); unregisterDrawer = undefined;
       panel.setAttribute("data-native-panel-status", "unconfirmed");
       panels.delete(panel);
       window.dispatchEvent(new Event(NATIVE_PANEL_LAYOUT_EVENT));
@@ -153,6 +155,20 @@ export function useNativePanelPresentation(group: "profile" | "history", owner: 
         if (cancelled) return;
         privacyGeneration = privacy.generation;
         if (privacy.shielded || !privacy.appIsActive) return;
+        if (clipping && capability.atomicDrawerCoverage) {
+          unregisterDrawer = registerNativeDrawerPose(identity, privacy => {
+            if (cancelled || !writer || !panel.isConnected || privacy !== privacyGeneration) return;
+            const bounds = panel.getBoundingClientRect();
+            if (bounds.width <= 0 || bounds.height <= 0) return;
+            const x = group === "profile" ? window.innerWidth - bounds.width : 0;
+            // Admission's visibility gate is not the authored drawer phase.
+            // An entering panel covers its rectangle even before CSS reveal.
+            return { ...identity, sequence: ++sequence, privacyGeneration,
+              frame: { x, y: bounds.y, width: bounds.width, height: bounds.height },
+              offset: Math.max(-bounds.width, Math.min(bounds.width, bounds.x - x)),
+              opacity: panel.hidden ? 0 : 1, settled: false };
+          });
+        }
         panels.set(panel, entry);
         writer = new NativePanelPoseWriter(async pose => {
           const ack = await nativeChrome.applyPanelPose(pose);
@@ -170,7 +186,7 @@ export function useNativePanelPresentation(group: "profile" | "history", owner: 
       } catch { if (!cancelled) fail(); }
     })();
     return () => {
-      cancelled = true; cancelAnimationFrame(frame); writer?.retire(); void handle?.remove();
+      cancelled = true; unregisterDrawer?.(); cancelAnimationFrame(frame); writer?.retire(); void handle?.remove();
       if (wakeCurrent.current === wake) wakeCurrent.current = undefined;
       changes.disconnect(); resize.disconnect();
       window.removeEventListener("resize", viewportChanged);

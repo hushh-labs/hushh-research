@@ -291,12 +291,17 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
     // Conceal the fallback before preparation. It is never an active second editor.
     presentationOwner = presentation.current; ports.present(true); setActive(true);
     pending.current = pending.current.then(async () => {
-      if (identity.current !== lease || failed.current || sequence !== update.current || applyGeneration !== generation.current) return;
+      const isCurrent = () => identity.current === lease && !failed.current &&
+        sequence === update.current && applyGeneration === generation.current;
+      if (!isCurrent()) return;
       const privacy = await boundedDock(getNativeSessionPrivacyState());
-      if (privacy.shielded || !privacy.appIsActive || identity.current !== lease || failed.current ||
-          sequence !== update.current || applyGeneration !== generation.current) return;
+      if (privacy.shielded || !privacy.appIsActive || !isCurrent()) return;
       if (reservedRegions.current && !await syncNativePresentationRegions()) return;
+      // Layout admission is asynchronous too. It cannot authorize a snapshot
+      // invalidated by an overlay, owner change or newer draft while waiting.
+      if (!isCurrent()) return;
       const ack = await boundedDock(nativeDock.apply({ ...snapshot, ...nativePresentationAdmission(), privacyGeneration: privacy.generation }));
+      if (!isCurrent()) return;
       if (!sameDock(lease, ack) || ack.updateSequence !== sequence || ack.phase !== "active") throw new Error("NATIVE_DOCK_ACK_UNCONFIRMED");
       if (ack.presentationApplied === false) return;
       if (underlay.current && ack.layout && sequence === update.current && applyGeneration === generation.current) {
@@ -309,7 +314,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
       if (ack.layout && sequence === update.current && applyGeneration === generation.current &&
           fence.current?.acceptLayout(ack.layout, sequence, privacy.generation, snapshot.viewport)) ports.setLayout(ack.layout);
     }).catch(async () => {
-      if (identity.current !== lease) return;
+      if (identity.current !== lease || sequence !== update.current || applyGeneration !== generation.current) return;
       failed.current = true;
       try {
         const ack = await retireDock(lease);

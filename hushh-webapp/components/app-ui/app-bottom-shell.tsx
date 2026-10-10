@@ -11,6 +11,7 @@ import {
 import { AgentBar } from "@/components/agent/agent-bar";
 import { AgentDockVoiceBoundary } from "@/components/agent/agent-dock";
 import { NativeAgentDock } from "@/components/agent/native-agent-dock";
+import { useNativeDockPorts } from "@/components/agent/native-dock-port";
 import {
   BOTTOM_CHROME_COLUMN_CLASSNAME,
   BOTTOM_CHROME_INSET_CLASSNAME,
@@ -42,6 +43,7 @@ const BOTTOM_SCROLL_TRANSFORM =
 export const AppBottomShell = memo(function AppBottomShell({ model }: { model: BottomShellModel }) {
   const command = useOptionalLocationCommand();
   const nativeBottomInset = useNativeNavigationBottomInset();
+  const nativeDock = useNativeDockPorts();
   const voiceActive = useAgentVoiceState((state) => state.active);
   const hidden = model.hidden && !command?.active && !voiceActive;
   // The owner remains mounted above routes; Chat presents its active control
@@ -108,6 +110,7 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
         style={nativeBottomInset === null ? undefined : { paddingBottom: nativeBottomInset }}
         data-app-bottom-shell
         data-agent-dock-chat={model.agentBarHidden || undefined}
+        data-native-agent-dock={nativeDock?.owned || undefined}
         data-command-active={command?.active || undefined}
         data-ui-role="bottom-shell"
         data-bottom-shell-navigation-hidden={

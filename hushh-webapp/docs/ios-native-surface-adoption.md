@@ -13,6 +13,52 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
+### Keyboard retention and atomic first coverage — 2026-10-09
+
+Baseline: `9f8705948f36`. This bounded correction retains the existing Debug
+iPhone qualification flags; it is not release or device visual acceptance.
+
+Keyboard notifications no longer destroy NativeChrome hosts or emit destructive
+invalidation. Presentation preparation/appearance updates remain privacy-fenced;
+actions, accessibility focus and popup choices remain keyboard-fenced. Explicit
+keyboard focus cancellation retains the installation; uncertain focus still uses
+retirement recovery. Ordered admission-only echoes refresh region receipts without
+replacing an unchanged SwiftUI root. Navigation waits for current DidHide rather
+than reappearing during WillHide.
+
+NativeDock now separates visible presentation from interaction eligibility. A
+temporary disabled echo retains editor focus; actual modal, privacy and ownership
+transitions retain their explicit focus/concealment policies. Native-owned DOM
+seats no longer apply a second CSS keyboard translation. Delayed layout/apply
+receipts and failures cannot admit or retire a superseded editor update. Normal
+web forms retain keyboard avoidance, with deferred scrolling cancelled on hide,
+focus loss, detached/inert targets and teardown.
+
+`atomicDrawerCoverage` negotiates an optional authored `initialDrawerPose` on the
+existing version-2 region operation. The container stages region/pose validation,
+then commits both with one visibility reconciliation. Dormant source registration
+does not grant interaction or change drawer decisions. Missing sources retain the
+old fail-closed path; wrong owner/generation/privacy cannot partially advance the
+region. Initial admission and normal pose sampling share one ordered sequence.
+
+This removes a specific first-coverage gap, **not** the structural asynchronous
+WK/UIKit motion boundary. Native controls are still outside the internal React
+scrim. Neither bridge acknowledgements nor host counters prove pixel continuity.
+The fluidity standard is one presentation owner for surfaces moving together and
+no bridge round-trip in the finger/keyboard animation path. If measured drawer
+composition fails that standard, qualify a bounded native History presentation
+before expanding; do not wrap DOM content and call it a native layering fix.
+
+The current renderer/owner/fallback table below remains authoritative. Broad
+native adoption, iPad qualification and release performance acceptance remain
+blocked until their exact-candidate transition evidence passes.
+
+Checkpoint verification: 160 focused web cases, 51 simulator native support
+cases, typecheck/lint, plugin parity, design/geometry/accent/static-native gates
+and skill lint/smokes pass. The stale-apply-failure negative control retires the
+newer editor when its generation guard is removed; the guard was restored.
+Simulator results do not qualify physical fluidity or material rendering.
+
 ### Partial-drawer exposure prototype — 2026-10-09
 
 At `0806bb293652`, the held partial Profile drag hides the entire native base

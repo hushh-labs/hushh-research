@@ -79,7 +79,8 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
     private var admissionPrivacyGeneration: Int?
     private var tabBar: UITabBar?
     private var observers = [NSObjectProtocol]()
-    private var keyboardVisible = false
+    private(set) var keyboardVisible = false
+    private var keyboardHidePending = false
     private var contentHeight: CGFloat = 0
     private var bottomInset: CGFloat = 0
     private var tapSequence = 0
@@ -96,12 +97,21 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             guard let self else { return }
             let center = NotificationCenter.default
             for name in [UIResponder.keyboardWillShowNotification, UIResponder.keyboardWillHideNotification,
+                         UIResponder.keyboardDidHideNotification,
                          UIApplication.willResignActiveNotification, UIApplication.didBecomeActiveNotification,
                          HushhSessionPrivacyShield.presentationDidChange] {
                 self.observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                     guard let self else { return }
-                    if note.name == UIResponder.keyboardWillShowNotification { self.keyboardVisible = true }
-                    if note.name == UIResponder.keyboardWillHideNotification { self.keyboardVisible = false }
+                    if note.name == UIResponder.keyboardWillShowNotification {
+                        self.keyboardVisible = true; self.keyboardHidePending = false
+                    }
+                    if note.name == UIResponder.keyboardWillHideNotification {
+                        self.keyboardVisible = true; self.keyboardHidePending = true
+                    }
+                    if note.name == UIResponder.keyboardDidHideNotification {
+                        guard self.keyboardHidePending else { return }
+                        self.keyboardVisible = false; self.keyboardHidePending = false
+                    }
                     self.updatePresentation()
                 })
             }

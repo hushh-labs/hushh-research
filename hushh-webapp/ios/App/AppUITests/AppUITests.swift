@@ -1062,15 +1062,29 @@ final class AppUITests: XCTestCase {
                 XCTAssertTrue(dismissDockKeyboardThroughProfile(app), "NATIVE_DOCK_CLEANUP_KEYBOARD_DISMISS_FAILED")
             }
         }
+        let continuity = app.buttons["native-history-continuity"].firstMatch
+        func counters() -> [String: Int]? {
+            guard continuity.exists, let json = continuity.value as? String,
+                  let data = json.data(using: .utf8),
+                  let packet = try? JSONSerialization.jsonObject(with: data) as? [String: Int],
+                  Set(packet.keys) == Set(["installs", "removals", "replacements", "rootUpdates", "sampledFrames", "missingFrames"]) else { return nil }
+            return packet
+        }
+        let beforeKeyboard = try XCTUnwrap(counters(), "NATIVE_DOCK_KEYBOARD_CONTINUITY_PROBE_UNAVAILABLE")
         editor.tap()
         XCTAssertTrue(waitForSoftwareKeyboard(app), "NATIVE_DOCK_SOFTWARE_KEYBOARD_UNAVAILABLE")
         editor.typeText(draft)
         XCTAssertTrue((editor.value as? String) == draft, "NATIVE_DOCK_UNICODE_OR_NEWLINE_LOST")
         XCTAssertLessThanOrEqual(editor.frame.maxY, app.keyboards.firstMatch.frame.minY - 4,
             "NATIVE_DOCK_KEYBOARD_OVERLAP")
+        let duringKeyboard = try XCTUnwrap(counters(), "NATIVE_DOCK_KEYBOARD_CONTINUITY_PROBE_LOST")
+        XCTAssertEqual(duringKeyboard["installs"], beforeKeyboard["installs"], "NATIVE_DOCK_KEYBOARD_REINSTALLED_CHROME")
+        XCTAssertEqual(duringKeyboard["removals"], beforeKeyboard["removals"], "NATIVE_DOCK_KEYBOARD_RETIRED_CHROME")
+        XCTAssertEqual(duringKeyboard["missingFrames"], beforeKeyboard["missingFrames"], "NATIVE_DOCK_KEYBOARD_MISSING_CHROME")
         // Exercise the normal software-keyboard interruption. Hardware Escape
         // delivery is a separate, currently unqualified device acceptance gate.
-        // Public NativeChrome controls retire while the keyboard is visible;
+        // Public NativeChrome controls retain presentation while interaction
+        // is fenced for the keyboard;
         // the existing React Profile opener remains the authored touch path.
         XCTAssertTrue(dismissDockKeyboardThroughProfile(app), "NATIVE_DOCK_KEYBOARD_DISMISS_FAILED")
         for _ in 0..<10 {

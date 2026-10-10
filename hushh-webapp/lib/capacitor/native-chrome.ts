@@ -46,7 +46,8 @@ export type ChromeChoice = ChromeIdentity & { sequence: number; privacyGeneratio
 export type ChromeUpdate = NativeControlAppearance & { enabled: boolean; value?: string; expanded?: boolean };
 export type ChromeUpdateAcknowledgement = ChromeIdentity & { updateSequence: number; presentationApplied?: boolean };
 type ChromeGeometry = Pick<ChromeControlProjection, "frame" | "viewport" | "presentationGroup" | "presentationOwnerEpoch" | "presentationGeneration">;
-export type ChromeFocusAcknowledgement = ChromeIdentity & { updateSequence: number; focusSequence: number; restored: boolean };
+export type ChromeFocusAcknowledgement = ChromeIdentity & { updateSequence: number; focusSequence: number; restored: boolean; cancellation?: "keyboard" };
+export class NativeChromeFocusCancelled extends Error {}
 export type NativeChromeCapabilities = {
   contractVersion: number; families: readonly ChromeFamily[]; canvasAppearance?: boolean;
   independentControls?: boolean; inPlaceUpdates?: boolean; focusReturn?: boolean; rehearsalDiagnostics?: boolean;
@@ -64,6 +65,7 @@ export type NativeChromeCapabilities = {
   fullWindowOverlays?: boolean;
   /** Debug qualification: rectangular exposure of retained stationary chrome. */
   drawerClipping?: boolean;
+  atomicDrawerCoverage?: boolean;
   interactionFeedback?: boolean;
 };
 
@@ -303,6 +305,7 @@ export class NativeChromeLease {
   private requestedUpdate = 0;
   private appliedUpdate = 0;
   private activation: Promise<void> | undefined;
+  private appliedAdmission: ReturnType<typeof nativePresentationAdmission> = {};
   private focusSequence = 0;
   constructor(projection: ChromeControlProjection, ownerEpoch: string, readonly context = "", readonly inPlaceUpdates = false) {
     this.projection = { ...projection, ...nextChromeIdentity(ownerEpoch, chromeControlId(projection.kind)) };
@@ -414,10 +417,12 @@ export class NativeChromeLease {
   async activate(): Promise<void> {
     if (!this.current) return;
     this.activation ??= (async () => {
-      const ack = await bounded(nativeChrome.activate({ ...this.projection, ...nativePresentationAdmission() }));
+      const admission = nativePresentationAdmission();
+      const ack = await bounded(nativeChrome.activate({ ...this.projection, ...admission }));
       if (!matches(ack, this.projection, "active")) throw new Error("NATIVE_CHROME_ACTIVATE_UNCONFIRMED");
       if (ack.presentationApplied === false) { this.activation = undefined; return; }
       this.active = this.current;
+      this.appliedAdmission = admission;
     })();
     await this.activation;
   }
@@ -428,9 +433,11 @@ export class NativeChromeLease {
     const focusSequence = ++this.focusSequence;
     const ack = await bounded(nativeChrome.restoreFocus({ ...this.projection, updateSequence, focusSequence }));
     if (!matches({ ...ack, phase: "active" }, this.projection, "active") ||
-        ack.updateSequence !== updateSequence || ack.focusSequence !== focusSequence || ack.restored !== true) {
+        ack.updateSequence !== updateSequence || ack.focusSequence !== focusSequence) {
       throw new Error("NATIVE_CHROME_FOCUS_UNCONFIRMED");
     }
+    if (ack.cancellation === "keyboard" && ack.restored === false) throw new NativeChromeFocusCancelled();
+    if (ack.restored !== true) throw new Error("NATIVE_CHROME_FOCUS_UNCONFIRMED");
     return this.focusReady && allowed() && this.focusSequence === focusSequence &&
       this.requestedUpdate === updateSequence && this.appliedUpdate === updateSequence;
   }
@@ -448,7 +455,8 @@ export class NativeChromeLease {
         this.projection.kind === "more" && presentation.value !== undefined) {
       throw new Error("NATIVE_CHROME_UPDATE_INVALID");
     }
-    if (this.requestedUpdate === this.appliedUpdate && this.matchesPresentation(presentation)) {
+    if (this.requestedUpdate === this.appliedUpdate && this.matchesPresentation(presentation) &&
+        JSON.stringify(this.appliedAdmission) === JSON.stringify(nativePresentationAdmission())) {
       // Admission already contains this snapshot. Waiting for activation must
       // not manufacture an update or recreate the native control afterward.
       await this.activate();
@@ -459,7 +467,8 @@ export class NativeChromeLease {
     await this.activate();
     if (!this.current || !this.active || updateSequence !== this.requestedUpdate) return false;
     try {
-      const ack = await bounded(nativeChrome.update({ ...this.projection, ...presentation, updateSequence, ...nativePresentationAdmission() }));
+      const admission = nativePresentationAdmission();
+      const ack = await bounded(nativeChrome.update({ ...this.projection, ...presentation, updateSequence, ...admission }));
       if (!this.current || updateSequence !== this.requestedUpdate) return false;
       if (!matches({ ...ack, phase: "active" }, this.projection, "active") || ack.updateSequence !== updateSequence) {
         throw new Error("NATIVE_CHROME_UPDATE_UNCONFIRMED");
@@ -467,6 +476,7 @@ export class NativeChromeLease {
       if (ack.presentationApplied === false) return false;
       Object.assign(this.projection, presentation);
       this.appliedUpdate = updateSequence;
+      this.appliedAdmission = admission;
       return true;
     } catch (error) {
       if (!this.current || updateSequence !== this.requestedUpdate) return false;
