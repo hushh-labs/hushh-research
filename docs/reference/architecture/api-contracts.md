@@ -2889,3 +2889,39 @@ against an environment where writes are prohibited.
   active settings `version`, `points`, `streak_rules`, `weekly_schedule`,
   `challenge_duration_days` (null when unscheduled), and `weekly_prizes_enabled`.
   Rules uses these amounts directly; this read does not activate policy or award rewards.
+
+### Document request prices and payouts
+
+All owner setup, pricing and earnings routes require the current Vault Owner;
+responses are private/no-store. The web connector proxy preserves `PUT` for
+`/api/connectors/google_drive/sharing/pricing`.
+
+| Route | Contract |
+| --- | --- |
+| `GET /api/connectors/google_drive/sharing/pricing` | Owner's `{enabled,amountCents,version}` default. Disabled means ask per request; it never authorizes a fallback charge. |
+| `PUT /api/connectors/google_drive/sharing/pricing` | `{enabled,amountCents,expectedVersion}`; whole USD dollars from $1 to $500. Concurrent edits fail with `price_changed`; existing orders keep their amount. |
+| `POST /api/connectors/google_drive/sharing/requests/{id}/price` | Owner's `{revision,amountCents,confirmed:true}` for a pending Trusted request without a price. Sets this request's quote, without extending sharing consent or replacing current trust checks. Refuses stale, closed, already searched or ordered requests. |
+| `GET /api/one/payouts/account` | Safe Connect readiness booleans and status, verified with Stripe. No provider account ID or banking credentials. |
+| `POST /api/one/payouts/account/onboard` | One owner-mapped US Express account; a fresh Stripe setup URL returns to Profile → Payouts. |
+| `POST /api/one/payouts/account/manage` | A fresh Stripe Express login link for the authenticated owner's existing account. No caller-selected destination account. |
+| `GET /api/one/payouts/account/earnings?cursor=…` | Owner-scoped document transactions, at most 20 per page, newest first; opaque request UUID cursor. Shows gross, refund, 3% commission, actual allocated processing fee, net earnings, reversal and delivery counts. Unknown amounts remain null. |
+| `GET /api/one/payouts/account/bank-payouts` | Up to 20 recorded Stripe bank payout statuses. An account transfer is never reported as a bank deposit. |
+
+New paid requests carry a sealed owner-settlement requirement. Missing payout
+readiness, missing price or paused enrollment leaves them waiting without
+preparation or Checkout. Optional `ownerPayoutAccountReady`,
+`ownerPriceRequired` and `paymentsReady` fields let Feed show the correct next
+step. A quote's amount may be null while the owner has not set a price. A payable
+order must have a concrete validated amount. Non-trusted requests still require
+owner Allow with a request-specific price; a stored default never supplies
+consent. Trusted requests use the saved default or an explicit per-request quote.
+
+Saving a price or verifying payout setup wakes eligible waiting requests; both
+participants re-read authoritative state through the document Feed stream.
+Reconnect sends a reset, and scheduled workers recover missed wakes. Migration
+297 caches full US transfer/payout readiness conservatively and emits an owner
+Feed reset after an earning's status changes. Price selection, setup completion,
+a browser return and a stream notification never prove payment or delivery.
+
+The delivery-confirmed owner settlement and proportional-refund rules are in
+[Drive request payment gate](../operations/drive-request-stripe-paywall.md).

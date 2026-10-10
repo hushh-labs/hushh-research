@@ -15598,6 +15598,452 @@
     },
     {
       "aliases": [
+        "Open Memory",
+        "open my saved details",
+        "my saved details"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "route.profile_my_data",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens saved details and sharing in Profile.",
+      "execution": {
+        "binding_ref": "route:/one/profile/my-data",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/profile/my-data"
+        }
+      },
+      "goal_id": "goal.route.profile_my_data",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Open Memory",
+      "navigation": {
+        "fallback": "/one/profile/my-data",
+        "routes": [
+          "/one/profile/my-data"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_my_data"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": false,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "memory",
+        "saved details",
+        "sharing"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Open Request pricing",
+        "set my Drive price",
+        "document price",
+        "request pricing"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "route.profile_request_pricing",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens the default price for document requests.",
+      "execution": {
+        "binding_ref": "route:/one/profile/request-pricing",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/profile/request-pricing"
+        }
+      },
+      "goal_id": "goal.route.profile_request_pricing",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Open Request pricing",
+      "navigation": {
+        "fallback": "/one/profile/request-pricing",
+        "routes": [
+          "/one/profile/request-pricing"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_request_pricing"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": false,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "set my Drive price",
+        "document price",
+        "request pricing"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Open Payouts",
+        "link my bank",
+        "set up payouts",
+        "document earnings"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "route.profile_payouts",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens payout setup and transaction history.",
+      "execution": {
+        "binding_ref": "route:/one/profile/payouts",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/profile/payouts"
+        }
+      },
+      "goal_id": "goal.route.profile_payouts",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Open Payouts",
+      "navigation": {
+        "fallback": "/one/profile/payouts",
+        "routes": [
+          "/one/profile/payouts"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_payouts"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": false,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "link my bank",
+        "set up payouts",
+        "document earnings"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open Referrals",
         "open referrals",
         "invite friends",
@@ -37770,7 +38216,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "84e8d53ee6dd01c5e8661d021a78c4a6bf642c5a486088607c950ed0a565c7aa",
+      "projection_digest": "1323c55cad19c3a6b15672cd06c6a9b7e8b80e059988efd5c3e7c44a54aad307",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -37789,7 +38235,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
       },
-      "source_revision": "81a213ceb7f54de5",
+      "source_revision": "c846a385fad8df04",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -39307,7 +39753,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "81a213ceb7f54de5",
+    "source_revision": "c846a385fad8df04",
     "web": {
       "actions": [
         {
@@ -39350,7 +39796,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "e99195479cb62b4824efe89687f143eeeb26e6aa34e9c13221c019abbc4494ff",
+      "projection_digest": "631f1e268b1a57740e84a503b200732005e6f4f43b7af3a028b5538cea7a59d1",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -39369,7 +39815,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
       },
-      "source_revision": "81a213ceb7f54de5",
+      "source_revision": "c846a385fad8df04",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -40926,7 +41372,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "81a213ceb7f54de5",
+  "revision": "c846a385fad8df04",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -41830,9 +42276,12 @@
         "route.profile",
         "route.profile_access_panel",
         "route.profile_connected_systems",
+        "route.profile_my_data",
+        "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
         "route.profile_referrals_panel",
+        "route.profile_request_pricing",
         "route.profile_security_panel",
         "route.profile_support_panel",
         "route.ria_settings_compat"
@@ -41876,9 +42325,12 @@
         "route.profile",
         "route.profile_access_panel",
         "route.profile_connected_systems",
+        "route.profile_my_data",
+        "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
         "route.profile_referrals_panel",
+        "route.profile_request_pricing",
         "route.profile_security_panel",
         "route.profile_support_panel",
         "route.ria_settings_compat"
@@ -41904,9 +42356,12 @@
         "route.profile",
         "route.profile_access_panel",
         "route.profile_connected_systems",
+        "route.profile_my_data",
+        "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
         "route.profile_referrals_panel",
+        "route.profile_request_pricing",
         "route.profile_security_panel",
         "route.profile_support_panel",
         "route.ria_settings_compat"
@@ -42002,7 +42457,9 @@
       "version": 1
     },
     {
-      "action_ids": [],
+      "action_ids": [
+        "route.profile_my_data"
+      ],
       "capability_id": "screen:/one/profile/my-data",
       "kind": "screen",
       "label": "profile_my_data",
@@ -42011,11 +42468,24 @@
       "version": 1
     },
     {
-      "action_ids": [],
+      "action_ids": [
+        "route.profile_my_data"
+      ],
       "capability_id": "screen:/one/profile/my-data/domain",
       "kind": "screen",
       "label": "profile_my_data",
       "route_pattern": "/one/profile/my-data/domain",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
+      "action_ids": [
+        "route.profile_payouts"
+      ],
+      "capability_id": "screen:/one/profile/payouts",
+      "kind": "screen",
+      "label": "profile_payouts",
+      "route_pattern": "/one/profile/payouts",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
     },
@@ -42145,6 +42615,17 @@
       "kind": "screen",
       "label": "profile_regulatory",
       "route_pattern": "/one/profile/regulatory",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
+      "action_ids": [
+        "route.profile_request_pricing"
+      ],
+      "capability_id": "screen:/one/profile/request-pricing",
+      "kind": "screen",
+      "label": "profile_request_pricing",
+      "route_pattern": "/one/profile/request-pricing",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
     },
@@ -42684,10 +43165,20 @@
   ],
   "semantic_diff": {
     "added": [
-      "actions:people.profile.request_scope"
+      "actions:people.profile.request_scope",
+      "actions:route.profile_my_data",
+      "actions:route.profile_payouts",
+      "actions:route.profile_request_pricing",
+      "screens:screen:/one/profile/payouts",
+      "screens:screen:/one/profile/request-pricing"
     ],
     "breaking": [],
     "changed": [
+      "screens:screen:/one/profile",
+      "screens:screen:/one/profile/account",
+      "screens:screen:/one/profile/account/phone",
+      "screens:screen:/one/profile/my-data",
+      "screens:screen:/one/profile/my-data/domain",
       "screens:screen:/people/[personRef]"
     ],
     "compatible": [],
@@ -44922,18 +45413,18 @@
     "capability_graph_evolution": "96b63878194651962b7fd3deceaac9d6223f7b170c16c67f813a3c72ca911946",
     "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "8d8b67504e2ce0d4444518f2dbee48b5bee842363720e5a96e17c629bf4f3aae",
+    "kai_action_gateway": "41f5493671bb408e4b07a89feaa44b9aa4291ab48873e2ebb5512df6210502db",
     "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
     "location_knowledge_package": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "01b1ae85c91c4e85dd879f023bdc41a3878b473107342bc63528de0b0c453d2e",
-    "route_orchestration_index": "66a2e90d49450052362002e2d9d069880f963fcdc35eb41bfe11a4a1c5cc0881",
+    "route_orchestration_index": "d9138b5db80a6ca7ed855e01f8732497728a14a72dac84791513487c69b282e9",
     "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
   },
-  "source_revision": "81a213ceb7f54de5",
+  "source_revision": "c846a385fad8df04",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "81a213ceb7f54de5",
+    "current_graph_revision": "c846a385fad8df04",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -44982,6 +45473,7 @@
           "72155688eff9b624",
           "771cbd282b3b3c1a",
           "804a8fd643783c90",
+          "81a213ceb7f54de5",
           "82e741080f6a22ff",
           "8d4a819bd126b823",
           "8e37ce83397a3ac7",
@@ -45088,6 +45580,7 @@
           "72155688eff9b624",
           "771cbd282b3b3c1a",
           "804a8fd643783c90",
+          "81a213ceb7f54de5",
           "82e741080f6a22ff",
           "8d4a819bd126b823",
           "8e37ce83397a3ac7",
@@ -45165,6 +45658,7 @@
           "6b7a0c817a0f0da5",
           "6c20fd33cd695f9c",
           "71ed8af339174fae",
+          "81a213ceb7f54de5",
           "8d4a819bd126b823",
           "934f53f787f43981",
           "9d786fec1d5617bb",
@@ -45301,6 +45795,7 @@
           "72155688eff9b624",
           "771cbd282b3b3c1a",
           "804a8fd643783c90",
+          "81a213ceb7f54de5",
           "82e741080f6a22ff",
           "8d4a819bd126b823",
           "8e37ce83397a3ac7",
@@ -45407,6 +45902,7 @@
           "72155688eff9b624",
           "771cbd282b3b3c1a",
           "804a8fd643783c90",
+          "81a213ceb7f54de5",
           "82e741080f6a22ff",
           "8d4a819bd126b823",
           "8e37ce83397a3ac7",
@@ -45513,6 +46009,7 @@
           "72155688eff9b624",
           "771cbd282b3b3c1a",
           "804a8fd643783c90",
+          "81a213ceb7f54de5",
           "82e741080f6a22ff",
           "8d4a819bd126b823",
           "8e37ce83397a3ac7",
@@ -45619,6 +46116,7 @@
           "72155688eff9b624",
           "771cbd282b3b3c1a",
           "804a8fd643783c90",
+          "81a213ceb7f54de5",
           "82e741080f6a22ff",
           "8d4a819bd126b823",
           "8e37ce83397a3ac7",

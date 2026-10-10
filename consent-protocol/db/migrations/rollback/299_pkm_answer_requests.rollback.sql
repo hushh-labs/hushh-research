@@ -1,4 +1,4 @@
--- Rollback 297_pkm_answer_requests.
+-- Rollback 299_pkm_answer_requests.
 --
 -- Drops the paid-answer lane entirely. Touches nothing in the Drive document
 -- lane (migration 262) or the packet lane (278/280), which are separate tables.

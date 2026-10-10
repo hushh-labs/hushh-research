@@ -369,6 +369,8 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.PROFILE) {
     const { panel } = resolveProfileRouteState(normalizedPath, query);
     const tab = query.get("tab");
+    if (panel === "payouts") return { screen: "profile_payouts", subview: null };
+    if (panel === "request-pricing") return { screen: "profile_request_pricing", subview: null };
     if (panel === "gmail") {
       return { screen: "profile_gmail_panel", subview: tab || null };
     }
@@ -398,6 +400,8 @@ export function deriveVoiceRouteScreen(
   }
   if (normalizedPath.startsWith(`${ROUTES.PROFILE}/`)) {
     const { panel, detail } = resolveProfileRouteState(normalizedPath, query);
+    if (panel === "payouts") return { screen: "profile_payouts", subview: null };
+    if (panel === "request-pricing") return { screen: "profile_request_pricing", subview: null };
     if (panel === "gmail") {
       return {
         screen: "profile_gmail_panel",

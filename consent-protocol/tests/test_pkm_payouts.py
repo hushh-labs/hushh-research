@@ -48,6 +48,11 @@ class _Stripe:
                     "requirements": {"disabled_reason": outer.disabled_reason},
                 }
 
+            @staticmethod
+            def create_login_link(account, **kw):
+                outer.links.append({"account": account, **kw})
+                return {"url": "https://connect.stripe.com/express/test"}
+
         class _AccountLink:
             @staticmethod
             def create(**kw):
@@ -143,10 +148,10 @@ async def test_document_onboarding_reuses_packet_account_with_separate_return_pa
         fake.links[1]["account"] == db.tables["pkm_owner_payout_accounts"][0]["stripe_account_id"]
     )
     assert fake.links[1]["refresh_url"] == (
-        "https://uat.one.hushh.ai/one/profile/my-data?documentPayouts=refresh"
+        "https://uat.one.hushh.ai/one/profile/payouts?documentPayouts=refresh"
     )
     assert fake.links[1]["return_url"] == (
-        "https://uat.one.hushh.ai/one/profile/my-data?documentPayouts=done"
+        "https://uat.one.hushh.ai/one/profile/payouts?documentPayouts=done"
     )
 
 
@@ -287,3 +292,59 @@ async def test_delivered_order_is_never_refunded(world):
     statuses = {o["id"]: o["status"] for o in db.tables["pkm_packet_orders"] if "id" in o}
     assert statuses.get("o1") == "paid"  # delivered: kept, owner still owed
     assert result["refunded"] == 1  # o2 was never delivered, so it is refunded
+
+
+async def test_bank_management_uses_only_authenticated_owners_mapping(world):
+    svc, db, fake = world
+    with pytest.raises(PacketOrderError, match="Link a bank"):
+        await svc.management_link(user_id="other")
+    await svc.onboarding_link(user_id="owner", surface="documents")
+    link = await svc.management_link(user_id="owner")
+    assert link["url"] == "https://connect.stripe.com/express/test"
+    assert fake.links[-1]["account"] == "acct_1"
+    assert len(fake.accounts) == 1
+
+
+async def test_payout_readiness_cache_requires_transfers_and_unrestricted_us_account(world):
+    svc, db, fake = world
+    await svc.onboarding_link(user_id="owner", surface="documents")
+    fake.payouts_enabled = True
+    await svc.account_status(user_id="owner")
+    assert db.tables["pkm_owner_payout_accounts"][0]["account_ready"] is False
+    fake.transfers_capability = "active"
+    await svc.account_status(user_id="owner")
+    assert db.tables["pkm_owner_payout_accounts"][0]["account_ready"] is True
+    fake.disabled_reason = "requirements.past_due"
+    await svc.account_status(user_id="owner")
+    assert db.tables["pkm_owner_payout_accounts"][0]["account_ready"] is False
+
+
+def test_document_money_routes_require_owner_and_sanitize_history_failure(monkeypatch):
+    from hushh_mcp.services.drive_request_owner_payout_service import DriveRequestOwnerPayoutService
+
+    calls = []
+
+    async def history(self, *, user_id, cursor=None):
+        calls.append((user_id, cursor))
+        if cursor:
+            raise RuntimeError("private_provider_or_database_detail")
+        return {"currency": "USD", "transactions": [], "nextCursor": None}
+
+    monkeypatch.setattr(DriveRequestOwnerPayoutService, "owner_history", history)
+    app = FastAPI()
+    app.include_router(payouts_routes.router)
+    client = TestClient(app)
+    assert client.get("/api/one/payouts/account/earnings").status_code == 401
+    assert client.post("/api/one/payouts/account/manage").status_code == 401
+    assert calls == []
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner"}
+    response = client.get("/api/one/payouts/account/earnings?user_id=other")
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, no-store"
+    assert calls == [("owner", None)]
+    assert client.get("/api/one/payouts/account/earnings?cursor=invalid").status_code == 422
+    failed = client.get(
+        "/api/one/payouts/account/earnings?cursor=00000000-0000-4000-8000-000000000001"
+    )
+    assert failed.status_code == 503
+    assert failed.json() == {"detail": "Transactions are unavailable."}

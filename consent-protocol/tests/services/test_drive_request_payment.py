@@ -38,7 +38,11 @@ from hushh_mcp.services.drive_request_payment_refunds import (
     _provider_refund,
 )
 from hushh_mcp.services.drive_request_payment_service import DriveRequestPaymentService, _config
-from hushh_mcp.services.drive_request_payment_store import DriveRequestPaymentStore
+from hushh_mcp.services.drive_request_payment_store import (
+    DriveRequestPaymentStore,
+    _order_amount_cents,
+    _record_new_owner_payout,
+)
 from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher, DriveSharingError
 from hushh_mcp.services.drive_sharing_retention import erase_drive_account_in_transaction
 from hushh_mcp.services.drive_sharing_store import DriveSharingStore
@@ -54,6 +58,93 @@ from tests.services.test_drive_sharing_store import (  # noqa: F401
 )
 
 DATED_PURPOSE = {"purpose": "Statements", "periodStart": "2026-10-01", "periodEnd": "2026-10-09"}
+
+
+@pytest.mark.asyncio
+async def test_owner_payout_lease_claim_and_stale_completion_are_fenced_in_postgres(sharing):
+    from hushh_mcp.services.drive_request_owner_payout_service import DriveRequestOwnerPayoutService
+
+    created = await request(sharing)
+    identity = created["requestId"]
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_share_requests SET status='completed' WHERE request_id=:id"),
+            {"id": identity},
+        )
+        connection.execute(
+            text("""INSERT INTO pkm_owner_payout_accounts
+                (user_id,stripe_account_id,details_submitted,payouts_enabled,account_ready)
+                VALUES ('owner','acct_test_owner',TRUE,TRUE,TRUE)""")
+        )
+        connection.execute(
+            text("""INSERT INTO drive_request_payment_orders
+                (request_id,user_id,requester_user_id,status,stripe_payment_intent_id,paid_at)
+                VALUES (:id,'owner','recipient','paid','pi_test_lease',clock_timestamp())"""),
+            {"id": identity},
+        )
+        connection.execute(
+            text("""INSERT INTO drive_request_owner_payouts
+                (request_id,gross_amount_cents,status,expected_files,confirmed_files,
+                 retained_amount_cents,refund_amount_cents,platform_fee_cents,
+                 actual_processing_fee_cents,allocated_processing_fee_cents,owner_earning_cents,
+                 finalized_at,stripe_payment_intent_id,stripe_charge_id,stripe_balance_transaction_id)
+                VALUES (:id,1000,'due',1,1,1000,0,30,59,59,911,
+                  clock_timestamp(),'pi_test_lease','ch_test_lease','txn_test_lease')"""),
+            {"id": identity},
+        )
+    service = DriveRequestOwnerPayoutService(db=sharing.db)
+    claims = await asyncio.gather(
+        service._transaction(lambda connection: service._claim_transfer(connection, identity)),
+        service._transaction(lambda connection: service._claim_transfer(connection, identity)),
+    )
+    assert sum(claim is not None for claim in claims) == 1
+    first = next(claim for claim in claims if claim is not None)
+    assert first["first_transfer_attempt"] is True
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_request_owner_payouts
+              SET lease_expires_at=clock_timestamp()-INTERVAL '1 second'
+              WHERE request_id=:id"""),
+            {"id": identity},
+        )
+    retry = await service._transaction(
+        lambda connection: service._claim_transfer(connection, identity)
+    )
+    assert retry is not None and retry["first_transfer_attempt"] is False
+    assert retry["transfer_attempt_id"] != first["transfer_attempt_id"]
+    assert retry["first_dispatch_at"] == first["first_dispatch_at"]
+    await service._transaction(
+        lambda connection: service._finish_transfer(connection, first, None, "account_unavailable")
+    )
+    with sharing.db.engine.connect() as connection:
+        current = (
+            connection.execute(
+                text("""SELECT status,first_dispatch_at,transfer_attempt_id
+               FROM drive_request_owner_payouts WHERE request_id=:id"""),
+                {"id": identity},
+            )
+            .mappings()
+            .one()
+        )
+    assert current["status"] == "dispatching"
+    assert current["transfer_attempt_id"] == retry["transfer_attempt_id"]
+    assert current["first_dispatch_at"] == first["first_dispatch_at"]
+    await service._transaction(
+        lambda connection: service._finish_transfer(connection, retry, None, "account_unavailable")
+    )
+    with sharing.db.engine.connect() as connection:
+        current = (
+            connection.execute(
+                text("""SELECT status,first_dispatch_at,transfer_attempt_id
+               FROM drive_request_owner_payouts WHERE request_id=:id"""),
+                {"id": identity},
+            )
+            .mappings()
+            .one()
+        )
+    assert current["status"] == "awaiting_account"
+    assert current["first_dispatch_at"] == first["first_dispatch_at"]
+    assert current["transfer_attempt_id"] == retry["transfer_attempt_id"]
 
 
 @pytest.fixture(autouse=True)
@@ -104,9 +195,11 @@ def _owner_allow(sharing, request_id: str, *, amount_cents: int | None) -> None:
     # Allow also stamps the plaintext hint, which only a disconnect clears.
     with sharing.db.engine.begin() as connection:
         connection.execute(
-            text("""UPDATE drive_share_requests SET owner_allowed_at=clock_timestamp()
+            text("""UPDATE drive_share_requests SET owner_allowed_at=clock_timestamp(),
+              quoted_amount_cents=CASE WHEN quoted_amount_cents IS NOT NULL
+                THEN :amount ELSE NULL END
               WHERE request_id=:request"""),
-            {"request": request_id},
+            {"request": request_id, "amount": amount_cents},
         )
 
 
@@ -191,6 +284,8 @@ def test_non_trusted_approval_creates_order_without_premature_pay_notification(
 ):
     monkeypatch.setenv("DRIVE_SHARING_KEY_V1", base64.b64encode(b"s" * 32).decode())
     monkeypatch.delenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", raising=False)
+    if quoted_price is not None:
+        monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", "true")
     record_payout = Mock()
     monkeypatch.setattr(
         "hushh_mcp.services.drive_request_owner_payout_service.DriveRequestOwnerPayoutService.record_order",
@@ -200,7 +295,17 @@ def test_non_trusted_approval_creates_order_without_premature_pay_notification(
     insert_result.rowcount = 1
     selected_result = Mock()
     selected_result.mappings.return_value.first.return_value = {"status": "awaiting_payment"}
-    connection = SimpleNamespace(execute=Mock(side_effect=[insert_result, selected_result]))
+    ready_result = Mock()
+    ready_result.mappings.return_value.first.return_value = {"account_ready": True}
+    connection = SimpleNamespace(
+        execute=Mock(
+            side_effect=[
+                insert_result,
+                *([ready_result] if quoted_price is not None else []),
+                selected_result,
+            ]
+        )
+    )
     request_id = str(uuid4())
     private = {"purpose": DATED_PURPOSE}
     if owner_price is not None:
@@ -218,12 +323,53 @@ def test_non_trusted_approval_creates_order_without_premature_pay_notification(
     }
 
     assert DriveRequestPaymentStore.ensure_order_for_approved_request(connection, request_row)
-    assert connection.execute.call_count == 2
+    assert connection.execute.call_count == (3 if quoted_price is not None else 2)
     insert = connection.execute.call_args_list[0]
     assert "ON CONFLICT (request_id) DO NOTHING" in str(insert.args[0])
     # A manual approval keeps the default price; an allowed request the owner's.
     assert insert.args[1]["amount"] == amount
     assert record_payout.call_count == (1 if quoted_price is not None else 0)
+
+
+def test_new_owner_settlement_never_falls_back_to_platform_price():
+    private = {"owner_settlement_required": True}
+    for missing_price in (None, 0, 1050):
+        with pytest.raises(DriveSharingError, match="owner_price_required"):
+            _order_amount_cents({"quoted_amount_cents": missing_price}, private)
+    assert _order_amount_cents({"quoted_amount_cents": 200}, private) == 200
+    assert _order_amount_cents({}, {}) == 1000  # Legacy payment terms stay unchanged.
+
+
+@pytest.mark.parametrize(
+    "enabled,ready,error",
+    [
+        (False, True, "payout_unavailable"),
+        (True, False, "owner_payout_required"),
+        (True, True, None),
+    ],
+)
+def test_new_quoted_order_requires_payout_admission_before_enrollment(
+    monkeypatch, enabled, ready, error
+):
+    monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", str(enabled).lower())
+    record = Mock()
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_request_owner_payout_service.DriveRequestOwnerPayoutService.record_order",
+        record,
+    )
+    result = Mock()
+    result.mappings.return_value.first.return_value = {"account_ready": ready}
+    connection = SimpleNamespace(execute=Mock(return_value=result))
+    arguments = dict(
+        request_id=str(uuid4()), owner_user_id="owner", amount_cents=200, quoted_request=True
+    )
+    if error:
+        with pytest.raises(DriveSharingError, match=error):
+            _record_new_owner_payout(connection, **arguments)
+        record.assert_not_called()
+    else:
+        _record_new_owner_payout(connection, **arguments)
+        record.assert_called_once()
 
 
 @pytest.mark.asyncio

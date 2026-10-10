@@ -10,14 +10,14 @@
     "cache_reference": "../docs/reference/architecture/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 147,
-    "physical_page_count": 146,
-    "route_contract_count": 147,
-    "surface_map_count": 147,
+    "total_screens": 149,
+    "physical_page_count": 148,
+    "route_contract_count": 149,
+    "surface_map_count": 149,
     "class_counts": {
       "public/auth-split": 1,
       "redirect/alias": 48,
-      "vault-backed": 56,
+      "vault-backed": 58,
       "hidden flow": 20,
       "auth/pre-vault": 5,
       "RIA/provider": 8,
@@ -3920,6 +3920,52 @@
       ]
     },
     {
+      "route": "/one/profile/payouts",
+      "page_file": "app/one/profile/payouts/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/one/profile/payouts",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "review native route beacon coverage",
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
       "route": "/one/profile/pkm",
       "page_file": "app/one/profile/pkm/page.tsx",
       "route_contract_mode": "redirect",
@@ -4450,6 +4496,52 @@
         "native_beacon": false
       },
       "findings": []
+    },
+    {
+      "route": "/one/profile/request-pricing",
+      "page_file": "app/one/profile/request-pricing/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/one/profile/request-pricing",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "review native route beacon coverage",
+        "no local cache primitive detected in page/contract source"
+      ]
     },
     {
       "route": "/one/profile/security",
@@ -6601,5 +6693,5 @@
       ]
     }
   ],
-  "content_sha256": "4d2858dfc43354e22b4c78431d65031887d499457ef05a3b1ac56ed9a291f3fe"
+  "content_sha256": "cc56ebf380b45178a3f319f342ab6aa040c363012aac6a29dcaf565e708c5184"
 }

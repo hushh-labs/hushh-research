@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { HelperText } from "@/components/app-ui/typography";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
+import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 import { formatDocumentRequestPrice, parseWholeDollarPrice } from "@/lib/consent/document-request-price";
 import { Button } from "@/lib/morphy-ux/button";
 import { apiErrorCode } from "@/lib/services/api-client";
@@ -12,54 +12,62 @@ import {
   DriveRequestPricingService,
   type DriveRequestPricing,
 } from "@/lib/services/drive-request-pricing-service";
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { useVault } from "@/lib/vault/vault-context";
 
-/** Future-request price; a request already sent keeps its original quote. */
+/** Future-request default; an existing quote keeps its agreed price. */
 export function DocumentRequestPricingCard() {
   const { vaultOwnerToken } = useVault();
   const priceId = useId();
-  const switchId = useId();
+  const session = useRef(0);
+  const inFlight = useRef(false);
   const [saved, setSaved] = useState<DriveRequestPricing | null>(null);
-  const [enabled, setEnabled] = useState(false);
-  const [dollars, setDollars] = useState("10");
+  const [dollars, setDollars] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [reload, setReload] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!vaultOwnerToken) {
-      setSaved(null);
-      setLoading(false);
-      return;
-    }
-    let cancelled = false;
+    const operation = ++session.current;
+    const epoch = snapshotVaultSessionEpoch();
+    const current = () => session.current === operation && isVaultSessionEpochCurrent(epoch);
+    inFlight.current = false;
     setSaved(null);
-    setLoading(true);
+    setDollars("");
+    setSaving(false);
     setError(null);
-    void DriveRequestPricingService.owner(vaultOwnerToken)
-      .then((next) => {
-        if (cancelled) return;
-        setSaved(next);
-        setEnabled(next.enabled);
-        setDollars(String(next.amountCents / 100));
-      })
-      .catch(() => {
-        if (!cancelled) setError("Couldn't load Drive pricing. Try again later.");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [vaultOwnerToken]);
+    setNotice(null);
+    setLoading(Boolean(vaultOwnerToken));
+    if (vaultOwnerToken) {
+      void DriveRequestPricingService.owner(vaultOwnerToken)
+        .then((next) => {
+          if (!current()) return;
+          setSaved(next);
+          setDollars(next.enabled ? String(next.amountCents / 100) : "");
+        })
+        .catch(() => {
+          if (current()) setError("Couldn't load your price. Try again.");
+        })
+        .finally(() => {
+          if (current()) setLoading(false);
+        });
+    }
+    return () => { session.current = operation + 1; };
+  }, [vaultOwnerToken, reload]);
 
   if (!vaultOwnerToken) return null;
   const amountCents = parseWholeDollarPrice(dollars);
-  const targetAmountCents = enabled ? amountCents : saved?.amountCents ?? null;
-  const dirty = saved && (enabled !== saved.enabled ||
-    (enabled && amountCents !== saved.amountCents));
-  const save = async () => {
-    if (!vaultOwnerToken || !saved || !targetAmountCents || !dirty || saving) return;
+  const dirty = saved && (!saved.enabled || amountCents !== saved.amountCents);
+  const save = async (enabled: boolean) => {
+    const targetAmountCents = enabled ? amountCents : saved?.amountCents ?? null;
+    if (!saved || targetAmountCents === null || inFlight.current ||
+        (enabled ? !dirty : !saved.enabled)) return;
+    const operation = session.current;
+    const epoch = snapshotVaultSessionEpoch();
+    const current = () => session.current === operation && isVaultSessionEpochCurrent(epoch);
+    inFlight.current = true;
     setSaving(true);
     setError(null);
     setNotice(null);
@@ -69,58 +77,66 @@ export function DocumentRequestPricingCard() {
         amountCents: targetAmountCents,
         expectedVersion: saved.version,
       });
+      if (!current()) return;
       setSaved(next);
-      setEnabled(next.enabled);
-      setDollars(String(next.amountCents / 100));
-      setNotice("Saved for future document requests. Existing quotes stay the same.");
+      setDollars(next.enabled ? String(next.amountCents / 100) : "");
+      setNotice(next.enabled ? "Default price saved." : "You'll set a price for each request.");
+      dispatchConsentStateChanged({ source: "document_request_pricing" });
     } catch (cause) {
+      if (!current()) return;
       if (apiErrorCode(cause) === "price_changed") {
         try {
           const next = await DriveRequestPricingService.owner(vaultOwnerToken);
+          if (!current()) return;
           setSaved(next);
-          setEnabled(next.enabled);
-          setDollars(String(next.amountCents / 100));
-          setError("Your price changed elsewhere. Review it before saving again.");
+          const currentPrice = next.enabled ? formatDocumentRequestPrice(next.amountCents) : "Ask each time";
+          // Keep the owner's draft; updating the version is not permission to save it.
+          setError(`Changed elsewhere to ${currentPrice}. Review your amount and save again.`);
         } catch {
-          setError("Couldn't refresh Drive pricing. Try again later.");
+          if (current()) setError("Couldn't refresh your price. Try again.");
         }
       } else {
-        setError("Couldn't save Drive pricing. Try again.");
+        setError("Couldn't save your price. Try again.");
       }
     } finally {
-      setSaving(false);
+      if (current()) {
+        inFlight.current = false;
+        setSaving(false);
+      }
     }
   };
 
   return (
-    <section aria-label="Google Drive request price" className="rounded-2xl border border-border p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold">Google Drive request price</p>
-          <HelperText className="mt-1">One price per request. Requesters see the quote before sending and pay only if matching files are ready.</HelperText>
-        </div>
-        {saved ? <Switch id={switchId} checked={enabled} disabled={saving} onCheckedChange={setEnabled} aria-label="Use my Drive request price" /> : null}
-      </div>
-      {loading ? <HelperText role="status" className="mt-3">Loading Drive price…</HelperText> : null}
+    <section aria-label="Request pricing" className="space-y-3">
+      <HelperText>Used for trusted requests. You can set other requests before approval.</HelperText>
+      {loading ? <HelperText role="status">Loading price…</HelperText> : null}
       {saved ? (
-        <div className="mt-4 space-y-3">
-          <label htmlFor={switchId} className="text-sm font-medium">{enabled ? "Use my price" : "Use the $10 default"}</label>
-          {enabled ? (
-            <div className="space-y-1">
-              <label htmlFor={priceId} className="text-sm font-medium">Price in US dollars</label>
-              <Input id={priceId} type="text" inputMode="numeric" value={dollars}
-                onChange={(event) => setDollars(event.target.value)} disabled={saving}
-                aria-invalid={amountCents === null} />
-              <HelperText>Whole dollars from $1 to $500.</HelperText>
-            </div>
-          ) : <HelperText>Requests use the platform price of {formatDocumentRequestPrice(1000)}. Turn this on to set your own price.</HelperText>}
-          <Button type="button" size="standard" disabled={!dirty || (enabled && amountCents === null) || saving} onClick={() => void save()}>
-            {saving ? "Saving…" : "Save request price"}
-          </Button>
-        </div>
+        <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void save(true); }}>
+          <div className="space-y-1">
+            <label htmlFor={priceId} className="text-sm">Default price (USD)</label>
+            <Input id={priceId} type="text" inputMode="numeric" value={dollars}
+              placeholder="Amount" onChange={(event) => { setDollars(event.target.value); setNotice(null); }}
+              disabled={saving} aria-invalid={dollars !== "" && amountCents === null}
+              aria-describedby={`${priceId}-help`} />
+            <HelperText id={`${priceId}-help`}>Whole dollars, $1–$500.</HelperText>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="submit" size="standard" disabled={!dirty || amountCents === null || saving}>
+              {saving ? "Saving…" : "Save"}
+            </Button>
+            {saved.enabled ? (
+              <Button type="button" size="standard" variant="none" disabled={saving} onClick={() => void save(false)}>
+                Ask each time
+              </Button>
+            ) : <HelperText>Ask each time until you save a default.</HelperText>}
+          </div>
+        </form>
+      ) : !loading ? (
+        <Button type="button" size="standard" variant="none" onClick={() => setReload((value) => value + 1)}>Retry</Button>
       ) : null}
-      {error ? <HelperText role="alert" className="mt-2">{error}</HelperText> : null}
-      {notice ? <HelperText role="status" className="mt-2">{notice}</HelperText> : null}
+      <HelperText>Hushh takes 3%. Stripe fees come from your earnings.</HelperText>
+      {error ? <HelperText role="alert">{error}</HelperText> : null}
+      {notice ? <HelperText role="status">{notice}</HelperText> : null}
     </section>
   );
 }

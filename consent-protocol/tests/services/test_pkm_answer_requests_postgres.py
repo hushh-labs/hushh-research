@@ -36,11 +36,11 @@ from tests.services.test_external_connector_lifecycle_postgres import (  # noqa:
 OWNER = "owner-account-A"
 REQUESTER = "requester-account-B"
 MIGRATIONS = [
-    Path(__file__).resolve().parents[2] / "db" / "migrations" / "297_pkm_answer_requests.sql",
+    Path(__file__).resolve().parents[2] / "db" / "migrations" / "299_pkm_answer_requests.sql",
     Path(__file__).resolve().parents[2]
     / "db"
     / "migrations"
-    / "298_pkm_answer_refunds_payouts.sql",
+    / "300_pkm_answer_refunds_payouts.sql",
 ]
 
 # The owner's registry. attr.financial.holdings is deliberately present so a

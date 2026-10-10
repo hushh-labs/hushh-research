@@ -14,12 +14,14 @@ from hushh_mcp.services.drive_bulk_share_service import DriveBulkShareService
 from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
 from hushh_mcp.services.drive_request_bulk_service import DriveRequestBulkService
 from hushh_mcp.services.drive_request_payment_service import DriveRequestPaymentService
-from hushh_mcp.services.drive_sharing_store import DriveSharingStore
+from hushh_mcp.services.drive_sharing_store import OWNER_SETUP_CODES, DriveSharingStore
 from hushh_mcp.services.drive_work_wake import wake_drive_work
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
 
 def _defer_code(error: BaseException) -> str:
+    if str(error) in OWNER_SETUP_CODES:
+        return str(error)
     if str(error) == "date_range_required":
         return "date_range_required"
     if str(error) == "background_preparation_required":
