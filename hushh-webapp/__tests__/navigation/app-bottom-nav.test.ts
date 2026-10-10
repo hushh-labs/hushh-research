@@ -64,7 +64,7 @@ describe("app bottom navigation", () => {
 
   it("uses the active One agent app as the first tab on One subroutes", () => {
     expect(resolveOneActiveNav("/")).toBe("chat");
-    expect(resolveOneActiveNav(ROUTES.ONE_MESSAGES)).toBe("dashboard");
+    expect(resolveOneActiveNav(ROUTES.ONE_MESSAGES)).toBe("chat");
     expect(resolveOneActiveNav(ROUTES.ONE_HOME)).toBe("dashboard");
     expect(resolveOneActiveNav(ROUTES.GMAIL)).toBe("gmail");
     expect(resolveOneActiveNav(ROUTES.ONE_KYC)).toBe("email");
@@ -167,7 +167,7 @@ describe("app bottom navigation", () => {
   it("selects the active workspace destination", () => {
     expect(resolveBottomNavActiveKey(ROUTES.HOME, "one")).toBe("chat");
     expect(resolveBottomNavActiveKey(ROUTES.ONE_MESSAGES, "one")).toBe(
-      "dashboard",
+      "chat",
     );
     expect(resolveBottomNavActiveKey(ROUTES.ONE_HOME, "one")).toBe("dashboard");
     expect(resolveInvestorActiveNav(ROUTES.HOME)).toBe("chat");
