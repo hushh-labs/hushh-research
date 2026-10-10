@@ -32,6 +32,7 @@ describe("owner Drive request price", () => {
     try {
       render(<DocumentRequestPricingCard />);
       expect(await screen.findByLabelText("Default price (USD)")).toHaveValue("");
+      expect(screen.getByText("Set each request's price in Feed.")).toBeVisible();
       expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
       expect(screen.queryByRole("switch")).toBeNull();
       enterPrice("0");
@@ -44,6 +45,8 @@ describe("owner Drive request price", () => {
         enabled: true, amountCents: 2500, expectedVersion: 4,
       }));
       expect(await screen.findByText("Default price saved.")).toBeVisible();
+      expect(screen.getByText(/Trusted requests use this price automatically/)).toBeVisible();
+      expect(screen.queryByText("Set each request's price in Feed.")).toBeNull();
       expect(reconcile).toHaveBeenCalledOnce();
     } finally {
       window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, reconcile);
@@ -78,6 +81,8 @@ describe("owner Drive request price", () => {
       enabled: false, amountCents: 2500, expectedVersion: 4,
     }));
     expect(await screen.findByText("You'll set a price for each request.")).toBeVisible();
+    expect(screen.getByText("Set each request's price in Feed.")).toBeVisible();
+    expect(screen.queryByText(/Trusted requests use this price automatically/)).toBeNull();
     expect(screen.getByLabelText("Default price (USD)")).toHaveValue("");
   });
 

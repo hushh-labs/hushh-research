@@ -117,7 +117,8 @@ async def test_erasure_preserves_confirmed_delivery_for_paid_obligation(revocati
 
 
 @pytest.mark.asyncio
-async def test_erasure_holds_uncertain_paid_grant_from_new_refund(permission_setup):
+@pytest.mark.parametrize("stored_mode", ["test", "live", "legacy"])
+async def test_erasure_holds_uncertain_paid_grant_from_new_refund(permission_setup, stored_mode):
     store, _, _, ids = permission_setup
     job = await store.claim_grant(user_id="owner", operation_id=ids[0])
     await store.mark_dispatching(
@@ -132,14 +133,15 @@ async def test_erasure_holds_uncertain_paid_grant_from_new_refund(permission_set
         )
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-          (request_id,user_id,requester_user_id,status,stripe_payment_intent_id,paid_at)
-          VALUES (:request,'owner','recipient','paid','pi_test_uncertain',clock_timestamp())"""),
-            {"request": request_id},
+          (request_id,user_id,requester_user_id,stripe_mode,status,stripe_payment_intent_id,paid_at)
+          VALUES (:request,'owner','recipient',:mode,'paid','pi_test_uncertain',clock_timestamp())"""),
+            {"request": request_id, "mode": stored_mode},
         )
     await erase(store, "owner")
     obligation = rows(store, "drive_request_payment_obligations")[0]
     assert obligation["delivery_unsettled_at_erasure"] is True
     assert obligation["reconciliation_required"] is True
+    assert obligation["stripe_mode"] == stored_mode
     with store.db.engine.begin() as connection:
         claims = _claim_refunds(DriveRequestPaymentService(db=store.db), connection, limit=1)
         refund = (
@@ -149,10 +151,15 @@ async def test_erasure_holds_uncertain_paid_grant_from_new_refund(permission_set
                 {"request": request_id},
             )
             .mappings()
-            .one()
+            .first()
         )
     assert claims == []
-    assert refund["status"] == "manual_review"
+    if stored_mode == "test":
+        assert refund["status"] == "manual_review"
+    else:
+        # Foreign and unclassified money remains held after erasure. The
+        # current provider mode must never start a refund for that ledger.
+        assert refund is None
 
 
 @pytest.mark.asyncio

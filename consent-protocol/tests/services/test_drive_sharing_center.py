@@ -439,8 +439,8 @@ async def test_requester_can_reopen_payment_from_consent_center(sharing):
         )
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-              (request_id,user_id,requester_user_id,status)
-              VALUES (:request,'owner','recipient','awaiting_payment')"""),
+              (request_id,user_id,requester_user_id,stripe_mode,status)
+              VALUES (:request,'owner','recipient','test','awaiting_payment')"""),
             {"request": request_id},
         )
     projection = DriveSharingCenterContributor(db=sharing.db)
@@ -474,6 +474,36 @@ async def test_requester_can_reopen_payment_from_consent_center(sharing):
     ]
     assert owner_reopened["scope_description"] == "Waiting for requester payment"
     assert owner_reopened["metadata"]["owner_attention_required"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stored_mode", ["test", "legacy"])
+async def test_live_projection_expires_foreign_mode_payment(sharing, monkeypatch, stored_mode):
+    request_id = (await request(sharing))["requestId"]
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_share_requests SET payment_required=TRUE WHERE request_id=:id"),
+            {"id": request_id},
+        )
+        connection.execute(
+            text("""INSERT INTO drive_request_payment_orders
+              (request_id,user_id,requester_user_id,stripe_mode,status)
+              VALUES (:id,'owner','recipient',:mode,'checkout_open')"""),
+            {"id": request_id, "mode": stored_mode},
+        )
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("STRIPE_MODE", "live")
+    projection = DriveSharingCenterContributor(db=sharing.db)
+    result = await projection.page("recipient", bucket="outgoing_requests", limit=1)
+    assert result["items"][0]["metadata"]["paymentStatus"] == "expired"
+    with sharing.db.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT status FROM drive_request_payment_orders WHERE request_id=:id"),
+                {"id": request_id},
+            ).scalar_one()
+            == "checkout_open"
+        )
 
 
 @pytest.mark.asyncio
