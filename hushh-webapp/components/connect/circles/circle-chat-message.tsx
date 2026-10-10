@@ -10,7 +10,11 @@ import type { ChatContent, ChatMessage } from "@/lib/circle-chat/crypto";
 import { ChatImage, ChatSharedFile } from "./circle-chat-media";
 import styles from "./circle-chat-message.module.css";
 
-export type OpenChatMessage = ChatMessage & { content: ChatContent | null; failed: boolean };
+export type OpenChatMessage = ChatMessage & { content: ChatContent | null; failed: boolean; localImage?: File };
+export type OutgoingChatMessage = Pick<ChatMessage, "id" | "clientMessageId" | "senderUserId" | "senderName" | "createdAt"> & {
+  content: ChatContent; failed: false; localImage: File; delivery: "sending" | "unconfirmed";
+  receipt?: never; reactions?: never; senderPhotoUrl?: never;
+};
 type Reaction = NonNullable<ChatMessage["reactions"]>[number];
 const REACTIONS = ["❤️", "😂", "😮", "😢", "👍", "🙏"] as const;
 
@@ -29,11 +33,13 @@ function toggleReaction(current: Reaction[], emoji: string, active: boolean): Re
 }
 
 export function CircleChatMessage({ message, previous, session, visible, layoutBlocked, scrollRoot, onMediaError, onViewerChange }: {
-  message: OpenChatMessage; previous?: OpenChatMessage; session: CircleChatSession;
+  message: OpenChatMessage | OutgoingChatMessage; previous?: OpenChatMessage; session: CircleChatSession;
   visible: boolean; layoutBlocked: boolean; scrollRoot: RefObject<HTMLDivElement | null>; onMediaError: (error: unknown) => void;
   onViewerChange: (id: string, open: boolean) => void;
 }) {
   const own = message.senderUserId === session.userId;
+  const confirmed = "sequence" in message;
+  const viewerId = `${message.senderUserId}:${message.clientMessageId ?? message.id}`;
   const showDay = !previous || new Date(message.createdAt).toDateString() !== new Date(previous.createdAt).toDateString();
   const grouped = messagesFormGroup(previous, message, previous?.senderUserId === message.senderUserId);
   const receipt = message.receipt;
@@ -58,7 +64,7 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
   useEffect(() => () => { if (hold.current) clearTimeout(hold.current); }, []);
 
   const react = async (emoji: string) => {
-    if (busy) return;
+    if (busy || !confirmed) return;
     const previousReactions = reactions;
     const active = !reactions.some((item) => item.emoji === emoji && item.reactedByViewer);
     setReactions(toggleReaction(reactions, emoji, active));
@@ -87,17 +93,18 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
           <div className={`${styles.bubble} ${own ? styles.outgoing : styles.incoming}`}>
             {!own && !grouped ? <p className={`${styles.sender} ${styles[`sender${senderColor(message.senderUserId)}`]}`}><bdi>{message.senderName}</bdi></p> : null}
             {message.failed ? <p className={styles.failed}>This message could not be opened on this device.</p> : <>
-              {image ? <ChatImage session={session} message={message} type={image.type}
-                visible={visible} layoutBlocked={layoutBlocked} scrollRoot={scrollRoot} onError={onMediaError} onViewerChange={(open) => onViewerChange(message.id, open)} /> : null}
-              {file ? <ChatSharedFile session={session} message={message} type={file.type} name={file.name} onError={onMediaError} /> : null}
+              {image ? <ChatImage session={session} message={confirmed ? message : undefined} type={image.type} localImage={message.localImage} thumbnail={image.thumbnail}
+                visible={visible} layoutBlocked={layoutBlocked} scrollRoot={scrollRoot} onError={onMediaError} onViewerChange={(open) => onViewerChange(viewerId, open)} /> : null}
+              {file && confirmed ? <ChatSharedFile session={session} message={message} type={file.type} name={file.name} onError={onMediaError} /> : null}
               {message.content?.text ? <p dir="auto" className={`${styles.text} ${image || file ? styles.caption : ""}`}>{message.content.text}</p> : null}
             </>}
             <div className={styles.meta}>
               <time dateTime={message.createdAt} title={time.toLocaleString()}>{time.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</time>
-              {own ? <span aria-label={status} title={status} className={seen ? styles.seen : ""}>{seen ? <CheckCheck aria-hidden="true" className="size-4" /> : <Check aria-hidden="true" className="size-4" />}</span> : null}
+              {own ? confirmed ? <span aria-label={status} title={status} className={seen ? styles.seen : ""}>{seen ? <CheckCheck aria-hidden="true" className="size-4" /> : <Check aria-hidden="true" className="size-4" />}</span>
+                : <span role="status">{message.delivery === "sending" ? "Sending…" : "Delivery unconfirmed"}</span> : null}
             </div>
           </div>
-          <div ref={pickerRoot} className={styles.reactionControl}>
+          {confirmed ? <div ref={pickerRoot} className={styles.reactionControl}>
             <button type="button" className={styles.addReaction} aria-label="React to message" aria-expanded={pickerOpen} disabled={busy}
               onClick={() => { if (holdOpened.current) { holdOpened.current = false; return; } setPickerOpen((open) => !open); }}
               onPointerDown={(event) => { if (event.pointerType === "touch") { holdOpened.current = false; hold.current = setTimeout(() => { holdOpened.current = true; setPickerOpen(true); }, 420); } }}
@@ -106,7 +113,7 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
             {pickerOpen ? <div className={styles.picker} role="group" aria-label="Choose a reaction">
               {REACTIONS.map((emoji) => <button key={emoji} type="button" aria-label={`React with ${emoji}`} onClick={() => void react(emoji)}>{emoji}</button>)}
             </div> : null}
-          </div>
+          </div> : null}
         </div>
         {reactions.length ? <div className={styles.pills}>{reactions.map((reaction) => <button key={reaction.emoji} type="button"
           className={`${styles.pill} ${reaction.reactedByViewer ? styles.mine : ""}`} aria-label={`${reaction.emoji}, ${reaction.count} reactions${reaction.reactedByViewer ? ", you reacted" : ""}`}

@@ -34,6 +34,27 @@ activity) with a real bottom-nav tab and a dedicated route, `/one/feed`.
 
 ## Chat conversation presentation
 
+Circle photo sends show the original from mounted-view memory on the Send tap,
+with an explicit pending status until the server confirms delivery. Transcript
+confirmation reconciles the same sender/client identity even when the POST
+response is late; uncertain retries reuse the entire sealed payload unchanged.
+At most four sent originals remain in the mounted thread, and object URLs are
+released on hide, background, access loss, and unmount.
+
+New photo content may include a JPEG thumbnail of at most 1,536 bytes inside
+the authenticated encrypted attachment metadata. It arrives with the message
+and stays visible during the authorized original download; older messages still
+use the original image path. Serialized UTF-8 content must fit the existing
+24,000-character ciphertext limit, otherwise the optional thumbnail is omitted.
+Original photo bytes and existing recipient/membership authorization are unchanged.
+Recipients still wait for the sender's encrypted upload to commit.
+
+Circle detail entry relays only the selected circle's display name and member
+count while fresh reads resolve. Fresh overview can render before the member
+page; pending members occupy a bounded roster placeholder. Relayed summaries
+never grant controls or chat access, and detail authority is scoped to the
+current person and in-memory unlock identity.
+
 Circle messages share one Feed entry per Circle; received Direct Messages share
 one entry per authenticated conversation. The API groups before applying the
 cursor and page limit, using the newest immutable source event as the entry id.

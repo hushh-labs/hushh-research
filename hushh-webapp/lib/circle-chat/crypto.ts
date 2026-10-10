@@ -5,12 +5,15 @@ export type ChatKeyRecovery = { vaultKey: string; remoteBackup: OneLocationMyRec
 
 export const MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_CHAT_TEXT = 4000;
+export const MAX_CHAT_THUMBNAIL_BYTES = 1536;
+const MAX_CHAT_CONTENT_BYTES = 17984; // 24,000 base64url characters, including the GCM tag.
+export type ChatImageThumbnail = { type: "image/jpeg"; data: string };
 export type ChatMemberKey = { userId: string; name: string; keyId: string | null; publicKeyJwk: JsonWebKey | null };
-export type ChatAttachment = { kind: "photo" | "video" | "document"; type: string; name: string };
+export type ChatAttachment = { kind: "photo" | "video" | "document"; type: string; name: string; thumbnail?: ChatImageThumbnail };
 export type ChatContent = {
   text: string;
   /** Legacy image messages remain readable after the attachment expansion. */
-  image?: { type: string; name: string } | null;
+  image?: { type: string; name: string; thumbnail?: ChatImageThumbnail } | null;
   attachment?: ChatAttachment | null;
 };
 export type SealedChatMessage = {
@@ -54,6 +57,17 @@ export function validateChatImageBytes(bytes: Uint8Array, type: string): void {
   }
 }
 
+export function chatThumbnailBlob(thumbnail: ChatImageThumbnail): Blob {
+  if (thumbnail.type !== "image/jpeg" || typeof thumbnail.data !== "string"
+      || thumbnail.data.length > 2048 || !/^[A-Za-z0-9+/]+={0,2}$/u.test(thumbnail.data)) {
+    throw new Error("Unsupported image preview.");
+  }
+  const bytes = decode(thumbnail.data);
+  if (bytes.length > MAX_CHAT_THUMBNAIL_BYTES) throw new Error("Image preview is too large.");
+  validateChatImageBytes(bytes, thumbnail.type);
+  return new Blob([bytes], { type: thumbnail.type });
+}
+
 export function validateChatAttachmentBytes(bytes: Uint8Array, type: string): ChatAttachment["kind"] {
   if (bytes.length === 0 || bytes.length > MAX_CHAT_IMAGE_BYTES) {
     throw new Error("Choose a photo, video, or document up to 5 MB.");
@@ -80,14 +94,14 @@ export function validateChatAttachmentBytes(bytes: Uint8Array, type: string): Ch
 
 export async function sealChatMessage(params: {
   circleId: string; userId: string; rosterVersion: string; members: ChatMemberKey[];
-  text: string; file?: File | null;
+  text: string; file?: File | null; clientMessageId?: string; thumbnail?: ChatImageThumbnail;
 }): Promise<SealedChatMessage> {
   const text = params.text.trim();
   if ((!text && !params.file) || text.length > MAX_CHAT_TEXT) throw new Error("Write a message up to 4,000 characters or choose a file.");
   const missing = params.members.filter((member) => !member.keyId || !member.publicKeyJwk);
   if (missing.length) throw new Error(`${missing[0]!.name} needs to open the app to enable secure chat.`);
   if (!params.members.some((member) => member.userId === params.userId)) throw new Error("You are no longer a member of this circle.");
-  const id = crypto.randomUUID();
+  const id = params.clientMessageId ?? crypto.randomUUID();
   const rawKey = crypto.getRandomValues(new Uint8Array(32));
   try {
     const key = await crypto.subtle.importKey("raw", rawKey, "AES-GCM", false, ["encrypt"]);
@@ -111,7 +125,19 @@ export async function sealChatMessage(params: {
       image = await seal(bytes, "image");
     }
     const content: ChatContent = { text, attachment };
-    const sealed = await seal(new TextEncoder().encode(JSON.stringify(content)), "content");
+    if (attachment?.kind === "photo" && params.thumbnail) {
+      try {
+        chatThumbnailBlob(params.thumbnail);
+        attachment.thumbnail = params.thumbnail;
+      } catch { /* An optional preview must never invalidate an attachment. */ }
+    }
+    let contentBytes = new TextEncoder().encode(JSON.stringify(content));
+    if (contentBytes.length > MAX_CHAT_CONTENT_BYTES && attachment?.thumbnail) {
+      delete attachment.thumbnail;
+      contentBytes = new TextEncoder().encode(JSON.stringify(content));
+    }
+    if (contentBytes.length > MAX_CHAT_CONTENT_BYTES) throw new Error("This message is too large. Shorten the caption and try again.");
+    const sealed = await seal(contentBytes, "content");
     const recipients = await Promise.all(params.members.map(async (member) => ({
       userId: member.userId,
       envelope: await sealRecipientPayload({ bytes: rawKey, context: context(`key:${member.userId}`),
@@ -142,6 +168,13 @@ export async function openChatContent(circle: string, user: string, message: Cha
         || typeof attachment.type !== "string"
         || !["image/jpeg", "image/png", "image/webp", "video/mp4", "video/webm", "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain"].includes(attachment.type))) {
     throw new Error("This message has an unsupported format.");
+  }
+  if (attachment?.thumbnail) {
+    // Ignore malformed optional previews, keeping the authenticated original readable.
+    try {
+      if (!attachment.type.startsWith("image/")) throw new Error("Preview requires a photo.");
+      chatThumbnailBlob(attachment.thumbnail);
+    } catch { delete attachment.thumbnail; }
   }
   return content;
 }
