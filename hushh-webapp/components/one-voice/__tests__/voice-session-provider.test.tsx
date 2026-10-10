@@ -58,7 +58,7 @@ vi.mock("@/lib/services/api-service", () => ({
   ApiService: { getFirebaseIdToken: vi.fn(async () => "firebase-proof") },
   normalizeNativeBackendUrl: (value: string) => value,
 }));
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
   getVoiceSurfaceMetadata: () => null,
 }));
 vi.mock("@/components/vault/vault-unlock-dialog", () => ({

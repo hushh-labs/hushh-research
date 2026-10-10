@@ -56,6 +56,10 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.ONE_WALLET) {
     return { screen: "one_wallet", subview: null };
   }
+  if (normalizedPath === ROUTES.ONE_WALLET_CARD) return { screen: "one_wallet_card", subview: null };
+  if (normalizedPath === ROUTES.ONE_MESSAGES) return { screen: "one_messages", subview: null };
+  if (normalizedPath === "/one/email") return { screen: "email_agent", subview: null };
+  if (normalizedPath === ROUTES.ONE_PUPPY) return { screen: "puppy_one", subview: null };
   if (normalizedPath === "/people/[personRef]") {
     return { screen: "one_person_profile", subview: null };
   }
@@ -314,6 +318,7 @@ export function deriveVoiceRouteScreen(
   }
   if (
     normalizedPath === ROUTES.CONNECTED_SYSTEMS ||
+    normalizedPath.startsWith(ROUTES.CONNECTED_SYSTEMS + "/") ||
     normalizedPath === ROUTES.LEGACY_CONNECTED_SYSTEMS
   ) {
     return { screen: "connected_systems", subview: query.get("tab") || null };

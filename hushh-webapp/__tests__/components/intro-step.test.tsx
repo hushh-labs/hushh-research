@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { IntroStep } from "@/components/onboarding/IntroStep";
 import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
-import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { getVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 vi.mock("@/components/onboarding/OnboardingHeroBackground", () => ({
   OnboardingHeroBackground: () => null,

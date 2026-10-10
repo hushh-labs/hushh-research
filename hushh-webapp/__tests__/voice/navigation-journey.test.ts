@@ -3,14 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   getKaiActionById,
   listKaiActions,
-} from "@/lib/voice/kai-action-gateway";
+} from "@/lib/kai/actions/kai-action-gateway";
 import {
   firstMissingRequiredSlot,
   resolveJourneyPlan,
   resolveJourneyPlanForGoal,
   resolveJourneySlots,
   resolveNavigationJourney,
-} from "@/lib/voice/navigation-journey";
+} from "@/lib/kai/actions/navigation-journey";
 
 /**
  * The browser half of the navigate-then-execute journey. It used to be a

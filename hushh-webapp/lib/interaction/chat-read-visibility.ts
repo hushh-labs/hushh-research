@@ -1,4 +1,4 @@
-import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { getVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 /** Check the existing authored/Radix layer owners without observing the body. */
 export function chatReadIsBlocked(element: HTMLElement): boolean {

@@ -54,7 +54,7 @@ import {
   ConnectionsService,
   type ConnectionRelationship,
 } from "@/lib/services/connections-service";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { cn } from "@/lib/utils";
 
 export type AskPerson = {

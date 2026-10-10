@@ -16,7 +16,7 @@ import {
   setTopShellTabSwipeState,
   subscribeTopShellTabSelection,
 } from "@/lib/navigation/top-shell-tab-swipe-progress";
-import { VoiceSurfaceActivityBoundary } from "@/lib/voice/voice-surface-activity";
+import { VoiceSurfaceActivityBoundary } from "@/lib/kai/actions/voice-surface-activity";
 import { cn } from "@/lib/utils";
 
 /**

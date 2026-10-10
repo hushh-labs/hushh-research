@@ -345,6 +345,33 @@ webhook secret and belong to the same test/live mode. The public API receives
 these webhooks; the private Drive worker uses the payment API credentials for
 settlement and does not receive public webhooks.
 
+### Automated payment-to-payout checks
+
+Run the existing CI-listed suites without a browser:
+
+```bash
+cd consent-protocol
+REQUIRE_CONNECTOR_POSTGRES=1 uv run pytest -q \
+  tests/services/test_drive_request_payment.py \
+  tests/test_drive_request_owner_payouts.py \
+  tests/test_stripe_connect_bank_payouts.py \
+  tests/test_pkm_payouts.py
+```
+
+The PostgreSQL fixture creates an isolated local database and fails if its
+required test database is unavailable. Never point these tests at UAT or a
+production database. Stripe credentials, account IDs and provider responses in
+these tests are synthetic; signatures use the real Stripe verifier.
+
+The connected lifecycle checks owner approval, payment before sharing, confirmed
+delivery, the 3% retained-charge commission, actual-fee deduction, proportional
+refunds and owner transfers. Bank-event checks cover authenticated history,
+test/live isolation, signed public webhooks, duplicates, out-of-order events and
+retryable failures. Bank deposits are account-level records, not proof that an
+individual request's proceeds reached a bank. Passing these tests verifies our
+processing of provider evidence; it does not verify a real bank deposit or the
+live webhook destination's configuration.
+
 ### UAT live payments
 
 `STRIPE_UAT_MODE` is a GitHub UAT environment variable (`test` by default). Both

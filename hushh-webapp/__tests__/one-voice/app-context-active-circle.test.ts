@@ -12,7 +12,7 @@ import {
   collectActiveCircleId,
   collectScreenState,
 } from "@/lib/one-voice/app-context";
-import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import type { VoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 const FAMILY = "11111111-1111-4111-8111-111111111111";
 

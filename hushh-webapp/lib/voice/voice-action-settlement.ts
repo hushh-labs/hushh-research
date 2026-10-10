@@ -1,7 +1,7 @@
-import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
+import { deriveVoiceRouteScreen } from "@/lib/kai/actions/route-screen-derivation";
 import { appRouteMatches } from "@/lib/navigation/route-settlement";
-import type { AppRuntimeState, VoiceActionResult, VoicePlanMode } from "@/lib/voice/voice-types";
-import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import type { AppRuntimeState, VoiceActionResult, VoicePlanMode } from "@/lib/kai/actions/voice-types";
+import type { VoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 type RouteSnapshot = AppRuntimeState["route"];
 

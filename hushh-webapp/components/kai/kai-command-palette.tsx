@@ -1,6 +1,6 @@
 "use client";
 
-import { resolveSearchScreen, searchTargetMatchesCurrentRoute } from "@/lib/voice/search-route-context";
+import { resolveSearchScreen, searchTargetMatchesCurrentRoute } from "@/lib/search/search-route-context";
 
 import {
   Fragment,
@@ -53,15 +53,15 @@ import {
   searchKaiActionsSemantic,
   type KaiActionAvailability,
   type KaiActionDefinition,
-} from "@/lib/voice/kai-action-gateway";
-import { navigationActionForRoute } from "@/lib/voice/navigation-journey";
+} from "@/lib/kai/actions/kai-action-gateway";
+import { navigationActionForRoute } from "@/lib/kai/actions/navigation-journey";
 import {
   isDiscoverableCapability,
   projectKaiActionCapability,
   type VoiceCapabilityStateV1,
-} from "@/lib/voice/capability-projection";
-import type { AppRuntimeState } from "@/lib/voice/voice-types";
-import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/capability-projection";
+import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
+import type { VoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import type { KaiCommandBarIntent } from "@/lib/navigation/kai-command-bar-events";
 import { Icon, type IconProps } from "@/lib/morphy-ux/ui";
@@ -72,7 +72,7 @@ import {
   recordActionUse,
   usageBoostFor,
   type ActionUsageEntry,
-} from "@/lib/voice/action-usage-memory";
+} from "@/lib/search/action-usage-memory";
 
 export type KaiCommandPaletteSelection = {
   actionId: string;

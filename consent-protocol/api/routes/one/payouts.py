@@ -22,6 +22,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 
 from api.middleware import require_vault_owner_token
+from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
 from hushh_mcp.services.pkm_packet_order_service import PacketOrderError
 from hushh_mcp.services.pkm_payout_service import PkmPayoutService
 from hushh_mcp.services.stripe_connect_bank_payouts import (
@@ -105,8 +106,12 @@ async def get_bank_payouts(
             user_id=token_data["user_id"]
         )
         return summary
-    except ConnectBankPayoutError:
-        raise HTTPException(status_code=503, detail="Bank payout status is unavailable.") from None
+    except (ConnectBankPayoutError, ConnectorLifecycleError):
+        raise HTTPException(
+            status_code=503,
+            detail="Bank payout status is unavailable.",
+            headers={"Cache-Control": "private, no-store"},
+        ) from None
 
 
 @router.post("/account/manage")
@@ -154,12 +159,12 @@ async def stripe_connect_webhook(
         result = await StripeConnectBankPayouts().process_webhook(
             payload=payload, signature=stripe_signature
         )
-    except ConnectBankPayoutError as exc:
+    except (ConnectBankPayoutError, ConnectorLifecycleError) as exc:
         status = {
             "invalid_signature": 400,
             "invalid_event": 400,
             "provider_mismatch": 409,
-        }.get(exc.code, 503)
+        }.get(exc.code if isinstance(exc, ConnectBankPayoutError) else "storage_unavailable", 503)
         raise HTTPException(
             status_code=status,
             detail="Connect event could not be processed.",
