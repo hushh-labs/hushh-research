@@ -1054,8 +1054,10 @@ article[data-message-role="user"] .messageActionError {
    Both pane headers share one track, while the transcript and composer keep
    space above the retained shared composer and navigation. */
 .shell[data-app-shell-width] {
-  max-width: var(--app-shell-expanded, 96rem);
-  padding-inline: var(--page-inline-gutter-standard, 1rem);
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
 }
 .page, .page[data-chat-open="true"] {
   height: calc(100dvh - var(--app-top-content-offset, 6rem) - var(--app-safe-area-top-effective, 0px) - var(--app-scroll-bottom-pad, 8rem));
@@ -1158,7 +1160,8 @@ article[data-message-role="user"] .messageActionError {
 /* Bound the transcript above the shared app chrome and keyboard. */
 .page { --direct-message-keyboard-inset: var(--kb-height, 0px); }
 :global(html.kb-resizes) .page { --direct-message-keyboard-inset: 0px; }
-.page, .page[data-chat-open="true"] { height: max(0px, calc(100dvh - var(--app-top-content-offset, 6rem) - var(--app-safe-area-top-effective, 0px) - max(var(--app-scroll-bottom-pad, 8rem), calc(var(--direct-message-keyboard-inset) + var(--direct-message-dock-height, 0px))) - 1rem)); min-height: 0; max-height: none; }
+:global(html.kb-open:not(.kb-resizes)) .page { --direct-message-dock-clearance: 8px; }
+.page, .page[data-chat-open="true"] { height: max(0px, calc(100dvh - var(--direct-message-page-top, var(--app-top-content-offset, 6rem)) - max(var(--app-scroll-bottom-pad, 8rem), calc(var(--direct-message-keyboard-inset) + var(--direct-message-dock-height, 0px) + var(--direct-message-dock-clearance, 0px))))); min-height: 0; max-height: none; }
 .thread { position: relative; }
 .inboxHeader, .threadHeaderContent { min-height: 4.25rem; }
 .backButton, .headerAction, .refreshButton, .voiceButton, .sendButton, .threadSearchClear, .messageActionButton, .composerReplyPreview button, .messageEditActions button, .reactionChip { min-width: 44px; min-height: 44px; height: 44px; }
@@ -1367,37 +1370,70 @@ article[data-message-role="peer"] .messageCluster {
   max-width: min(86%, 38rem, calc(100% - 132px));
 }
 
-/* Chat uses the profile font and the supplied iOS blue palette. The shared
-   bottom shell still owns the navbar and the centered composer material. */
+/* Messages owns its palette locally. The shared bottom shell still owns the
+   navbar and centered composer; Profile accent preferences do not recolor
+   message actions. */
 .page[data-theme="light"] {
   --chat-accent: var(--chat-ios-accent);
   --chat-surface: #ffffff;
-  --chat-text: #1c1c1e;
-  --chat-muted: #8e8e93;
+  --chat-surface-2: #eef0f4;
+  --chat-surface-3: #e5e8ed;
+  --chat-text: #111318;
+  --chat-muted: #6c727e;
+  --chat-faint: #969ba5;
+  --chat-line: #e2e5ea;
+  --chat-blue-tint: #e7f2ff;
   --chat-incoming: #ffffff;
-  --chat-glass: rgba(255, 255, 255, .68);
-  --chat-glass-edge: rgba(255, 255, 255, .65);
-  --chat-row-active: rgba(0, 122, 255, .1);
-  background: linear-gradient(180deg, #f7f7fa, #eef0f4);
+  --chat-glass: rgba(255, 255, 255, .66);
+  --chat-glass-strong: rgba(255, 255, 255, .84);
+  --chat-glass-edge: rgba(255, 255, 255, .72);
+  --chat-row-active: #e7f2ff;
+  --foreground: var(--chat-text);
+  --muted-foreground: var(--chat-muted);
+  --app-accent: var(--chat-accent);
+  --app-accent-hover: #006fe8;
+  --app-accent-fg: #ffffff;
+  --one-chat-divider: var(--chat-line);
+  --one-chat-canvas: transparent;
+  --one-chat-raised: var(--chat-surface);
+  --one-chat-row-hover: var(--chat-surface-2);
+  --one-chat-row-active: var(--chat-row-active);
+  background: #f5f6f8;
 }
 .page[data-theme="dark"] {
   --chat-accent: var(--chat-ios-accent);
-  --chat-surface: #1b1b20;
-  --chat-text: #f5f5f7;
-  --chat-muted: #9a9aa2;
-  --chat-incoming: #2a2a31;
-  --chat-glass: rgba(30, 30, 36, .62);
-  --chat-glass-edge: rgba(255, 255, 255, .14);
-  --chat-row-active: rgba(10, 132, 255, .16);
-  background: linear-gradient(180deg, #141419, #0b0b0e);
+  --chat-surface: #14161b;
+  --chat-surface-2: #202329;
+  --chat-surface-3: #292d34;
+  --chat-text: #f5f7fb;
+  --chat-muted: #a3a8b2;
+  --chat-faint: #777d88;
+  --chat-line: #282c33;
+  --chat-blue-tint: #102a43;
+  --chat-incoming: #14161b;
+  --chat-glass: rgba(20, 22, 27, .64);
+  --chat-glass-strong: rgba(20, 22, 27, .84);
+  --chat-glass-edge: rgba(255, 255, 255, .09);
+  --chat-row-active: #102a43;
+  --foreground: var(--chat-text);
+  --muted-foreground: var(--chat-muted);
+  --app-accent: var(--chat-accent);
+  --app-accent-hover: #3399ff;
+  --app-accent-fg: #ffffff;
+  --one-chat-divider: var(--chat-line);
+  --one-chat-canvas: transparent;
+  --one-chat-raised: var(--chat-surface);
+  --one-chat-row-hover: var(--chat-surface-2);
+  --one-chat-row-active: var(--chat-row-active);
+  background: #090a0d;
 }
 .page {
-  grid-template-columns: 380px minmax(0, 1fr);
+  grid-template-columns: 370px minmax(0, 1fr);
   font-family: var(--font-app-body);
   color: var(--chat-text);
   transition: background .25s ease, color .25s ease;
 }
-.page[data-chat-open="true"] { grid-template-columns: 380px minmax(0, 1fr); }
+.page[data-chat-open="true"] { grid-template-columns: 370px minmax(0, 1fr); }
 .page[data-chat-lane="circles"] > .inbox,
 .page[data-chat-lane="circles"] > .thread { display: none; }
 .page :global([data-circle-messages-pane]) {
@@ -1405,8 +1441,14 @@ article[data-message-role="peer"] .messageCluster {
   min-height: 0;
   font-family: var(--font-app-body);
 }
+.page :global([data-circle-messages-pane][data-active="false"]) { display: none; }
 .inbox, .thread, .messageList { background: transparent; }
-.inbox { border-right: 1px solid color-mix(in srgb, var(--chat-text) 8%, transparent); }
+.inbox {
+  border-right: 1px solid var(--chat-glass-edge);
+  background: var(--chat-glass-strong);
+  backdrop-filter: blur(28px) saturate(145%);
+  -webkit-backdrop-filter: blur(28px) saturate(145%);
+}
 .inboxHeader {
   min-height: 68px;
   height: 68px;
@@ -1432,10 +1474,11 @@ article[data-message-role="peer"] .messageCluster {
 .inboxSearchField {
   min-height: 42px;
   border-radius: 14px;
-  background: color-mix(in srgb, var(--chat-text) 5%, var(--chat-surface));
+  background: var(--chat-surface-2);
   color: var(--chat-muted);
 }
 .inboxSearchField input { font-size: 13px; }
+.inboxSearchField input::placeholder { color: var(--chat-faint); }
 .laneSwitcher {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1443,24 +1486,39 @@ article[data-message-role="peer"] .messageCluster {
   margin: 0 16px 12px;
   padding: 4px;
   border-radius: 13px;
-  background: color-mix(in srgb, var(--chat-text) 5%, var(--chat-surface));
+  background: var(--chat-surface-2);
 }
 .laneSwitcher button {
   min-height: 34px;
   border-radius: 10px;
   color: var(--chat-muted);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   transition: background-color .15s ease, color .15s ease;
 }
 .laneSwitcher button[aria-selected="true"] {
   background: var(--chat-surface);
-  color: var(--chat-accent);
+  color: var(--chat-text);
   box-shadow: 0 1px 5px rgba(0, 0, 0, .08);
 }
-.circleLaneSwitcher { display: flex; align-items: center; }
-.circleLaneSwitcher .laneSwitcher { flex: 1; margin-right: 4px; }
-.circleLaneSwitcher .refreshButton { margin: 0 14px 12px 0; }
+.laneCount {
+  display: inline-grid;
+  min-width: 18px;
+  height: 17px;
+  margin-left: 4px;
+  padding-inline: 4px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--chat-surface-3);
+  color: var(--chat-muted);
+  font-size: 10px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.laneSwitcher button[aria-selected="true"] .laneCount {
+  background: var(--chat-blue-tint);
+  color: var(--chat-accent);
+}
 .conversationList { padding: 0 8px 1rem; }
 .conversationRow {
   min-height: 70px;

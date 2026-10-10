@@ -9,6 +9,7 @@ import { OneLocationService } from "@/lib/one-location/service";
 import type { OneLocationCircleSummary } from "@/lib/one-location/types";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useBackLayer } from "@/lib/navigation/back-layers";
+import { writeLastMessagesSelection } from "@/lib/direct-messages/last-selection";
 import { CircleChat } from "./circle-chat";
 import { AgentDockPortal } from "@/components/agent/agent-dock";
 import { ArrowLeft, MessageCircle, Plus, UsersRound } from "@/components/icons";
@@ -22,9 +23,13 @@ function GroupAvatar({ name, photoUrl }: { name: string; photoUrl?: string | nul
 }
 
 /** The Chat lane reuses the same Circle membership and encrypted thread as Connect. */
-export function CircleMessagesPane({ onThreadOpenChange, laneSwitcher, theme = "light" }: {
+export function CircleMessagesPane({ active = true, initialCircleId = null, onThreadOpenChange, onCircleCountChange, laneSwitcher, headerActions, theme = "light" }: {
+  active?: boolean;
+  initialCircleId?: string | null;
   onThreadOpenChange?: (open: boolean) => void;
+  onCircleCountChange?: (count: number) => void;
   laneSwitcher?: ReactNode;
+  headerActions?: ReactNode;
   theme?: "light" | "dark";
 }) {
   const { user } = useAuth();
@@ -32,18 +37,27 @@ export function CircleMessagesPane({ onThreadOpenChange, laneSwitcher, theme = "
   const token = vault?.vaultOwnerToken ?? null;
   const ownerId = user?.uid ?? null;
   const [loaded, setLoaded] = useState<{ token: string; ownerId: string; circles: OneLocationCircleSummary[] } | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialCircleId);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
 
-  useBackLayer(ROUTES.ONE_MESSAGES, selectedId ? 1 : 0, () => {
+  const closeThread = () => {
     setSelectedId(null);
-    return true;
-  });
+    writeLastMessagesSelection(ownerId, { lane: "circles", circleId: null });
+  };
 
   useEffect(() => {
-    onThreadOpenChange?.(Boolean(selectedId));
-  }, [selectedId, onThreadOpenChange]);
+    if (initialCircleId) setSelectedId(initialCircleId);
+  }, [initialCircleId]);
+
+  useEffect(() => {
+    if (!active) setSelectedId(null);
+  }, [active]);
+
+  useBackLayer(ROUTES.ONE_MESSAGES, active && selectedId ? 1 : 0, () => {
+    closeThread();
+    return true;
+  });
 
   useEffect(() => {
     if (!token || !ownerId) return;
@@ -54,7 +68,6 @@ export function CircleMessagesPane({ onThreadOpenChange, laneSwitcher, theme = "
         const circles = await OneLocationService.listCircles(token);
         if (!active) return;
         setLoaded({ token, ownerId, circles });
-        setSelectedId((previous) => previous && circles.some((item) => item.id === previous) ? previous : null);
         setError(false);
       } catch {
         if (active) setError(true);
@@ -68,6 +81,7 @@ export function CircleMessagesPane({ onThreadOpenChange, laneSwitcher, theme = "
   }, [token, ownerId]);
 
   const circles = loaded?.token === token && loaded.ownerId === ownerId ? loaded.circles : [];
+  useEffect(() => { onCircleCountChange?.(circles.length); }, [circles.length, onCircleCountChange]);
   const selected = circles.find((circle) => circle.id === selectedId) ?? null;
   const session = selected && ownerId && token && vault?.vaultKey ? {
     circleId: selected.id,
@@ -75,11 +89,23 @@ export function CircleMessagesPane({ onThreadOpenChange, laneSwitcher, theme = "
     vaultOwnerToken: token,
     vaultKey: vault.vaultKey,
   } : null;
+  const sessionCircleId = session?.circleId ?? null;
 
-  return <div className={styles.pane} data-circle-messages-pane>
-    <AgentDockPortal enabled={!selected || !session} visible={false} suppressed>{null}</AgentDockPortal>
+  useEffect(() => {
+    onThreadOpenChange?.(active && Boolean(sessionCircleId));
+  }, [active, sessionCircleId, onThreadOpenChange]);
+
+  useEffect(() => {
+    if (!selectedId || !loaded || loaded.ownerId !== ownerId || loaded.token !== token) return;
+    if (loaded.circles.some((circle) => circle.id === selectedId)) return;
+    setSelectedId(null);
+    if (active) writeLastMessagesSelection(ownerId, { lane: "circles", circleId: null });
+  }, [active, loaded, ownerId, selectedId, token]);
+
+  return <div className={styles.pane} data-circle-messages-pane data-active={active ? "true" : "false"} aria-hidden={!active} inert={!active}>
+    <AgentDockPortal enabled={active && (!selected || !session)} visible={false} suppressed>{null}</AgentDockPortal>
     <aside className={styles.list} data-thread-open={Boolean(selected) || undefined} aria-label="Circles">
-      <div className={styles.listHeader}><strong>Circles</strong><Link href={ROUTES.CONNECT} aria-label="Manage circles"><Plus aria-hidden="true" className="size-5" /></Link></div>
+      <div className={styles.listHeader}><h1>Messages</h1><div className={styles.listHeaderActions}>{headerActions}<Link href={ROUTES.CONNECT} aria-label="Manage circles"><Plus aria-hidden="true" className="size-5" /></Link></div></div>
       {laneSwitcher}
       {!token || !vault?.vaultKey ? <p className={styles.notice}>Unlock One to view your circles.</p> : null}
       {loading && !circles.length ? <p role="status" className={styles.notice}>Loading circles…</p> : null}
@@ -90,7 +116,10 @@ export function CircleMessagesPane({ onThreadOpenChange, laneSwitcher, theme = "
         <Link href={ROUTES.CONNECT}>Create a circle</Link>
       </div> : null}
       {circles.map((circle) => <button key={circle.id} type="button" className={styles.row}
-        data-selected={selectedId === circle.id || undefined} onClick={() => setSelectedId(circle.id)}>
+        data-selected={selectedId === circle.id || undefined} onClick={() => {
+          setSelectedId(circle.id);
+          writeLastMessagesSelection(ownerId, { lane: "circles", circleId: circle.id });
+        }}>
         <GroupAvatar name={circle.name} photoUrl={circle.photoUrl} />
         <span className={styles.rowText}><strong>{circle.name}</strong><span>{circle.memberCount} {circle.memberCount === 1 ? "member" : "members"}</span></span>
         <MessageCircle aria-hidden="true" className="size-4" />
@@ -99,11 +128,11 @@ export function CircleMessagesPane({ onThreadOpenChange, laneSwitcher, theme = "
     <section className={styles.thread} data-thread-open={Boolean(selected) || undefined} aria-label={selected ? `${selected.name} messages` : "Circle messages"}>
       {selected && session ? <>
         <header className={styles.threadHeader}>
-          <button type="button" className={styles.back} aria-label="Back to circles" onClick={() => setSelectedId(null)}><ArrowLeft aria-hidden="true" className="size-5" /></button>
+          <button type="button" className={styles.back} aria-label="Back to circles" onClick={closeThread}><ArrowLeft aria-hidden="true" className="size-5" /></button>
           <GroupAvatar name={selected.name} photoUrl={selected.photoUrl} />
           <span className={styles.rowText}><strong>{selected.name}</strong><span>{selected.memberCount} {selected.memberCount === 1 ? "member" : "members"}</span></span>
         </header>
-        <CircleChat key={`${session.userId}:${session.circleId}:${session.vaultOwnerToken}`} session={session} circleName={selected.name} initialOpen collapsible={false} chatLane chatLaneTheme={theme} />
+        <CircleChat key={`${session.userId}:${session.circleId}:${session.vaultOwnerToken}`} session={session} circleName={selected.name} initialOpen active={active} collapsible={false} chatLane chatLaneTheme={theme} />
       </> : <div className={styles.placeholder}><UsersRound aria-hidden="true" className="size-8" /><p>Select a circle to start chatting.</p></div>}
     </section>
   </div>;

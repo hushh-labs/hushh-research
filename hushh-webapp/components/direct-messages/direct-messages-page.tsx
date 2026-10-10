@@ -1,6 +1,7 @@
 "use client";
 
 import { replaceMessageHistory } from "@/lib/direct-messages/message-history";
+import { writeLastMessagesSelection, type LastMessagesSelection } from "@/lib/direct-messages/last-selection";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -297,13 +298,14 @@ function threadFromConversation(
   };
 }
 
-export function DirectMessagesPage({ selection, resolvingSelection = false }: { selection?: { kind: "conversation" | "person"; ref: string } | null; resolvingSelection?: boolean } = {}) {
+export function DirectMessagesPage({ selection, resolvingSelection = false, restoredSelection = null }: { selection?: { kind: "conversation" | "person"; ref: string } | null; resolvingSelection?: boolean; restoredSelection?: LastMessagesSelection | null } = {}) {
   const { user, loading: authLoading } = useAuth();
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const router = useRouter();
   const requestedPersonRef = selection?.kind === "person" ? selection.ref : "";
   const requestedConversationId = selection?.kind === "conversation" ? selection.ref : "";
+  const restoredLane = restoredSelection?.lane;
   const [thread, setThread] = useState<ThreadState>(EMPTY_THREAD);
   const [messages, setMessages] = useState<DirectMessage[]>([]);
   const [inboxItems, setInboxItems] = useState<DirectMessageConversation[]>([]);
@@ -315,8 +317,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
   const [newChatHasMore, setNewChatHasMore] = useState(false);
   const [newChatLoading, setNewChatLoading] = useState(false);
   const [newChatError, setNewChatError] = useState(false);
-  const [lane, setLane] = useState<"people" | "circles">("people");
+  const [lane, setLane] = useState<"people" | "circles">(restoredSelection?.lane ?? "people");
   const [circleThreadOpen, setCircleThreadOpen] = useState(false);
+  const [circleCount, setCircleCount] = useState(0);
   const [loadingInbox, setLoadingInbox] = useState(false);
   const [inboxError, setInboxError] = useState<string | null>(null);
   const [loadingThread, setLoadingThread] = useState(false);
@@ -391,7 +394,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
   const routeSelection = `${requestedPersonRef ? "person" : "conversation"}:${requestedPersonRef || requestedConversationId}`;
   useEffect(() => {
     if (requestedPersonRef || requestedConversationId) setLane("people");
-  }, [requestedPersonRef, requestedConversationId]);
+    else if (restoredLane) setLane(restoredLane);
+  }, [requestedPersonRef, requestedConversationId, restoredLane]);
   const selectionRef = useRef(routeSelection);
   const ownerRef = useRef(user?.uid);
   const selectionGeneration = useRef(0);
@@ -425,12 +429,14 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
     if (!page || !dockFrame) return;
     const publish = () => {
       page.style.setProperty("--direct-message-dock-height", `${Math.ceil(dockFrame.getBoundingClientRect().height)}px`);
+      page.style.setProperty("--direct-message-page-top", `${Math.max(0, Math.ceil(page.getBoundingClientRect().top))}px`);
       setReadRevision((value) => value + 1);
     };
     publish();
     const observer = new ResizeObserver(publish);
     observer.observe(dockFrame);
-    return () => observer.disconnect();
+    window.addEventListener("resize", publish);
+    return () => { observer.disconnect(); window.removeEventListener("resize", publish); };
   }, [dockFrame]);
 
   const invalidateSelection = useCallback(() => {
@@ -865,7 +871,17 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
 
   const backToConnections = () => {
     replaceMessageHistory(null);
+    writeLastMessagesSelection(user?.uid, { lane: "people", token: null });
     router.replace(ROUTES.ONE_MESSAGES, { scroll: false });
+  };
+
+  const chooseLane = (nextLane: "people" | "circles") => {
+    if (nextLane === lane) return;
+    if (nextLane === "circles") replaceMessageHistory(null);
+    writeLastMessagesSelection(user?.uid, nextLane === "people"
+      ? { lane: "people", token: null }
+      : { lane: "circles", circleId: null });
+    setLane(nextLane);
   };
 
   useBackLayer(ROUTES.ONE_MESSAGES, lane === "people" && hasRouteSelection && messageSearchOpen ? 2 : 0, () => {
@@ -1178,11 +1194,11 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
   }
 
   const laneSwitcher = (
-    <div className={styles.laneSwitcher} role="tablist" aria-label="Chat lanes">
+    <div className={styles.laneSwitcher} role="tablist" aria-label="Message lanes">
       <button type="button" role="tab" aria-selected={lane === "people"}
-        onClick={() => setLane("people")}>People</button>
+        onClick={() => chooseLane("people")}>People <span className={styles.laneCount}>{inboxItems.length}</span></button>
       <button type="button" role="tab" aria-selected={lane === "circles"}
-        onClick={() => setLane("circles")}>Circles</button>
+        onClick={() => chooseLane("circles")}>Circles <span className={styles.laneCount}>{circleCount}</span></button>
     </div>
   );
   const themeToggle = (
@@ -1209,10 +1225,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
         <aside className={styles.inbox} aria-label="Conversations">
           <header className={styles.inboxHeader}>
             <div className={styles.inboxHeading}>
-              <Link href={ROUTES.HOME} className={styles.refreshButton} aria-label="Back to Home">
-                <ArrowLeft className="h-5 w-5" aria-hidden="true" />
-              </Link>
-              <h1>Chat</h1>
+              <h1>Messages</h1>
             </div>
             <div className={styles.inboxHeaderActions}>
               {themeToggle}
@@ -1234,7 +1247,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                 type="search"
                 value={inboxSearch}
                 onChange={(event) => setInboxSearch(event.target.value)}
-                placeholder="Search chats"
+                placeholder="Search messages or people"
                 aria-label="Search conversations"
               />
             </label>
@@ -1899,8 +1912,10 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                 </AlertDialogContent>
               </AlertDialog>
         </main>
-        {lane === "circles" ? <CircleMessagesPane theme={isDark ? "dark" : "light"} onThreadOpenChange={setCircleThreadOpen}
-          laneSwitcher={<div className={styles.circleLaneSwitcher}>{laneSwitcher}{themeToggle}</div>} /> : null}
+        <CircleMessagesPane active={lane === "circles"} theme={isDark ? "dark" : "light"}
+          onThreadOpenChange={setCircleThreadOpen} onCircleCountChange={setCircleCount}
+          initialCircleId={restoredSelection?.lane === "circles" ? restoredSelection.circleId : null}
+          laneSwitcher={laneSwitcher} headerActions={themeToggle} />
       </section>
       <Dialog open={newChatOpen} onOpenChange={setNewChatOpen}>
         <DialogContent className={styles.newChatDialog} srDescription="Choose a connection to message.">

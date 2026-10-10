@@ -1,6 +1,7 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DirectMessagesRoute } from "@/components/direct-messages/direct-messages-route";
+import { writeLastMessagesSelection } from "@/lib/direct-messages/last-selection";
 
 const mocks = vi.hoisted(() => ({
   query: "", replace: vi.fn(), routeSelection: vi.fn(), renders: [] as [string, string | null][],
@@ -14,7 +15,7 @@ vi.mock("@/components/system/route-suspense-fallback", () => ({ RouteSuspenseFal
 vi.mock("@/components/direct-messages/direct-messages-page", () => ({ DirectMessagesPage: ({ selection }: { selection: { ref: string } | null }) => { mocks.renders.push([mocks.user.uid, selection?.ref || null]); return <div data-testid="messages">{JSON.stringify(selection)}</div>; } }));
 
 describe("DirectMessagesRoute", () => {
-  beforeEach(() => { window.history.replaceState(null, "", "/one/messages"); mocks.query = ""; mocks.replace.mockReset(); mocks.routeSelection.mockReset(); mocks.user.uid = "viewer"; mocks.renders.length = 0; });
+  beforeEach(() => { window.history.replaceState(null, "", "/one/messages"); window.sessionStorage.clear(); mocks.query = ""; mocks.replace.mockReset(); mocks.routeSelection.mockReset(); mocks.user.uid = "viewer"; mocks.renders.length = 0; });
   it("restores the bare inbox", () => {
     render(<DirectMessagesRoute />);
     expect(screen.getByTestId("messages")).toHaveTextContent("null");
@@ -43,6 +44,36 @@ describe("DirectMessagesRoute", () => {
     expect(window.location.search).toBe("");
     expect(window.history.state.unrelated).toBe("preserved");
     expect(mocks.routeSelection).toHaveBeenCalledWith({ idToken: "auth", token: "dm1.hidden" });
+  });
+  it("restores the saved People thread on a bare route without history state", async () => {
+    writeLastMessagesSelection("viewer", { lane: "people", token: "dm1.saved" });
+    mocks.routeSelection.mockResolvedValue({ token: "dm1.saved", kind: "conversation", ref: "saved-thread" });
+
+    render(<DirectMessagesRoute />);
+
+    await waitFor(() => expect(screen.getByTestId("messages")).toHaveTextContent("saved-thread"));
+    expect(mocks.routeSelection).toHaveBeenCalledWith({ idToken: "auth", token: "dm1.saved" });
+    expect(window.location.search).toBe("");
+    expect(mocks.replace).not.toHaveBeenCalled();
+  });
+  it("lets an explicit URL selection override the saved thread", async () => {
+    writeLastMessagesSelection("viewer", { lane: "people", token: "dm1.saved" });
+    mocks.query = "token=dm1.url";
+    mocks.routeSelection.mockResolvedValue({ token: "dm1.url", kind: "conversation", ref: "linked-thread" });
+
+    render(<DirectMessagesRoute />);
+
+    await waitFor(() => expect(screen.getByTestId("messages")).toHaveTextContent("linked-thread"));
+    expect(mocks.routeSelection).toHaveBeenCalledWith({ idToken: "auth", token: "dm1.url" });
+    expect(mocks.routeSelection).not.toHaveBeenCalledWith({ idToken: "auth", token: "dm1.saved" });
+  });
+  it("never restores another owner's saved People thread", () => {
+    writeLastMessagesSelection("someone-else", { lane: "people", token: "dm1.private" });
+
+    render(<DirectMessagesRoute />);
+
+    expect(mocks.routeSelection).not.toHaveBeenCalled();
+    expect(screen.getByTestId("messages")).toHaveTextContent("null");
   });
   it("restores the hidden selection on native trailing-slash routes", async () => {
     window.history.replaceState({ directMessageSelection: { owner: "viewer", token: "dm1.native" } }, "", "/one/messages/");
