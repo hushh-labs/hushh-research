@@ -10,6 +10,8 @@
 .incoming { border-bottom-left-radius: 5px; border: 1px solid var(--border); background: var(--card); color: var(--foreground); }
 .outgoing { border-bottom-right-radius: 5px; background: var(--app-accent-tint); color: var(--foreground); }
 .sender { margin-bottom: 3px; font-size: 12px; line-height: 16px; font-weight: 700; color: var(--app-accent-deep); }
+:global([data-circle-chat-lane]) .bubble { box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+:global([data-circle-chat-lane]) .meta { font-size: 12px; }
 :global([data-circle-chat-lane]) .incoming { border: 0; background: var(--chat-incoming, var(--card)); color: var(--chat-text, var(--foreground)); }
 :global([data-circle-chat-lane]) .outgoing { background: var(--chat-accent, var(--app-accent)); color: #fff; }
 :global([data-circle-chat-lane]) .sender0 { color: var(--chat-sender-1, var(--app-accent)); }

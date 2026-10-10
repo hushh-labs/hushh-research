@@ -4,6 +4,9 @@ import { appendFeedPage, createFeedPaginationState, reconcileFeedFirstPage } fro
 import type { FeedItem } from "../../lib/services/feed-service";
 import { createRoot } from "react-dom/client";
 import { useRef, useState } from "react";
+import { AgentDockProvider, AgentDockVoiceBoundary, useAgentDockSurface } from "../../components/agent/agent-dock";
+import peopleStyles from "../../components/direct-messages/direct-messages-page.module.css";
+import { CircleMessagesPane } from "../../components/connect/circles/circle-messages-pane";
 import { CircleChat } from "../../components/connect/circles/circle-chat";
 import { CircleDetailFlow, CreateCircleFlow } from "../../components/one-location/redesign/circles/named-circle-flows";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../../components/ui/dialog";
@@ -50,6 +53,16 @@ function Workspace() {
     />
   </AppPageShell>;
 }
+function Lane() {
+  const dock = useAgentDockSurface();
+  const dark = document.documentElement.classList.contains("dark");
+  return <div className={peopleStyles.page} data-direct-message-page style={{ display: "block" }} data-theme={dark ? "dark" : "light"}>
+    <div className="flex h-dvh min-h-0 flex-col">
+      <div className="min-h-0 flex-1"><CircleMessagesPane initialCircleId="circle" theme={dark ? "dark" : "light"} /></div>
+      <div ref={dock?.setHost} className="shrink-0 rounded-full bg-background" />
+    </div>
+  </div>;
+}
 function GroupedFeed() {
   const [opened, setOpened] = useState("");
   const circle: FeedItem = { id: "123", source_domain: "location", event_type: "location_circle_message", actor_label: null,
@@ -68,7 +81,7 @@ function GroupedFeed() {
   </AppPageShell>;
 }
 createRoot(document.getElementById("root")!).render(<div data-app-scroll-root="true" className="h-dvh overflow-y-auto overscroll-contain">
-  {new URLSearchParams(location.search).has("feed") ? <GroupedFeed /> : new URLSearchParams(location.search).has("workspace") ? <Workspace /> : <main className="mx-auto max-w-2xl space-y-4 px-4 py-6">
+  {new URLSearchParams(location.search).has("lane") ? <AgentDockProvider><AgentDockVoiceBoundary><Lane /></AgentDockVoiceBoundary></AgentDockProvider> : new URLSearchParams(location.search).has("feed") ? <GroupedFeed /> : new URLSearchParams(location.search).has("workspace") ? <Workspace /> : <main className="mx-auto max-w-2xl space-y-4 px-4 py-6">
   <h1 className="text-xl font-semibold">Weekend friends</h1>
   <CircleChat initialOpen circleName="Weekend friends" session={{ userId: "alice", circleId: "circle", vaultKey: "fixture", vaultOwnerToken: "fixture" }} />
 </main>}
