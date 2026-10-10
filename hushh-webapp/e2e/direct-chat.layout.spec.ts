@@ -262,7 +262,11 @@ test("hover actions do not shift messages or the centered composer", async ({ pa
   }
   await page.getByRole("heading", { name: "Maya Rao", exact: true }).hover();
   await expect(page.locator('article[data-actions-visible="true"]')).toHaveCount(0);
-  await expect(bubble.getByRole("button", { name: "Message options" }).locator("..")).toHaveCSS("opacity", "0");
+  const touchPointer = await page.evaluate(() => matchMedia("(hover: none)").matches);
+  await expect(bubble.getByRole("button", { name: "Message options" }).locator("..")).toHaveCSS(
+    "opacity",
+    touchPointer ? "1" : "0",
+  );
   await bubble.getByRole("button", { name: "Message options" }).focus();
   await page.getByRole("heading", { name: "Maya Rao", exact: true }).hover();
   await expect(bubble).toHaveAttribute("data-actions-visible", "true");
