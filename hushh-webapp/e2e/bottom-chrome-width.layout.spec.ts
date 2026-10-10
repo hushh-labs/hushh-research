@@ -15,7 +15,7 @@ import {
  * Founder report, 2026-09-29: "talk to one bar and the bottom bar width is not
  * the same". They had two width sources and two gutter formulas: the voice
  * bar capped at `--app-agent-bar-max-width` (34rem) inside `100vw - 2rem`, the
- * navigation at `--app-bottom-shell-max-width` (48rem, 40rem from 1280px)
+ * navigation at `--app-bottom-shell-max-width` (760px)
  * inside `100vw - 1.5rem`, re-capped at `100vw - 2rem`, and a /one/location
  * frame of 45rem on top. On a phone the caps happened to coincide; from about
  * 576px up the two pills parted (544px over 736px at 768, 544px over 640px at
@@ -358,6 +358,10 @@ function assertOneColumn(measured: Measure, label: string) {
   const detail = `${label}: Talk to One ${voice.left.toFixed(2)}..${voice.right.toFixed(2)} (${voice.width.toFixed(2)}px), navigation ${navigation.left.toFixed(2)}..${navigation.right.toFixed(2)} (${navigation.width.toFixed(2)}px)`;
   expect.soft(Math.abs(voice.left - navigation.left), `${detail}: left edges`).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
   expect.soft(Math.abs(voice.right - navigation.right), `${detail}: right edges`).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
+  expect.soft(navigation.width, `${label}: 760px maximum`).toBeLessThanOrEqual(760 + EDGE_TOLERANCE_PX);
+  if (shell.width >= 792) {
+    expect.soft(Math.abs(navigation.width - 760), `${label}: full desktop width`).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
+  }
   if (panel) {
     expect.soft(Math.abs(panel.left - navigation.left), `${label}: voice panel left edge`).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
     expect.soft(Math.abs(panel.right - navigation.right), `${label}: voice panel right edge`).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);

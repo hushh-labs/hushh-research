@@ -26,6 +26,7 @@ from hushh_mcp.services.drive_document_store import (
 )
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
 from hushh_mcp.services.drive_owner_allowed import (
+    DEFAULT_PRICE_CENTS,
     OWNER_ALLOWED_KEY,
     automatic_recipient_current,
     owner_allowed_marker,
@@ -202,7 +203,115 @@ class DriveSharingStore(DriveDocumentStore):
             state = "pending"
         if recipient and state == "no_match":
             state = "no_files_shared"
-        return {"requestId": str(row["request_id"]), "status": state, "revision": row["revision"]}
+        result = {"requestId": str(row["request_id"]), "status": state, "revision": row["revision"]}
+        if row.get("payment_required") is True:
+            result["paymentRequired"] = True
+            if row.get("quoted_amount_cents") is not None:
+                result["quotedAmountCents"] = row["quoted_amount_cents"]
+                result["quoteVersion"] = row["quote_version"]
+        return result
+
+    def _owner_pricing(self, connection, owner_user_id: str) -> dict:
+        row = self._row(
+            connection,
+            """SELECT enabled,amount_cents,version FROM drive_request_owner_pricing
+               WHERE user_id=:user""",
+            {"user": owner_user_id},
+        )
+        return (
+            dict(row)
+            if row
+            else {"enabled": False, "amount_cents": DEFAULT_PRICE_CENTS, "version": 0}
+        )
+
+    async def owner_pricing(self, *, user_id: str) -> dict:
+        self._sharing_admission(user_id)
+
+        def operation(connection):
+            row = self._owner_pricing(connection, user_id)
+            return {
+                "enabled": row["enabled"],
+                "amountCents": row["amount_cents"],
+                "version": row["version"],
+            }
+
+        return cast(dict, await self._transaction(operation))
+
+    async def update_owner_pricing(
+        self, *, user_id: str, enabled: bool, amount_cents: int, expected_version: int
+    ) -> dict:
+        self._sharing_admission(user_id)
+        if type(enabled) is not bool or not valid_owner_price_cents(amount_cents):
+            raise DriveSharingError("invalid_payment_amount")
+        if type(expected_version) is not int or expected_version < 0:
+            raise DriveSharingError("invalid_argument")
+
+        def operation(connection):
+            # Request creation uses the same graph gate. A price edit and a
+            # new request therefore serialize, and the request stores one price.
+            lock_connection_graph_users(connection, user_ids=[user_id])
+            current = self._row(
+                connection,
+                """SELECT version FROM drive_request_owner_pricing
+                   WHERE user_id=:user FOR UPDATE""",
+                {"user": user_id},
+            )
+            version = current["version"] if current else 0
+            if version != expected_version:
+                raise DriveSharingError("price_changed")
+            row = self._row(
+                connection,
+                """INSERT INTO drive_request_owner_pricing
+                   (user_id,enabled,amount_cents,version)
+                   VALUES (:user,:enabled,:amount,1)
+                   ON CONFLICT (user_id) DO UPDATE SET
+                     enabled=EXCLUDED.enabled,amount_cents=EXCLUDED.amount_cents,
+                     version=drive_request_owner_pricing.version+1,
+                     updated_at=clock_timestamp()
+                   RETURNING enabled,amount_cents,version""",
+                {"user": user_id, "enabled": enabled, "amount": amount_cents},
+            )
+            return {
+                "enabled": row["enabled"],
+                "amountCents": row["amount_cents"],
+                "version": row["version"],
+            }
+
+        return cast(dict, await self._transaction(operation))
+
+    async def request_quote(self, *, user_id: str, owner_user_id: str) -> dict:
+        self._sharing_admission(user_id)
+        self._sharing_admission(owner_user_id)
+        payment_required = os.getenv("DRIVE_REQUEST_PAYMENTS_ENABLED", "").strip().lower() == "true"
+        if payment_required:
+            from hushh_mcp.services.drive_request_owner_payout_service import payout_enabled
+
+            if not payout_enabled():
+                raise DriveSharingError("payout_unavailable")
+
+        def operation(connection):
+            lock_connection_graph_users(connection, user_ids=[user_id, owner_user_id])
+            self._relationship(connection, owner_user_id, user_id)
+            pricing = self._owner_pricing(connection, owner_user_id)
+            account = self._row(
+                connection,
+                """SELECT details_submitted,payouts_enabled
+                   FROM pkm_owner_payout_accounts WHERE user_id=:user""",
+                {"user": owner_user_id},
+            )
+            return {
+                "amountCents": pricing["amount_cents"]
+                if pricing["enabled"]
+                else DEFAULT_PRICE_CENTS,
+                "version": pricing["version"],
+                "paymentRequired": payment_required,
+                # A fast UI hint. Checkout rechecks current Stripe authority.
+                "payoutReady": bool(
+                    account and account["details_submitted"] and account["payouts_enabled"]
+                ),
+            }
+
+        return cast(dict, await self._transaction(operation))
 
     @staticmethod
     def _payment_metadata(connection, request_id):
@@ -606,6 +715,7 @@ class DriveSharingStore(DriveDocumentStore):
         purpose: ShareRequestPurpose,
         request_time_zone: str | None = None,
         owner_initiated: bool = False,
+        expected_quote_version: int | None = None,
     ) -> dict:
         """B's authenticated identity must be verified by the service before calling.
 
@@ -627,6 +737,10 @@ class DriveSharingStore(DriveDocumentStore):
             except (ValueError, ZoneInfoNotFoundError):
                 raise DriveSharingError("invalid_argument") from None
         client_request_id = str(UUID(client_request_id))
+        if expected_quote_version is not None and (
+            type(expected_quote_version) is not int or expected_quote_version < 0
+        ):
+            raise DriveSharingError("invalid_argument")
         request_id = str(uuid4())
         payload = {
             "purpose": purpose.model_dump(),
@@ -683,11 +797,38 @@ class DriveSharingStore(DriveDocumentStore):
                 and os.getenv("DRIVE_REQUEST_PAYMENTS_ENABLED", "").strip().lower() == "true"
             )
             if payment_required:
+                from hushh_mcp.services.drive_request_owner_payout_service import payout_enabled
                 from hushh_mcp.services.drive_request_payment_service import (
                     require_payment_configuration,
                 )
 
                 require_payment_configuration()
+                if not payout_enabled() and (
+                    expected_quote_version is not None
+                    or self._owner_pricing(connection, owner_user_id)["enabled"]
+                ):
+                    raise DriveSharingError("payout_unavailable")
+            # While owner payout enrollment is staged off, only unmodified
+            # legacy clients may create the old fixed-price request. New quote
+            # clients fail closed until Connect settlement is activated.
+            pricing = (
+                self._owner_pricing(connection, owner_user_id)
+                if payment_required and payout_enabled()
+                else None
+            )
+            if (
+                pricing
+                and expected_quote_version is not None
+                and pricing["version"] != expected_quote_version
+            ):
+                raise DriveSharingError("price_changed")
+            if pricing and pricing["enabled"] and expected_quote_version is None:
+                raise DriveSharingError("price_changed")
+            quoted_amount_cents = (
+                (pricing["amount_cents"] if pricing["enabled"] else DEFAULT_PRICE_CENTS)
+                if pricing
+                else None
+            )
             envelope = self.sharing_cipher.seal(
                 {**payload, **({"trusted_auto": True} if trusted_auto else {})},
                 user_id=owner_user_id,
@@ -699,9 +840,9 @@ class DriveSharingStore(DriveDocumentStore):
                 """
                 INSERT INTO drive_share_requests(request_id,user_id,recipient_user_id,client_request_id,
                   request_envelope,recipient_binding,request_digest,preparation_error_code,
-                  payment_required)
+                  payment_required,quoted_amount_cents,quote_version)
                 VALUES (:id,:owner,:recipient,:client,CAST(:envelope AS jsonb),:binding,:digest,
-                  :preparation_code,:payment_required)
+                  :preparation_code,:payment_required,:quoted_amount,:quote_version)
                 ON CONFLICT (recipient_user_id,client_request_id) DO NOTHING
                 RETURNING *
             """,
@@ -715,6 +856,8 @@ class DriveSharingStore(DriveDocumentStore):
                     "digest": digest,
                     "preparation_code": "trusted_auto_queued" if trusted_auto else None,
                     "payment_required": payment_required,
+                    "quoted_amount": quoted_amount_cents,
+                    "quote_version": pricing["version"] if pricing else None,
                 },
             )
             if not row:
@@ -1584,8 +1727,15 @@ class DriveSharingStore(DriveDocumentStore):
             row = self._row(
                 connection,
                 """
-                SELECT * FROM drive_share_requests WHERE request_id=:id
-                  AND (user_id=:user OR recipient_user_id=:user)
+                SELECT r.*,p.status AS owner_payout_status,
+                       account.details_submitted AS payout_details_submitted,
+                       account.payouts_enabled AS payout_payouts_enabled
+                FROM drive_share_requests r
+                LEFT JOIN drive_request_owner_payouts p ON p.request_id=r.request_id
+                  AND p.erased_at IS NULL
+                LEFT JOIN pkm_owner_payout_accounts account ON account.user_id=r.user_id
+                WHERE r.request_id=:id
+                  AND (r.user_id=:user OR r.recipient_user_id=:user)
             """,
                 {"id": str(UUID(request_id)), "user": user_id},
             )
@@ -1607,9 +1757,41 @@ class DriveSharingStore(DriveDocumentStore):
                     "direction": "incoming",
                 }
             recipient = row["recipient_user_id"] == user_id
+            payout_setup_relevant = bool(
+                row["payment_required"] is True
+                and (
+                    (
+                        row["status"]
+                        in {"pending", "preparing", "review_ready", "approved", "partial"}
+                        and row["expires_at"] > datetime.now(UTC)
+                    )
+                    or row["owner_payout_status"]
+                    in {
+                        "awaiting_account",
+                        "due",
+                        "awaiting_delivery",
+                        "awaiting_fee",
+                        "awaiting_refund",
+                    }
+                )
+            )
             return {
                 **self._summary(row, recipient=recipient),
                 "direction": "outgoing" if recipient else "incoming",
+                **(
+                    {"ownerPayoutStatus": row["owner_payout_status"]}
+                    if not recipient and row["owner_payout_status"] is not None
+                    else {}
+                ),
+                **(
+                    {
+                        "ownerPayoutAccountReady": bool(
+                            row["payout_details_submitted"] and row["payout_payouts_enabled"]
+                        )
+                    }
+                    if not recipient and payout_setup_relevant
+                    else {}
+                ),
                 **(self._payment_metadata(connection, request_id) if recipient else {}),
             }
 
@@ -1706,8 +1888,30 @@ class DriveSharingStore(DriveDocumentStore):
                 "allowAvailable": admitted
                 and self._allow_available(connection, row, private, current_connection),
                 "paymentRequired": row["payment_required"] is True,
-                "priceCents": owner_allowed_price_cents(private),
+                "priceCents": row.get("quoted_amount_cents") or owner_allowed_price_cents(private),
             }
+            # Owner earnings are bound to this authenticated request review.
+            # Stripe transfer IDs and account details remain server-side.
+            payout = self._row(
+                connection,
+                """SELECT request_id,currency,gross_amount_cents,
+                          retained_amount_cents,platform_fee_cents,
+                          allocated_processing_fee_cents,owner_earning_cents,status
+                   FROM drive_request_owner_payouts
+                   WHERE request_id=:id AND erased_at IS NULL""",
+                {"id": request_id},
+            )
+            if payout is not None:
+                result["ownerPayout"] = {
+                    "requestId": str(payout["request_id"]),
+                    "currency": payout["currency"],
+                    "grossAmountCents": payout["gross_amount_cents"],
+                    "retainedAmountCents": payout["retained_amount_cents"],
+                    "platformFeeCents": payout["platform_fee_cents"],
+                    "processingFeeCents": payout["allocated_processing_fee_cents"],
+                    "ownerEarningCents": payout["owner_earning_cents"],
+                    "status": payout["status"],
+                }
             if review and row["bulk_search_started_at"] is None:
                 payload = self.sharing_cipher.open(
                     review["review_envelope"],
@@ -1820,6 +2024,11 @@ class DriveSharingStore(DriveDocumentStore):
             # A paid request needs the owner's price; a free one takes none.
             if (row["payment_required"] is True) != (amount_cents is not None):
                 raise DriveSharingError("invalid_payment_amount")
+            if (
+                row.get("quoted_amount_cents") is not None
+                and amount_cents != row["quoted_amount_cents"]
+            ):
+                raise DriveSharingError("price_changed")
             if not self._has_dates(private):
                 raise DriveSharingError("date_range_required")
             self._sharing_admission(row["recipient_user_id"])

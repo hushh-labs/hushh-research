@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 291,
+  "expected_migration_version": 296,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -38,6 +38,7 @@
     "clear_location_presence_rating_visit",
     "preserve_active_location_rating_visit",
     "require_active_direct_message_connection",
+    "guard_direct_message_attachment_write",
     "guard_direct_message_block_write",
     "guard_direct_message_conversation_write",
     "guard_direct_message_message_write",
@@ -46,6 +47,7 @@
     "notify_direct_message_recipient",
     "project_direct_message_feed_event",
     "remove_direct_message_feed_event",
+    "record_circle_chat_membership_event",
     "circle_chat_membership_ended",
     "circle_chat_recipient_deleted",
     "circle_chat_circle_deleted",
@@ -60,7 +62,9 @@
     "queue_direct_message_push",
     "reconcile_legacy_push_owner",
     "erase_tombstoned_push_registrations",
-    "restore_legacy_push_projection"
+    "restore_legacy_push_projection",
+    "preserve_drive_owner_delivery_basis",
+    "preserve_drive_request_owner_payout"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -187,6 +191,14 @@
       "circle_message_id",
       "accepted_at"
     ],
+    "circle_chat_membership_events": [
+      "id",
+      "circle_id",
+      "kind",
+      "subject_user_id",
+      "actor_user_id",
+      "created_at"
+    ],
     "circle_chat_messages": [
       "original_recipient_count",
       "id",
@@ -206,6 +218,12 @@
       "circle_id",
       "user_id",
       "muted"
+    ],
+    "circle_chat_reactions": [
+      "message_id",
+      "user_id",
+      "emoji",
+      "created_at"
     ],
     "circle_chat_recipients": [
       "message_id",
@@ -654,6 +672,14 @@
       "revoked_at",
       "last_used_at"
     ],
+    "direct_message_attachments": [
+      "message_id",
+      "ciphertext",
+      "iv",
+      "content_digest",
+      "size_bytes",
+      "created_at"
+    ],
     "direct_message_blocks": [
       "id",
       "blocker_user_id",
@@ -905,6 +931,51 @@
       "created_at",
       "updated_at"
     ],
+    "drive_request_owner_payouts": [
+      "request_id",
+      "gross_amount_cents",
+      "currency",
+      "commission_bps",
+      "status",
+      "expected_files",
+      "confirmed_files",
+      "retained_amount_cents",
+      "refund_amount_cents",
+      "platform_fee_cents",
+      "actual_processing_fee_cents",
+      "allocated_processing_fee_cents",
+      "owner_earning_cents",
+      "finalized_at",
+      "stripe_payment_intent_id",
+      "stripe_charge_id",
+      "stripe_balance_transaction_id",
+      "destination_account_id",
+      "stripe_transfer_id",
+      "transfer_attempt_id",
+      "first_dispatch_at",
+      "lease_expires_at",
+      "next_check_at",
+      "transferred_at",
+      "reversal_amount_cents",
+      "stripe_reversal_id",
+      "reversal_attempt_id",
+      "reversal_first_dispatch_at",
+      "reversal_lease_expires_at",
+      "reversed_at",
+      "erased_at",
+      "eligible_at_erasure",
+      "safe_error_code",
+      "created_at",
+      "updated_at"
+    ],
+    "drive_request_owner_pricing": [
+      "user_id",
+      "enabled",
+      "amount_cents",
+      "version",
+      "created_at",
+      "updated_at"
+    ],
     "drive_request_payment_obligations": [
       "request_id",
       "payer_ref",
@@ -944,6 +1015,7 @@
     "drive_request_payment_refunds": [
       "request_id",
       "attempt_id",
+      "amount_cents",
       "status",
       "stripe_refund_id",
       "first_dispatch_at",
@@ -1045,7 +1117,9 @@
       "updated_at",
       "expires_at",
       "access_stop_requested_at",
-      "owner_allowed_at"
+      "owner_allowed_at",
+      "quoted_amount_cents",
+      "quote_version"
     ],
     "drive_share_reviews": [
       "request_id",
@@ -2423,6 +2497,27 @@
     "runtime_persona_state": [
       "user_id",
       "last_active_persona",
+      "updated_at"
+    ],
+    "stripe_connect_bank_payout_events": [
+      "stripe_event_id",
+      "stripe_account_id",
+      "event_type",
+      "stripe_object_id",
+      "livemode",
+      "processed_at"
+    ],
+    "stripe_connect_bank_payouts": [
+      "stripe_payout_id",
+      "stripe_account_id",
+      "livemode",
+      "amount_cents",
+      "currency",
+      "status",
+      "status_rank",
+      "expected_arrival_at",
+      "failure_code",
+      "created_at",
       "updated_at"
     ],
     "trusted_connections": [

@@ -10,7 +10,9 @@ import { openChatContent, openChatImage, sealChatMessage, type ChatMemberKey, ty
 
 export type CircleChatState = { members: ChatMemberKey[]; rosterVersion: string; unreadCount: number; latestSequence: number; muted: boolean; notificationDevices?: NotificationDevice[] };
 export type CircleChatReceipt = { id: string; recipientCount: number | null; readCount: number };
-export type CircleChatPage = { items: ChatMessage[]; hasMore: boolean; receipts?: CircleChatReceipt[] };
+export type CircleMembershipEvent = { id: string; kind: "member_joined" | "member_left" | "member_removed"; subjectName: string; actorName: string | null; createdAt: string };
+export type CircleChatPage = { items: ChatMessage[]; hasMore: boolean; receipts?: CircleChatReceipt[];
+  reactionUpdates?: { id: string; reactions: NonNullable<ChatMessage["reactions"]> }[]; events?: CircleMembershipEvent[] };
 type WireChatPage = CircleChatPage & { senders?: { userId: string; name: string; photoUrl: string | null }[] };
 export type CircleChatSession = { circleId: string; userId: string; vaultOwnerToken: string; vaultKey: string };
 const root = (session: CircleChatSession) => `/api/one/circles/${encodeURIComponent(session.circleId)}/chat`;
@@ -44,7 +46,7 @@ export const CircleChatService = {
       vaultOwnerToken: session.vaultOwnerToken, vaultKey: session.vaultKey, strictRecovery: true });
   },
   state: (session: CircleChatSession, signal?: AbortSignal) => apiJson<CircleChatState>(root(session), options(session, signal)),
-  wait: (session: CircleChatSession, after: number, signal?: AbortSignal) => apiJson<{ latestSequence: number; changed: boolean; readChanged?: boolean; receiptsChanged?: boolean; photoChanged?: boolean }>(
+  wait: (session: CircleChatSession, after: number, signal?: AbortSignal) => apiJson<{ latestSequence: number; changed: boolean; readChanged?: boolean; receiptsChanged?: boolean; reactionsChanged?: boolean; membershipChanged?: boolean; photoChanged?: boolean }>(
     // Native HTTP cannot cancel an underlying request. Keep it awaited through
     // a pause/resume instead of abandoning it and consuming another wait slot.
     `${root(session)}/wait?after=${after}`, options(session, Capacitor.isNativePlatform() ? undefined : signal)),
@@ -72,6 +74,10 @@ export const CircleChatService = {
   },
   send: (session: CircleChatSession, payload: SealedChatMessage) => apiJson<ChatMessage>(`${root(session)}/messages`,
     { ...options(session), method: "POST", body: JSON.stringify(payload) }),
+  react: (session: CircleChatSession, message: ChatMessage, emoji: string, active: boolean) =>
+    apiJson<{ messageId: string; reactions: NonNullable<ChatMessage["reactions"]> }>(
+      `${root(session)}/messages/${encodeURIComponent(message.id)}/reactions/${encodeURIComponent(emoji)}`,
+      { ...options(session), method: active ? "PUT" : "DELETE" }),
   open: (session: CircleChatSession, message: ChatMessage) => recover(session, message,
     (recovery) => openChatContent(session.circleId, session.userId, message, recovery)),
   async image(session: CircleChatSession, message: ChatMessage, type: string, signal?: AbortSignal): Promise<Blob> {

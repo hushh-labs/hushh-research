@@ -32,7 +32,9 @@ import {
   DOCUMENT_REQUEST_PRICE_RULE,
   DocumentRequestPriceSheet,
 } from "@/components/consent/document-request-price-sheet";
+import { DocumentPayoutAccountCard } from "@/components/consent/document-payout-account";
 import { formatDocumentRequestPrice } from "@/lib/consent/document-request-price";
+import { documentPayoutStatusCopy } from "@/lib/consent/document-payout-status";
 import { SEMANTIC_ROLE_SOLID } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { useArmedAction } from "@/lib/ui/use-armed-action";
 import {
@@ -42,6 +44,7 @@ import {
   type PrepareStage,
   type SharingStatus,
   type SharingReview,
+  type OwnerDocumentPayout,
   type SharingDelivery,
   type SharingRevocationReview,
   type DriveBulkShareFilePage,
@@ -57,6 +60,7 @@ import { isDriveSearchSelectionReady, type DriveSearchResults } from "@/lib/serv
 type Snapshot = {
   status: SharingStatus;
   review?: SharingReview;
+  ownerPayout?: OwnerDocumentPayout | null;
   delivery?: SharingDelivery;
   revocation?: SharingRevocationReview;
 };
@@ -96,6 +100,7 @@ const POLL_SLOW_MS = 15_000;
 const SLOW_AFTER_MS = 15_000;
 const STILL_WORKING_AFTER_MS = 120_000;
 const UNDECIDED = new Set(["pending", "preparing", "review_ready"]);
+const PAYOUT_ELIGIBLE_TERMINAL = new Set(["approved", "completed", "partial"]);
 const IN_FLIGHT = new Set(["queued", "dispatching", "unknown"]);
 const OUTCOME_LABELS: Record<string, string> = {
   queued: "Waiting to share",
@@ -475,9 +480,24 @@ function UnlockedDocumentReview({
       if (!UNDECIDED.has(status.status)) {
         const delivery = await DriveSharingService.delivery(token, requestId, guard);
         guard();
-        return delivery.bulkShareId
-          ? { status, delivery, review: await DriveSharingService.review(token, requestId, guard) }
-          : { status, delivery };
+        if (!delivery.bulkShareId && !PAYOUT_ELIGIBLE_TERMINAL.has(status.status))
+          return { status, delivery };
+        try {
+          const review = await DriveSharingService.review(token, requestId, guard);
+          guard();
+          // A legacy terminal delivery without a bulk share still needs the
+          // owner payout projection, but not a second file-review UI.
+          return delivery.bulkShareId
+            ? { status, delivery, review }
+            : { status, delivery, ownerPayout: review.ownerPayout };
+        } catch (cause) {
+          guard();
+          if (cause instanceof DriveSharingError &&
+              ["invalid_response", "session_changed"].includes(cause.code))
+            throw cause;
+          // Delivery remains usable when its older review endpoint is gone.
+          return { status, delivery };
+        }
       }
       let review = await DriveSharingService.review(token, requestId, guard);
       guard();
@@ -1105,6 +1125,14 @@ function UnlockedDocumentReview({
     !removal && (!snapshot || pendingOutcomes || outgoingOpen);
   const delivery = snapshot?.delivery;
   const outgoing = snapshot?.status.direction === "outgoing";
+  const payoutProjection = snapshot?.ownerPayout ?? review?.ownerPayout;
+  const ownerPayout = !outgoing && payoutProjection
+    ? documentPayoutStatusCopy(payoutProjection)
+    : null;
+  const requesterQuote = outgoing && snapshot?.status.paymentRequired === true &&
+    typeof snapshot.status.quotedAmountCents === "number"
+    ? formatDocumentRequestPrice(snapshot.status.quotedAmountCents)
+    : null;
 
   return (
     <section
@@ -1135,6 +1163,23 @@ function UnlockedDocumentReview({
           </HelperText>
         ) : null}
       </div>
+      {ownerPayout ? (
+        <div className="rounded-xl border border-border/60 p-3" aria-label="Document earnings">
+          <BodyText className="font-medium">{ownerPayout.status}</BodyText>
+          {ownerPayout.earnings ? (
+            <HelperText className="mt-1">{ownerPayout.earnings} after Hushh&apos;s commission and the actual processing fee.</HelperText>
+          ) : null}
+        </div>
+      ) : null}
+      {requesterQuote ? (
+        <div className="rounded-xl border border-border/60 p-3" aria-label="Locked document request quote">
+          <BodyText className="font-medium">Request price: {requesterQuote}</BodyText>
+          <HelperText className="mt-1">This quote was locked when you sent the request. You pay once, only after matching files are ready.</HelperText>
+        </div>
+      ) : null}
+      {payoutProjection && ["awaiting_delivery", "awaiting_account"].includes(payoutProjection.status) ? (
+        <DocumentPayoutAccountCard compact />
+      ) : null}
       {error ? <HelperText role="alert">{error}</HelperText> : null}
 
       {!snapshot && !error ? (
@@ -1190,6 +1235,7 @@ function UnlockedDocumentReview({
           periodStart={review.purpose.periodStart}
           periodEnd={review.purpose.periodEnd}
           paymentRequired={review.paymentRequired === true}
+          lockedAmountCents={review.paymentRequired === true ? review.priceCents ?? null : null}
           busy={activity === "allowing"}
           error={allowError}
           onSubmit={allow}

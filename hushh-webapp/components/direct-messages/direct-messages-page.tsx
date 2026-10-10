@@ -4,6 +4,7 @@ import { replaceMessageHistory } from "@/lib/direct-messages/message-history";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useTheme } from "next-themes";
 import {
   FormEvent,
   PointerEvent as ReactPointerEvent,
@@ -15,13 +16,14 @@ import {
 } from "react";
 
 import { AgentDockPortal, useAgentDockFrame } from "@/components/agent/agent-dock";
-import { useOptionalLocationCommand } from "@/components/agent/location-command-provider";
-import { useOptionalVoiceSession } from "@/components/one-voice/voice-session-provider";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { navigateDirectMessage } from "@/lib/direct-messages/navigate-direct-message";
 import { OneChatBubble } from "@/components/agent/chat-message-styles";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
+import { ConnectionsService, type ConnectionSummaryEntry } from "@/lib/services/connections-service";
 import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";
+import { CircleMessagesPane } from "@/components/connect/circles/circle-messages-pane";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -54,6 +56,11 @@ import {
   RefreshCw,
   Search,
   Send,
+  MoonIcon,
+  SunIcon,
+  Plus,
+  Image as ImageIcon,
+  FileText,
   Trash2,
   X,
 } from "@/components/icons";
@@ -73,6 +80,7 @@ import {
   ROUTES,
 } from "@/lib/navigation/routes";
 import { requestAgentConversationAfterRoute } from "@/lib/agent/agent-voice-settings";
+import { useBackLayer } from "@/lib/navigation/back-layers";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { cn } from "@/lib/utils";
 
@@ -101,6 +109,63 @@ const EMPTY_THREAD: ThreadState = {
   disconnectedNotice: null,
   nextBefore: null,
 };
+
+const QUICK_REACTIONS = ["❤️", "😂", "😮", "😢", "👍", "🙏"] as const;
+
+function toggleReaction(message: DirectMessage, emoji: string): DirectMessage {
+  const reactions = [...(message.reactions ?? [])];
+  const index = reactions.findIndex((reaction) => reaction.emoji === emoji);
+  if (index < 0) {
+    reactions.push({ emoji, count: 1, reactedByViewer: true });
+  } else {
+    const current = reactions[index]!;
+    const count = current.count + (current.reactedByViewer ? -1 : 1);
+    if (count < 1) reactions.splice(index, 1);
+    else reactions[index] = { ...current, count, reactedByViewer: !current.reactedByViewer };
+  }
+  return { ...message, reactions };
+}
+
+function MessageAttachment({ message, getIdToken }: {
+  message: DirectMessage;
+  getIdToken: () => Promise<string>;
+}) {
+  const [mediaUrl, setMediaUrl] = useState<string | null>(null);
+  useEffect(() => () => { if (mediaUrl) URL.revokeObjectURL(mediaUrl); }, [mediaUrl]);
+  const attachment = message.attachment;
+  if (!attachment) return null;
+  const open = async () => {
+    try {
+      const blob = await DirectMessagesService.getAttachment({
+        idToken: await getIdToken(),
+        conversationId: message.conversationId,
+        messageId: message.id,
+      });
+      const url = URL.createObjectURL(blob);
+      if (attachment.kind === "document") {
+        const link = document.createElement("a");
+        link.href = url; link.download = attachment.name; link.click();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+      } else {
+        setMediaUrl(url);
+      }
+    } catch {
+      morphyToast.error("This attachment is unavailable. Try again.");
+    }
+  };
+  return <div className={styles.messageAttachment}>
+    {mediaUrl && attachment.kind === "photo" ? (
+      // Encrypted attachments use short-lived blob URLs, which Next's image optimizer cannot serve.
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={mediaUrl} alt={attachment.name} />
+    ) : null}
+    {mediaUrl && attachment.kind === "video" ? <video src={mediaUrl} controls preload="metadata" aria-label={attachment.name} /> : null}
+    {mediaUrl ? <a href={mediaUrl} download={attachment.name}>Save {attachment.kind}</a> :
+      <button type="button" onClick={() => void open()}>
+        {attachment.kind === "document" ? "Download" : "View"} {attachment.name}
+      </button>}
+  </div>;
+}
 
 /** Per-message metadata always uses a clock time. Repeating a calendar date
  * below every historical bubble makes a thread much harder to scan. */
@@ -150,7 +215,7 @@ function conversationPreview(conversation: DirectMessageConversation): string {
   if (!latest) return "Start a conversation";
   if (latest.deletedForEveryoneAt) return "Message deleted";
   const prefix = latest.senderIsViewer ? "You: " : "";
-  const preview = `${prefix}${latest.content}`.replace(/\s+/g, " ").trim();
+  const preview = `${prefix}${latest.content || (latest.attachment ? latest.attachment.kind[0]!.toUpperCase() + latest.attachment.kind.slice(1) : "")}`.replace(/\s+/g, " ").trim();
   const maxLength = 88;
   return preview.length > maxLength
     ? `${preview.slice(0, maxLength - 1).trimEnd()}…`
@@ -234,26 +299,37 @@ function threadFromConversation(
 
 export function DirectMessagesPage({ selection, resolvingSelection = false }: { selection?: { kind: "conversation" | "person"; ref: string } | null; resolvingSelection?: boolean } = {}) {
   const { user, loading: authLoading } = useAuth();
+  const { resolvedTheme, setTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
   const router = useRouter();
-  const command = useOptionalLocationCommand();
-  const voiceSession = useOptionalVoiceSession();
-  const agentEngaged = Boolean(command?.active || (command && command.view.phase !== "idle") || (voiceSession && (voiceSession.state.phase !== "idle" || voiceSession.state.error !== null)));
   const requestedPersonRef = selection?.kind === "person" ? selection.ref : "";
   const requestedConversationId = selection?.kind === "conversation" ? selection.ref : "";
   const [thread, setThread] = useState<ThreadState>(EMPTY_THREAD);
   const [messages, setMessages] = useState<DirectMessage[]>([]);
   const [inboxItems, setInboxItems] = useState<DirectMessageConversation[]>([]);
   const [inboxSearch, setInboxSearch] = useState("");
+  const [newChatOpen, setNewChatOpen] = useState(false);
+  const [newChatQuery, setNewChatQuery] = useState("");
+  const [newChatPage, setNewChatPage] = useState(1);
+  const [newChatPeople, setNewChatPeople] = useState<ConnectionSummaryEntry[]>([]);
+  const [newChatHasMore, setNewChatHasMore] = useState(false);
+  const [newChatLoading, setNewChatLoading] = useState(false);
+  const [newChatError, setNewChatError] = useState(false);
+  const [lane, setLane] = useState<"people" | "circles">("people");
+  const [circleThreadOpen, setCircleThreadOpen] = useState(false);
   const [loadingInbox, setLoadingInbox] = useState(false);
   const [inboxError, setInboxError] = useState<string | null>(null);
   const [loadingThread, setLoadingThread] = useState(false);
   const [threadError, setThreadError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [attachment, setAttachment] = useState<File | null>(null);
   const [unconfirmedDraft, setUnconfirmedDraft] = useState<string | null>(null);
   const [composerError, setComposerError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [openMessageMenu, setOpenMessageMenu] = useState<string | null>(null);
+  const [openReactionPicker, setOpenReactionPicker] = useState<string | null>(null);
+  const reactionPending = useRef(new Set<string>());
   const [activeMessageActions, setActiveMessageActions] = useState<string | null>(null);
   const [replyingTo, setReplyingTo] = useState<DirectMessage | null>(null);
   const [editingMessage, setEditingMessage] = useState<DirectMessage | null>(null);
@@ -273,6 +349,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
   const pageRef = useRef<HTMLElement | null>(null);
   const dockFrame = useAgentDockFrame();
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const videoInputRef = useRef<HTMLInputElement | null>(null);
+  const documentInputRef = useRef<HTMLInputElement | null>(null);
   const editingInputRef = useRef<HTMLTextAreaElement | null>(null);
   const editDraftGeneration = useRef(0);
   const messageLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -281,13 +360,45 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
   const messageSearchRef = useRef(messageSearchQuery); messageSearchRef.current = messageSearchQuery;
   const activeConversationId = thread.conversation?.id ?? null;
 
+  useEffect(() => {
+    if (!newChatOpen || !user) return;
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      setNewChatLoading(true);
+      setNewChatError(false);
+      try {
+        const page = await ConnectionsService.listConnectionsPage({
+          idToken: await user.getIdToken(),
+          page: newChatPage,
+          limit: 50,
+          query: newChatQuery,
+        });
+        if (!active) return;
+        setNewChatPeople((current) => newChatPage === 1 ? page.items : [
+          ...current,
+          ...page.items.filter((person) => !current.some((item) => item.userId === person.userId)),
+        ]);
+        setNewChatHasMore(page.hasMore);
+      } catch {
+        if (active) setNewChatError(true);
+      } finally {
+        if (active) setNewChatLoading(false);
+      }
+    }, newChatQuery ? 180 : 0);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [newChatOpen, newChatPage, newChatQuery, user]);
+
   const routeSelection = `${requestedPersonRef ? "person" : "conversation"}:${requestedPersonRef || requestedConversationId}`;
+  useEffect(() => {
+    if (requestedPersonRef || requestedConversationId) setLane("people");
+  }, [requestedPersonRef, requestedConversationId]);
   const selectionRef = useRef(routeSelection);
   const ownerRef = useRef(user?.uid);
   const selectionGeneration = useRef(0);
   const replyDrafts = useRef(new Map<string, DirectMessage | null>());
   const drafts = useRef(new Map<string, string>());
-  const sendAttempts = useRef(new Map<string, { id: string; content: string; replyId?: string; unconfirmed?: boolean }>());
+  const attachmentDrafts = useRef(new Map<string, File>());
+  const sendAttempts = useRef(new Map<string, { id: string; content: string; replyId?: string; attachment?: File; unconfirmed?: boolean }>());
   const sendingSelections = useRef(new Set<string>());
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const visibleBottom = useRef(false);
@@ -334,9 +445,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
     atBottomRef.current = true; prependPosition.current = null; setAtBottom(true);
     const previousAttempt = sendAttempts.current.get(routeSelection);
     setUnconfirmedDraft(previousAttempt?.unconfirmed ? previousAttempt.content : null);
-    setDraft(drafts.current.get(routeSelection) ?? ""); setSending(sendingSelections.current.has(routeSelection));
+    setDraft(drafts.current.get(routeSelection) ?? ""); setAttachment(attachmentDrafts.current.get(routeSelection) ?? null); setSending(sendingSelections.current.has(routeSelection));
     setReplyingTo(replyDrafts.current.get(routeSelection) ?? null); setEditingMessage(null); setEditingContent(""); setDeleteRequest(null);
-    setMessageActionError(null); setComposerError(null); setOpenMessageMenu(null); setActiveMessageActions(null);
+    setMessageActionError(null); setComposerError(null); setOpenMessageMenu(null); setOpenReactionPicker(null); setActiveMessageActions(null);
     setLoadingOlder(false); setMessages([]); setThread(EMPTY_THREAD);
     return invalidateSelection;
   }, [invalidateSelection, routeSelection, user?.uid]);
@@ -757,18 +868,47 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
     router.replace(ROUTES.ONE_MESSAGES, { scroll: false });
   };
 
+  useBackLayer(ROUTES.ONE_MESSAGES, lane === "people" && hasRouteSelection && messageSearchOpen ? 2 : 0, () => {
+    setMessageSearchOpen(false);
+    setMessageSearchQuery("");
+    return true;
+  });
+  useBackLayer(ROUTES.ONE_MESSAGES, lane === "people" && hasRouteSelection ? 1 : 0, () => {
+    backToConnections();
+    return true;
+  });
+  useBackLayer(ROUTES.ONE_MESSAGES, newChatOpen ? 3 : 0, () => {
+    setNewChatOpen(false);
+    return true;
+  });
+
+  const chooseAttachment = (file: File | undefined) => {
+    if (!file) return;
+    const allowed = [
+      "image/jpeg", "image/png", "image/webp", "video/mp4", "video/webm",
+      "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain",
+    ];
+    if (!allowed.includes(file.type) || file.size > 5 * 1024 * 1024) {
+      morphyToast.error("Choose a photo, video, PDF, Word, or text file up to 5 MB.");
+      return;
+    }
+    attachmentDrafts.current.set(routeSelection, file);
+    setAttachment(file);
+    setComposerError(null);
+  };
+
   const sendDraft = async (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
     if (!user || sending || !canCompose) return;
     const content = unconfirmedDraft ?? draft;
-    if (!content.trim() || sendingSelections.current.has(routeSelection)) return;
+    if ((!content.trim() && !attachment) || sendingSelections.current.has(routeSelection)) return;
     const generation = selectionGeneration.current;
     const isCurrent = () => generation === selectionGeneration.current && ownerRef.current === user.uid && selectionRef.current === routeSelection;
     const reply = replyingTo;
     const replyId = unconfirmedDraft ? sendAttempts.current.get(routeSelection)?.replyId : reply?.id;
     let attempt = sendAttempts.current.get(routeSelection);
-    if (!attempt || attempt.content !== content || attempt.replyId !== replyId) {
-      attempt = { id: crypto.randomUUID(), content, replyId }; sendAttempts.current.set(routeSelection, attempt);
+    if (!attempt || attempt.content !== content || attempt.replyId !== replyId || (attempt.attachment ?? null) !== attachment) {
+      attempt = { id: crypto.randomUUID(), content, replyId, attachment: attachment ?? undefined }; sendAttempts.current.set(routeSelection, attempt);
     }
     const recipientPersonRef = thread.peerPersonRef || requestedPersonRef;
     if (!recipientPersonRef) {
@@ -788,12 +928,13 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
         recipientPersonRef,
         replyToMessageId: replyId,
         clientMessageId: attempt.id,
+        ...(attempt.attachment ? { attachment: attempt.attachment } : {}),
       });
       if (!isCurrent()) return;
-      drafts.current.delete(routeSelection); sendAttempts.current.delete(routeSelection);
+      drafts.current.delete(routeSelection); attachmentDrafts.current.delete(routeSelection); sendAttempts.current.delete(routeSelection);
       atBottomRef.current = true; setAtBottom(true);
       replyDrafts.current.delete(routeSelection);
-      setDraft(""); setUnconfirmedDraft(null);
+      setDraft(""); setAttachment(null); setUnconfirmedDraft(null);
       setReplyingTo(null);
       loadGeneration.current += 1;
       setMessages((current) => mergeMessages(current, [result.message]));
@@ -912,6 +1053,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
     clearMessageLongPress();
     messageLongPressTimer.current = setTimeout(() => {
       setActiveMessageActions(message.id);
+      setOpenReactionPicker(message.id);
       window.navigator.vibrate?.(8);
       messageLongPressTimer.current = null;
     }, 450);
@@ -953,12 +1095,18 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
 
   const saveReaction = (message: DirectMessage, emoji: string) => {
     if (!user) return;
+    const reactionKey = `${message.id}:${emoji}`;
+    if (reactionPending.current.has(reactionKey)) return;
+    reactionPending.current.add(reactionKey);
+    const removing = Boolean(message.reactions?.find((reaction) => reaction.emoji === emoji)?.reactedByViewer);
     const generation = selectionGeneration.current;
+    setMessages((current) => current.map((item) => item.id === message.id ? toggleReaction(item, emoji) : item));
+    setOpenReactionPicker(null);
     void (async () => {
       try {
         const idToken = await user.getIdToken();
         if (generation !== selectionGeneration.current) return;
-        const updated = await DirectMessagesService.reactToMessage({
+        const updated = await DirectMessagesService[removing ? "removeReaction" : "reactToMessage"]({
           idToken,
           conversationId: message.conversationId,
           messageId: message.id,
@@ -971,10 +1119,13 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
         setActiveMessageActions(null);
       } catch {
         if (generation !== selectionGeneration.current) return;
+        replaceMessage(message);
         setMessageActionError({
           messageId: message.id,
-          message: "Couldn’t add that reaction. Try again.",
+          message: "Couldn’t update that reaction. Try again.",
         });
+      } finally {
+        reactionPending.current.delete(reactionKey);
       }
     })();
   };
@@ -1026,6 +1177,22 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
     );
   }
 
+  const laneSwitcher = (
+    <div className={styles.laneSwitcher} role="tablist" aria-label="Chat lanes">
+      <button type="button" role="tab" aria-selected={lane === "people"}
+        onClick={() => setLane("people")}>People</button>
+      <button type="button" role="tab" aria-selected={lane === "circles"}
+        onClick={() => setLane("circles")}>Circles</button>
+    </div>
+  );
+  const themeToggle = (
+    <button type="button" className={styles.refreshButton}
+      aria-label={`Switch to ${isDark ? "light" : "dark"} mode`}
+      onClick={() => setTheme(isDark ? "light" : "dark")}>
+      {isDark ? <SunIcon className="h-5 w-5" aria-hidden="true" /> : <MoonIcon className="h-5 w-5" aria-hidden="true" />}
+    </button>
+  );
+
   return (
     <AppPageShell width="expanded" fitContent={false} className={styles.shell}>
       <section
@@ -1033,7 +1200,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
         className={styles.page}
         data-one-chat-surface
         data-direct-message-page="true"
-        data-chat-open={hasRouteSelection ? "true" : "false"}
+        data-theme={isDark ? "dark" : "light"}
+        data-chat-lane={lane}
+        data-chat-open={(lane === "people" ? hasRouteSelection : circleThreadOpen) ? "true" : "false"}
 
         data-native-route="native-route-direct-messages"
       >
@@ -1045,18 +1214,17 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
               </Link>
               <h1>Chat</h1>
             </div>
-            <button
-              type="button"
-              className={styles.refreshButton}
-              aria-label="Refresh conversations"
-              onClick={() => void loadInbox()}
-              disabled={loadingInbox}
-            >
-              <RefreshCw
-                className={cn("h-4 w-4", loadingInbox && "animate-spin motion-reduce:animate-none")}
-                aria-hidden="true"
-              />
-            </button>
+            <div className={styles.inboxHeaderActions}>
+              {themeToggle}
+              <button type="button" className={styles.refreshButton} aria-label="New chat" onClick={() => {
+                setNewChatQuery(""); setNewChatPage(1); setNewChatPeople([]); setNewChatHasMore(false); setNewChatOpen(true);
+              }}><Pencil className="h-5 w-5" aria-hidden="true" /></button>
+              <button type="button" className={styles.refreshButton}
+                aria-label="Refresh conversations" onClick={() => void loadInbox()} disabled={loadingInbox}>
+                <RefreshCw className={cn("h-4 w-4", loadingInbox && "animate-spin motion-reduce:animate-none")}
+                  aria-hidden="true" />
+              </button>
+            </div>
           </header>
           <div className={styles.inboxSearch}>
             <label className={styles.inboxSearchField}>
@@ -1066,11 +1234,12 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                 type="search"
                 value={inboxSearch}
                 onChange={(event) => setInboxSearch(event.target.value)}
-                placeholder="Search or start a new chat"
+                placeholder="Search chats"
                 aria-label="Search conversations"
               />
             </label>
           </div>
+          {laneSwitcher}
           <nav className={styles.conversationList} aria-label="Conversation list">
             {loadingInbox && inboxItems.length === 0 ? (
               <p className={styles.loading}>Loading conversations…</p>
@@ -1093,6 +1262,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                 <MessageCircle className="h-7 w-7" aria-hidden="true" />
                 <h2>{inboxSearch ? "No matching chats" : "No chats yet"}</h2>
                 <p>{inboxSearch ? "Try another name or message." : "Choose a connection to start chatting."}</p>
+                {!inboxSearch ? <button type="button" className={styles.newChatAction} onClick={() => {
+                  setNewChatQuery(""); setNewChatPage(1); setNewChatPeople([]); setNewChatHasMore(false); setNewChatOpen(true);
+                }}>New chat</button> : null}
               </div>
             ) : null}
             {visibleConversations.map((conversation) => {
@@ -1379,9 +1551,13 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                                         <p>{message.replyTo.content}</p>
                                       </div>
                                     ) : null}
-                                    <p className="whitespace-pre-wrap break-words">
+                                    {message.content ? <p className="whitespace-pre-wrap break-words">
                                       {message.content}
-                                    </p>
+                                    </p> : null}
+                                    <MessageAttachment message={message} getIdToken={() => {
+                                      if (!user) throw new Error("Sign in to open this attachment.");
+                                      return user.getIdToken();
+                                    }} />
                                   </>
                                 )}
                                   <div className={styles.messageBubbleMeta}>
@@ -1411,12 +1587,22 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                               </OneChatBubble>
                               <div className={styles.messageActions} aria-label="Message actions">
                                 {!message.deletedForEveryoneAt ? (
-                                  <DirectMessageEmojiPicker
-                                    label="Choose a reaction"
-                                    triggerClassName={styles.messageActionButton}
-                                    compact
-                                    onEmojiSelect={(emoji) => saveReaction(message, emoji)}
-                                  />
+                                  <Popover open={openReactionPicker === message.id}
+                                    onOpenChange={(open) => setOpenReactionPicker(open ? message.id : null)}>
+                                    <PopoverTrigger asChild>
+                                      <button type="button" className={styles.messageActionButton}
+                                        aria-label="React to message" aria-expanded={openReactionPicker === message.id}>
+                                        <span aria-hidden="true">☺</span>
+                                      </button>
+                                    </PopoverTrigger>
+                                    <PopoverContent side="top" align={message.senderIsViewer ? "end" : "start"}
+                                      collisionPadding={12} className={styles.reactionPicker} aria-label="Choose a reaction">
+                                      {QUICK_REACTIONS.map((emoji) => (
+                                        <button key={emoji} type="button" aria-label={`React ${emoji}`}
+                                          onClick={() => saveReaction(message, emoji)}>{emoji}</button>
+                                      ))}
+                                    </PopoverContent>
+                                  </Popover>
                                 ) : null}
                                 <DropdownMenu
                                   modal={false}
@@ -1516,12 +1702,20 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                 }}>Go to latest messages</button> : null}
             </>
           ) : null}
-                  <AgentDockPortal enabled visible={hasRouteSelection || !agentEngaged}>
+                  {lane === "people" ? <AgentDockPortal enabled visible={hasRouteSelection}
+                    suppressed={!hasRouteSelection}>
                   <form
                     className={styles.composer}
                     data-direct-message-inbox-composer={!hasRouteSelection || undefined}
                     onSubmit={(event) => void sendDraft(event)}
                   >
+                    <input ref={photoInputRef} hidden type="file" accept="image/jpeg,image/png,image/webp"
+                      onChange={(event) => { chooseAttachment(event.target.files?.[0]); event.target.value = ""; }} />
+                    <input ref={videoInputRef} hidden type="file" accept="video/mp4,video/webm"
+                      onChange={(event) => { chooseAttachment(event.target.files?.[0]); event.target.value = ""; }} />
+                    <input ref={documentInputRef} hidden type="file"
+                      accept="application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,.pdf,.docx,.txt"
+                      onChange={(event) => { chooseAttachment(event.target.files?.[0]); event.target.value = ""; }} />
                     {hasRouteSelection && !thread.canSend && messages.length > 0 ? (
                       <div className={styles.readOnlyNotice} role="status">
                         {thread.disconnectedNotice || "You are no longer connected."}
@@ -1543,6 +1737,32 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                         </button>
                       </div>
                     ) : null}
+                    {attachment ? <div className={styles.attachmentPreview} role="status">
+                      <span title={attachment.name}>{attachment.name} · {(attachment.size / 1024 / 1024).toFixed(1)} MB</span>
+                      <button type="button" aria-label="Remove attachment" onClick={() => {
+                        attachmentDrafts.current.delete(routeSelection); setAttachment(null);
+                      }}><X className="h-4 w-4" aria-hidden="true" /></button>
+                    </div> : null}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button type="button" className={styles.attachButton} aria-label="Add attachment"
+                          disabled={sending || !canCompose || Boolean(unconfirmedDraft)}>
+                          <Plus className="h-5 w-5" aria-hidden="true" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start" side="top" className={styles.attachmentMenu}>
+                        <DropdownMenuItem onSelect={() => photoInputRef.current?.click()}>
+                          <ImageIcon className="h-4 w-4" aria-hidden="true" /> Photo
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => videoInputRef.current?.click()}>
+                          <ImageIcon className="h-4 w-4" aria-hidden="true" /> Video
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => documentInputRef.current?.click()}>
+                          <FileText className="h-4 w-4" aria-hidden="true" /> Document
+                        </DropdownMenuItem>
+                        <p className={styles.attachmentLimit}>Up to 5 MB</p>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                     <label className="sr-only" htmlFor="direct-message-draft">
                       {hasRouteSelection ? `Message ${selectedLabel}` : "Message"}
                     </label>
@@ -1577,28 +1797,37 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                           return;
                         }
                         event.preventDefault();
-                        if (draft.trim() && !sending) event.currentTarget.form?.requestSubmit();
+                        if ((draft.trim() || attachment) && !sending) event.currentTarget.form?.requestSubmit();
                       }}
                     />
                     <DirectMessageEmojiPicker
                       disabled={sending || !canCompose || Boolean(unconfirmedDraft)}
-                      onEmojiSelect={(emoji) =>
-                        setDraft((current) => { const next = `${current}${emoji}`; drafts.current.set(routeSelection, next); return next; })
-                      }
+                      onEmojiSelect={(emoji) => {
+                        const input = composerRef.current;
+                        const start = input?.selectionStart ?? draft.length;
+                        const end = input?.selectionEnd ?? start;
+                        setDraft((current) => {
+                          const next = `${current.slice(0, start)}${emoji}${current.slice(end)}`;
+                          drafts.current.set(routeSelection, next);
+                          return next;
+                        });
+                        requestAnimationFrame(() => {
+                          input?.focus(); input?.setSelectionRange(start + emoji.length, start + emoji.length);
+                        });
+                      }}
                     />
                     <div className={styles.composerActions}>
-                      <button
+                      {!draft.trim() && !attachment && !sending ? <button
                         type="button"
                         className={styles.voiceButton}
                         aria-label="Talk to One"
                         onClick={openOneVoiceChat}
                       >
                         <Mic className="h-4 w-4" aria-hidden="true" />
-                      </button>
-                      <button
+                      </button> : <button
                         type="submit"
                         className={styles.sendButton}
-                        disabled={sending || !canCompose || !draft.trim()}
+                        disabled={sending || !canCompose || (!draft.trim() && !attachment)}
                         aria-label={unconfirmedDraft ? "Retry" : "Send message"}
                       >
                         {sending ? (
@@ -1606,7 +1835,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                         ) : (
                           <Send className="h-5 w-5" aria-hidden="true" />
                         )}
-                      </button>
+                      </button>}
                     </div>
                     <span className="sr-only" aria-live="polite">
                       {draft.length}/{DIRECT_MESSAGE_MAX_LENGTH}
@@ -1617,7 +1846,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                       </p>
                     ) : null}
                   </form>
-                  </AgentDockPortal>
+                  </AgentDockPortal> : null}
               <Dialog modal open={Boolean(editingMessage)} onOpenChange={(open) => {
                 if (!open) { editDraftGeneration.current += 1; setEditingMessage(null); setEditingContent(""); }
               }}>
@@ -1670,7 +1899,35 @@ export function DirectMessagesPage({ selection, resolvingSelection = false }: { 
                 </AlertDialogContent>
               </AlertDialog>
         </main>
+        {lane === "circles" ? <CircleMessagesPane theme={isDark ? "dark" : "light"} onThreadOpenChange={setCircleThreadOpen}
+          laneSwitcher={<div className={styles.circleLaneSwitcher}>{laneSwitcher}{themeToggle}</div>} /> : null}
       </section>
+      <Dialog open={newChatOpen} onOpenChange={setNewChatOpen}>
+        <DialogContent className={styles.newChatDialog} srDescription="Choose a connection to message.">
+          <DialogHeader><DialogTitle>New chat</DialogTitle></DialogHeader>
+          <input type="search" aria-label="Search connections" placeholder="Search connections"
+            className={styles.newChatSearch} value={newChatQuery} onChange={(event) => {
+              setNewChatQuery(event.target.value); setNewChatPage(1); setNewChatPeople([]); setNewChatHasMore(false);
+            }} />
+          <div className={styles.newChatResults}>
+            {newChatLoading && !newChatPeople.length ? <p role="status">Loading connections…</p> : null}
+            {newChatError ? <p role="alert">Connections are unavailable. Try your search again.</p> : null}
+            {!newChatLoading && !newChatError && !newChatPeople.length ? <p>No connections found.</p> : null}
+            {newChatPeople.map((person) => <button type="button" key={person.userId} className={styles.newChatPerson}
+              aria-label={`Message ${person.displayName || "connection"}`}
+              disabled={!person.publicPersonRef} onClick={() => {
+                if (!person.publicPersonRef) return;
+                setNewChatOpen(false);
+                void navigateDirectMessage(router, { personRef: person.publicPersonRef });
+              }}>
+              <ConnectionPersonAvatar label={person.displayName || "Connection"} photoUrl={person.photoUrl} size="list" />
+              <span>{person.displayName || "Connection"}</span>
+            </button>)}
+            {newChatHasMore ? <button type="button" className={styles.newChatMore} disabled={newChatLoading}
+              onClick={() => setNewChatPage((page) => page + 1)}>Load more</button> : null}
+          </div>
+        </DialogContent>
+      </Dialog>
     </AppPageShell>
   );
 }

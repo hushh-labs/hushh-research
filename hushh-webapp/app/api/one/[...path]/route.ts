@@ -33,6 +33,7 @@ const ONE_STREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(285_000, {
 });
 
 const CIRCLE_CHAT_MAX_REQUEST_BYTES = 9_000_000;
+const DIRECT_MESSAGE_MAX_REQUEST_BYTES = 7_054_508;
 async function readCircleChatBody(request: NextRequest, maximum = CIRCLE_CHAT_MAX_REQUEST_BYTES): Promise<string> {
   const declared = request.headers.get("content-length");
   if (declared && (!/^\d+$/.test(declared) || Number(declared) > maximum)) {
@@ -124,7 +125,8 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     if (request.method !== "GET" && request.method !== "HEAD") {
       headers.set("Content-Type", contentType || "application/json");
       body = (await (/^circles\/[^/]+\/photo$/.test(path) ? readCircleChatBody(request, 430000) :
-        /^circles\/[^/]+\/chat(?:\/|$)/.test(path) ? readCircleChatBody(request) : request.text())) || undefined;
+        /^circles\/[^/]+\/chat(?:\/|$)/.test(path) ? readCircleChatBody(request) :
+        path === "messages" && request.method === "POST" ? readCircleChatBody(request, DIRECT_MESSAGE_MAX_REQUEST_BYTES) : request.text())) || undefined;
     }
 
     // Agent chat is an SSE connection. An AbortSignal.timeout stays attached to
@@ -151,6 +153,14 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     // for the same reason. Gated on the upstream content type, so every JSON
     // route on this proxy keeps the exact behaviour it had.
     const responseContentType = response.headers.get("content-type");
+    if (request.method === "GET" && /^messages\/conversations\/[^/]+\/messages\/[^/]+\/attachment$/.test(path) && response.ok) {
+      const headers = privateResponseHeaders(response);
+      headers.set("Content-Type", responseContentType || "application/octet-stream");
+      headers.set("Content-Disposition", "attachment");
+      headers.set("X-Content-Type-Options", "nosniff");
+      headers.set("x-request-id", requestId);
+      return new Response(response.body, { status: response.status, headers });
+    }
     if (responseContentType?.includes("text/event-stream")) {
       return new Response(response.body, {
         status: response.status,

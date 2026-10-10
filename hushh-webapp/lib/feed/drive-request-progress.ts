@@ -1,6 +1,7 @@
 import { isDocumentShareEntry, documentShareRequestId } from "@/lib/consent/document-share-consent";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { parseConsentInstant } from "@/lib/consent/consent-owner-copy";
+import { formatDocumentRequestPrice, isValidDocumentRequestPriceCents } from "@/lib/consent/document-request-price";
 import type { ConsentCenterEntry } from "@/lib/services/consent-center-service";
 
 export interface FeedDriveProgress {
@@ -37,21 +38,34 @@ export function projectFeedDriveProgress(
   for (const entry of entries) {
     if (!isDocumentShareEntry(entry)) continue;
     if (!documentShareRequestId(entry.id)) continue;
-    if (entry.metadata?.automatic_progress_active !== true) continue;
-    // Checkout must never be described as if sharing is already running.
-    if (entry.metadata.paymentStatus === "awaiting_payment" || entry.metadata.paymentStatus === "checkout_open") continue;
-    if (entry.metadata.paymentReconciliationRequired === true) continue;
-    const direction = entry.metadata.direction;
+    const metadata = entry.metadata || {};
+    const direction = metadata.direction;
     if (direction !== "incoming" && direction !== "outgoing") continue;
+    const quote = direction === "outgoing" && metadata.paymentRequired === true &&
+      isValidDocumentRequestPriceCents(metadata.quotedAmountCents)
+      ? formatDocumentRequestPrice(metadata.quotedAmountCents)
+      : null;
+    const automatic = metadata.automatic_progress_active === true;
+    if (!automatic && !quote) continue;
+    // Checkout must never be described as if sharing is already running.
+    if (metadata.paymentStatus === "awaiting_payment" || metadata.paymentStatus === "checkout_open") continue;
+    if (metadata.paymentStatus === "expired" || metadata.ownerPayoutAccountReady === false) continue;
+    if (metadata.paymentReconciliationRequired === true) continue;
     const pending = entry.status === "pending" &&
       entry.kind === (direction === "incoming" ? "incoming_request" : "outgoing_request");
     const active = entry.status === "active" && entry.kind === "active_grant";
     if (!pending && !active) continue;
+    if (!automatic && !pending) continue;
 
     byRequest.set(entry.id, {
       id: entry.id,
-      title: progressTitle(entry.metadata.automatic_progress_stage),
-      description: progressDescription(direction, entry.metadata.owner_allowed === true),
+      title: automatic ? progressTitle(metadata.automatic_progress_stage) : "Document request sent",
+      description: [
+        quote ? `Quote locked at ${quote}` : null,
+        automatic
+          ? progressDescription(direction, metadata.owner_allowed === true)
+          : "Waiting for the owner to review your request.",
+      ].filter(Boolean).join(" · "),
       href: buildConsentCenterHref(active ? "active" : "pending", {
         requestId: entry.id,
         requestView: pending && direction === "outgoing" ? "sent" : "received",

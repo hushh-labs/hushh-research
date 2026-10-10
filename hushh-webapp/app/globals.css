@@ -717,7 +717,7 @@ textarea {
    * so from ~576px up it sat 96 to 192px narrower than the navigation under it.
    * The inset is symmetric and clears a landscape notch on either side.
    * Held by e2e/bottom-chrome-width.layout.spec.ts. */
-  --app-bottom-shell-max-width: 48rem;
+  --app-bottom-shell-max-width: 760px;
   --app-bottom-shell-inline-inset: max(
     1rem,
     env(safe-area-inset-left, 0px),
@@ -3540,7 +3540,6 @@ body:has([data-location-hub], [data-wallet-hub]) [data-app-shell-top-spacer="tru
     --top-bar-h: 64px;
     --top-systembar-row-gap: 0px;
     --top-fade-active: 22px;
-    --app-bottom-shell-max-width: 40rem;
   }
 }
 
@@ -7153,6 +7152,86 @@ html[data-accent="gold"].dark {
   --app-accent-hero-from: #8a5a24;
   --app-accent-hero-mid: #d4a574;
   --app-accent-hero-to: #fff8ea;
+}
+
+/* Chat keeps the same shared navbar as every other route, but its accent is
+   always iOS blue. The bottom shell is outside the Chat page's token scope. */
+html:has([data-direct-message-page]) {
+  --chat-ios-accent: #007aff;
+  --chat-glass: rgba(255, 255, 255, 0.68);
+  --chat-glass-edge: rgba(255, 255, 255, 0.65);
+  --chat-text: #1c1c1e;
+  --chat-muted: #8e8e93;
+  --chat-sender-1: #006cc4;
+  --chat-sender-2: #208048;
+  --chat-sender-3: #8e44ad;
+  --chat-sender-4: #007f8f;
+  --chat-sender-5: #bd4053;
+  --chat-sender-6: #4f5dc8;
+  --app-accent: #007aff;
+  --app-accent-deep: #007aff;
+  --app-accent-bright: #007aff;
+  --app-accent-hover: #0066d6;
+  --app-accent-fg: #ffffff;
+  --app-accent-tint: rgba(0, 122, 255, 0.1);
+  --app-accent-surface: #e6f0ff;
+  --app-accent-surface-strong: #d8eaff;
+  --app-accent-border: rgba(0, 122, 255, 0.32);
+  --app-accent-ring: rgba(0, 122, 255, 0.35);
+  --app-accent-hero-from: #005fc7;
+  --app-accent-hero-mid: #007aff;
+  --app-accent-hero-to: #e6f0ff;
+  --accent: #007aff;
+}
+
+html.dark:has([data-direct-message-page]) {
+  --chat-ios-accent: #0a84ff;
+  --chat-glass: rgba(30, 30, 36, 0.62);
+  --chat-glass-edge: rgba(255, 255, 255, 0.14);
+  --chat-text: #f5f5f7;
+  --chat-muted: #9a9aa2;
+  --chat-sender-1: #64b5ff;
+  --chat-sender-2: #67d694;
+  --chat-sender-3: #c89bff;
+  --chat-sender-4: #5bd6d9;
+  --chat-sender-5: #ff8a9a;
+  --chat-sender-6: #a3a7ff;
+  --app-accent: #0a84ff;
+  --app-accent-deep: #0a84ff;
+  --app-accent-bright: #0a84ff;
+  --app-accent-hover: #409cff;
+  --app-accent-fg: #ffffff;
+  --app-accent-tint: rgba(10, 132, 255, 0.15);
+  --app-accent-surface: rgba(10, 132, 255, 0.15);
+  --app-accent-surface-strong: rgba(10, 132, 255, 0.22);
+  --app-accent-border: rgba(10, 132, 255, 0.35);
+  --app-accent-ring: rgba(10, 132, 255, 0.4);
+  --app-accent-hero-from: #005aa9;
+  --app-accent-hero-mid: #0a84ff;
+  --app-accent-hero-to: #1b1b20;
+  --accent: #0a84ff;
+}
+
+html:has([data-direct-message-page]) [data-app-bottom-shell] {
+  --app-accent: var(--chat-ios-accent);
+  --app-accent-deep: var(--chat-ios-accent);
+  --app-accent-bright: var(--chat-ios-accent);
+  --app-accent-tint: rgba(0, 122, 255, 0.1);
+  --app-accent-surface: #e6f0ff;
+  --app-accent-border: rgba(0, 122, 255, 0.32);
+  --app-accent-fg: #ffffff;
+  --accent: var(--chat-ios-accent);
+}
+
+html.dark:has([data-direct-message-page]) [data-app-bottom-shell] {
+  --app-accent: var(--chat-ios-accent);
+  --app-accent-deep: var(--chat-ios-accent);
+  --app-accent-bright: var(--chat-ios-accent);
+  --app-accent-tint: rgba(10, 132, 255, 0.15);
+  --app-accent-surface: rgba(10, 132, 255, 0.15);
+  --app-accent-border: rgba(10, 132, 255, 0.35);
+  --app-accent-fg: #ffffff;
+  --accent: var(--chat-ios-accent);
 }
 
 @layer utilities {

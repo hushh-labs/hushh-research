@@ -24,6 +24,49 @@ function feedItem(
 }
 
 describe("notification-backed Feed projection renderers", () => {
+  it("shows only authoritative owner net earnings and distinguishes Stripe transfer from bank deposit", () => {
+    const pending = presentFeedItem(feedItem("document_share_outcome", {
+      request_id: "11111111-1111-4111-8111-111111111111",
+      feed_audience: "owner",
+      owner_payout_status: "awaiting_fee",
+      owner_earning_cents: null,
+    }, "consent"));
+    expect(pending.description).toContain("Payout pending");
+    expect(pending.description).not.toContain("Net $");
+
+    const transferred = presentFeedItem(feedItem("document_share_outcome", {
+      request_id: "11111111-1111-4111-8111-111111111111",
+      feed_audience: "owner",
+      owner_payout_status: "transferred",
+      owner_earning_cents: 611,
+    }, "consent"));
+    expect(transferred.description).toContain("Sent to Stripe · Net $6.11");
+    expect(transferred.description).not.toMatch(/bank|deposited/i);
+
+    const setup = presentFeedItem(feedItem("document_share_request", {
+      owner_payout_account_ready: false,
+    }, "consent"));
+    expect(setup.description).toContain("Set up US payouts");
+    const pendingSetup = presentFeedItem(feedItem("document_share_outcome", {
+      owner_payout_status: "awaiting_delivery",
+      owner_payout_account_ready: false,
+    }, "consent"));
+    expect(pendingSetup.description).toContain("Payout pending setup");
+  });
+
+  it("identifies a proportional document refund when the paid and refunded amounts are known", () => {
+    const row = presentFeedItem(feedItem("document_share_payment_refunded", {
+      request_id: "11111111-1111-4111-8111-111111111111",
+      current_payment_amount_cents: 1000,
+      current_refund_amount_cents: 400,
+    }, "consent"));
+    expect(row.description).toContain("Refunded $4.00 for undelivered files");
+    const full = presentFeedItem(feedItem("document_share_payment_refunded", {
+      current_payment_amount_cents: 1000,
+      current_refund_amount_cents: 1000,
+    }, "consent"));
+    expect(full.description).toBe("Payment refunded for your document request");
+  });
   it.each([
     ["kai_analysis_failed", "kai", "Analysis could not finish"],
     ["kai_analysis_canceled", "kai", "Analysis canceled"],

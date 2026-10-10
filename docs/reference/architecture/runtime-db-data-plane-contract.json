@@ -29,7 +29,9 @@
     "drive_request_bulk_removals",
     "drive_request_payment_webhook_events",
     "circle_chat_messages",
-    "circle_chat_recipients"
+    "circle_chat_recipients",
+    "circle_chat_reactions",
+    "direct_message_attachments"
   ],
   "retention_registry": [
     {
@@ -271,12 +273,13 @@
       "data_class": "personal_encrypted",
       "lifecycle_status": "current",
       "exact_tables": [
-        "messages"
+        "messages",
+        "direct_message_attachments"
       ],
-      "primary_access_path": "Participant-scoped conversation history, latest-message inbox projection, unread/read-receipt updates, sender-only edit and global delete actions, same-conversation replies, and transactionally committed recipient doorbells from the Direct Messages service.",
-      "retention_policy": "Retain encrypted message history while its participant accounts exist. Disconnect and block preserve history but prohibit new message envelopes; no automatic disconnect deletion occurs.",
-      "deletion_behavior": "Delete with the parent conversation or either actor account through foreign-key cascades and AccountService account-erasure cleanup. A person can hide a message only from their own history; a sender can tombstone it for both participants. Never delete history merely because a connection is removed or blocked.",
-      "trust_boundary": "Each text body is an AES-256-GCM envelope under server-managed DIRECT_MESSAGE_ENCRYPTION_KEY_V1. content_ciphertext contains the GCM tag and AAD binds direct-message-v1, conversation id, message id and sender id; plaintext is never stored. The transactional one_user_state_changed doorbell carries only opaque ids, time and a deep link\u00e2\u20ac\u201dnever content, cipher fields, sender identity or an unread count. This is encrypted-at-rest server-readable messaging, not client-key end-to-end encryption.",
+      "primary_access_path": "Participant-scoped conversation history and attachment reads, latest-message inbox projection, unread/read-receipt updates, sender-only edit and global delete actions, same-conversation replies, and transactionally committed recipient doorbells from the Direct Messages service.",
+      "retention_policy": "Retain encrypted message history and attachments while its participant accounts exist. Disconnect and block preserve history but prohibit new message envelopes; no automatic disconnect deletion occurs. Attachments are limited to 5 MB each.",
+      "deletion_behavior": "Delete attachments with their parent message, conversation, or either actor account through foreign-key cascades and AccountService account-erasure cleanup. A person can hide a message only from their own history; a sender can tombstone it for both participants. Never delete history merely because a connection is removed or blocked.",
+      "trust_boundary": "Each text body and attachment is an AES-256-GCM envelope under server-managed DIRECT_MESSAGE_ENCRYPTION_KEY_V1. The GCM tag and AAD bind the conversation id, message id, and sender id; plaintext file bytes are never stored. Attachment reads require participant authorization and reject hidden or deleted messages. The transactional one_user_state_changed doorbell carries only opaque ids, time and a deep link, never content, cipher fields, sender identity or an unread count. This is encrypted-at-rest server-readable messaging, not client-key end-to-end encryption.",
       "plaintext_posture": "ciphertext_and_minimal_message_metadata",
       "expected_row_growth": "high_per_participant_conversation"
     },
@@ -1100,12 +1103,58 @@
         "drive_request_payment_webhook_events",
         "drive_request_payment_refunds"
       ],
-      "primary_access_path": "One USD Stripe Checkout order is created only after a new eligible Drive request, from the owner's Trusted circle or explicitly allowed by the owner, has a nonempty frozen shareable batch. The order fixes its amount when it is created: 1000 cents for a Trusted request, or the owner's whole-dollar price from 100 to 50000 cents. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority.",
+      "primary_access_path": "One USD Stripe Checkout order is created only after an eligible Drive request, from the owner's Trusted circle or explicitly allowed by the owner, has a nonempty frozen shareable batch. New requests lock the owner's effective whole-dollar quote from 100 to 50000 cents at creation; legacy requests retain their original price rule. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority.",
       "retention_policy": "At most one live order and one account-free obligation per request, plus one refund attempt and verified event dedupe receipts. Checkout URLs expire with their Stripe session and are cleared on settlement. The obligation and refund evidence survive request erasure until payment and refund duties are settled under merchant retention policy.",
       "deletion_behavior": "The live order cascades from the request. Before account reset or erasure removes the request, an opaque obligation snapshots delivery state and removes all account linkage; late signed charges and in-flight refunds remain reconcilable. Stripe's own merchant records follow the payment account's retention policy.",
       "trust_boundary": "The retained obligation has only a random request UUID, payer digest, amount (whole dollars, 100 to 50000 cents) and currency, Stripe provider IDs, status and timestamps. No account ID, email, filename, search term, request purpose, document ID, content or Checkout URL is retained there. The requester-visible Feed event is never written after erasure.",
       "plaintext_posture": "opaque_payment_identifiers_bounded_price_and_workflow_status_only",
       "expected_row_growth": "one_order_per_eligible_request_plus_verified_event_dedupe_receipts"
+    },
+    {
+      "id": "drive_request_owner_pricing",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "drive_request_owner_pricing"
+      ],
+      "primary_access_path": "An authenticated document owner sets one whole-dollar USD Drive request price in Profile. Request creation locks the effective price and version on the encrypted request; later edits affect future requests only.",
+      "retention_policy": "One active preference row per owner while the account exists. The default price applies when no custom preference is enabled.",
+      "deletion_behavior": "Account reset and erasure remove the preference row. Existing payment obligations retain their original quoted amount without the profile setting.",
+      "trust_boundary": "Only the authenticated owner may read or change the preference. Server-side quote/version checks bind the requester to the price at request creation.",
+      "plaintext_posture": "owner_reference_and_bounded_price_only",
+      "expected_row_growth": "one_per_owner"
+    },
+    {
+      "id": "drive_request_owner_payouts",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "drive_request_owner_payouts"
+      ],
+      "primary_access_path": "New eligible paid Drive orders enroll one owner earning. Signed charge, refund, delivery and Stripe fee evidence determine a 3% platform share and one idempotent Connect transfer after confirmed delivery.",
+      "retention_policy": "Retain unsettled earnings and transfer or reversal evidence through financial reconciliation under the merchant retention policy. Historical orders are not backfilled.",
+      "deletion_behavior": "Account erasure removes live identity joins but retains the opaque obligation and provider settlement identifiers until any earned share, refund or reversal is resolved.",
+      "trust_boundary": "No document name, search term, bank number or user ID is stored in the retained payout row. Stripe account IDs and charge or transfer IDs remain restricted to service-role settlement paths.",
+      "plaintext_posture": "opaque_financial_identifiers_amounts_and_status_only",
+      "expected_row_growth": "one_per_new_eligible_paid_request"
+    },
+    {
+      "id": "stripe_connect_bank_payout_status",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "stripe_connect_bank_payouts",
+        "stripe_connect_bank_payout_events"
+      ],
+      "primary_access_path": "A separately signed connected-account Stripe webhook deduplicates events, verifies the latest provider state and updates aggregate bank-deposit status. The authenticated owner reads recent deposits through their current connected-account mapping.",
+      "retention_policy": "Provider payout and event receipts support settlement, reversal and duplicate-event reconciliation under the merchant retention policy.",
+      "deletion_behavior": "Deleting the owner's connected-account mapping removes their app access to these account-keyed financial receipts; any retained provider evidence remains restricted to settlement operators.",
+      "trust_boundary": "Only Stripe Connect account and payout IDs, amount, status, mode, failure code and timestamps are stored. No bank details or document request ID are present; a deposit may combine several earnings.",
+      "plaintext_posture": "provider_financial_identifiers_and_aggregate_status_only",
+      "expected_row_growth": "one_per_provider_bank_payout_plus_signed_event_receipts"
     },
     {
       "id": "drive_document_trust_rules",
@@ -1571,6 +1620,22 @@
       "trust_boundary": "Active ordinary Circle members only, with an envelope matching the current membership joined_at generation. The server relays client ciphertext and recipient public keys; it never receives message or image plaintext.",
       "plaintext_posture": "ciphertext_and_membership_delivery_metadata",
       "expected_row_growth": "high_per_message_and_active_member"
+    },
+    {
+      "id": "circle_chat_interaction_metadata",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "circle_chat_reactions",
+        "circle_chat_membership_events"
+      ],
+      "primary_access_path": "Authenticated Circle chat member reactions and membership event history, rendered as reaction counts and system pills for current members.",
+      "retention_policy": "Reaction choices remain while their message and reacting member exist. Membership events remain while their Circle exists and are shown only from the viewer's current membership generation.",
+      "deletion_behavior": "Message, Circle and account deletion cascade reaction rows; leaving or removal clears that member's reactions. Circle deletion erases event history, and actor deletion nulls event actor and subject identifiers.",
+      "trust_boundary": "Only active Circle members can react or read event history. Plaintext contains allowlisted emoji, event kind, opaque actor and subject identifiers, and timestamps; encrypted message content and keys never enter these tables or notifications.",
+      "plaintext_posture": "member_scoped_interaction_metadata_only",
+      "expected_row_growth": "high_per_message_reaction_and_membership_change"
     },
     {
       "id": "chat_push_delivery",

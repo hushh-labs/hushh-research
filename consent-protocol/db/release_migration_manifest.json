@@ -262,7 +262,12 @@
     "288_drive_request_feed_stream.sql",
     "289_one_referral_program_settings_v2.sql",
     "290_chat_push_delivery.sql",
-    "291_drive_request_owner_allowed.sql"
+    "291_drive_request_owner_allowed.sql",
+    "292_drive_request_owner_payouts.sql",
+    "293_drive_request_owner_pricing.sql",
+    "294_drive_request_bank_payout_events.sql",
+    "295_direct_message_attachments.sql",
+    "296_circle_chat_reactions_events.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -547,6 +552,11 @@
     "287_drive_request_access_stop.sql": "rollback/287_drive_request_access_stop.rollback.sql",
     "288_drive_request_feed_stream.sql": "rollback/288_drive_request_feed_stream.rollback.sql",
     "290_chat_push_delivery.sql": "rollback/290_chat_push_delivery.rollback.sql",
-    "291_drive_request_owner_allowed.sql": "rollback/291_drive_request_owner_allowed.rollback.sql"
+    "291_drive_request_owner_allowed.sql": "rollback/291_drive_request_owner_allowed.rollback.sql",
+    "292_drive_request_owner_payouts.sql": "rollback/292_drive_request_owner_payouts.rollback.sql",
+    "293_drive_request_owner_pricing.sql": "rollback/293_drive_request_owner_pricing.rollback.sql",
+    "294_drive_request_bank_payout_events.sql": "rollback/294_drive_request_bank_payout_events.rollback.sql",
+    "295_direct_message_attachments.sql": "rollback/295_direct_message_attachments.rollback.sql",
+    "296_circle_chat_reactions_events.sql": "rollback/296_circle_chat_reactions_events.rollback.sql"
   }
 }

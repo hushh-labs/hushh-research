@@ -55,7 +55,7 @@ def chat_db():
               CREATE TABLE vault_keys(user_id TEXT PRIMARY KEY REFERENCES actor_profiles(user_id));
               CREATE TABLE actor_identity_cache(user_id TEXT PRIMARY KEY REFERENCES actor_profiles(user_id) ON DELETE CASCADE, display_name TEXT, photo_url TEXT, custom_photo_url TEXT);
               CREATE TABLE one_location_circles(id UUID PRIMARY KEY, owner_user_id TEXT REFERENCES actor_profiles(user_id) ON DELETE CASCADE, name TEXT, status TEXT DEFAULT 'active', is_system BOOLEAN DEFAULT false, system_kind TEXT, updated_at TIMESTAMPTZ DEFAULT now());
-              CREATE TABLE one_location_circle_memberships(circle_id UUID REFERENCES one_location_circles(id) ON DELETE CASCADE, user_id TEXT REFERENCES actor_profiles(user_id) ON DELETE CASCADE, status TEXT DEFAULT 'active', joined_at TIMESTAMPTZ DEFAULT clock_timestamp(), PRIMARY KEY(circle_id,user_id));
+              CREATE TABLE one_location_circle_memberships(circle_id UUID REFERENCES one_location_circles(id) ON DELETE CASCADE, user_id TEXT REFERENCES actor_profiles(user_id) ON DELETE CASCADE, status TEXT DEFAULT 'active', joined_at TIMESTAMPTZ DEFAULT clock_timestamp(), metadata JSONB NOT NULL DEFAULT '{}'::jsonb, PRIMARY KEY(circle_id,user_id));
               CREATE TABLE one_location_recipient_keys(user_id TEXT REFERENCES actor_profiles(user_id) ON DELETE CASCADE, key_id TEXT, public_key_jwk JSONB, encrypted_private_key_jwk JSONB, status TEXT DEFAULT 'active', created_at TIMESTAMPTZ DEFAULT now());
               CREATE TABLE feed_events(id BIGSERIAL PRIMARY KEY, user_id TEXT REFERENCES actor_profiles(user_id) ON DELETE CASCADE, source_domain TEXT, event_type TEXT, metadata JSONB, source_row_id TEXT, read_at TIMESTAMPTZ);
               CREATE TABLE connections(id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_a_id TEXT, user_b_id TEXT, status TEXT DEFAULT 'active');
@@ -76,6 +76,9 @@ def chat_db():
                     (ROOT / "db/migrations/266_circle_chat_presentation.sql").read_text()
                 )
                 cursor.execute((ROOT / "db/migrations/290_chat_push_delivery.sql").read_text())
+                cursor.execute(
+                    (ROOT / "db/migrations/296_circle_chat_reactions_events.sql").read_text()
+                )
         raw.close()
 
         def execute_raw(sql, params):
@@ -156,6 +159,64 @@ def _payload(service, circle, user="alice"):
             ],
         }
     ).model_dump(mode="json")
+
+
+def test_reactions_and_membership_events_follow_current_message_access(chat_db):
+    service = CircleChatService(chat_db)
+    circle = _seed(chat_db)
+    sent = service.send("alice", circle, _payload(service, circle))
+    message_id = sent["id"]
+
+    assert service.react("bob", circle, message_id, "❤️", True)["reactions"] == [
+        {"emoji": "❤️", "count": 1, "reactedByViewer": True}
+    ]
+    # PUT and DELETE remain safe to retry after a lost response.
+    assert service.react("bob", circle, message_id, "❤️", True)["reactions"][0]["count"] == 1
+    assert service.messages("alice", circle)["items"][0]["reactions"] == [
+        {"emoji": "❤️", "count": 1, "reactedByViewer": False}
+    ]
+    assert service.react("alice", circle, message_id, "❤️", True)["reactions"][0]["count"] == 2
+    assert service.react("bob", circle, message_id, "❤️", False)["reactions"][0]["count"] == 1
+    assert service.react("bob", circle, message_id, "❤️", False)["reactions"][0]["count"] == 1
+    updates = service.messages(
+        "bob", circle, receipt_after=sent["sequence"] - 1, receipt_through=sent["sequence"]
+    )["reactionUpdates"]
+    assert updates == [
+        {"id": message_id, "reactions": [{"emoji": "❤️", "count": 1, "reactedByViewer": False}]}
+    ]
+
+    with pytest.raises(CircleChatError) as bad_emoji:
+        service.react("bob", circle, message_id, "💛", True)
+    assert bad_emoji.value.status == 422
+    with pytest.raises(CircleChatError):
+        service.react("outsider", circle, message_id, "❤️", True)
+    with chat_db.engine.begin() as conn:
+        conn.execute(
+            text("""INSERT INTO one_location_circle_memberships(circle_id,user_id,metadata)
+          VALUES(CAST(:circle AS uuid),'carol','{"addedBy":"alice"}'::jsonb)"""),
+            {"circle": circle},
+        )
+    assert service.messages("carol", circle)["items"] == []
+    assert any(
+        event["subjectName"] == "Carol" and event["actorName"] == "Alice"
+        for event in service.messages("carol", circle)["events"]
+    )
+    with pytest.raises(CircleChatError):
+        service.react("carol", circle, message_id, "❤️", True)
+
+    with chat_db.engine.begin() as conn:
+        conn.execute(
+            text("""UPDATE one_location_circle_memberships SET status='removed'
+          WHERE circle_id=CAST(:circle AS uuid) AND user_id='alice'"""),
+            {"circle": circle},
+        )
+    assert service.messages("bob", circle)["items"][0]["reactions"] == []
+    assert any(
+        event["kind"] == "member_removed" and event["subjectName"] == "Alice"
+        for event in service.messages("bob", circle)["events"]
+    )
+    with pytest.raises(CircleChatError):
+        service.react("alice", circle, message_id, "❤️", True)
 
 
 def test_membership_history_images_retries_read_and_erasure(chat_db):
@@ -315,6 +376,11 @@ def test_key_rotation_pagination_push_lease_and_soft_delete(chat_db, monkeypatch
     raw.autocommit = True
     with raw.cursor() as cursor:
         cursor.execute(
+            (
+                ROOT / "db/migrations/rollback/296_circle_chat_reactions_events.rollback.sql"
+            ).read_text()
+        )
+        cursor.execute(
             (ROOT / "db/migrations/rollback/290_chat_push_delivery.rollback.sql").read_text()
         )
         cursor.execute(
@@ -348,6 +414,20 @@ def test_route_validation_does_not_echo_private_input():
         client.put(photo_endpoint, content=b"{}", headers={"Content-Length": "430001"}).status_code
         == 413
     )
+
+
+def test_reaction_route_rejects_unsupported_emoji_before_database_access():
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "alice"}
+    client = TestClient(app)
+    endpoint = (
+        f"/api/one/circles/{uuid.uuid4()}/chat/messages/{uuid.uuid4()}/reactions/%F0%9F%92%9B"
+    )
+    response = client.put(endpoint)
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "CIRCLE_CHAT_REACTION_INVALID"
+    assert "no-store" in response.headers["cache-control"]
 
 
 def test_large_reconnect_gap_is_ordered_unique_and_independent_of_doorbell_delivery(
@@ -445,6 +525,8 @@ async def test_wait_reauthorizes_and_releases_disconnected_subscriptions(chat_db
         "readChanged": True,
         "receiptsChanged": False,
         "photoChanged": False,
+        "membershipChanged": False,
+        "reactionsChanged": False,
     }
     assert removed == [queue, queue, queue] and "bob" not in chat_routes._waiting
 

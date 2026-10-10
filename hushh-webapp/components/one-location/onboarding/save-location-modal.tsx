@@ -1383,7 +1383,10 @@ export function SaveLocationModal({
                 onClick={handleSave}
                 disabled={!unifiedCanSave}
                 aria-busy={saving || unifiedSaveInFlight || undefined}
-                className={primaryActionClassName(unifiedCanSave || saving || unifiedSaveInFlight)}
+                className={cn(
+                  primaryActionClassName(unifiedCanSave || saving || unifiedSaveInFlight),
+                  "mx-auto max-w-[244px]",
+                )}
               >
                 {saving || unifiedSaveInFlight ? (
                   <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
@@ -1402,7 +1405,7 @@ export function SaveLocationModal({
                 disabled={interactionBusy}
                 className={cn(
                   secondaryActionClassName,
-                  "mt-2 border-t border-border/60 pt-2",
+                  "mt-2 pt-2",
                 )}
               >
                 Skip saving this place
