@@ -6026,11 +6026,11 @@ export function OneLocationAgentPageContent({
           toast.error("The alert could not be sent. Call for help directly.");
         } else if (shared < totalSelected || unreachable.length > 0) {
           toast.warning(
-            `Alert saved for ${shared} of ${totalSelected} contacts. Notifications requested for ${reached} contacts.${mailNote}`,
+            `Shared ${shared}/${totalSelected}. Push requests: ${reached}.${mailNote}`,
           );
         } else {
           toast.success(
-            `Alert saved for ${shared} contacts. Notifications requested for ${reached} contacts.${mailNote}`,
+            `Shared with ${shared}. Push requests: ${reached}.${mailNote}`,
           );
         }
         void refresh().catch(() => null);
