@@ -49,6 +49,7 @@ from hushh_mcp.services.drive_sharing_contract import (
     VerifiedGoogleRecipient,
 )
 from hushh_mcp.services.google_drive_adapter import FILE_ID, LIVE_POLICY_HASH, DriveReadError
+from hushh_mcp.services.stripe_mode import configured_stripe_mode
 
 OWNER_SETUP_CODES = frozenset(
     {"owner_price_required", "owner_payout_required", "payout_unavailable"}
@@ -234,8 +235,8 @@ class DriveSharingStore(DriveDocumentStore):
 
         account = self._row(
             connection,
-            "SELECT account_ready FROM pkm_owner_payout_accounts WHERE user_id=:user",
-            {"user": owner_user_id},
+            "SELECT account_ready FROM stripe_owner_payout_accounts WHERE user_id=:user AND stripe_mode=:stripe_mode",
+            {"user": owner_user_id, "stripe_mode": configured_stripe_mode()},
         )
         return {
             "ownerPriceRequired": not valid_owner_price_cents(amount_cents),
@@ -1786,7 +1787,10 @@ class DriveSharingStore(DriveDocumentStore):
             row = self._row(
                 connection,
                 "SELECT * FROM drive_share_requests WHERE request_id=:id AND user_id=:user",
-                {"id": str(UUID(request_id)), "user": user_id},
+                {
+                    "id": str(UUID(request_id)),
+                    "user": user_id,
+                },
             )
             if not row:
                 raise DriveSharingError("request_unavailable")
@@ -1884,11 +1888,16 @@ class DriveSharingStore(DriveDocumentStore):
                 FROM drive_share_requests r
                 LEFT JOIN drive_request_owner_payouts p ON p.request_id=r.request_id
                   AND p.erased_at IS NULL
-                LEFT JOIN pkm_owner_payout_accounts account ON account.user_id=r.user_id
+                LEFT JOIN stripe_owner_payout_accounts account ON account.user_id=r.user_id
+                  AND account.stripe_mode=:stripe_mode
                 WHERE r.request_id=:id
                   AND (r.user_id=:user OR r.recipient_user_id=:user)
             """,
-                {"id": str(UUID(request_id)), "user": user_id},
+                {
+                    "id": str(UUID(request_id)),
+                    "user": user_id,
+                    "stripe_mode": configured_stripe_mode(),
+                },
             )
             if not row:
                 context = self._row(
@@ -1897,7 +1906,10 @@ class DriveSharingStore(DriveDocumentStore):
                     SELECT request_id,revocation_revision FROM drive_share_management_contexts
                     WHERE request_id=:id AND user_id=:user AND private_request_erased_at IS NOT NULL
                 """,
-                    {"id": str(UUID(request_id)), "user": user_id},
+                    {
+                        "id": str(UUID(request_id)),
+                        "user": user_id,
+                    },
                 )
                 if not context:
                     raise DriveSharingError("request_unavailable")
@@ -1972,7 +1984,10 @@ class DriveSharingStore(DriveDocumentStore):
                 """SELECT * FROM drive_share_requests
                    WHERE request_id=:id AND recipient_user_id=:user
                      AND payment_required=TRUE""",
-                {"id": str(UUID(request_id)), "user": user_id},
+                {
+                    "id": str(UUID(request_id)),
+                    "user": user_id,
+                },
             )
             if not row:
                 raise DriveSharingError("request_unavailable")

@@ -22,9 +22,15 @@ from hushh_mcp.services.drive_request_payment_service import _config as payment_
 from hushh_mcp.services.drive_request_payment_service import _stripe_dict
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
 from hushh_mcp.services.pkm_payout_service import _account_readiness, resume_document_owner_setup
+from hushh_mcp.services.stripe_mode import configured_stripe_mode
 
-_EVENT_TYPES = {
+_ACCOUNT_EVENT_TYPES = {
     "account.updated",
+    "account.external_account.created",
+    "account.external_account.updated",
+    "account.external_account.deleted",
+}
+_EVENT_TYPES = _ACCOUNT_EVENT_TYPES | {
     "payout.created",
     "payout.updated",
     "payout.paid",
@@ -118,21 +124,35 @@ class StripeConnectBankPayouts(ExternalConnectorLifecycleStore):
         except Exception:
             raise ConnectBankPayoutError("invalid_signature") from None
         event_type = event.get("type")
-        if event_type not in _EVENT_TYPES:
+        if not isinstance(event_type, str) or event_type not in _EVENT_TYPES:
             return "ignored"
         event_id = event.get("id")
         account_id = event.get("account")
         data = event.get("data")
         obj = data.get("object") if isinstance(data, dict) else None
         object_id = obj.get("id") if isinstance(obj, dict) else None
-        object_type = "account" if event_type == "account.updated" else "payout"
+        account_event = event_type in _ACCOUNT_EVENT_TYPES
+        external_event = event_type.startswith("account.external_account.")
+        object_type = obj.get("object") if isinstance(obj, dict) else None
+        expected_type = "account" if event_type == "account.updated" else "payout"
+        if external_event:
+            # Bank changes have their own events, not a guaranteed account.updated.
+            # A deleted external account cannot be fetched: retrieve its owner
+            # Account and recompute current readiness instead of replaying a delta.
+            if not isinstance(object_type, str) or object_type not in {"bank_account", "card"}:
+                return "ignored"
+            expected_type = object_type
+        prefix = {"account": "acct_", "payout": "po_", "bank_account": "ba_", "card": "card_"}[
+            expected_type
+        ]
         if (
             not _valid_id(event_id, "evt_")
             or not _valid_id(account_id, "acct_")
-            or not _valid_id(object_id, "acct_" if object_type == "account" else "po_")
+            or not _valid_id(object_id, prefix)
             or not isinstance(obj, dict)
-            or obj.get("object") != object_type
+            or object_type != expected_type
             or (object_type == "account" and object_id != account_id)
+            or (external_event and obj.get("account") is not None and obj["account"] != account_id)
             or type(event.get("livemode")) is not bool
         ):
             raise ConnectBankPayoutError("invalid_event")
@@ -148,7 +168,7 @@ class StripeConnectBankPayouts(ExternalConnectorLifecycleStore):
         if binding is None:
             return "ignored_account"
         try:
-            if object_type == "account":
+            if account_event:
                 remote = _stripe_dict(
                     await asyncio.to_thread(
                         self.stripe_api.Account.retrieve, account_id, api_key=key
@@ -189,13 +209,13 @@ class StripeConnectBankPayouts(ExternalConnectorLifecycleStore):
                 snapshot=snapshot,
             )
         )
-        if object_type == "account" and result == "updated":
+        if account_event and result == "updated":
             owner = await self._transaction(
                 lambda c: c.execute(
                     text(
-                        "SELECT user_id FROM pkm_owner_payout_accounts WHERE stripe_account_id=:account"
+                        "SELECT user_id FROM stripe_owner_payout_accounts WHERE stripe_account_id=:account AND stripe_mode=:stripe_mode"
                     ),
-                    {"account": account_id},
+                    {"account": account_id, "stripe_mode": configured_stripe_mode()},
                 ).scalar_one_or_none()
             )
             if owner:
@@ -224,9 +244,9 @@ class StripeConnectBankPayouts(ExternalConnectorLifecycleStore):
                 raise ConnectBankPayoutError("provider_mismatch")
             return "duplicate"
         mapped = connection.execute(
-            text("""SELECT 1 FROM pkm_owner_payout_accounts
-              WHERE stripe_account_id=:account LIMIT 1"""),
-            {"account": account_id},
+            text("""SELECT 1 FROM stripe_owner_payout_accounts
+              WHERE stripe_account_id=:account AND stripe_mode=:stripe_mode LIMIT 1"""),
+            {"account": account_id, "stripe_mode": configured_stripe_mode()},
         ).first()
         return account_id if mapped is not None else None
 
@@ -243,9 +263,9 @@ class StripeConnectBankPayouts(ExternalConnectorLifecycleStore):
     ) -> str:
         mapped = (
             connection.execute(
-                text("""SELECT user_id FROM pkm_owner_payout_accounts
-              WHERE stripe_account_id=:account LIMIT 1"""),
-                {"account": account_id},
+                text("""SELECT user_id FROM stripe_owner_payout_accounts
+              WHERE stripe_account_id=:account AND stripe_mode=:stripe_mode LIMIT 1"""),
+                {"account": account_id, "stripe_mode": configured_stripe_mode()},
             )
             .mappings()
             .first()
@@ -267,16 +287,17 @@ class StripeConnectBankPayouts(ExternalConnectorLifecycleStore):
         )
         if inserted.rowcount == 0:
             return "duplicate"
-        if event_type == "account.updated":
+        if event_type in _ACCOUNT_EVENT_TYPES:
             connection.execute(
-                text("""UPDATE pkm_owner_payout_accounts
+                text("""UPDATE stripe_owner_payout_accounts
                   SET details_submitted=:details,payouts_enabled=:payouts,account_ready=:ready,
-                  updated_at=CURRENT_TIMESTAMP WHERE stripe_account_id=:account"""),
+                  updated_at=CURRENT_TIMESTAMP WHERE stripe_account_id=:account AND stripe_mode=:stripe_mode"""),
                 {
                     "details": snapshot["details"],
                     "payouts": snapshot["payouts"],
                     "ready": snapshot["ready"],
                     "account": account_id,
+                    "stripe_mode": configured_stripe_mode(),
                 },
             )
             StripeConnectBankPayouts._notify_owner(connection, mapped["user_id"])
@@ -346,9 +367,9 @@ class StripeConnectBankPayouts(ExternalConnectorLifecycleStore):
         def read(connection: Any) -> dict[str, Any]:
             account = (
                 connection.execute(
-                    text("""SELECT stripe_account_id FROM pkm_owner_payout_accounts
-                  WHERE user_id=:owner LIMIT 1"""),
-                    {"owner": user_id},
+                    text("""SELECT stripe_account_id FROM stripe_owner_payout_accounts
+                  WHERE user_id=:owner AND stripe_mode=:stripe_mode LIMIT 1"""),
+                    {"owner": user_id, "stripe_mode": configured_stripe_mode()},
                 )
                 .mappings()
                 .first()

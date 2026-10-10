@@ -59,6 +59,28 @@ describe("payout account and earnings boundary", () => {
     });
   });
 
+  it("keeps only masked bank details and rejects false readiness or full account numbers", async () => {
+    const account = { detailsSubmitted: true, transfersEnabled: true, payoutsEnabled: true,
+      ready: true, status: "ready", canManageBank: true, bankStatus: "linked",
+      bank: { name: "Example Bank", last4: "6789", status: "verified" } };
+    apiJson.mockResolvedValueOnce({ stripeMode: "live", account: { ...account,
+      bank: { ...account.bank, routingNumber: "private", accountNumber: "private" } } });
+    expect(await DocumentPayoutService.account("vault")).toEqual({ stripeMode: "live", account });
+    for (const patch of [{ bankStatus: "missing" }, { bankStatus: "needs_attention" }, { bankStatus: "unavailable" },
+      { bank: { ...account.bank, last4: "123456789" } }, { canManageBank: "yes" }]) {
+      apiJson.mockResolvedValueOnce({ account: { ...account, ...patch } });
+      await expect(DocumentPayoutService.account("vault")).rejects.toThrow("Invalid payout bank response");
+    }
+  });
+
+  it("preserves test earnings labels when the active payout account is live", async () => {
+    const item = { ...earning(), stripeMode: "test" };
+    apiJson.mockResolvedValueOnce({ stripeMode: "live", currency: "USD", transactions: [item], nextCursor: null });
+    expect(await DocumentPayoutService.earnings("vault")).toEqual({ stripeMode: "live", currency: "USD", transactions: [item], nextCursor: null });
+    apiJson.mockResolvedValueOnce({ stripeMode: "live", currency: "USD", transactions: [{ ...item, stripeMode: "unknown" }], nextCursor: null });
+    await expect(DocumentPayoutService.earnings("vault")).rejects.toThrow("Invalid earnings response");
+  });
+
   it("does not promote incomplete onboarding to ready", async () => {
     apiJson.mockResolvedValueOnce({ account: { detailsSubmitted: false, transfersEnabled: true, payoutsEnabled: true, ready: true, status: "ready" } });
     await expect(DocumentPayoutService.account("vault")).rejects.toThrow("Invalid payout account response");

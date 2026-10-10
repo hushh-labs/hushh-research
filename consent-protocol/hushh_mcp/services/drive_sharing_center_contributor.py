@@ -11,6 +11,7 @@ from sqlalchemy import text
 from hushh_mcp.services.drive_live_preferences import LIVE_BACKGROUND_DISCLOSURE
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
 from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
+from hushh_mcp.services.stripe_mode import configured_stripe_mode
 
 REQUEST_SOURCE = "drive_document_share_request"
 QUERY_REQUEST_SOURCE = "drive_live_query_request"
@@ -312,7 +313,9 @@ def _projection(
         "trusted_batch_seen": _TRUSTED_BATCH_SEEN if bulk else "FALSE",
         "trusted_work_active": _TRUSTED_WORK_ACTIVE if bulk and owner_search else "FALSE",
         "trusted_recovery_needed": _TRUSTED_RECOVERY_NEEDED if bulk else "FALSE",
-        "payment_status": """(SELECT pay.status FROM drive_request_payment_orders pay
+        "payment_status": """(SELECT CASE WHEN pay.stripe_mode<>:stripe_mode
+          AND pay.status IN ('awaiting_payment','checkout_open') THEN 'expired' ELSE pay.status END
+          FROM drive_request_payment_orders pay
           WHERE pay.request_id=drive_share_requests.request_id)"""
         if payments
         else "NULL::text",
@@ -392,9 +395,9 @@ def _projection(
                 OR EXISTS (SELECT 1 FROM drive_request_owner_payouts p
                   WHERE p.request_id=drive_share_requests.request_id
                     AND p.status='awaiting_account'))))
-          THEN EXISTS (SELECT 1 FROM pkm_owner_payout_accounts account
+          THEN EXISTS (SELECT 1 FROM stripe_owner_payout_accounts account
             WHERE account.user_id=drive_share_requests.user_id
-              AND account.account_ready=TRUE)
+              AND account.account_ready=TRUE AND account.stripe_mode=:stripe_mode)
           ELSE NULL END"""
         if payments and pricing and payout_projection
         else "NULL::boolean",
@@ -702,9 +705,9 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
         return bool(
             connection.execute(
                 text("""SELECT to_regclass('drive_request_owner_payouts') IS NOT NULL
-                  AND to_regclass('pkm_owner_payout_accounts') IS NOT NULL
+                  AND to_regclass('stripe_owner_payout_accounts') IS NOT NULL
                   AND EXISTS (SELECT 1 FROM pg_attribute
-                    WHERE attrelid=to_regclass('pkm_owner_payout_accounts')
+                    WHERE attrelid=to_regclass('stripe_owner_payout_accounts')
                       AND attname='account_ready' AND NOT attisdropped)""")
             ).scalar_one()
         )
@@ -724,6 +727,7 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
     def _params(user_id: str, *, query: str = "", bucket: str = "") -> dict[str, Any]:
         return {
             "user": user_id,
+            "stripe_mode": configured_stripe_mode(),
             "query": query,
             "bucket": bucket,
             "live_policy_hash": LIVE_POLICY_HASH,

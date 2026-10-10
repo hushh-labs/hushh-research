@@ -2901,9 +2901,9 @@ responses are private/no-store. The web connector proxy preserves `PUT` for
 | `GET /api/connectors/google_drive/sharing/pricing` | Owner's `{enabled,amountCents,version}` default. Disabled means ask per request; it never authorizes a fallback charge. |
 | `PUT /api/connectors/google_drive/sharing/pricing` | `{enabled,amountCents,expectedVersion}`; whole USD dollars from $1 to $500. Concurrent edits fail with `price_changed`; existing orders keep their amount. |
 | `POST /api/connectors/google_drive/sharing/requests/{id}/price` | Owner's `{revision,amountCents,confirmed:true}` for a pending Trusted request without a price. Sets this request's quote, without extending sharing consent or replacing current trust checks. Refuses stale, closed, already searched or ordered requests. |
-| `GET /api/one/payouts/account` | Safe Connect readiness booleans and status, verified with Stripe. No provider account ID or banking credentials. |
-| `POST /api/one/payouts/account/onboard` | One owner-mapped US Express account; a fresh Stripe setup URL returns to Profile → Payouts. |
-| `POST /api/one/payouts/account/manage` | A fresh Stripe Express login link for the authenticated owner's existing account. No caller-selected destination account. |
+| `GET /api/one/payouts/account` | Current `stripeMode` and safe Connect readiness booleans/status, verified with Stripe. Optional default USD bank display name/last four/status, `bankStatus`, and `canManageBank`. No provider account ID or banking credentials. |
+| `POST /api/one/payouts/account/onboard` | One US Express account per owner and Stripe mode; a fresh Stripe setup URL returns to Profile → Payouts. Test setup never satisfies live readiness. |
+| `POST /api/one/payouts/account/manage` | A fresh Stripe Express login link for the authenticated owner's existing US Express account, including restricted accounts needing bank repair. Deleted/non-US/non-Express accounts are rejected. No caller-selected destination account. |
 | `GET /api/one/payouts/account/earnings?cursor=…` | Owner-scoped document transactions, at most 20 per page, newest first; opaque request UUID cursor. Shows gross, refund, 3% commission, actual allocated processing fee, net earnings, reversal and delivery counts. Unknown amounts remain null. |
 | `GET /api/one/payouts/account/bank-payouts` | Up to 20 recorded Stripe bank payout statuses. An account transfer is never reported as a bank deposit. |
 

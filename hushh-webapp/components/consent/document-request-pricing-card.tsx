@@ -2,7 +2,9 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 
-import { HelperText } from "@/components/app-ui/typography";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { ProfileAccountPriceIcon, ProfileAccountWalletIcon } from "@/components/profile/profile-your-account-icons";
+import { FormLabel, HelperText } from "@/components/app-ui/typography";
 import { Input } from "@/components/ui/input";
 import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 import { formatDocumentRequestPrice, parseWholeDollarPrice } from "@/lib/consent/document-request-price";
@@ -108,35 +110,46 @@ export function DocumentRequestPricingCard() {
 
   return (
     <section aria-label="Request pricing" className="space-y-3">
-      <HelperText>Used for trusted requests. You can set other requests before approval.</HelperText>
-      {loading ? <HelperText role="status">Loading price…</HelperText> : null}
-      {saved ? (
-        <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void save(true); }}>
-          <div className="space-y-1">
-            <label htmlFor={priceId} className="text-sm">Default price (USD)</label>
-            <Input id={priceId} type="text" inputMode="numeric" value={dollars}
-              placeholder="Amount" onChange={(event) => { setDollars(event.target.value); setNotice(null); }}
-              disabled={saving} aria-invalid={dollars !== "" && amountCents === null}
-              aria-describedby={`${priceId}-help`} />
-            <HelperText id={`${priceId}-help`}>Whole dollars, $1–$500.</HelperText>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button type="submit" size="standard" disabled={!dirty || amountCents === null || saving}>
-              {saving ? "Saving…" : "Save"}
-            </Button>
-            {saved.enabled ? (
-              <Button type="button" size="standard" variant="none" disabled={saving} onClick={() => void save(false)}>
-                Ask each time
+      <SettingsGroup title="Google Drive" density="compact">
+        <SettingsRow icon={ProfileAccountPriceIcon} iconTone="capability"
+          title="Price per request"
+          description={loading ? "Loading price…" : saved?.enabled
+            ? `${formatDocumentRequestPrice(saved.amountCents)} per request`
+            : saved ? "Ask each time" : "Price unavailable"} />
+        {saved ? (
+          <form className="space-y-3 px-3 pb-3" onSubmit={(event) => { event.preventDefault(); void save(true); }}>
+            <div className="space-y-[var(--app-form-field-gap)]">
+              <FormLabel as="label" htmlFor={priceId}>Default price (USD)</FormLabel>
+              <Input id={priceId} type="text" inputMode="numeric" value={dollars}
+                placeholder="Amount" onChange={(event) => { setDollars(event.target.value); setNotice(null); }}
+                disabled={saving} aria-invalid={dollars !== "" && amountCents === null}
+                aria-describedby={`${priceId}-help`} />
+              <HelperText id={`${priceId}-help`}>Whole dollars, $1–$500.</HelperText>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="submit" size="sm" effect="fade" disabled={!dirty || amountCents === null || saving}>
+                {saving ? "Saving…" : "Save"}
               </Button>
-            ) : <HelperText>Ask each time until you save a default.</HelperText>}
-          </div>
-        </form>
-      ) : !loading ? (
-        <Button type="button" size="standard" variant="none" onClick={() => setReload((value) => value + 1)}>Retry</Button>
-      ) : null}
-      <HelperText>Hushh takes 3%. Stripe fees come from your earnings.</HelperText>
-      {error ? <HelperText role="alert">{error}</HelperText> : null}
-      {notice ? <HelperText role="status">{notice}</HelperText> : null}
+              {saved.enabled ? (
+                <Button type="button" size="sm" effect="fade" variant="none" disabled={saving} onClick={() => void save(false)}>
+                  Ask each time
+                </Button>
+              ) : null}
+            </div>
+          </form>
+        ) : !loading ? (
+          <SettingsRow title="Retry" iconTone="capability" onClick={() => setReload((value) => value + 1)} />
+        ) : null}
+      </SettingsGroup>
+      {saved ? <HelperText className="profile-account-note">{saved.enabled
+        ? "Trusted requests use this price automatically. Other requests need your approval."
+        : "Set each request's price in Feed."}</HelperText> : null}
+      <SettingsGroup title="Fees" density="compact">
+        <SettingsRow icon={ProfileAccountWalletIcon} iconTone="capability" title="From your earnings"
+          description="3% Hushh fee + Stripe fees." />
+      </SettingsGroup>
+      {error ? <HelperText role="alert" className="profile-account-note">{error}</HelperText> : null}
+      {notice ? <HelperText role="status" className="profile-account-note">{notice}</HelperText> : null}
     </section>
   );
 }
