@@ -765,6 +765,8 @@ export function ConnectCirclesTab({
         reloadSignal={detailReloadToken + refreshToken}
         circleId={circleIdParam}
         currentUserId={currentUserId}
+        sessionScope={vaultOwnerToken}
+        initialCircleSummary={circles.find((circle) => circle.id === circleIdParam)}
         busy={busy}
         onBack={closeFlow}
         onLoad={actions.loadCircle}

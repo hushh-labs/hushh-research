@@ -46,7 +46,7 @@ import type {
   OneLocationMyRecipientKey,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
-import { sealChatMessage, openChatContent, openChatImage, type ChatMessage } from "@/lib/circle-chat/crypto";
+import { sealChatMessage, openChatContent, openChatImage, chatThumbnailBlob, type ChatMessage } from "@/lib/circle-chat/crypto";
 
 // 32-byte vault keys as hex (the format lib/vault/encrypt expects). Same key on
 // every device after unlock; a different user/key must NOT decrypt.
@@ -81,13 +81,17 @@ describe("one-location encryption durable recipient key", () => {
     const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
     const file = new File([png], "private-family.png", { type: "image/png" });
     const circle = crypto.randomUUID();
-    const sealed = await sealChatMessage({ circleId: circle, userId: "chat-alice", rosterVersion: "v1", text: "private meeting details", file,
+    const thumbnail = { type: "image/jpeg" as const, data: btoa(String.fromCharCode(255, 216, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0)) };
+    const clientMessageId = crypto.randomUUID();
+    const sealed = await sealChatMessage({ circleId: circle, clientMessageId, thumbnail, userId: "chat-alice", rosterVersion: "v1", text: "private meeting details", file,
       members: [{ userId: "chat-alice", name: "Alice", ...alice }, { userId: "chat-bob", name: "Bob", ...bob }] });
     expect(JSON.stringify(sealed)).not.toContain("meeting details");
     expect(JSON.stringify(sealed)).not.toContain("private-family.png");
+    expect(sealed.clientMessageId).toBe(clientMessageId);
+    expect(JSON.stringify(sealed)).not.toContain(thumbnail.data);
     const message: ChatMessage = { id: crypto.randomUUID(), sequence: 1, senderUserId: "chat-alice", senderName: "Alice", createdAt: new Date().toISOString(),
       ...sealed, hasImage: true, envelope: sealed.recipients.find((r) => r.userId === "chat-bob")!.envelope };
-    expect(await openChatContent(circle, "chat-bob", message)).toEqual({ text: "private meeting details", attachment: { kind: "photo", type: "image/png", name: "private-family.png" } });
+    expect(await openChatContent(circle, "chat-bob", message)).toEqual({ text: "private meeting details", attachment: { kind: "photo", type: "image/png", name: "private-family.png", thumbnail } });
     const blob = await openChatImage(circle, "chat-bob", message, { ciphertext: sealed.imageCiphertext!, iv: sealed.imageIv! }, "image/png");
     expect(new Uint8Array(await blob.arrayBuffer())).toEqual(png);
     await expect(openChatContent(crypto.randomUUID(), "chat-bob", message)).rejects.toThrow();
@@ -105,6 +109,28 @@ describe("one-location encryption durable recipient key", () => {
     // A different current key must not discard an accessible historical backup.
     const old = { ...message, envelope: sealed.recipients[0]!.envelope };
     expect((await openChatContent(circle, "chat-alice", old, { vaultKey: VAULT_KEY, remoteBackup: historical })).text).toBe("private meeting details");
+  });
+
+  it("keeps previews within the ciphertext budget and rejects active preview formats", async () => {
+    const key = await ensureLocationRecipientKey("preview-owner");
+    const jpeg = new Uint8Array(1536); jpeg.set([255, 216, 255]);
+    const thumbnail = { type: "image/jpeg" as const, data: btoa(String.fromCharCode(...jpeg)) };
+    const params = { circleId: crypto.randomUUID(), userId: "preview-owner", rosterVersion: "v1",
+      members: [{ userId: "preview-owner", name: "Owner", ...key }],
+      file: new File([jpeg], "photo.jpg", { type: "image/jpeg" }) };
+    // JSON escapes, not JS string length, determine the transport footprint.
+    const text = "\u0001".repeat(2800);
+    const sealed = await sealChatMessage({ ...params, text, thumbnail });
+    expect(sealed.ciphertext.length).toBeLessThanOrEqual(24000);
+    const message: ChatMessage = { ...sealed, id: crypto.randomUUID(), sequence: 1, senderUserId: params.userId,
+      senderName: "Owner", createdAt: new Date().toISOString(), hasImage: true, envelope: sealed.recipients[0]!.envelope };
+    const opened = await openChatContent(params.circleId, params.userId, message);
+    expect(opened.text).toBe(text);
+    expect(opened.attachment?.thumbnail).toBeUndefined();
+    expect(chatThumbnailBlob(thumbnail).size).toBe(1536);
+    expect(() => chatThumbnailBlob({ type: "image/jpeg", data: btoa("<svg onload='alert(1)'></svg>") })).toThrow();
+    expect(() => chatThumbnailBlob({ ...thumbnail, data: thumbnail.data + "AAAA" })).toThrow();
+    await expect(sealChatMessage({ ...params, text: "\u0001".repeat(4000), thumbnail })).rejects.toThrow("message is too large");
   });
 
   it("refuses to rotate a chat key when remote recovery fails, and rejects active image formats", async () => {
