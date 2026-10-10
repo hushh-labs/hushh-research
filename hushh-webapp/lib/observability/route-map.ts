@@ -29,6 +29,8 @@ export const ROUTE_ID_VALUES = [
   "profile_regulatory",
   "profile_account",
   "profile_account_phone",
+  "profile_payouts",
+  "profile_request_pricing",
   "profile_preferences",
   "profile_preferences_kai",
   "profile_preferences_gemini",
@@ -178,6 +180,8 @@ export function resolveRouteId(rawPathname: string): RouteId {
   if (pathname === ROUTES.PROFILE_REGULATORY) return "profile_regulatory";
   if (pathname === ROUTES.PROFILE_ACCOUNT) return "profile_account";
   if (pathname === ROUTES.PROFILE_ACCOUNT_PHONE) return "profile_account_phone";
+  if (pathname === ROUTES.PROFILE_PAYOUTS) return "profile_payouts";
+  if (pathname === ROUTES.PROFILE_REQUEST_PRICING) return "profile_request_pricing";
   if (pathname === ROUTES.PROFILE_PREFERENCES) return "profile_preferences";
   if (pathname === ROUTES.PROFILE_PREFERENCES_KAI)
     return "profile_preferences_kai";
