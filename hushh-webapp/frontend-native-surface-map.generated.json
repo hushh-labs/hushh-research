@@ -5997,7 +5997,18 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/profile/payouts",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fpayouts",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/payouts",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -6819,7 +6830,18 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/profile/request-pricing",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Frequest-pricing",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/request-pricing",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -10025,5 +10047,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "23897e30b7bec436df8214a75e8ad8c73867b85427108fdf5c76e57922c7adce"
+  "content_sha256": "bb0309acc9f371990027505e8752d252072c01181f1487609693985fc67e33b9"
 }

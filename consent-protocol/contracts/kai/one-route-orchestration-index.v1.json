@@ -4286,7 +4286,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "auth",
-      "native_surface_id": null
+      "native_surface_id": "native-route-profile"
     },
     {
       "route_pattern": "/one/profile/pkm",
@@ -4868,7 +4868,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "auth",
-      "native_surface_id": null
+      "native_surface_id": "native-route-profile"
     },
     {
       "route_pattern": "/one/profile/security",
