@@ -35,17 +35,24 @@
     "production": {
       "project": "hushh-pda",
       "database_instance": "hushh-vault-db",
+      "connection_policy": {
+        "database_max_connections": 400,
+        "admission_limit": 300,
+        "administrative_reserve": 30
+      },
       "non_database_services": ["hushh-ria-intelligence-api", "hushh-webapp", "prod-kai-redirect"],
       "services": {
         "consent-protocol": {
           "container": "consent-protocol",
           "workers_per_instance": 2,
+          "count_retained_revisions": true,
           "candidate": {"max_instances": 5, "workers_per_instance": 2, "asyncpg_pool_max": 4, "sqlalchemy_pool_size": 4, "sqlalchemy_max_overflow": 0}
         },
         "consent-protocol-drive-worker": {
           "container": "drive-worker",
           "optional_existing": true,
           "workers_per_instance": 1,
+          "count_retained_revisions": true,
           "candidate": {"max_instances": 2, "workers_per_instance": 1, "asyncpg_pool_max": 2, "sqlalchemy_pool_size": 1, "sqlalchemy_max_overflow": 0}
         }
       },
