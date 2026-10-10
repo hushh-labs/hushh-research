@@ -78,3 +78,18 @@ another reviewer store or a privileged app-unlock route.
 8. Route landing and redeployment through the full Admin SOP in `repo-operations`.
    Local install, source checks and a partial device batch do not authorize or
    prove a successful deployment.
+
+## Native drawer continuity
+
+When the requested behavior keeps native controls visible in uncovered areas,
+hold a real partial drag before release, then cancel, re-grab and close through
+the authored controls. Settled open/close checks and retained-host identities
+cannot prove exposed material stayed visible. Inspect current clipping geometry
+separately from touch/accessibility admission; covered controls must not paint
+over or act through the drawer. Verify any required opt-in public probes during
+candidate preparation. Missing probes are a harness failure, not a gesture result.
+
+Bound numeric held-pose receipts prove only sampled presentation state. Use
+synthetic transition frames for actual material/alignment evidence; never capture
+protected content. Record initial-ack gaps, retirement gaps, pose age and scrim
+composition separately rather than calling one passing hold full qualification.

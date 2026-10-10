@@ -1163,7 +1163,6 @@ final class AppUITests: XCTestCase {
                 XCTAssertTrue(waitForAdmittedControl(close), "NATIVE_MATERIAL_REACT_CLOSE_NOT_ADMITTED")
                 let covered = packet()
                 XCTAssertEqual(covered?["covered"] as? Bool, true, "NATIVE_MATERIAL_FULL_HEIGHT_COVER_MISSING")
-                XCTAssertEqual(covered?["planeVisible"] as? Bool, false, "NATIVE_MATERIAL_PAINTED_OVER_DRAWER")
                 XCTAssertEqual(covered?["retained"] as? Bool, true, "NATIVE_MATERIAL_HOST_REMOVED_DURING_DRAWER")
                 XCTAssertEqual(covered?["interactive"] as? Bool, false, "NATIVE_MATERIAL_COVERED_ACTION_ADMITTED")
                 XCTAssertEqual(covered?["accessibilityHidden"] as? Bool, true)
@@ -1193,6 +1192,23 @@ final class AppUITests: XCTestCase {
                 XCTAssertEqual(bottom, height, accuracy: 1, "NATIVE_MATERIAL_DRAWER_BOTTOM_NOT_EDGE_TO_EDGE")
                 XCTAssertEqual(bounds["drawerOwnsTopEdge"]?.boolValue, true, "NATIVE_MATERIAL_DRAWER_TOP_EDGE_NOT_ADMITTED")
                 XCTAssertEqual(bounds["drawerOwnsBottomEdge"]?.boolValue, true, "NATIVE_MATERIAL_DRAWER_BOTTOM_EDGE_NOT_ADMITTED")
+                // The navigation admission packet is not a live per-pose paint
+                // sample. A partly exposed or narrower drawer must not require
+                // whole-plane concealment. Compare the independent current
+                // native clip with settled authored geometry instead.
+                guard let left = bounds["drawerLeft"]?.doubleValue,
+                      let right = bounds["drawerRight"]?.doubleValue,
+                      let exposureX = bounds["baseExposureX"]?.doubleValue,
+                      let exposureWidth = bounds["baseExposureWidth"]?.doubleValue,
+                      [left, right, exposureX, exposureWidth].allSatisfy({ $0.isFinite }) else {
+                    XCTFail("NATIVE_MATERIAL_COVERAGE_FRAME_UNAVAILABLE"); return
+                }
+                let edge = min(web.frame.width, max(0, family == "profile" ? left : right))
+                let expectedX = family == "profile" ? 0 : edge
+                let expectedWidth = family == "profile" ? edge : web.frame.width - edge
+                XCTAssertEqual(exposureX, expectedX, accuracy: 1, "NATIVE_MATERIAL_CLIP_ORIGIN_DETACHED")
+                XCTAssertEqual(exposureWidth, expectedWidth, accuracy: 1, "NATIVE_MATERIAL_CLIP_PAINTS_OVER_OR_HIDES_EXPOSED_AREA")
+                print("NATIVE_DRAWER_EXPOSURE family=\(family) measured=\(Int(exposureWidth)) expected=\(Int(expectedWidth))")
                 close.tap()
                 let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                     admitted() && editor.exists && editor.isHittable && opener.exists && opener.isHittable &&
