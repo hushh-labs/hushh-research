@@ -1,3 +1,4 @@
+import { documentRequestEntrySetup, documentRequestSetupLabel } from "@/lib/consent/document-request-setup";
 import { isDocumentShareEntry, documentShareRequestId } from "@/lib/consent/document-share-consent";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { parseConsentInstant } from "@/lib/consent/consent-owner-copy";
@@ -41,6 +42,22 @@ export function projectFeedDriveProgress(
     const metadata = entry.metadata || {};
     const direction = metadata.direction;
     if (direction !== "incoming" && direction !== "outgoing") continue;
+    const setup = documentRequestEntrySetup(entry);
+    if (setup && direction === "outgoing") {
+      // An existing priced Checkout owns its own waiting row. Before an order
+      // exists this request still needs a durable, passive Feed milestone.
+      if (setup === "payouts" && ["awaiting_payment", "checkout_open"].includes(String(metadata.paymentStatus))) continue;
+      const owner = entry.counterpart_label?.trim();
+      byRequest.set(entry.id, {
+        id: entry.id,
+        title: documentRequestSetupLabel(setup, false),
+        description: owner && owner !== "Document request" ? `Documents from ${owner}` : "Document request pending",
+        href: buildConsentCenterHref("pending", { requestId: entry.id, requestView: "sent", from: "/one/feed" }),
+        requestedAt: parseConsentInstant(entry.issued_at),
+      });
+      continue;
+    }
+    if (setup) continue;
     const quote = direction === "outgoing" && metadata.paymentRequired === true &&
       isValidDocumentRequestPriceCents(metadata.quotedAmountCents)
       ? formatDocumentRequestPrice(metadata.quotedAmountCents)

@@ -56,15 +56,15 @@
     {
       "action_id": "route.profile_my_data",
       "label": "Open Memory",
-      "meaning": "Opens Drive request pricing, document payouts, and saved details in Profile.",
+      "meaning": "Opens saved details and sharing in Profile.",
       "aliases": [
-        "set my Drive price",
-        "set up document payouts"
+        "open my saved details",
+        "my saved details"
       ],
       "search_keywords": [
         "memory",
-        "Drive price",
-        "document payouts"
+        "saved details",
+        "sharing"
       ],
       "reachability": {
         "routes": [
@@ -93,6 +93,94 @@
       "state_exposure": [],
       "docs_references": [
         "app/one/profile/my-data/page.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "route.profile_request_pricing",
+      "label": "Open Request pricing",
+      "meaning": "Opens the default price for document requests.",
+      "aliases": [
+        "set my Drive price",
+        "document price",
+        "request pricing"
+      ],
+      "search_keywords": [
+        "set my Drive price",
+        "document price",
+        "request pricing"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/request-pricing"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_request_pricing"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/request-pricing"
+      },
+      "control_ids": [
+        "profile_request_pricing"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "app/one/profile/request-pricing/page.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "route.profile_payouts",
+      "label": "Open Payouts",
+      "meaning": "Opens payout setup and transaction history.",
+      "aliases": [
+        "link my bank",
+        "set up payouts",
+        "document earnings"
+      ],
+      "search_keywords": [
+        "link my bank",
+        "set up payouts",
+        "document earnings"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/payouts"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_payouts"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/payouts"
+      },
+      "control_ids": [
+        "profile_payouts"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "app/one/profile/payouts/page.tsx"
       ],
       "speaker_persona": "one"
     },

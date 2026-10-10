@@ -35,6 +35,7 @@ def setup(monkeypatch):
                 "delivery",
                 "approve",
                 "allow",
+                "set_request_price",
                 "decide",
                 "retry_preparation",
                 "prepare_revocation",
@@ -157,6 +158,11 @@ def test_pricing_routes_bind_authenticated_owner_and_validate_price(setup, monke
             },
         ),
         ("post", f"/{REQUEST_ID}/allow", {"revision": 0, "confirmed": True}),
+        (
+            "post",
+            f"/{REQUEST_ID}/price",
+            {"revision": 0, "amountCents": 1000, "confirmed": True},
+        ),
         ("post", f"/{REQUEST_ID}/decline", {"revision": 0}),
         ("post", f"/{REQUEST_ID}/cancel", {"revision": 0}),
         ("post", f"/{REQUEST_ID}/review/refresh", {"revision": 0}),
@@ -350,6 +356,43 @@ def test_allow_forwards_the_owners_price_and_reports_refusals(setup):
         assert response.status_code == status
         assert response.json()["detail"]["code"] == code
         assert "no-store" in response.headers["Cache-Control"]
+
+
+@pytest.mark.parametrize("amount", [None, 0, 99, 2050, 50100, 2000.0, "2000", True])
+def test_trusted_price_rejects_missing_or_invalid_amount(setup, amount):
+    client, app, service, _ = setup
+    unlock(app)
+    response = client.post(
+        BASE + f"/{REQUEST_ID}/price",
+        json={"revision": 0, "amountCents": amount, "confirmed": True},
+    )
+    assert response.status_code == 422
+    assert "no-store" in response.headers["Cache-Control"]
+    service.set_request_price.assert_not_called()
+
+
+def test_trusted_price_requires_confirmation_and_binds_authenticated_owner(setup):
+    client, app, service, current = setup
+    unlock(app)
+    for confirmed in (False, "true", 1):
+        assert (
+            client.post(
+                BASE + f"/{REQUEST_ID}/price",
+                json={"revision": 3, "amountCents": 2000, "confirmed": confirmed},
+            ).status_code
+            == 422
+        )
+    service.set_request_price.assert_not_called()
+    response = client.post(
+        BASE + f"/{REQUEST_ID}/price",
+        json={"revision": 3, "amountCents": 2000, "confirmed": True},
+    )
+    assert response.status_code == 202
+    service.set_request_price.assert_awaited_once_with(
+        user_id="recipient", request_id=REQUEST_ID, revision=3, amount_cents=2000
+    )
+    service.allow.assert_not_called()
+    assert current.await_count == 2
 
 
 @pytest.mark.parametrize(

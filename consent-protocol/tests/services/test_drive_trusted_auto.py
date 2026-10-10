@@ -45,6 +45,7 @@ async def _request(sharing, *, owner_initiated=False):
         ),
         owner_user_id="owner",
         client_request_id=str(uuid4()),
+        expected_quote_version=1,
         purpose=ShareRequestPurpose(
             purpose="Standup notes from last 3 months",
             periodStart=(today - timedelta(days=90)).isoformat(),

@@ -39,6 +39,13 @@ function currentUrl() {
 }
 
 describe("Profile pane navigation state", () => {
+  it.each(["payouts", "request-pricing"] as const)("opens %s in the existing pane and returns to Profile", (panel) => {
+    const state = resolveProfilePaneUrlState(`profile_pane=1&profile_panel=${panel}`);
+    expect(state).toEqual({ open: true, location: { panel, detail: null } });
+    expect(profilePaneParentLocation(state.location)).toEqual({ panel: null, detail: null });
+    expect(buildProfilePaneHref("/one/feed", null, state.location)).toBe(`/one/feed?profile_pane=1&profile_panel=${panel}`);
+  });
+
   beforeEach(() => {
     window.history.replaceState(
       null,

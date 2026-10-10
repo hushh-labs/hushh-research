@@ -237,6 +237,10 @@ class AllowRequest(DecisionRequest):
         return self
 
 
+class RequestPrice(AllowRequest):
+    amountCents: int = Field(strict=True, ge=100, le=50000, multiple_of=100)
+
+
 class BulkShareApprovalRequest(StrictRequest):
     revision: int = Field(ge=1, strict=True)
     reviewDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -356,6 +360,8 @@ def _error(error):
         "no_recipients": (409, "No one in your Trusted circle can receive these files yet."),
         "date_range_required": (422, "Choose exact start and end dates before requesting files."),
         "invalid_payment_amount": (422, "Choose a whole-dollar price from $1 to $500."),
+        "owner_price_required": (409, "Set your request price to continue."),
+        "owner_payout_required": (409, "Set up payouts to continue."),
         "invalid_argument": (422, "Check the document-sharing request."),
     }
     code = str(error) if isinstance(error, DriveReadError) else "sharing_unavailable"
@@ -1011,6 +1017,17 @@ async def allow(request_id: UUID, body: AllowRequest, owner: Owner = Depends(_ow
     """A allows one request outside the Trusted circle; the automatic search runs next."""
     return await _call(
         "allow",
+        owner=owner,
+        request_id=str(request_id),
+        revision=body.revision,
+        amount_cents=body.amountCents,
+    )
+
+
+@router.post("/requests/{request_id}/price", status_code=202)
+async def set_request_price(request_id: UUID, body: RequestPrice, owner: Owner = Depends(_owner)):
+    return await _call(
+        "set_request_price",
         owner=owner,
         request_id=str(request_id),
         revision=body.revision,

@@ -13159,15 +13159,15 @@
       "surface_id": "profile_account",
       "label": "Open Memory",
       "aliases": [
-        "set my Drive price",
-        "set up document payouts"
+        "open my saved details",
+        "my saved details"
       ],
       "search_keywords": [
         "memory",
-        "Drive price",
-        "document payouts"
+        "saved details",
+        "sharing"
       ],
-      "meaning": "Opens Drive request pricing, document payouts, and saved details in Profile.",
+      "meaning": "Opens saved details and sharing in Profile.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -13238,6 +13238,224 @@
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/profile/my-data",
+              "screen": "profile_account"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.profile_request_pricing",
+      "surface_id": "profile_account",
+      "label": "Open Request pricing",
+      "aliases": [
+        "set my Drive price",
+        "document price",
+        "request pricing"
+      ],
+      "search_keywords": [
+        "set my Drive price",
+        "document price",
+        "request pricing"
+      ],
+      "meaning": "Opens the default price for document requests.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/request-pricing"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_request_pricing"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/request-pricing"
+      },
+      "control_ids": [
+        "profile_request_pricing"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/one/profile/request-pricing/page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/request-pricing"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_request_pricing",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_request_pricing",
+            "label": "Open Request pricing",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/profile/request-pricing",
+              "screen": "profile_account"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.profile_payouts",
+      "surface_id": "profile_account",
+      "label": "Open Payouts",
+      "aliases": [
+        "link my bank",
+        "set up payouts",
+        "document earnings"
+      ],
+      "search_keywords": [
+        "link my bank",
+        "set up payouts",
+        "document earnings"
+      ],
+      "meaning": "Opens payout setup and transaction history.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/payouts"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_payouts"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/payouts"
+      },
+      "control_ids": [
+        "profile_payouts"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/one/profile/payouts/page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/payouts"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_payouts",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_payouts",
+            "label": "Open Payouts",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/profile/payouts",
               "screen": "profile_account"
             }
           }

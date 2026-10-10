@@ -109,6 +109,7 @@ function paymentState(entry: ConsentCenterEntry, now = Date.now()): FeedDrivePay
   // Only a payout-enrolled order projects an explicit false. Legacy orders
   // have no readiness marker and retain their existing Checkout behavior.
   if (metadata.ownerPayoutAccountReady === false) return "waiting_owner_setup";
+  if (metadata.ownerPriceRequired === true || metadata.paymentsReady === false) return null;
   // A completed/refunded order can retain the original Checkout expiry for
   // audit history. Never turn that historical timestamp back into a payment
   // action while the request projection is catching up.
@@ -196,7 +197,7 @@ function paymentCopy(
     return {
       title: status === "expired" ? "Document request expired"
         : status === "link_expired" ? "Payment link expired"
-          : status === "waiting_owner_setup" ? "Waiting for owner payout setup"
+          : status === "waiting_owner_setup" ? "Waiting for owner setup"
             : `Pay ${price} · ${subject}`,
       description: [
         status === "ready" ? null : subject,
@@ -212,7 +213,7 @@ function paymentCopy(
     return {
       title: status === "expired" ? "Document request expired"
         : status === "link_expired" ? "Payment link expired"
-          : status === "waiting_owner_setup" ? "Waiting for owner payout setup"
+          : status === "waiting_owner_setup" ? "Waiting for owner setup"
           : owner ? `Pay ${price} for files from ${owner}` : `Pay ${price} for your document request`,
       description: [status === "waiting_owner_setup" ? `Quote ${price}` : null,
         status !== "ready" && owner ? `From ${owner}` : null, requested, deadline]
@@ -243,7 +244,7 @@ function paymentCopy(
   }
   if (status === "waiting_owner_setup") {
     return {
-      title: "Waiting for owner payout setup",
+      title: "Waiting for owner setup",
       description: owner ? `Quote ${price} · ${owner} is setting up payouts.` : `Quote ${price} · Owner payout setup pending.`,
     };
   }

@@ -46,7 +46,7 @@ const PROFILE_DETAIL_TITLES: Record<string, string> = {
 };
 
 /** Rows in the Profile home's "Your settings" group, for the shell. */
-const PROFILE_PANE_SHELL_ROW_COUNT = 8;
+const PROFILE_PANE_SHELL_ROW_COUNT = 10;
 
 function prefersReducedMotion(): boolean {
   return (
@@ -178,6 +178,10 @@ export const ProfilePane = memo(function ProfilePane({ open, onOpenChange }: Pro
   const panelTitle = location.panel
       ? location.panel === "my-data"
         ? "Memory"
+        : location.panel === "payouts"
+          ? "Payouts"
+          : location.panel === "request-pricing"
+            ? "Request pricing"
         : location.panel === "connected-systems"
           ? "Connected Systems"
           : location.panel === "connectors"

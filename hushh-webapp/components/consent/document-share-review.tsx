@@ -8,6 +8,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import Link from "next/link";
+import { documentRequestSetupState, documentRequestSetupHref, documentRequestSetupLabel } from "@/lib/consent/document-request-setup";
+import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
+import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { ExternalLink, Loader2 } from "@/components/icons";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -271,6 +275,9 @@ function errorCopy(cause: unknown): string {
   if (code === "request_unavailable")
     return "This document request is no longer available.";
   if (code === "request_expired") return "This document request expired.";
+  if (code === "owner_payout_required") return "Link payouts to continue.";
+  if (code === "owner_price_required") return "Set your request price to continue.";
+  if (code === "payout_unavailable") return "Payments are unavailable. Try again later.";
   if (code === "owner_share_expired")
     return "This document search expired. Start a new request.";
   return "Refresh to try again.";
@@ -290,15 +297,22 @@ function isDurableReview(review: SharingReview | undefined): boolean {
   return review?.durableAvailable === true;
 }
 
+function requestSetup(snapshot: Snapshot | null) {
+  if (!snapshot || !UNDECIDED.has(snapshot.status.status)) return null;
+  return documentRequestSetupState({ ...snapshot.status, ...snapshot.review });
+}
+
 /** A request from outside the Trusted circle waiting for the owner's Allow or Deny. */
 function isOwnerDecision(snapshot: Snapshot | null): boolean {
   return snapshot?.status.direction === "incoming" &&
     snapshot.status.status === "pending" &&
-    snapshot.review?.allowAvailable === true;
+    (snapshot.review?.allowAvailable === true || snapshot.review?.priceOnlyAvailable === true) &&
+    requestSetup(snapshot) !== "payouts" && requestSetup(snapshot) !== "unavailable";
 }
 
 function isAutomaticSharingActive(review: SharingReview | undefined): boolean {
-  return review?.trustedAuto === true &&
+  return review?.trustedAuto === true && review.priceOnlyAvailable !== true &&
+    documentRequestSetupState(review) === null &&
     review.preparationError !== "trusted_relationship_changed" &&
     review.preparationError !== "preparation_unavailable";
 }
@@ -306,7 +320,7 @@ function isAutomaticSharingActive(review: SharingReview | undefined): boolean {
 /** The private agent is still looking for files for this incoming request. */
 function isFinding(snapshot: Snapshot | null): boolean {
   const review = snapshot?.review;
-  if (review?.preparationError === "date_range_required" || isOwnerDecision(snapshot)) return false;
+  if (requestSetup(snapshot) || review?.preparationError === "date_range_required" || isOwnerDecision(snapshot)) return false;
   if (isDurableReview(review))
     return !!review && !review.bulkShare &&
       (!review.search || ["queued", "running"].includes(review.search.status));
@@ -501,6 +515,8 @@ function UnlockedDocumentReview({
       }
       let review = await DriveSharingService.review(token, requestId, guard);
       guard();
+      // Setup precedes any search; returning to this review cannot bypass it.
+      if (requestSetup({ status, review })) return { status, review };
       // Nothing searches Drive until the owner allows the request.
       if (isOwnerDecision({ status, review })) return { status, review };
       if (isDurableReview(review)) {
@@ -736,11 +752,24 @@ function UnlockedDocumentReview({
     };
   }, [load, run]);
 
+  useEffect(() => {
+    const reconcile = (event: Event) => {
+      const detail = (event as CustomEvent<{ requestId?: string }>).detail;
+      if (detail?.requestId && detail.requestId !== requestId &&
+          detail.requestId !== `document_share_request:${requestId}`) return;
+      void run(load, "load", "idle");
+    };
+    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, reconcile);
+    return () => window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, reconcile);
+  }, [load, requestId, run]);
+
   const review = snapshot?.review;
   const removal = snapshot?.revocation;
   const search = review?.search;
   const bulkShare = review?.bulkShare;
   const ownerDecision = isOwnerDecision(snapshot);
+  const priceOnly = ownerDecision && review?.priceOnlyAvailable === true;
+  const setup = requestSetup(snapshot);
   const automaticSharing = isAutomaticSharingActive(review);
   const progressive = review?.progressiveAllowed === true;
   const batches = review?.batches ?? [];
@@ -966,7 +995,10 @@ function UnlockedDocumentReview({
     void run(
       async (token, guard, report) => {
         try {
-          await DriveSharingService.allow(token, requestId, { revision, amountCents }, guard);
+          const submit = snapshot.review!.priceOnlyAvailable
+            ? DriveSharingService.setRequestPrice.bind(DriveSharingService)
+            : DriveSharingService.allow.bind(DriveSharingService);
+          await submit(token, requestId, { revision, amountCents }, guard);
         } catch (cause) {
           guard();
           // Read again: the sheet stays open only while the request can still be allowed.
@@ -1087,8 +1119,10 @@ function UnlockedDocumentReview({
             ? error
               ? "Couldn't load request"
               : ACTIVITY_LABELS.loading
+            : setup && !ownerDecision
+              ? documentRequestSetupLabel(setup, snapshot.status.direction === "incoming")
             : ownerDecision
-              ? "Needs your decision"
+              ? priceOnly ? "Set price" : "Needs your decision"
             : durableReview && durableStatus
               ? durableStatus
               : snapshot.status.direction === "outgoing" &&
@@ -1163,6 +1197,18 @@ function UnlockedDocumentReview({
           </HelperText>
         ) : null}
       </div>
+      {setup && !ownerDecision && snapshot?.status.direction === "incoming" ? (
+        <div className="space-y-2">
+          <HelperText>{setup === "payouts" ? "Link your bank before this request can continue."
+            : setup === "price" ? "Choose your default document request price."
+              : "This request will resume when payments are available."}</HelperText>
+          {setup !== "unavailable" ? <Button size="standard" asChild>
+            <Link href={documentRequestSetupHref(setup, buildConsentCenterHref("pending", {
+              requestId: `document_share_request:${requestId}`, requestView: "received",
+            }))}>{documentRequestSetupLabel(setup, true)}</Link>
+          </Button> : null}
+        </div>
+      ) : null}
       {ownerPayout ? (
         <div className="rounded-xl border border-border/60 p-3" aria-label="Document earnings">
           <BodyText className="font-medium">{ownerPayout.status}</BodyText>
@@ -1208,17 +1254,17 @@ function UnlockedDocumentReview({
           ) : null}
           <Fact label="Access" value="Viewer, until removed" />
         </dl>
-        <HelperText>{review.paymentRequired === true
+        <HelperText>{priceOnly ? "Set a price for this request. Files are shared after payment." : review.paymentRequired === true
           ? "Allow to set a price. Matching files are found automatically and shared after they pay."
           : "Allow to find and share matching files automatically."}</HelperText>
         <FlowActionGroup
           primary={
             <Button size="prominent" variant="none" className={ALLOW_CLASS} disabled={locked}
               onClick={openPriceSheet}>
-              Allow
+              {priceOnly ? "Set price" : "Allow"}
             </Button>
           }
-          secondary={
+          secondary={priceOnly ? undefined :
             <Button size="standard" variant={denyConfirm.armed ? "destructive" : "none"}
               className={denyConfirm.armed ? undefined : "text-destructive hover:text-destructive"}
               disabled={locked} aria-label={denyConfirm.ariaLabel("Deny")}
@@ -1235,7 +1281,9 @@ function UnlockedDocumentReview({
           periodStart={review.purpose.periodStart}
           periodEnd={review.purpose.periodEnd}
           paymentRequired={review.paymentRequired === true}
-          lockedAmountCents={review.paymentRequired === true ? review.priceCents ?? null : null}
+          lockedAmountCents={null}
+          initialAmountCents={review.priceCents ?? null}
+          priceOnly={priceOnly}
           busy={activity === "allowing"}
           error={allowError}
           onSubmit={allow}
@@ -1283,7 +1331,7 @@ function UnlockedDocumentReview({
         </div> : null}
       </> : null}
 
-      {review && durableReview && !automaticSharing && !ownerDecision && !removal ? (
+      {review && !setup && durableReview && !automaticSharing && !ownerDecision && !removal ? (
         <>
           {review.trustedAuto && review.preparationError === "trusted_relationship_changed" ?
             <BodyText>{review.ownerAllowed === true
@@ -1530,7 +1578,7 @@ function UnlockedDocumentReview({
         </>
       ) : null}
 
-      {review && !durableReview && !automaticSharing && !ownerDecision && !removal ? (
+      {review && !setup && !durableReview && !automaticSharing && !ownerDecision && !removal ? (
         <>
           <BodyText className="whitespace-pre-wrap [overflow-wrap:anywhere]">
             “{review.purpose.purpose}”

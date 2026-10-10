@@ -3531,9 +3531,11 @@
         "route.profile_access_panel",
         "route.profile_connected_systems",
         "route.profile_my_data",
+        "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
         "route.profile_referrals_panel",
+        "route.profile_request_pricing",
         "route.profile_security_panel",
         "route.profile_support_panel",
         "route.ria_settings_compat"
@@ -3680,9 +3682,11 @@
         "route.profile_access_panel",
         "route.profile_connected_systems",
         "route.profile_my_data",
+        "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
         "route.profile_referrals_panel",
+        "route.profile_request_pricing",
         "route.profile_security_panel",
         "route.profile_support_panel",
         "route.ria_settings_compat"
@@ -3743,9 +3747,11 @@
         "route.profile_access_panel",
         "route.profile_connected_systems",
         "route.profile_my_data",
+        "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
         "route.profile_referrals_panel",
+        "route.profile_request_pricing",
         "route.profile_security_panel",
         "route.profile_support_panel",
         "route.ria_settings_compat"
@@ -4236,6 +4242,51 @@
       },
       "trust_boundary": "none",
       "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/one/profile/payouts",
+      "page_file": "app/one/profile/payouts/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.profile.payouts",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.profile.payouts",
+        "purpose": "Help the person use payouts through its generated controls.",
+        "screen": "profile_payouts",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "profile_payouts",
+      "voice_contract_file": null,
+      "action_ids": [
+        "route.profile_payouts"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": null
     },
     {
       "route_pattern": "/one/profile/pkm",
@@ -4773,6 +4824,51 @@
       },
       "trust_boundary": "none",
       "native_surface_id": "native-route-profile"
+    },
+    {
+      "route_pattern": "/one/profile/request-pricing",
+      "page_file": "app/one/profile/request-pricing/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.profile.request.pricing",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.profile.request.pricing",
+        "purpose": "Help the person use request pricing through its generated controls.",
+        "screen": "profile_request_pricing",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "profile_request_pricing",
+      "voice_contract_file": null,
+      "action_ids": [
+        "route.profile_request_pricing"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": null
     },
     {
       "route_pattern": "/one/profile/security",

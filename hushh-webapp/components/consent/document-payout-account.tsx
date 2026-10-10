@@ -1,133 +1,245 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { HelperText } from "@/components/app-ui/typography";
+import { ChevronDown, Landmark } from "@/components/icons";
 import { Button } from "@/lib/morphy-ux/button";
-import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
+import { CONSENT_STATE_CHANGED_EVENT, dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 import {
   DocumentPayoutService,
-  type DocumentPayoutAccount,
   type DocumentBankPayout,
+  type DocumentEarning,
+  type DocumentEarningsResponse,
 } from "@/lib/services/document-payout-service";
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { useVault } from "@/lib/vault/vault-context";
 
-function stripeConnectUrl(value: string): string | null {
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" && url.hostname === "connect.stripe.com"
-      ? url.href
-      : null;
-  } catch {
-    return null;
+const PAYOUT_READY_SOURCE = "document_payout_ready";
+const money = (cents: number | null) => cents === null ? "Calculating" : new Intl.NumberFormat("en-US", {
+  style: "currency", currency: "USD",
+}).format(cents / 100);
+const shortDate = (value: string) => new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
+/** Coalesces live invalidations and fences every response to its vault session. */
+function usePayoutSnapshot<T>(load: (token: string) => Promise<T>, {
+  active = true, refreshKey = "", bankOnly = false, refreshOnFeedChange = true, ignoreReadyEvent = false,
+}: { active?: boolean; refreshKey?: string; bankOnly?: boolean; refreshOnFeedChange?: boolean; ignoreReadyEvent?: boolean } = {}) {
+  const { vaultOwnerToken } = useVault();
+  const scope = useMemo(() => ({ token: vaultOwnerToken, active }), [vaultOwnerToken, active]);
+  const liveScope = useRef<typeof scope | null>(null);
+  const [snapshot, setSnapshot] = useState<{ scope: typeof scope; value: T } | null>(null);
+  const [error, setError] = useState<{ scope: typeof scope } | null>(null);
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    liveScope.current = scope;
+    if (!active || !vaultOwnerToken) return;
+    const epoch = snapshotVaultSessionEpoch();
+    let cancelled = false;
+    let pending = false;
+    let queued = false;
+    const current = () => !cancelled && isVaultSessionEpochCurrent(epoch);
+    const refresh = async () => {
+      if (!current()) return;
+      if (pending) { queued = true; return; }
+      pending = true;
+      try {
+        const value = await load(vaultOwnerToken);
+        if (current()) { setSnapshot({ scope, value }); setError(null); }
+      } catch {
+        if (current()) setError({ scope });
+      } finally {
+        pending = false;
+        if (queued && current()) { queued = false; void refresh(); }
+      }
+    };
+    void refresh();
+    const onChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ source?: string; requestId?: string }>).detail;
+      if ((ignoreReadyEvent && detail?.source === PAYOUT_READY_SOURCE) || (bankOnly && detail?.requestId)) return;
+      void refresh();
+    };
+    const onFocus = () => { if (!document.hidden) void refresh(); };
+    if (refreshOnFeedChange) window.addEventListener(CONSENT_STATE_CHANGED_EVENT, onChange);
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      cancelled = true;
+      liveScope.current = null;
+      window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, onChange);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [active, vaultOwnerToken, scope, load, refreshKey, retry, bankOnly, refreshOnFeedChange, ignoreReadyEvent]);
+  const data = snapshot?.scope === scope ? snapshot.value : null;
+  return { data, failed: error?.scope === scope, loading: data === null && error?.scope !== scope,
+    token: vaultOwnerToken, scope,
+    isCurrent: () => liveScope.current === scope,
+    retry: () => setRetry((value) => value + 1) };
+}
+
+/** One Connect account serves packet and document earnings; each keeps its ledger. */
+export function DocumentPayoutAccountCard({ active = true, compact = false, handleReturn = false, disabled = false }: {
+  active?: boolean; compact?: boolean; handleReturn?: boolean; disabled?: boolean;
+}) {
+  const searchParams = useSearchParams();
+  const returnState = handleReturn ? searchParams.get("documentPayouts") : null;
+  const resource = usePayoutSnapshot(DocumentPayoutService.account, {
+    active, refreshKey: returnState ?? "", bankOnly: true, ignoreReadyEvent: true,
+  });
+  const { data, token, scope } = resource;
+  const account = data?.account ?? null;
+  const ready = account?.ready === true;
+  const [busyScope, setBusyScope] = useState<typeof scope | null>(null);
+  const [actionError, setActionError] = useState<{ scope: typeof scope; text: string } | null>(null);
+  const inFlight = useRef<typeof scope | null>(null);
+  const refreshed = useRef<typeof scope | null>(null);
+  const announced = useRef<{ scope: typeof scope; ready: boolean } | null>(null);
+  const currentScope = useRef<typeof scope | null>(null);
+  useEffect(() => {
+    currentScope.current = scope;
+    return () => { currentScope.current = null; };
+  }, [scope]);
+  useEffect(() => {
+    if (!data) return;
+    const wasReady = announced.current?.scope === scope && announced.current.ready;
+    announced.current = { scope, ready };
+    if (ready && !wasReady) dispatchConsentStateChanged({ source: PAYOUT_READY_SOURCE });
+  }, [data, scope, ready]);
+  const start = useCallback(async (manage = false) => {
+    if (!token || !active || disabled || inFlight.current === scope) return;
+    const epoch = snapshotVaultSessionEpoch();
+    const current = () => currentScope.current === scope && isVaultSessionEpochCurrent(epoch);
+    inFlight.current = scope;
+    setBusyScope(scope);
+    setActionError(null);
+    try {
+      const { url } = await (manage ? DocumentPayoutService.manage(token) : DocumentPayoutService.onboard(token));
+      if (!current()) return;
+      // Service validates links; retain the navigation boundary for mocked/alternate adapters.
+      const destination = new URL(url);
+      if (destination.protocol !== "https:" || destination.hostname !== "connect.stripe.com" ||
+          destination.username || destination.password || destination.port) throw new Error("Invalid link");
+      window.location.assign(destination.href);
+    } catch {
+      if (current()) setActionError({ scope, text: "Couldn't open bank setup. Try again." });
+    } finally {
+      if (inFlight.current === scope) inFlight.current = null;
+      if (current()) setBusyScope(null);
+    }
+  }, [token, active, disabled, scope]);
+  useEffect(() => {
+    if (!active || returnState !== "refresh" || !token || refreshed.current === scope) return;
+    refreshed.current = scope;
+    void start();
+  }, [active, returnState, start, token, scope]);
+  if (!active || !token) return null;
+  const busy = busyScope === scope;
+  const label = ready ? "Manage bank" : account ? "Finish setup" : "Link bank";
+  const description = account?.status === "restricted" ? "Verification needed" : "US payouts";
+  return (
+    <section aria-label="Document payouts" className="space-y-4">
+      <SettingsGroup embedded density="compact">
+        <SettingsRow icon={Landmark} title={ready ? "Bank linked" : "Payout bank"} description={description}
+          trailing={resource.loading ? <HelperText role="status">Checking…</HelperText> :
+            <Button type="button" size="standard" variant={ready ? "none" : undefined}
+              disabled={busy || disabled || resource.failed} onClick={() => void start(ready)}>
+              {busy ? "Opening…" : label}
+            </Button>} />
+      </SettingsGroup>
+      {resource.failed ? <div><HelperText role="alert">Couldn't check your bank. Try again.</HelperText>
+        <Button type="button" size="standard" variant="none" onClick={resource.retry}>Retry</Button></div> : null}
+      {actionError?.scope === scope ? <HelperText role="alert">{actionError.text}</HelperText> : null}
+      {!compact ? <DocumentEarningsHistory /> : null}
+    </section>
+  );
+}
+
+function earningStatus(item: DocumentEarning): string {
+  switch (item.status) {
+    case "awaiting_delivery": return "Awaiting delivery";
+    case "awaiting_refund": return "Refund pending";
+    case "awaiting_fee": return "Calculating fees";
+    case "awaiting_account": return "Link bank to receive";
+    case "due": case "dispatching": return "Transfer pending";
+    case "transferred": return "Transferred to Stripe";
+    case "reversal_due": case "reversal_unknown": return "Reversal pending";
+    case "reversed": return "Reversed";
+    case "void": return "No earnings";
+    case "unknown": case "manual_review": return "Under review";
   }
 }
 
-/** One Connect account serves packet and document earnings, but each has its own ledger. */
-export function DocumentPayoutAccountCard({
-  active = true,
-  compact = false,
-  handleReturn = false,
-  disabled = false,
-}: {
-  active?: boolean;
-  compact?: boolean;
-  handleReturn?: boolean;
-  disabled?: boolean;
-}) {
-  const { vaultOwnerToken } = useVault();
-  const searchParams = useSearchParams();
-  const returnState = handleReturn ? searchParams.get("documentPayouts") : null;
-  const [account, setAccount] = useState<DocumentPayoutAccount | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const refreshAttemptedFor = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!active || !vaultOwnerToken) {
-      setAccount(null);
-      return;
-    }
-    let cancelled = false;
-    setAccount(null);
-    setLoading(true);
-    setError(null);
-    void DocumentPayoutService.account(vaultOwnerToken)
-      .then(({ account: next }) => {
-        if (!cancelled) setAccount(next);
-      })
-      .catch(() => {
-        if (!cancelled) setError("Couldn't check payout setup. Try again later.");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [active, vaultOwnerToken]);
-
-  const start = useCallback(async () => {
-    if (!vaultOwnerToken) return;
-    setBusy(true);
-    setError(null);
+function DocumentEarningsHistory() {
+  const resource = usePayoutSnapshot(DocumentPayoutService.earnings);
+  const { data, token, scope } = resource;
+  const [pages, setPages] = useState<{ base: DocumentEarningsResponse; value: DocumentEarningsResponse } | null>(null);
+  const [moreBusy, setMoreBusy] = useState(false);
+  const [moreError, setMoreError] = useState(false);
+  const base = useRef(data);
+  const inFlight = useRef(false);
+  useEffect(() => { base.current = data; inFlight.current = false; setMoreBusy(false); setMoreError(false); }, [data, scope]);
+  const history = pages?.base === data ? pages.value : data;
+  const more = async () => {
+    if (!data || !token || !history?.nextCursor || inFlight.current) return;
+    const first = data;
+    const epoch = snapshotVaultSessionEpoch();
+    inFlight.current = true;
+    setMoreBusy(true);
+    setMoreError(false);
     try {
-      const { url } = await DocumentPayoutService.onboard(vaultOwnerToken);
-      const destination = stripeConnectUrl(url);
-      if (!destination) throw new Error("Unexpected onboarding link");
-      window.location.assign(destination);
+      const next = await DocumentPayoutService.earnings(token, history.nextCursor);
+      if (!resource.isCurrent() || !isVaultSessionEpochCurrent(epoch) || base.current !== first) return;
+      const transactions = [...new Map([...history.transactions, ...next.transactions].map((item) => [item.requestId, item])).values()];
+      setPages({ base: first, value: { ...next, transactions } });
     } catch {
-      setError("Couldn't open payout setup. Try again.");
-      setBusy(false);
+      if (resource.isCurrent() && isVaultSessionEpochCurrent(epoch) && base.current === first) setMoreError(true);
+    } finally {
+      if (base.current === first) { inFlight.current = false; setMoreBusy(false); }
     }
-  }, [vaultOwnerToken]);
-
-  useEffect(() => {
-    if (!active || returnState !== "refresh" || !vaultOwnerToken) return;
-    if (refreshAttemptedFor.current === vaultOwnerToken) return;
-    refreshAttemptedFor.current = vaultOwnerToken;
-    void start();
-  }, [active, returnState, start, vaultOwnerToken]);
-
-  if (!active || !vaultOwnerToken) return null;
-
-  const ready = account?.ready === true;
-  const setupLabel = account ? "Finish payout setup" : "Set up US payouts";
-  const description = ready
-    ? "Ready to receive document earnings after delivery."
-    : account?.status === "restricted"
-      ? "Payout setup needs attention before you can receive earnings."
-      : "Set up a US bank account to receive document earnings after delivery.";
-
+  };
+  if (!token) return null;
   return (
-    <section
-      aria-label="Document payouts"
-      className={compact ? "rounded-xl border border-border/60 p-3" : "rounded-2xl border border-border p-5"}
-    >
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold">Document payouts</p>
-          <HelperText className="mt-1">{description} US payouts only.</HelperText>
-        </div>
-        {!ready && !loading ? (
-          <Button type="button" size="standard" disabled={busy || disabled} onClick={() => void start()}>
-            {busy ? "Opening…" : setupLabel}
-          </Button>
-        ) : null}
-      </div>
-      {loading ? <HelperText role="status" className="mt-2">Checking payout setup…</HelperText> : null}
-      {error ? <HelperText role="alert" className="mt-2">{error}</HelperText> : null}
+    <section aria-label="Document transactions" className="space-y-2">
+      <SettingsGroup embedded title="Transactions" density="compact">
+        {history?.transactions.map((item) => (
+          <details key={item.requestId} className="px-4 py-3 text-sm">
+            <summary className="flex cursor-pointer list-none items-start justify-between gap-3">
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="break-words">{item.description}</span>
+                <HelperText>{earningStatus(item)} · {shortDate(item.createdAt)}</HelperText>
+              </span>
+              <span className="flex shrink-0 items-center gap-2 tabular-nums">{money(item.netAmountCents)}<ChevronDown aria-hidden="true" className="size-4 text-muted-foreground" /></span>
+            </summary>
+            <dl className="mt-3 space-y-1">
+              {([ ["Paid", item.grossAmountCents], ["Refund", item.refundAmountCents],
+                ["Hushh (3%)", item.platformFeeCents], ["Stripe fees", item.processingFeeCents],
+                ["Your earnings", item.netAmountCents],
+                ...(item.reversedAmountCents ? [["Reversed", item.reversedAmountCents]] : []),
+              ] as Array<[string, number | null]>).map(([label, cents]) => (
+                <div key={label} className="flex justify-between gap-3"><dt className="text-muted-foreground">{label}</dt><dd className="tabular-nums">{money(cents)}</dd></div>
+              ))}
+              {item.expectedFiles !== null && item.confirmedFiles !== null ?
+                <div className="flex justify-between gap-3"><dt className="text-muted-foreground">Files delivered</dt><dd>{item.confirmedFiles} of {item.expectedFiles}</dd></div> : null}
+            </dl>
+          </details>
+        ))}
+        {resource.loading ? <HelperText role="status" className="p-4">Loading transactions…</HelperText> : null}
+        {history?.transactions.length === 0 ? <HelperText className="p-4">No earnings yet.</HelperText> : null}
+      </SettingsGroup>
+      {resource.failed ? <div><HelperText role="alert">Couldn't load transactions.</HelperText>
+        <Button type="button" size="standard" variant="none" onClick={resource.retry}>Retry</Button></div> : null}
+      {history?.nextCursor ? <Button type="button" size="standard" variant="none" disabled={moreBusy} onClick={() => void more()}>{moreBusy ? "Loading…" : "More transactions"}</Button> : null}
+      {moreError ? <HelperText role="alert">Couldn't load more. Try again.</HelperText> : null}
+      <HelperText>Stripe transfers and bank deposits update separately.</HelperText>
     </section>
   );
 }
 
 function bankPayoutCopy(payout: DocumentBankPayout): string {
-  const amount = new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(payout.amountCents / 100);
+  const amount = money(payout.amountCents);
   switch (payout.status) {
     case "pending": return `${amount} bank payout pending.`;
     case "in_transit": return `${amount} bank payout on its way.`;
@@ -138,59 +250,29 @@ function bankPayoutCopy(payout: DocumentBankPayout): string {
 }
 
 /** Stripe's aggregate bank payout is separate from a document transfer. */
-export function DocumentBankPayoutStatusCard({
-  compact = false,
-  refreshOnFeedChange = false,
-  onVisibleChange,
-}: {
-  compact?: boolean;
-  refreshOnFeedChange?: boolean;
-  onVisibleChange?: (visible: boolean) => void;
+export function DocumentBankPayoutStatusCard({ compact = false, refreshOnFeedChange = false, onVisibleChange }: {
+  compact?: boolean; refreshOnFeedChange?: boolean; onVisibleChange?: (visible: boolean) => void;
 }) {
-  const { vaultOwnerToken } = useVault();
-  const [snapshot, setSnapshot] = useState<{ token: string; payout: DocumentBankPayout | null } | null>(null);
-  const [error, setError] = useState(false);
-  const latest = snapshot?.token === vaultOwnerToken ? snapshot.payout : null;
-
+  const resource = usePayoutSnapshot(DocumentPayoutService.bankPayouts, { bankOnly: true, refreshOnFeedChange });
+  const payouts = resource.data?.payouts;
+  const latest = payouts?.[0] ?? null;
   useEffect(() => { onVisibleChange?.(Boolean(latest)); }, [latest, onVisibleChange]);
-
-  useEffect(() => {
-    if (!vaultOwnerToken) {
-      setSnapshot(null);
-      return;
-    }
-    let cancelled = false;
-    setSnapshot(null);
-    setError(false);
-    const load = () => {
-      void DocumentPayoutService.bankPayouts(vaultOwnerToken)
-        .then(({ payouts }) => {
-          if (cancelled) return;
-          setSnapshot({ token: vaultOwnerToken, payout: payouts[0] ?? null });
-          setError(false);
-        })
-        .catch(() => { if (!cancelled) setError(true); });
-    };
-    load();
-    const onFeedReset = (event: Event) => {
-      const detail = (event as CustomEvent<{ source?: string; requestId?: string }>).detail;
-      if (detail?.source === "sse_document_feed" && !detail.requestId) load();
-    };
-    if (refreshOnFeedChange) window.addEventListener(CONSENT_STATE_CHANGED_EVENT, onFeedReset);
-    return () => {
-      cancelled = true;
-      if (refreshOnFeedChange) window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, onFeedReset);
-    };
-  }, [vaultOwnerToken, refreshOnFeedChange]);
-
-  if (!vaultOwnerToken || (!latest && (!error || compact))) return null;
+  if (!resource.token || (compact && !latest)) return null;
   return (
-    <section aria-label="Bank payout status"
-      className={compact ? "rounded-xl border border-border/60 px-4 py-3" : "rounded-2xl border border-border p-5"}>
-      <p className="text-sm font-semibold">Bank payout</p>
-      {latest ? <HelperText className="mt-1">{bankPayoutCopy(latest)}</HelperText> : null}
-      {error ? <HelperText className="mt-1">Couldn't check bank payouts right now.</HelperText> : null}
-      {latest ? <HelperText className="mt-1">Bank payouts may combine earnings from multiple requests.</HelperText> : null}
+    <section aria-label="Bank payout status" className={compact ? "rounded-xl border border-border/60 px-4 py-3" : "space-y-2"}>
+      {compact ? <><p className="text-sm font-semibold">Bank payout</p>
+        <HelperText className="mt-1">{bankPayoutCopy(latest!)}</HelperText></> :
+        <SettingsGroup embedded title="Bank deposits" density="compact">
+          {payouts?.map((payout) => <div key={payout.id} className="px-4 py-3">
+            <HelperText>{bankPayoutCopy(payout)}</HelperText>
+            {payout.expectedArrivalAt && ["pending", "in_transit"].includes(payout.status) ?
+              <HelperText>Expected {shortDate(payout.expectedArrivalAt)}</HelperText> : null}
+          </div>)}
+          {resource.loading ? <HelperText role="status" className="p-4">Loading deposits…</HelperText> : null}
+          {payouts?.length === 0 ? <HelperText className="p-4">No bank deposits yet.</HelperText> : null}
+        </SettingsGroup>}
+      {resource.failed ? <HelperText role="alert">Couldn't check bank payouts right now.</HelperText> : null}
+      {latest ? <HelperText>Bank payouts may combine earnings from multiple requests.</HelperText> : null}
     </section>
   );
 }

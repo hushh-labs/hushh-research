@@ -29,6 +29,22 @@ function entry(overrides: Partial<ConsentCenterEntry> = {}): ConsentCenterEntry 
 }
 
 describe("projectFeedDriveProgress", () => {
+  it("shows setup before an order and advances from bank setup to price without a Pay action", () => {
+    const waiting = entry({ kind: "outgoing_request", counterpart_label: "Meena", metadata: {
+      ...entry().metadata, direction: "outgoing", ownerPayoutAccountReady: false,
+      ownerPriceRequired: true, automatic_progress_active: false,
+    } });
+    expect(projectFeedDriveProgress([waiting])[0]).toMatchObject({
+      title: "Waiting for owner setup", description: "Documents from Meena",
+    });
+    expect(projectFeedDrivePayments([waiting])).toEqual([]);
+    const priced = { ...waiting, metadata: { ...waiting.metadata, ownerPayoutAccountReady: true } };
+    expect(projectFeedDriveProgress([priced])[0]?.title).toBe("Waiting for price");
+    expect(projectFeedDrivePayments([priced])).toEqual([]);
+    expect(projectFeedDriveProgress([{ ...waiting, metadata: { ...waiting.metadata, paymentStatus: "paid" } }])).toEqual([]);
+    expect(projectFeedDriveProgress([{ ...waiting, metadata: { ...waiting.metadata, paymentStatus: "expired" } }])).toEqual([]);
+  });
+
   it("shows a received automatic request without exposing unconfirmed file details", () => {
     const rows = projectFeedDriveProgress([entry({ metadata: {
       ...entry().metadata,
@@ -133,10 +149,10 @@ describe("projectFeedDriveProgress", () => {
     const waiting = projectFeedDrivePayments([checkout])[0]!;
     expect(waiting).toMatchObject({
       status: "waiting_owner_setup",
-      title: "Waiting for owner payout setup",
+      title: "Waiting for owner setup",
       href: expect.stringContaining("requestView=sent"),
     });
-    expect(describeFeedDrivePayment(waiting).title).toBe("Waiting for owner payout setup");
+    expect(describeFeedDrivePayment(waiting).title).toBe("Waiting for owner setup");
     expect(projectFeedDrivePayments([entry({ ...checkout, metadata: {
       ...checkout.metadata, paymentStatus: "awaiting_payment",
       checkoutExpiresAt: null,

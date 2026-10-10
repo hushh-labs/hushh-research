@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 ACCOUNTS = "pkm_owner_payout_accounts"
 ONBOARDING_RETURN_PATHS = {
     "marketplace": "/one/marketplace",
-    "documents": "/one/profile/my-data",
+    "documents": "/one/profile/payouts",
 }
 
 
@@ -80,6 +80,19 @@ def _account_readiness(remote: dict[str, Any]) -> dict[str, Any]:
         "ready": ready,
         "status": "ready" if ready else "restricted" if disabled else "onboarding_required",
     }
+
+
+async def resume_document_owner_setup(db: Any, user_id: str) -> None:
+    """A committed readiness change wakes durable requests; the worker also retries."""
+    try:
+        from hushh_mcp.services.drive_sharing_store import DriveSharingStore
+        from hushh_mcp.services.drive_work_wake import wake_drive_work
+
+        await DriveSharingStore(db=db).resume_owner_setup(user_id=user_id)
+        await wake_drive_work("suggestions")
+        await wake_drive_work("sharing")
+    except Exception as exc:
+        logger.warning("document_payout.resume_deferred type=%s", type(exc).__name__)
 
 
 class PkmPayoutService:
@@ -210,10 +223,43 @@ class PkmPayoutService:
         patch = {
             "details_submitted": readiness["detailsSubmitted"],
             "payouts_enabled": readiness["payoutsEnabled"],
+            "account_ready": readiness["ready"],
             "updated_at": _now(),
         }
         await self._rows(self.db.table(ACCOUNTS).update(patch).eq("user_id", user_id))
+        if account.get("account_ready") is not readiness["ready"]:
+            await resume_document_owner_setup(self.db, user_id)
         return {**account, **patch, "readiness": readiness}
+
+    async def management_link(self, *, user_id: str) -> dict[str, str]:
+        """Only the authenticated owner can open their mapped Express dashboard."""
+        account = await self.refresh_account(user_id)
+        if account is None:
+            raise PacketOrderError("PAYOUT_ACCOUNT_REQUIRED", "Link a bank first.")
+        key, _, _ = _stripe_config()
+        try:
+            link = _stripe_dict(
+                await asyncio.to_thread(
+                    self.stripe_api.Account.create_login_link,
+                    account["stripe_account_id"],
+                    api_key=key,
+                )
+            )
+            parsed = urlsplit(link.get("url") or "")
+            if (
+                parsed.scheme != "https"
+                or parsed.hostname != "connect.stripe.com"
+                or parsed.username
+                or parsed.password
+                or parsed.port
+            ):
+                raise ValueError("unexpected payout dashboard")
+        except Exception as exc:
+            logger.warning("pkm_payout.dashboard_failed type=%s", type(exc).__name__)
+            raise PacketOrderError(
+                "PAYOUT_UNAVAILABLE", "Couldn't open bank settings. Try again."
+            ) from None
+        return {"url": link["url"]}
 
     async def account_status(self, *, user_id: str) -> dict[str, Any]:
         """Document checkout consumes this without exposing PKM sales or account IDs."""

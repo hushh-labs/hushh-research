@@ -1,3 +1,4 @@
+import type { DocumentRequestSetup } from "@/lib/consent/document-request-setup";
 import { isValidDocumentRequestPriceCents } from "@/lib/consent/document-request-price";
 import { DOCUMENT_REQUEST_UUID } from "@/lib/consent/document-share-consent";
 import { ApiService } from "@/lib/services/api-service";
@@ -11,7 +12,7 @@ import {
   type DriveSearchStatus,
 } from "@/lib/services/drive-search-service";
 
-export type SharingStatus = {
+export type SharingStatus = DocumentRequestSetup & {
   requestId: string;
   status: string;
   revision: number;
@@ -68,7 +69,7 @@ export function validDocumentRequestTerms(
     validDocumentRequestPeriod(start, end)
   );
 }
-export type SharingReview = {
+export type SharingReview = DocumentRequestSetup & {
   revision: number;
   status: string;
   recipientEmail: string;
@@ -108,6 +109,8 @@ export type SharingReview = {
   ownerAllowed?: boolean;
   /** The owner may Allow or Deny now. Nothing searches Drive before Allow. */
   allowAvailable?: boolean;
+  /** Trusted request awaiting only its per-request price, never new consent. */
+  priceOnlyAvailable?: boolean;
   /** The requester pays before files are shared, so Allow sets a price. */
   paymentRequired?: boolean;
   /** The owner's price in cents once allowed; null when there is none. */
@@ -151,6 +154,9 @@ const SHARING_PREPARATION_ERRORS = [
   "background_preparation_required",
   "trusted_relationship_changed",
   "date_range_required",
+  "owner_price_required",
+  "owner_payout_required",
+  "payout_unavailable",
 ] as const;
 /** Why preparation ended without suggestions. Unknown codes are dropped. */
 export type SharingPreparationError =
@@ -159,6 +165,16 @@ function preparationError(value: unknown): SharingPreparationError | null {
   return (SHARING_PREPARATION_ERRORS as readonly unknown[]).includes(value)
     ? (value as SharingPreparationError)
     : null;
+}
+function parseRequestSetup(value: Record<string, unknown>): DocumentRequestSetup {
+  const ownerPriceRequired = optionalFlag(value.ownerPriceRequired);
+  const ownerPayoutAccountReady = optionalFlag(value.ownerPayoutAccountReady);
+  const paymentsReady = optionalFlag(value.paymentsReady);
+  return {
+    ...(ownerPriceRequired === undefined ? {} : { ownerPriceRequired }),
+    ...(ownerPayoutAccountReady === undefined ? {} : { ownerPayoutAccountReady }),
+    ...(paymentsReady === undefined ? {} : { paymentsReady }),
+  };
 }
 export type SharingDelivery = {
   status: string;
@@ -1069,6 +1085,7 @@ export class DriveSharingService {
       ...(quotedAmountCents === undefined ? {} : { quotedAmountCents }),
       ...(paymentRequired === undefined ? {} : { paymentRequired }),
       ...(quoteVersion === undefined ? {} : { quoteVersion }),
+      ...parseRequestSetup(result),
     };
   }
 
@@ -1242,6 +1259,7 @@ export class DriveSharingService {
       throw new DriveSharingError("invalid_response");
     const ownerAllowed = optionalFlag(result.ownerAllowed);
     const allowAvailable = optionalFlag(result.allowAvailable);
+    const priceOnlyAvailable = optionalFlag(result.priceOnlyAvailable);
     const paymentRequired = optionalFlag(result.paymentRequired);
     const priceCents = optionalPrice(result.priceCents);
     const ownerPayout = result.ownerPayout == null
@@ -1290,12 +1308,16 @@ export class DriveSharingService {
       ...(aggregateCounts === undefined ? {} : { aggregateCounts }),
       ...(ownerAllowed === undefined ? {} : { ownerAllowed }),
       // Only a pending request not yet allowed can be decided.
+      ...(priceOnlyAvailable === undefined ? {} : {
+        priceOnlyAvailable: priceOnlyAvailable && result.status === "pending" && ownerAllowed !== true,
+      }),
       ...(allowAvailable === undefined ? {} : {
         allowAvailable: allowAvailable && result.status === "pending" && ownerAllowed !== true,
       }),
       ...(paymentRequired === undefined ? {} : { paymentRequired }),
       ...(priceCents === undefined ? {} : { priceCents }),
       ...(result.ownerPayout === undefined ? {} : { ownerPayout }),
+      ...parseRequestSetup(result),
     };
   }
 
@@ -1614,6 +1636,20 @@ export class DriveSharingService {
       revision: revision(result.revision),
     };
   }
+  /** Price a trusted request without granting independent owner-allowed authority. */
+  static async setRequestPrice(
+    token: string, requestId: string, input: SharingAllowInput, guard: SharingSessionGuard,
+  ): Promise<SharingAllowResult> {
+    if (!Number.isSafeInteger(input.revision) || input.revision < 0 ||
+        !isValidDocumentRequestPriceCents(input.amountCents))
+      throw new DriveSharingError("invalid_argument");
+    const result = await this.request(token, requestId, guard, "/price", {
+      revision: input.revision, amountCents: input.amountCents, confirmed: true,
+    });
+    if (id(result.requestId) !== requestId) throw new DriveSharingError("invalid_response");
+    return { requestId, status: string(result.status, 80), revision: revision(result.revision) };
+  }
+
   static async prepareRevocation(
     token: string,
     requestId: string,

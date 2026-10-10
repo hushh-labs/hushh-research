@@ -3,17 +3,19 @@ import { isValidDocumentRequestPriceCents } from "@/lib/consent/document-request
 import { apiJson } from "@/lib/services/api-client";
 
 export type DriveRequestPricing = {
-  /** An owner price overrides the platform's $10 default for future requests. */
+  /** Disabled means the owner must choose a price for each request. */
   enabled: boolean;
   amountCents: number;
   version: number;
 };
 
 export type DriveRequestQuote = {
-  amountCents: number;
+  amountCents: number | null;
   version: number;
   paymentRequired: boolean;
+  priceReady: boolean;
   payoutReady: boolean;
+  paymentsReady: boolean;
 };
 
 function record(value: unknown): Record<string, unknown> {
@@ -89,11 +91,18 @@ export class DriveRequestPricingService {
       `/api/connectors/google_drive/sharing/quote?ownerPersonRef=${encodeURIComponent(ownerPersonRef)}`,
       { headers: headers(vaultOwnerToken), cache: "no-store" },
     ));
+    const quotedAmount = value.amountCents === null ? null : amount(value.amountCents);
+    const priceReady = boolean(value.priceReady);
+    if (priceReady !== (quotedAmount !== null)) {
+      throw new Error("Invalid Drive pricing response");
+    }
     return {
-      amountCents: amount(value.amountCents),
+      amountCents: quotedAmount,
       version: version(value.version),
       paymentRequired: boolean(value.paymentRequired),
+      priceReady,
       payoutReady: boolean(value.payoutReady),
+      paymentsReady: boolean(value.paymentsReady),
     };
   }
 }
