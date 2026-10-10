@@ -87,6 +87,20 @@ WITH keyed AS (
   FROM keyed
 ), grouped AS (SELECT * FROM ranked WHERE thread_rank = 1)
 """
+# These query fragments are fixed module constants. Recipient, cursor and page
+# size are supplied exclusively through execute_raw's bind-parameter mapping.
+_GROUPED_FEED_PAGE_SELECT = """
+  SELECT id, source_domain, event_type, actor_label, metadata, source_row_id, created_at,
+    CASE WHEN thread_unread_count > 0 THEN NULL ELSE read_at END AS read_at,
+    thread_key, thread_message_count, thread_unread_count
+  FROM grouped WHERE (CAST(:cursor AS bigint) IS NULL OR id < CAST(:cursor AS bigint))
+  ORDER BY id DESC LIMIT :page_size
+"""
+_GROUPED_FEED_COUNT_SELECT = """
+  SELECT count(*) AS unread_count FROM grouped WHERE thread_unread_count > 0
+"""
+_GROUPED_FEED_PAGE_SQL = _GROUPED_FEED_CTE + _GROUPED_FEED_PAGE_SELECT
+_GROUPED_FEED_COUNT_SQL = _GROUPED_FEED_CTE + _GROUPED_FEED_COUNT_SELECT
 _COUNTERPART_PHOTO_KEY = "counterpart_photo_url"
 _LOCATION_GRANT_EVENT_TYPES = frozenset(
     {
@@ -355,14 +369,7 @@ class FeedService:
         db = self._get_db()
         rows = (
             db.execute_raw(
-                _GROUPED_FEED_CTE
-                + """
-          SELECT id, source_domain, event_type, actor_label, metadata, source_row_id, created_at,
-            CASE WHEN thread_unread_count > 0 THEN NULL ELSE read_at END AS read_at,
-            thread_key, thread_message_count, thread_unread_count
-          FROM grouped WHERE (CAST(:cursor AS bigint) IS NULL OR id < CAST(:cursor AS bigint))
-          ORDER BY id DESC LIMIT :page_size
-        """,
+                _GROUPED_FEED_PAGE_SQL,
                 {"user_id": user_id, "cursor": cursor, "page_size": bounded_limit + 1},
             ).data
             or []
@@ -964,10 +971,7 @@ class FeedService:
         db = self._get_db()
         rows = (
             db.execute_raw(
-                _GROUPED_FEED_CTE
-                + """
-          SELECT count(*) AS unread_count FROM grouped WHERE thread_unread_count > 0
-        """,
+                _GROUPED_FEED_COUNT_SQL,
                 {"user_id": user_id},
             ).data
             or []
