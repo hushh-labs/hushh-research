@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
+import { deriveVoiceRouteScreen } from "@/lib/kai/actions/route-screen-derivation";
 
 describe("deriveVoiceRouteScreen", () => {
   it.each([

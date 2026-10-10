@@ -2728,7 +2728,7 @@
         "voice_playbook": {
           "playbook_id": "route.one.connected.systems.systemid",
           "purpose": "Help the person understand and use the connected systems screen through its generated controls.",
-          "screen": "app",
+          "screen": "connected_systems",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -2852,7 +2852,7 @@
         "voice_playbook": {
           "playbook_id": "route.one.email",
           "purpose": "Explain Gmail connection and hand the owner to One for approval-gated email drafting.",
-          "screen": "app",
+          "screen": "email_agent",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -4630,7 +4630,7 @@
         "voice_playbook": {
           "playbook_id": "route.one.messages",
           "purpose": "Read and send private messages with accepted connections and circles you belong to.",
-          "screen": "app",
+          "screen": "one_messages",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -7206,7 +7206,7 @@
         "voice_playbook": {
           "playbook_id": "route.one.puppy",
           "purpose": "Let the owner talk to Puppy One, the agent running on their own machine, and see which local model answered.",
-          "screen": "app",
+          "screen": "puppy_one",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -8333,7 +8333,7 @@
         "voice_playbook": {
           "playbook_id": "route.one.wallet.card",
           "purpose": "Help the owner review, update, pause, rotate or remove what their Wallet profile shares.",
-          "screen": "app",
+          "screen": "one_wallet_card",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -9922,5 +9922,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "1c9cab516f8b59a9db31c556042154fb1a4a331f72089e3ad85cc2a87be49a86"
+  "content_sha256": "98bded879f3d7509a37ddef7a596e1b22f118810d9b0956f6efbdb924776e724"
 }

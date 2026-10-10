@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { LOCATION_VOICE_ACTIONS } from "@/app/one/location/page";
-import { listKaiActionsForSurface } from "@/lib/voice/kai-action-gateway";
+import { listKaiActionsForSurface } from "@/lib/kai/actions/kai-action-gateway";
 import {
   LOCATION_VOICE_ACTIONS_EXCLUDE_IDS,
   deriveLocationVoiceActions,

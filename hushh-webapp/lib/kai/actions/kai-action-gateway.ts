@@ -4,8 +4,8 @@ import { ApiService } from "@/lib/services/api-service";
 
 import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
 import type { Persona } from "@/lib/services/ria-service";
-import type { AppRuntimeState, VoiceToolCall } from "@/lib/voice/voice-types";
-import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import type { AppRuntimeState, VoiceToolCall } from "@/lib/kai/actions/voice-types";
+import type { VoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 
 const logger =

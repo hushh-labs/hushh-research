@@ -1994,13 +1994,7 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [
-          "route.connected_system_list",
-          "route.mail_connections",
-          "route.messages_connections",
-          "route.puppy_agents",
-          "route.wallet_profile_cards"
-        ],
+        "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.blog.slug"
       }
@@ -2591,13 +2585,7 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [
-          "route.connected_system_list",
-          "route.mail_connections",
-          "route.messages_connections",
-          "route.puppy_agents",
-          "route.wallet_profile_cards"
-        ],
+        "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.manishhussh"
       }
@@ -2896,6 +2884,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "route.connected_system_list",
           "route.profile_connected_systems"
         ],
         "delegate_agent_ids": [],
@@ -2923,10 +2912,7 @@
       "voice": {
         "action_ids": [
           "route.connected_system_list",
-          "route.mail_connections",
-          "route.messages_connections",
-          "route.puppy_agents",
-          "route.wallet_profile_cards"
+          "route.profile_connected_systems"
         ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.connected.systems.systemid"
@@ -3021,11 +3007,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
-          "route.connected_system_list",
-          "route.mail_connections",
-          "route.messages_connections",
-          "route.puppy_agents",
-          "route.wallet_profile_cards"
+          "route.mail_connections"
         ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.email"
@@ -3905,11 +3887,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
-          "route.connected_system_list",
-          "route.mail_connections",
-          "route.messages_connections",
-          "route.puppy_agents",
-          "route.wallet_profile_cards"
+          "route.messages_connections"
         ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.messages"
@@ -4215,6 +4193,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "route.connected_system_list",
           "route.profile_connected_systems"
         ],
         "delegate_agent_ids": [],
@@ -4948,11 +4927,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
-          "route.connected_system_list",
-          "route.mail_connections",
-          "route.messages_connections",
-          "route.puppy_agents",
-          "route.wallet_profile_cards"
+          "route.puppy_agents"
         ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.puppy"
@@ -5350,13 +5325,7 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [
-          "route.connected_system_list",
-          "route.mail_connections",
-          "route.messages_connections",
-          "route.puppy_agents",
-          "route.wallet_profile_cards"
-        ],
+        "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.todos"
       }
@@ -5410,10 +5379,6 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
-          "route.connected_system_list",
-          "route.mail_connections",
-          "route.messages_connections",
-          "route.puppy_agents",
           "route.wallet_profile_cards"
         ],
         "delegate_agent_ids": [],
@@ -5558,13 +5523,7 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [
-          "route.connected_system_list",
-          "route.mail_connections",
-          "route.messages_connections",
-          "route.puppy_agents",
-          "route.wallet_profile_cards"
-        ],
+        "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.privacy.policy"
       }
@@ -5713,13 +5672,7 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [
-          "route.connected_system_list",
-          "route.mail_connections",
-          "route.messages_connections",
-          "route.puppy_agents",
-          "route.wallet_profile_cards"
-        ],
+        "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.research.protocol"
       }
@@ -6059,13 +6012,7 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [
-          "route.connected_system_list",
-          "route.mail_connections",
-          "route.messages_connections",
-          "route.puppy_agents",
-          "route.wallet_profile_cards"
-        ],
+        "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.terms.of.use"
       }
@@ -6119,13 +6066,7 @@
         }
       ],
       "voice": {
-        "action_ids": [
-          "route.connected_system_list",
-          "route.mail_connections",
-          "route.messages_connections",
-          "route.puppy_agents",
-          "route.wallet_profile_cards"
-        ],
+        "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.welcome"
       }
@@ -6140,9 +6081,9 @@
     "data_plane": "fb9abeff994c578d23857dae543647135aa029e0c2a7c707ebb86d1b221e91fe",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "3dc81d307ef8cf9932ca3f80c2d54915515161968d0303feccea401e8afebce9",
-    "route_index": "c194823d62bc2c2b7a75a5acd62f89c5ae4f4df38f6d172f4cc4d445fe8937ce",
-    "route_layout": "5b45210882ec53328e3066f126d889a6fe1f09691354bbe996471c529f3592b2",
-    "surface_map": "eec4cc7455b98257047c8fac8a2fd02a5fd3f6b504a5850b85bd3dc85742ac72",
+    "route_index": "149ef665b78fc4236ea58519fd7942a9a5688d04025d2a829c2629957452066a",
+    "route_layout": "010d43a45775dd79ba4593fa20d771aa28e46916ef128ea7906f1c79307a563e",
+    "surface_map": "e2ccd70cdc232af029df24199f8635f3d1332aacbbf992625e0a1e6d2ac8bc1a",
     "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },

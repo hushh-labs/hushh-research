@@ -12,7 +12,7 @@ import {
   unregisterLocalOnboardingHandler,
 } from "@/lib/agent/local-onboarding-actions";
 import { buildKaiMarketRoute, ROUTES } from "@/lib/navigation/routes";
-import type { AppRuntimeState } from "@/lib/voice/voice-types";
+import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
 
 function runtimeState(
   overrides: Partial<AppRuntimeState> = {},

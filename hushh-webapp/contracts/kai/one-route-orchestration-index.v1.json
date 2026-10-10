@@ -146,7 +146,7 @@
       "route_pattern": "/blog/[slug]",
       "page_file": "app/blog/[slug]/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "orchestration_class": "context_only",
       "instruction_id": "route.blog.slug",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -176,13 +176,7 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.connected_system_list",
-        "route.mail_connections",
-        "route.messages_connections",
-        "route.puppy_agents",
-        "route.wallet_profile_cards"
-      ],
+      "action_ids": [],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -1156,7 +1150,7 @@
       "route_pattern": "/manishhussh",
       "page_file": "app/manishhussh/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "orchestration_class": "context_only",
       "instruction_id": "route.manishhussh",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -1186,13 +1180,7 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.connected_system_list",
-        "route.mail_connections",
-        "route.messages_connections",
-        "route.puppy_agents",
-        "route.wallet_profile_cards"
-      ],
+      "action_ids": [],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -1702,6 +1690,7 @@
       "canonical_screen": "connected_systems",
       "voice_contract_file": null,
       "action_ids": [
+        "route.connected_system_list",
         "route.profile_connected_systems"
       ],
       "action_coverage": "inherited",
@@ -1722,7 +1711,7 @@
       "voice_playbook": {
         "playbook_id": "route.one.connected.systems.systemid",
         "purpose": "Help the person understand and use the connected systems screen through its generated controls.",
-        "screen": "app",
+        "screen": "connected_systems",
         "entry_cue": "",
         "proactivity": "ambient",
         "primary_action_id": null,
@@ -1744,14 +1733,11 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "app",
+      "canonical_screen": "connected_systems",
       "voice_contract_file": "app/one/connected-systems/[systemId]/page.voice-action-contract.json",
       "action_ids": [
         "route.connected_system_list",
-        "route.mail_connections",
-        "route.messages_connections",
-        "route.puppy_agents",
-        "route.wallet_profile_cards"
+        "route.profile_connected_systems"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -1822,7 +1808,7 @@
       "voice_playbook": {
         "playbook_id": "route.one.email",
         "purpose": "Explain Gmail connection and hand the owner to One for approval-gated email drafting.",
-        "screen": "app",
+        "screen": "email_agent",
         "entry_cue": "",
         "proactivity": "ambient",
         "primary_action_id": null,
@@ -1844,14 +1830,10 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "app",
+      "canonical_screen": "email_agent",
       "voice_contract_file": "app/one/email/page.voice-action-contract.json",
       "action_ids": [
-        "route.connected_system_list",
-        "route.mail_connections",
-        "route.messages_connections",
-        "route.puppy_agents",
-        "route.wallet_profile_cards"
+        "route.mail_connections"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -3283,7 +3265,7 @@
       "voice_playbook": {
         "playbook_id": "route.one.messages",
         "purpose": "Read and send private messages with accepted connections and circles you belong to.",
-        "screen": "app",
+        "screen": "one_messages",
         "entry_cue": "",
         "proactivity": "ambient",
         "primary_action_id": null,
@@ -3305,14 +3287,10 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "app",
+      "canonical_screen": "one_messages",
       "voice_contract_file": "app/one/messages/page.voice-action-contract.json",
       "action_ids": [
-        "route.connected_system_list",
-        "route.mail_connections",
-        "route.messages_connections",
-        "route.puppy_agents",
-        "route.wallet_profile_cards"
+        "route.messages_connections"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -3820,6 +3798,7 @@
       "canonical_screen": "connected_systems",
       "voice_contract_file": null,
       "action_ids": [
+        "route.connected_system_list",
         "route.profile_connected_systems"
       ],
       "action_coverage": "none",
@@ -5124,7 +5103,7 @@
       "voice_playbook": {
         "playbook_id": "route.one.puppy",
         "purpose": "Let the owner talk to Puppy One, the agent running on their own machine, and see which local model answered.",
-        "screen": "app",
+        "screen": "puppy_one",
         "entry_cue": "",
         "proactivity": "ambient",
         "primary_action_id": null,
@@ -5146,14 +5125,10 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "app",
+      "canonical_screen": "puppy_one",
       "voice_contract_file": "app/one/puppy/page.voice-action-contract.json",
       "action_ids": [
-        "route.connected_system_list",
-        "route.mail_connections",
-        "route.messages_connections",
-        "route.puppy_agents",
-        "route.wallet_profile_cards"
+        "route.puppy_agents"
       ],
       "action_coverage": "inherited",
       "delegation_policy": {
@@ -5814,7 +5789,7 @@
       "route_pattern": "/one/todos",
       "page_file": "app/one/todos/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "orchestration_class": "context_only",
       "instruction_id": "route.one.todos",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -5844,13 +5819,7 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.connected_system_list",
-        "route.mail_connections",
-        "route.messages_connections",
-        "route.puppy_agents",
-        "route.wallet_profile_cards"
-      ],
+      "action_ids": [],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -5923,7 +5892,7 @@
       "voice_playbook": {
         "playbook_id": "route.one.wallet.card",
         "purpose": "Help the owner review, update, pause, rotate or remove what their Wallet profile shares.",
-        "screen": "app",
+        "screen": "one_wallet_card",
         "entry_cue": "",
         "proactivity": "ambient",
         "primary_action_id": null,
@@ -5945,13 +5914,9 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "app",
+      "canonical_screen": "one_wallet_card",
       "voice_contract_file": "app/one/wallet-card/page.voice-action-contract.json",
       "action_ids": [
-        "route.connected_system_list",
-        "route.mail_connections",
-        "route.messages_connections",
-        "route.puppy_agents",
         "route.wallet_profile_cards"
       ],
       "action_coverage": "inherited",
@@ -6110,7 +6075,7 @@
       "route_pattern": "/privacy",
       "page_file": "app/privacy/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "orchestration_class": "context_only",
       "instruction_id": "route.privacy.policy",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -6140,13 +6105,7 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.connected_system_list",
-        "route.mail_connections",
-        "route.messages_connections",
-        "route.puppy_agents",
-        "route.wallet_profile_cards"
-      ],
+      "action_ids": [],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -6385,7 +6344,7 @@
       "route_pattern": "/research/protocol",
       "page_file": "app/research/protocol/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "orchestration_class": "context_only",
       "instruction_id": "route.research.protocol",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -6415,13 +6374,7 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.connected_system_list",
-        "route.mail_connections",
-        "route.messages_connections",
-        "route.puppy_agents",
-        "route.wallet_profile_cards"
-      ],
+      "action_ids": [],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -6996,7 +6949,7 @@
       "route_pattern": "/terms",
       "page_file": "app/terms/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "orchestration_class": "context_only",
       "instruction_id": "route.terms.of.use",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -7026,13 +6979,7 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.connected_system_list",
-        "route.mail_connections",
-        "route.messages_connections",
-        "route.puppy_agents",
-        "route.wallet_profile_cards"
-      ],
+      "action_ids": [],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -7045,7 +6992,7 @@
       "route_pattern": "/welcome",
       "page_file": "app/welcome/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "orchestration_class": "context_only",
       "instruction_id": "route.welcome",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -7075,13 +7022,7 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.connected_system_list",
-        "route.mail_connections",
-        "route.messages_connections",
-        "route.puppy_agents",
-        "route.wallet_profile_cards"
-      ],
+      "action_ids": [],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",

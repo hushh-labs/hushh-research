@@ -8,7 +8,7 @@ import {
   listInvestorKaiActionsForSurface,
   listInvestorKaiActions,
   resolveInvestorKaiActionWiring,
-} from "@/lib/voice/investor-kai-action-registry";
+} from "@/lib/kai/actions/investor-kai-action-registry";
 
 describe("investor-kai-action-registry", () => {
   it("enforces unique action ids", () => {

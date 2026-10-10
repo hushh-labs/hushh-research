@@ -2,7 +2,7 @@ import {
   getKaiActionById,
   listKaiActions,
   type KaiActionDefinition,
-} from "@/lib/voice/kai-action-gateway";
+} from "@/lib/kai/actions/kai-action-gateway";
 
 /**
  * An authored cross-screen journey: navigate to a declared destination, then

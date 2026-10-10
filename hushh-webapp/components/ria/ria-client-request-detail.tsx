@@ -16,7 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { buildRiaClientWorkspaceRoute } from "@/lib/navigation/routes";
 import { useRiaClientWorkspaceState } from "@/components/ria/use-ria-client-workspace-state";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 function formatStatusLabel(status?: string | null) {
   return String(status || "pending").replaceAll("_", " ");

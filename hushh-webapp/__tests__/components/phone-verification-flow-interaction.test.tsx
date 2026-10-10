@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
 import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
-import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { getVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/register-phone",

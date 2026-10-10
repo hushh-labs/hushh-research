@@ -17,7 +17,7 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { circleStateChangeClosesDetail, subscribeToOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { chatReadIsBlocked, subscribeChatLayerChanges } from "@/lib/interaction/chat-read-visibility";
-import { useVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { useVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { AgentDockPortal } from "@/components/agent/agent-dock";
 import laneStyles from "./circle-chat-lane.module.css";
 import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";

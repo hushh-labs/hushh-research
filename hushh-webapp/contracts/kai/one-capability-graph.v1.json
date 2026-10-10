@@ -38199,7 +38199,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "bd1b9951e1a0cb55e7308c7da6c7d8147763f57c9439754c2ed89d88e343d225",
+      "projection_digest": "89478200d7b21f91470ac1e10a8631edcfd81ea28f8329b133b64e0306dfda0b",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -38218,7 +38218,7 @@
         "location_workflow_api_contract": "e8b5f1471a8ff3a3c44313dd7c8347d4dd3d3fec40c54f72a65743b02c0fb8a9",
         "service_knowledge_packages": "d6833cf31b04fdb2f9e0ab55cd92f0abde8c8dcfd0a035b49e9b3ea7e83aeb53"
       },
-      "source_revision": "4498aedb2e5e2aca",
+      "source_revision": "6fab1183e63a24c5",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -39736,7 +39736,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "4498aedb2e5e2aca",
+    "source_revision": "6fab1183e63a24c5",
     "web": {
       "actions": [
         {
@@ -39779,7 +39779,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "d21c782f798d41fe09631e0dafbf52284483191c5aa07428903c733efc3f3389",
+      "projection_digest": "c37363c8261acbe6243fbd024780b6fb5fa6e8988798e45d8f3ca0843e4ff873",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -39798,7 +39798,7 @@
         "location_workflow_api_contract": "e8b5f1471a8ff3a3c44313dd7c8347d4dd3d3fec40c54f72a65743b02c0fb8a9",
         "service_knowledge_packages": "d6833cf31b04fdb2f9e0ab55cd92f0abde8c8dcfd0a035b49e9b3ea7e83aeb53"
       },
-      "source_revision": "4498aedb2e5e2aca",
+      "source_revision": "6fab1183e63a24c5",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -41355,7 +41355,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "4498aedb2e5e2aca",
+  "revision": "6fab1183e63a24c5",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -41391,13 +41391,7 @@
       "version": 1
     },
     {
-      "action_ids": [
-        "route.connected_system_list",
-        "route.mail_connections",
-        "route.messages_connections",
-        "route.puppy_agents",
-        "route.wallet_profile_cards"
-      ],
+      "action_ids": [],
       "capability_id": "screen:/blog/[slug]",
       "kind": "screen",
       "label": "app",
@@ -41615,13 +41609,7 @@
       "version": 1
     },
     {
-      "action_ids": [
-        "route.connected_system_list",
-        "route.mail_connections",
-        "route.messages_connections",
-        "route.puppy_agents",
-        "route.wallet_profile_cards"
-      ],
+      "action_ids": [],
       "capability_id": "screen:/manishhussh",
       "kind": "screen",
       "label": "app",
@@ -41747,6 +41735,7 @@
     },
     {
       "action_ids": [
+        "route.connected_system_list",
         "route.profile_connected_systems"
       ],
       "capability_id": "screen:/one/connected-systems",
@@ -41759,14 +41748,11 @@
     {
       "action_ids": [
         "route.connected_system_list",
-        "route.mail_connections",
-        "route.messages_connections",
-        "route.puppy_agents",
-        "route.wallet_profile_cards"
+        "route.profile_connected_systems"
       ],
       "capability_id": "screen:/one/connected-systems/[systemId]",
       "kind": "screen",
-      "label": "app",
+      "label": "connected_systems",
       "route_pattern": "/one/connected-systems/[systemId]",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
@@ -41786,15 +41772,11 @@
     },
     {
       "action_ids": [
-        "route.connected_system_list",
-        "route.mail_connections",
-        "route.messages_connections",
-        "route.puppy_agents",
-        "route.wallet_profile_cards"
+        "route.mail_connections"
       ],
       "capability_id": "screen:/one/email",
       "kind": "screen",
-      "label": "app",
+      "label": "email_agent",
       "route_pattern": "/one/email",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
@@ -42217,15 +42199,11 @@
     },
     {
       "action_ids": [
-        "route.connected_system_list",
-        "route.mail_connections",
-        "route.messages_connections",
-        "route.puppy_agents",
-        "route.wallet_profile_cards"
+        "route.messages_connections"
       ],
       "capability_id": "screen:/one/messages",
       "kind": "screen",
-      "label": "app",
+      "label": "one_messages",
       "route_pattern": "/one/messages",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
@@ -42379,6 +42357,7 @@
     },
     {
       "action_ids": [
+        "route.connected_system_list",
         "route.profile_connected_systems"
       ],
       "capability_id": "screen:/one/profile/connected-systems",
@@ -42684,15 +42663,11 @@
     },
     {
       "action_ids": [
-        "route.connected_system_list",
-        "route.mail_connections",
-        "route.messages_connections",
-        "route.puppy_agents",
-        "route.wallet_profile_cards"
+        "route.puppy_agents"
       ],
       "capability_id": "screen:/one/puppy",
       "kind": "screen",
-      "label": "app",
+      "label": "puppy_one",
       "route_pattern": "/one/puppy",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
@@ -42857,13 +42832,7 @@
       "version": 1
     },
     {
-      "action_ids": [
-        "route.connected_system_list",
-        "route.mail_connections",
-        "route.messages_connections",
-        "route.puppy_agents",
-        "route.wallet_profile_cards"
-      ],
+      "action_ids": [],
       "capability_id": "screen:/one/todos",
       "kind": "screen",
       "label": "app",
@@ -42887,15 +42856,11 @@
     },
     {
       "action_ids": [
-        "route.connected_system_list",
-        "route.mail_connections",
-        "route.messages_connections",
-        "route.puppy_agents",
         "route.wallet_profile_cards"
       ],
       "capability_id": "screen:/one/wallet-card",
       "kind": "screen",
-      "label": "app",
+      "label": "one_wallet_card",
       "route_pattern": "/one/wallet-card",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
@@ -42935,13 +42900,7 @@
       "version": 1
     },
     {
-      "action_ids": [
-        "route.connected_system_list",
-        "route.mail_connections",
-        "route.messages_connections",
-        "route.puppy_agents",
-        "route.wallet_profile_cards"
-      ],
+      "action_ids": [],
       "capability_id": "screen:/privacy",
       "kind": "screen",
       "label": "app",
@@ -43000,13 +42959,7 @@
       "version": 1
     },
     {
-      "action_ids": [
-        "route.connected_system_list",
-        "route.mail_connections",
-        "route.messages_connections",
-        "route.puppy_agents",
-        "route.wallet_profile_cards"
-      ],
+      "action_ids": [],
       "capability_id": "screen:/research/protocol",
       "kind": "screen",
       "label": "app",
@@ -43152,13 +43105,7 @@
       "version": 1
     },
     {
-      "action_ids": [
-        "route.connected_system_list",
-        "route.mail_connections",
-        "route.messages_connections",
-        "route.puppy_agents",
-        "route.wallet_profile_cards"
-      ],
+      "action_ids": [],
       "capability_id": "screen:/terms",
       "kind": "screen",
       "label": "app",
@@ -43167,13 +43114,7 @@
       "version": 1
     },
     {
-      "action_ids": [
-        "route.connected_system_list",
-        "route.mail_connections",
-        "route.messages_connections",
-        "route.puppy_agents",
-        "route.wallet_profile_cards"
-      ],
+      "action_ids": [],
       "capability_id": "screen:/welcome",
       "kind": "screen",
       "label": "app",
@@ -43192,18 +43133,13 @@
     "breaking": [],
     "changed": [
       "brains:location",
-      "screens:screen:/blog/[slug]",
-      "screens:screen:/manishhussh",
+      "screens:screen:/one/connected-systems",
       "screens:screen:/one/connected-systems/[systemId]",
       "screens:screen:/one/email",
       "screens:screen:/one/messages",
+      "screens:screen:/one/profile/connected-systems",
       "screens:screen:/one/puppy",
-      "screens:screen:/one/todos",
       "screens:screen:/one/wallet-card",
-      "screens:screen:/privacy",
-      "screens:screen:/research/protocol",
-      "screens:screen:/terms",
-      "screens:screen:/welcome",
       "services:service.location",
       "workflows:workflow.setup.location"
     ],
@@ -45447,12 +45383,12 @@
     "location_onboarding_runtime": "30805326977c008fe5a1455e039cc8f2807b4522a7b35c35e85bff7e23434d35",
     "location_workflow_api_contract": "e8b5f1471a8ff3a3c44313dd7c8347d4dd3d3fec40c54f72a65743b02c0fb8a9",
     "product_agent_registry": "01b1ae85c91c4e85dd879f023bdc41a3878b473107342bc63528de0b0c453d2e",
-    "route_orchestration_index": "c194823d62bc2c2b7a75a5acd62f89c5ae4f4df38f6d172f4cc4d445fe8937ce",
+    "route_orchestration_index": "149ef665b78fc4236ea58519fd7942a9a5688d04025d2a829c2629957452066a",
     "service_knowledge_packages": "d6833cf31b04fdb2f9e0ab55cd92f0abde8c8dcfd0a035b49e9b3ea7e83aeb53"
   },
-  "source_revision": "4498aedb2e5e2aca",
+  "source_revision": "6fab1183e63a24c5",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "4498aedb2e5e2aca",
+    "current_graph_revision": "6fab1183e63a24c5",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -45480,6 +45416,7 @@
           "40907773861ad847",
           "40d5079952d7dc69",
           "41fcabe47a6c84ca",
+          "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "4d1bf6b5a6a45c65",
           "5009d0612016fd66",
@@ -45587,6 +45524,7 @@
           "40907773861ad847",
           "40d5079952d7dc69",
           "41fcabe47a6c84ca",
+          "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "4d1bf6b5a6a45c65",
           "5009d0612016fd66",
@@ -45680,6 +45618,7 @@
           "3c364d0a46aab416",
           "40907773861ad847",
           "40d5079952d7dc69",
+          "4498aedb2e5e2aca",
           "5009d0612016fd66",
           "60f052ad508244d1",
           "6a987992e57a50e3",
@@ -45802,6 +45741,7 @@
           "40907773861ad847",
           "40d5079952d7dc69",
           "41fcabe47a6c84ca",
+          "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "4d1bf6b5a6a45c65",
           "5009d0612016fd66",
@@ -45909,6 +45849,7 @@
           "40907773861ad847",
           "40d5079952d7dc69",
           "41fcabe47a6c84ca",
+          "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "4d1bf6b5a6a45c65",
           "5009d0612016fd66",
@@ -46016,6 +45957,7 @@
           "40907773861ad847",
           "40d5079952d7dc69",
           "41fcabe47a6c84ca",
+          "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "4d1bf6b5a6a45c65",
           "5009d0612016fd66",
@@ -46123,6 +46065,7 @@
           "40907773861ad847",
           "40d5079952d7dc69",
           "41fcabe47a6c84ca",
+          "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
           "4d1bf6b5a6a45c65",
           "5009d0612016fd66",

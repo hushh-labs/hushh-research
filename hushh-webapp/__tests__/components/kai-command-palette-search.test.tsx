@@ -1,4 +1,4 @@
-import { resolveSearchScreen, searchTargetMatchesCurrentRoute } from "@/lib/voice/search-route-context";
+import { resolveSearchScreen, searchTargetMatchesCurrentRoute } from "@/lib/search/search-route-context";
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -13,12 +13,12 @@ import {
   listKaiActionsForSurface,
   searchKaiActions,
   searchKaiActionsSemantic,
-} from "@/lib/voice/kai-action-gateway";
+} from "@/lib/kai/actions/kai-action-gateway";
 import {
   clearActionUsage,
   recordActionUse,
-} from "@/lib/voice/action-usage-memory";
-import type { AppRuntimeState } from "@/lib/voice/voice-types";
+} from "@/lib/search/action-usage-memory";
+import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
 
 const mobile = vi.hoisted(() => ({ value: false }));
 // CRM suggestions are offered only in builds where that existing feature is enabled.
@@ -39,8 +39,8 @@ vi.mock("@/lib/kai/ticker-universe-cache", () => ({
   searchTickerUniverseRemote: vi.fn(async () => []),
 }));
 
-vi.mock("@/lib/voice/kai-action-gateway", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/voice/kai-action-gateway")>()),
+vi.mock("@/lib/kai/actions/kai-action-gateway", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/kai/actions/kai-action-gateway")>()),
   searchKaiActionsSemantic: vi.fn(async () => []),
 }));
 

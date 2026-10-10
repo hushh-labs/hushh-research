@@ -32,7 +32,7 @@ import { acknowledgeOneSetupExit } from "@/lib/services/one-setup-exit-service";
 import { notifyGeminiRuntimeConfigurationChanged } from "@/lib/connections/gemini-runtime-configuration";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { useVault } from "@/lib/vault/vault-context";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 type GeminiRuntimeConfigurationPageProps = {
   setupMode?: boolean;

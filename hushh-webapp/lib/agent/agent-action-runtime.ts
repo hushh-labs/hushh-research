@@ -8,20 +8,20 @@ import {
   type LocalOnboardingActionResult,
 } from "@/lib/agent/local-onboarding-actions";
 import { buildConnectedSystemRoute } from "@/lib/navigation/routes";
-import { resolveSearchActionTarget } from "@/lib/voice/search-route-context";
+import { resolveSearchActionTarget } from "@/lib/search/search-route-context";
 import {
   parseVoiceCard,
   publishVoiceCard,
-} from "@/lib/voice/voice-action-card";
+} from "@/lib/kai/actions/voice-action-card";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
 import type { Persona } from "@/lib/services/ria-service";
 import {
   evaluateKaiActionAvailability,
   getKaiActionById,
-} from "@/lib/voice/kai-action-gateway";
-import { resolveNavigationJourney } from "@/lib/voice/navigation-journey";
-import type { AppRuntimeState } from "@/lib/voice/voice-types";
-import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/kai-action-gateway";
+import { resolveNavigationJourney } from "@/lib/kai/actions/navigation-journey";
+import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
+import type { VoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 type RouterLike = {
   push: (href: string) => void;

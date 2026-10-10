@@ -5,7 +5,7 @@ import {
   isOneSystemActionId,
   isPendingOneSystemActionInvocation,
 } from "@/lib/capacitor/one-system-action-invocation";
-import { getKaiActionById, listKaiActions } from "@/lib/voice/kai-action-gateway";
+import { getKaiActionById, listKaiActions } from "@/lib/kai/actions/kai-action-gateway";
 
 const valid = {
   id: "request-1",

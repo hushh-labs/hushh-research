@@ -37,7 +37,7 @@ import {
   type OneLocationControlState,
 } from "@/lib/one-location/location-control-state";
 import { isSafeInternalHref } from "@/lib/one-voice/directives";
-import type { NavigationJourney } from "@/lib/voice/navigation-journey";
+import type { NavigationJourney } from "@/lib/kai/actions/navigation-journey";
 
 export const SET_LOCATION_UPDATES_STEP = "set_location_updates" as const;
 export const RESUME_UPDATES_ACTION_ID = "location.resume_updates" as const;

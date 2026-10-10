@@ -4,10 +4,10 @@ import {
   getKaiActionById,
   type KaiActionAvailability,
   type KaiActionDefinition,
-} from "@/lib/voice/kai-action-gateway";
-import { resolveNavigationJourney } from "@/lib/voice/navigation-journey";
-import type { AppRuntimeState } from "@/lib/voice/voice-types";
-import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/kai-action-gateway";
+import { resolveNavigationJourney } from "@/lib/kai/actions/navigation-journey";
+import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
+import type { VoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 /**
  * Redacted, UI-safe state used to decide whether One may offer an action.

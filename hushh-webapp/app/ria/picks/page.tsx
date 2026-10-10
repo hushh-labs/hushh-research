@@ -67,7 +67,7 @@ import {
   type RiaScreeningSection,
 } from "@/lib/services/ria-service";
 import { cn } from "@/lib/utils";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 type PicksSource = "kai" | "my";
 type PicksCategory = "top-picks" | "avoid" | "screening";

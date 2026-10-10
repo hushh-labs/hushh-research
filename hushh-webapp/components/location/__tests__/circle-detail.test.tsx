@@ -54,7 +54,7 @@ vi.mock("@/lib/vault/vault-context", () => ({
 vi.mock("@/lib/one-location/service", () => ({ OneLocationService: service }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: toast }));
 const publishSurface = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
   usePublishVoiceSurfaceMetadata: publishSurface,
 }));
 vi.mock("@/lib/voice/location-voice-actions", () => ({
