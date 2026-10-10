@@ -1400,6 +1400,17 @@ auth-required response.
 | GET    | `/api/one/connections/requests/{request_id}/scopes`        | Participant-visible scope statuses and immutable proposal history                                                                                                                                      |
 | POST   | `/api/one/connections/requests/{request_id}/accept`        | Accept with separate selected requested/offered opaque handles                                                                                                                                         |
 
+Connect directory search keeps the existing exact-name, name-prefix and
+word-prefix ranking. It also matches case-insensitive literal email fragments
+(including before `@`) and digit fragments of verified phone numbers from the
+first character. Phone formatting (`+`, spaces, parentheses and hyphens) is
+ignored; national numbers match stored international numbers without assuming
+a fixed country-code or national-number length. Contact-only matches follow
+name matches in stable alphabetical order. Matching and eligibility checks
+happen before pagination, and email/phone response labels remain masked.
+Voice and chat name resolvers use `name_only=true` matching so contact
+fragments cannot interfere with person disambiguation or near-spelling fallback.
+
 RIA relationship bundle note:
 
 - investor private information -> RIA stays on explicit scope consent

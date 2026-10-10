@@ -47,7 +47,11 @@ from hushh_mcp.services.one_location_public_invite_url import (
     public_invite_bearer_token,
     public_invite_url,
 )
-from hushh_mcp.services.people_search_sql import directory_name_rank, people_query_match_params
+from hushh_mcp.services.people_search_sql import (
+    directory_contact_match_params,
+    directory_search_rank,
+    people_query_match_params,
+)
 from hushh_mcp.services.push_tokens_service import PUSH_TOKENS_FOR_USER_SQL, remove_stale_push_token
 from hushh_mcp.services.requester_identity import (
     OPAQUE_LABEL_MIN_LENGTH,
@@ -4680,6 +4684,7 @@ class OneLocationAgentService:
         candidate_user_id: str | None = None,
         candidate_user_ids: list[str] | None = None,
         audience: str = "all",
+        name_only: bool = False,
     ) -> dict[str, Any]:
         """Search existing Connect profiles before pagination.
 
@@ -4688,6 +4693,9 @@ class OneLocationAgentService:
         only those who do not, and ``"all"`` (the default, and what every
         pre-existing caller gets) keeps both. It is applied HERE, in the same
         statement, for the same reason the matching is -- see below.
+
+        Contact fragments follow the existing name tiers. ``name_only`` keeps
+        voice/chat person resolution independent of email and phone matches.
 
         A named, active profile with a current enabled auth account is eligible
         when EITHER it holds a ``vault_keys`` row whose ``vault_status`` is
@@ -4754,17 +4762,19 @@ class OneLocationAgentService:
         # literal could only ever return nothing. Once folded it is a space, so
         # it reaches LIKE as a space and cannot act as a wildcard either.
         raw_query = (query or "").strip().lower()
-        exact_email = raw_query if "@" in raw_query and " " not in raw_query else None
-        phone_digits = "".join(char for char in raw_query if char.isdigit())
-        exact_phone = (
-            phone_digits
-            if not exact_email
-            and 10 <= len(phone_digits) <= 15
-            and all(char.isdigit() or char in "+-(). " for char in raw_query)
-            else None
-        )
-        identifier_search = bool(exact_email or exact_phone)
+        contact_params = directory_contact_match_params(raw_query, name_only=name_only)
         needle = " ".join(raw_query.translate(_DIRECTORY_SEPARATOR_FOLD).split())
+
+        def match_rank(row: dict[str, Any]) -> int | None:
+            return directory_search_rank(
+                str(row.get("display_name") or ""),
+                raw_query,
+                email=row.get("email"),
+                phone_number=row.get("phone_number"),
+                phone_verified=bool(row.get("phone_verified")),
+                name_only=name_only,
+            )
+
         target = (candidate_user_id or "").strip() or None
         targets = (
             None
@@ -4954,12 +4964,12 @@ class OneLocationAgentService:
             ) k ON TRUE
             WHERE (
               (:missing_names_only = TRUE AND a.display_name = '')
-              OR (:missing_names_only = FALSE AND a.display_name <> '' AND :identifier_search = TRUE AND (
-                (:exact_email IS NOT NULL AND LOWER(BTRIM(a.email)) = :exact_email)
-                OR (:exact_phone IS NOT NULL AND a.phone_verified = TRUE
-                    AND REGEXP_REPLACE(a.phone_number, '[^0-9]', '', 'g') = :exact_phone)
+              OR (:missing_names_only = FALSE AND a.display_name <> '' AND (
+                LOWER(BTRIM(a.email)) LIKE :email_contains ESCAPE '!'
+                OR (a.phone_verified = TRUE
+                    AND REGEXP_REPLACE(a.phone_number, '[^0-9]', '', 'g') LIKE :phone_contains)
               ))
-              OR (:missing_names_only = FALSE AND a.display_name <> '' AND :identifier_search = FALSE AND (
+              OR (:missing_names_only = FALSE AND a.display_name <> '' AND :name_search = TRUE AND (
                 :query = ''
                 OR {_DIRECTORY_SEPARATOR_SQL} = :exact_name
                 OR {_DIRECTORY_SEPARATOR_SQL} LIKE :name_prefix ESCAPE '!'
@@ -4980,7 +4990,7 @@ class OneLocationAgentService:
               )
             ORDER BY
               CASE
-                WHEN :identifier_search = TRUE THEN 0
+                WHEN :name_search = FALSE THEN 4
                 WHEN :query = '' THEN 0
                 WHEN {_DIRECTORY_SEPARATOR_SQL} = :exact_name THEN 0
                 WHEN {_DIRECTORY_SEPARATOR_SQL} LIKE :name_prefix ESCAPE '!' THEN 1
@@ -5001,9 +5011,7 @@ class OneLocationAgentService:
             "opaque_label_min_length": OPAQUE_LABEL_MIN_LENGTH,
             "missing_names_only": False,
             "query": needle,
-            "identifier_search": identifier_search,
-            "exact_email": exact_email,
-            "exact_phone": exact_phone,
+            **contact_params,
             "exact_name": needle,
             "name_prefix": name_prefix_pattern,
             "word_prefix": word_prefix_pattern,
@@ -5027,7 +5035,7 @@ class OneLocationAgentService:
         # than treating missing cache information as a missing person.
         fallback_rows: list[dict[str, Any]] = []
         fallback_params = {**params, "missing_names_only": True}
-        while not identifier_search:
+        while True:
             check_deadline()
             rows = self._execute_many(directory_sql, fallback_params)
             if not rows:
@@ -5039,14 +5047,14 @@ class OneLocationAgentService:
             for row in rows:
                 uid = str(row.get("user_id") or "")
                 profile = profiles.get(uid)
-                if profile and directory_name_rank(profile["display_name"], needle) is not None:
-                    fallback_rows.append(
-                        {
-                            **row,
-                            "display_name": profile["display_name"],
-                            "photo_url": row.get("photo_url") or profile["photo_url"],
-                        }
-                    )
+                if profile:
+                    recovered = {
+                        **row,
+                        "display_name": profile["display_name"],
+                        "photo_url": row.get("photo_url") or profile["photo_url"],
+                    }
+                    if match_rank(recovered) is not None:
+                        fallback_rows.append(recovered)
             if len(rows) < 100:
                 break
             fallback_params["offset"] = int(fallback_params["offset"]) + len(rows)
@@ -5069,11 +5077,7 @@ class OneLocationAgentService:
                     uid in active_user_ids
                     and uid not in seen_user_ids
                     and label_from_identity_row(row, allow_email_handle=False)
-                    and (
-                        identifier_search
-                        or directory_name_rank(str(row.get("display_name") or ""), needle)
-                        is not None
-                    )
+                    and match_rank(row) is not None
                 ):
                     seen_user_ids.add(uid)
                     eligible_rows.append(row)
@@ -5085,9 +5089,7 @@ class OneLocationAgentService:
         eligible_rows = list(eligible_by_id.values())
         eligible_rows.sort(
             key=lambda row: (
-                0
-                if identifier_search
-                else cast(int, directory_name_rank(str(row["display_name"]), needle)),
+                cast(int, match_rank(row)),
                 str(row["display_name"]).strip().lower(),
                 str(row["user_id"]),
             )
