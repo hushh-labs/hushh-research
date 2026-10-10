@@ -1701,6 +1701,22 @@
       "trust_boundary": "Ciphertext only. The backend holds no key that can read an answer, consistent with the vault-keys-client-side invariant. Alongside the envelope it stores only source revision numbers, never values.",
       "plaintext_posture": "ciphertext_or_hash_only",
       "expected_row_growth": "low_per_user"
+    },
+    {
+      "id": "pkm_answer_settlement",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "pkm_answer_payment_refunds",
+        "pkm_answer_owner_payouts"
+      ],
+      "primary_access_path": "Durable settlement for the paid-answer lane, on the existing Drive work drain. A refund obligation is written in the same transaction as the decline, cancellation, empty answer or deadline expiry that caused it, then claimed under a lease and retried on its own backoff with a stable per-request idempotency key. An owner earning becomes due only when an answer is delivered with content, pays gross minus 300 bps commission to the owner's Stripe Connect account, and is voided if the order is refunded.",
+      "retention_policy": "Retained while a refund or transfer is unsettled and for bounded financial review afterwards; terminal rows stay as settlement evidence.",
+      "deletion_behavior": "Keyed to pkm_answer_payment_obligations rather than the order, so a refund or transfer can still reconcile after the request and both accounts are erased.",
+      "trust_boundary": "Amounts, Stripe references and a closed safe_error_code set only. No provider message is copied into the database, and no user id, question text or answer content is stored.",
+      "plaintext_posture": "financial_references_only",
+      "expected_row_growth": "low_per_user"
     }
   ]
 }

@@ -38,6 +38,7 @@ from hushh_mcp.services.pkm_answer_payment_service import (
     PkmAnswerPaymentService,
     valid_answer_price_cents,
 )
+from hushh_mcp.services.pkm_answer_work_worker import file_refund
 
 logger = logging.getLogger(__name__)
 
@@ -454,14 +455,13 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 request_id=request_id,
                 status="declined",
             )
+            # The refund obligation is written in the SAME transaction as the
+            # decline, so a request can never be declined without the duty to
+            # refund it existing beside it. The drain dispatches and retries.
+            file_refund(connection, request_id, "owner_declined")
             return request["status"]
 
-        previous = await self._transaction(write)
-        # A decline after payment refunds in full, per the product contract.
-        if previous == "answering":
-            await PkmAnswerPaymentService(self.db).refund(
-                request_id=request_id, reason="owner_declined"
-            )
+        await self._transaction(write)
         return {"declined": True}
 
     # --------------------------------------------------------------- answer
@@ -636,6 +636,11 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 ),
                 {"request": request_id, "earning": "due" if has_content else "none"},
             )
+            if not has_content:
+                # No charge when the approved scopes yielded nothing. Filed
+                # here so the refund cannot be lost between the delivery
+                # commit and a separate provider call.
+                file_refund(connection, request_id, "empty_answer")
             self._feed(
                 connection,
                 user_id=request["requester_user_id"],
@@ -645,11 +650,6 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
             )
 
         await self._transaction(write)
-        if not has_content:
-            # No charge when the approved scopes yielded nothing.
-            await PkmAnswerPaymentService(self.db).refund(
-                request_id=request_id, reason="empty_answer"
-            )
         return {"delivered": True, "hasContent": bool(has_content)}
 
     async def fetch_answer(self, *, requester_user_id: str, request_id: str) -> dict[str, Any]:
@@ -708,13 +708,10 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 ),
                 {"request": request_id},
             )
+            file_refund(connection, request_id, "requester_cancelled")
             return request["status"]
 
-        previous = await self._transaction(write)
-        if previous == "answering":
-            await PkmAnswerPaymentService(self.db).refund(
-                request_id=request_id, reason="requester_cancelled"
-            )
+        await self._transaction(write)
         return {"cancelled": True}
 
     async def expire_overdue(self, *, limit: int = 20) -> dict[str, Any]:
@@ -749,16 +746,13 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 .mappings()
                 .all()
             )
-            return [str(row["request_id"]) for row in rows]
+            # File each refund in the SAME transaction as the expiry. A
+            # request cannot be marked expired without the duty to refund it
+            # existing beside it; the drain dispatches and retries that duty.
+            filed = 0
+            for row in rows:
+                filed += file_refund(connection, str(row["request_id"]), "answer_timeout")
+            return len(rows), filed
 
-        expired = await self._transaction(claim)
-        refunded = 0
-        for request_id in expired:
-            try:
-                await PkmAnswerPaymentService(self.db).refund(
-                    request_id=request_id, reason="answer_timeout"
-                )
-                refunded += 1
-            except Exception:  # noqa: BLE001 - a stuck refund retries on the next drain
-                logger.warning("answer_timeout_refund_deferred request=%s", request_id)
-        return {"expired": len(expired), "refunded": refunded}
+        expired, filed = await self._transaction(claim)
+        return {"expired": expired, "refunds_filed": filed}

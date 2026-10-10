@@ -35,9 +35,13 @@ from tests.services.test_external_connector_lifecycle_postgres import (  # noqa:
 
 OWNER = "owner-account-A"
 REQUESTER = "requester-account-B"
-MIGRATION = (
-    Path(__file__).resolve().parents[2] / "db" / "migrations" / "297_pkm_answer_requests.sql"
-)
+MIGRATIONS = [
+    Path(__file__).resolve().parents[2] / "db" / "migrations" / "297_pkm_answer_requests.sql",
+    Path(__file__).resolve().parents[2]
+    / "db"
+    / "migrations"
+    / "298_pkm_answer_refunds_payouts.sql",
+]
 
 # The owner's registry. attr.financial.holdings is deliberately present so a
 # resolver over-reach can be distinguished from a legitimate narrow answer.
@@ -63,6 +67,16 @@ def answer_engine(connector_postgres_url):  # noqa: F811
         )
         # The lane projects milestones into the Feed; migration 117 owns the
         # real table and only these columns are written here.
+        # Migration 280 owns this; the payout worker reads the owner's Stripe
+        # Connect readiness from it.
+        connection.exec_driver_sql(
+            """CREATE TABLE IF NOT EXISTS pkm_owner_payout_accounts (
+                 user_id TEXT PRIMARY KEY, stripe_account_id TEXT NOT NULL UNIQUE,
+                 details_submitted BOOLEAN NOT NULL DEFAULT FALSE,
+                 payouts_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                 created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                 updated_at TIMESTAMPTZ NOT NULL DEFAULT now())"""
+        )
         # Migration 080 owns this; the sweep reads the requester's published
         # ECDH key from it rather than standing up a second key plane.
         connection.exec_driver_sql(
@@ -93,7 +107,8 @@ def answer_engine(connector_postgres_url):  # noqa: F811
     raw = engine.raw_connection()
     try:
         cursor = raw.cursor()
-        cursor.execute(MIGRATION.read_text())
+        for migration in MIGRATIONS:
+            cursor.execute(migration.read_text())
         raw.commit()
     finally:
         raw.close()
@@ -104,6 +119,9 @@ def answer_engine(connector_postgres_url):  # noqa: F811
 @pytest.fixture(autouse=True)
 def clean(answer_engine):
     with answer_engine.begin() as connection:
+        connection.exec_driver_sql("DELETE FROM pkm_owner_payout_accounts")
+        connection.exec_driver_sql("DELETE FROM pkm_answer_owner_payouts")
+        connection.exec_driver_sql("DELETE FROM pkm_answer_payment_refunds")
         connection.exec_driver_sql("DELETE FROM pkm_answer_requests")
         connection.exec_driver_sql("DELETE FROM pkm_answer_payment_obligations")
         connection.exec_driver_sql("DELETE FROM feed_events")
@@ -393,6 +411,8 @@ class TestRecovery:
         # here the point is that the deadline is actually enforced in SQL.
         result = await PkmAnswerRequestService(_db(answer_engine)).expire_overdue()
         assert result["expired"] == 1
+        # The duty to refund is durable, written with the expiry.
+        assert result["refunds_filed"] == 1
         with answer_engine.begin() as connection:
             status = connection.execute(
                 text("SELECT status FROM pkm_answer_requests WHERE request_id=:r"),

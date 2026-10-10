@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 297,
+  "expected_migration_version": 298,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -2076,6 +2076,26 @@
       "has_content",
       "created_at"
     ],
+    "pkm_answer_owner_payouts": [
+      "request_id",
+      "gross_amount_cents",
+      "currency",
+      "commission_bps",
+      "status",
+      "platform_fee_cents",
+      "owner_earning_cents",
+      "destination_account_id",
+      "stripe_transfer_id",
+      "transfer_attempt_id",
+      "lease_expires_at",
+      "next_check_at",
+      "attempts",
+      "safe_error_code",
+      "finalized_at",
+      "transferred_at",
+      "created_at",
+      "updated_at"
+    ],
     "pkm_answer_payment_obligations": [
       "request_id",
       "payer_ref",
@@ -2117,6 +2137,20 @@
       "platform_fee_cents",
       "stripe_transfer_id",
       "transferred_at",
+      "created_at",
+      "updated_at"
+    ],
+    "pkm_answer_payment_refunds": [
+      "request_id",
+      "attempt_id",
+      "reason",
+      "status",
+      "stripe_refund_id",
+      "first_dispatch_at",
+      "lease_expires_at",
+      "next_check_at",
+      "attempts",
+      "safe_error_code",
       "created_at",
       "updated_at"
     ],

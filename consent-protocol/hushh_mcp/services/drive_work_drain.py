@@ -25,6 +25,7 @@ from hushh_mcp.services.drive_request_payment_checkout_worker import (
 from hushh_mcp.services.drive_request_payment_refund_worker import DriveRequestPaymentRefundWorker
 from hushh_mcp.services.drive_share_notification_worker import DriveShareNotificationWorker
 from hushh_mcp.services.drive_suggestion_worker import DriveSuggestionWorker
+from hushh_mcp.services.pkm_answer_work_worker import PkmAnswerWorkWorker
 from hushh_mcp.services.pkm_packet_order_worker import PkmPacketOrderWorker
 
 MAX_JOBS_PER_WORKER = 20
@@ -41,6 +42,26 @@ WORKER_JOB_LIMITS = {
     "owner_payouts": 4,
     "packet_orders": 20,
 }
+
+
+class _AnswerStage:
+    """Adapts one PkmAnswerWorkWorker method to the drain's worker contract.
+
+    The three obligations share a worker object but need separate budgets and
+    separate outcome lines, so each is registered under its own stage name.
+    """
+
+    def __init__(self, worker, method: str) -> None:
+        self._worker = worker
+        self._method = method
+
+    async def run(self, *, max_jobs: int = 4, deadline_seconds: int = 30):
+        from hushh_mcp.services.pkm_answer_work_worker import PkmAnswerWorkWorker
+
+        worker = self._worker or PkmAnswerWorkWorker()
+        return {"outcomes": await getattr(worker, self._method)(max_jobs=max_jobs)}
+
+
 STAGE_WORKERS = {
     "documents": frozenset({"documents"}),
     "suggestions": frozenset({"suggestions", "searches"}),
@@ -54,6 +75,9 @@ STAGE_WORKERS = {
             "refunds",
             "owner_payouts",
             "packet_orders",
+            "answer_timeouts",
+            "answer_refunds",
+            "answer_payouts",
         }
     ),
 }
@@ -69,6 +93,9 @@ STAGE_MAX_SECONDS = {
     "refunds": 35,
     "owner_payouts": 40,
     "packet_orders": 35,
+    "answer_timeouts": 25,
+    "answer_refunds": 35,
+    "answer_payouts": 35,
 }
 STAGE_MIN_SECONDS = {
     "documents": 160,
@@ -300,6 +327,7 @@ class DriveWorkDrain:
         refund_worker: DriveRequestPaymentRefundWorker | None = None,
         owner_payout_worker: DriveRequestOwnerPayoutWorker | None = None,
         packet_order_worker: PkmPacketOrderWorker | None = None,
+        answer_work_worker: PkmAnswerWorkWorker | None = None,
     ) -> None:
         # Sharing permissions precede notifications in the same stage. Other
         # stages run on their own fixed scheduler jobs, never in this request.
@@ -316,6 +344,12 @@ class DriveWorkDrain:
             ("owner_payouts", owner_payout_worker or DriveRequestOwnerPayoutWorker()),
             # PKM packet refunds ride the same minute-by-minute sharing drain.
             ("packet_orders", packet_order_worker or PkmPacketOrderWorker()),
+            # The paid-answer lane's three durable obligations: the quoted
+            # deadline, the refund that follows it, and the owner's earning.
+            # One worker object, three named budgets.
+            ("answer_timeouts", _AnswerStage(answer_work_worker, "run_timeouts")),
+            ("answer_refunds", _AnswerStage(answer_work_worker, "run_refunds")),
+            ("answer_payouts", _AnswerStage(answer_work_worker, "run_payouts")),
         )
 
     async def run(
@@ -397,7 +431,19 @@ class DriveWorkDrain:
                 *(
                     run_worker(name, worker)
                     for name, worker in self._workers
-                    if name in {"bulk_removals", "notifications", "refunds", "packet_orders"}
+                    if name
+                    in {
+                        "bulk_removals",
+                        "notifications",
+                        "refunds",
+                        "packet_orders",
+                        # Timeouts file refunds, so they precede nothing and
+                        # depend on nothing: the refund worker picks the row up
+                        # on this sweep or the next one.
+                        "answer_timeouts",
+                        "answer_refunds",
+                        "answer_payouts",
+                    }
                 )
             )
         else:
