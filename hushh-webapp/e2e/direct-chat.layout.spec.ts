@@ -75,7 +75,10 @@ test("chat theme follows the device, persists a choice, and keeps the shared nav
   await expect(chat).toHaveAttribute("data-chat-open", "false");
   await expect(page.locator("[data-direct-message-composer-input]")).toBeHidden();
   await expect(navigation).toBeVisible();
-  const activeNav = navigation.getByRole("radio", { name: "Chat" });
+  const activeNav = navigation.getByRole("radio", { name: "One" });
+  const inactiveNav = navigation.getByRole("radio", { name: "Chat" });
+  await expect(activeNav).toHaveAttribute("aria-checked", "true");
+  await expect(inactiveNav).toHaveAttribute("aria-checked", "false");
   await expect(activeNav).toHaveCSS("color", "rgb(10, 132, 255)");
   const navLabels = await navigation.innerText();
   expect(navLabels).toContain("Chat");
@@ -86,6 +89,8 @@ test("chat theme follows the device, persists a choice, and keeps the shared nav
 
   await page.getByRole("button", { name: "Switch to light mode" }).click();
   await expect(chat).toHaveAttribute("data-theme", "light");
+  await expect(activeNav).toHaveAttribute("aria-checked", "true");
+  await expect(inactiveNav).toHaveAttribute("aria-checked", "false");
   await expect(activeNav).toHaveCSS("color", "rgb(0, 122, 255)");
   await page.reload();
   await page.addScriptTag({ content: script });
