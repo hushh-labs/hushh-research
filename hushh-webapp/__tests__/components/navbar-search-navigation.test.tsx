@@ -126,13 +126,13 @@ describe("Search navigation through the shared shell", () => {
     window.addEventListener(INTERNAL_APP_NAVIGATION_REQUEST_EVENT, deferNavigation);
     try {
       render(<Shell />);
-      expect(screen.getByRole("radio", { name: "One" })).toHaveAttribute("aria-checked", "true");
+      expect(screen.getByRole("radio", { name: "Chat" })).toHaveAttribute("aria-checked", "true");
       fireEvent.click(screen.getByRole("radio", { name: "Search" }));
       expect(window.location.search).toBe("");
       expect(screen.getByRole("radio", { name: "Search" })).toHaveAttribute("aria-checked", "true");
-      expect(screen.getByRole("radio", { name: "One" })).toHaveAttribute("aria-checked", "false");
+      expect(screen.getByRole("radio", { name: "Chat" })).toHaveAttribute("aria-checked", "false");
       act(() => appInteractionCoordinator.cancelNavigation(intentId, "test_cancel"));
-      expect(screen.getByRole("radio", { name: "One" })).toHaveAttribute("aria-checked", "true");
+      expect(screen.getByRole("radio", { name: "Chat" })).toHaveAttribute("aria-checked", "true");
     } finally {
       window.removeEventListener(INTERNAL_APP_NAVIGATION_REQUEST_EVENT, deferNavigation);
       act(() => appInteractionCoordinator.cancelNavigation(intentId, "test_cleanup"));
