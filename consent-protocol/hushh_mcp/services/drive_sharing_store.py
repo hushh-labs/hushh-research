@@ -288,6 +288,27 @@ class DriveSharingStore(DriveDocumentStore):
         )
 
     @staticmethod
+    def _owner_drive_setup(connection, row) -> dict:
+        """Owner only: an open request first needs the owner's live Drive.
+
+        Never merge this into a requester payload; A must not learn B's
+        connector state. The key is absent once the Drive is live.
+        """
+        if (
+            row["status"] != "pending"
+            or row["expires_at"] <= datetime.now(UTC)
+            or row["access_stop_requested_at"] is not None
+        ):
+            return {}
+        ready = connection.execute(
+            text("""SELECT EXISTS (SELECT 1 FROM user_external_connector_connections
+              WHERE user_id=:user AND connector_id='google_drive' AND status='connected'
+                AND validation_state='verified' AND verified_policy_hash=:policy)"""),
+            {"user": row["user_id"], "policy": LIVE_POLICY_HASH},
+        ).scalar_one()
+        return {} if ready else {"ownerDriveReady": False}
+
+    @staticmethod
     def _notify_setup_changed(connection, row) -> None:
         event_id = str(uuid4())
         for participant in {row["user_id"], row["recipient_user_id"]}:
@@ -372,6 +393,58 @@ class DriveSharingStore(DriveDocumentStore):
         def operation(connection):
             lock_connection_graph_users(connection, user_ids=[user_id])
             return {"resumed": self._resume_owner_setup(connection, user_id)}
+
+        return cast(dict, await self._transaction(operation))
+
+    async def resume_owner_drive(self, *, user_id: str) -> dict:
+        """Idempotent hook after the owner's live Drive is verified.
+
+        It grants nothing: the search queue still admits only a live Drive, and
+        every automatic step rechecks Drive, background access and trust.
+        """
+
+        def operation(connection):
+            lock_connection_graph_users(connection, user_ids=[user_id])
+            resumed = self._resume_owner_setup(connection, user_id)
+            # A queued Trusted search deferred while Drive was unavailable is
+            # due now. A request parked at its expiry (owner-initiated or
+            # undated) never prepares in the background and is left alone.
+            rescheduled = connection.execute(
+                text("""WITH due AS (
+                  SELECT request_id FROM drive_share_requests
+                  WHERE user_id=:user AND status='pending'
+                    AND expires_at>clock_timestamp() AND access_stop_requested_at IS NULL
+                    AND bulk_search_started_at IS NULL
+                    AND preparation_error_code='trusted_auto_queued'
+                    AND preparation_next_at>clock_timestamp()
+                    AND preparation_next_at<expires_at
+                  ORDER BY preparation_inspected_at,created_at,request_id
+                  LIMIT 100 FOR UPDATE SKIP LOCKED
+                )
+                UPDATE drive_share_requests r SET preparation_next_at=clock_timestamp(),
+                  updated_at=clock_timestamp()
+                FROM due WHERE r.request_id=due.request_id RETURNING r.request_id"""),
+                {"user": user_id},
+            ).all()
+            # Both participants' feed rows change once the owner's Drive is live.
+            waiting = (
+                connection.execute(
+                    text("""SELECT request_id,user_id,recipient_user_id FROM drive_share_requests
+                      WHERE user_id=:user AND status='pending'
+                        AND expires_at>clock_timestamp() AND access_stop_requested_at IS NULL
+                      ORDER BY created_at DESC,request_id LIMIT 100"""),
+                    {"user": user_id},
+                )
+                .mappings()
+                .all()
+            )
+            for row in waiting:
+                self._notify_setup_changed(connection, row)
+            return {
+                "resumed": resumed,
+                "rescheduled": len(rescheduled),
+                "notified": len(waiting),
+            }
 
         return cast(dict, await self._transaction(operation))
 
@@ -529,9 +602,10 @@ class DriveSharingStore(DriveDocumentStore):
     def _owner_may_decide(self, connection, row, private, now) -> bool:
         """Awaiting the owner's Allow or Deny, from someone outside their Trusted circle.
 
-        A current Trusted member's request created before the owner's Drive was
-        live carries no marker, but it keeps the Trusted path: the owner's
-        manual review at the default price, never an owner-set price.
+        A current Trusted member's unmarked request (made before they joined,
+        while the owner's Drive served selected files only, or by an older
+        release) keeps the Trusted path: the owner's manual review at the
+        default price, never an owner-set price.
         """
         return self._awaiting_owner_decision(
             row, private, now
@@ -941,7 +1015,7 @@ class DriveSharingStore(DriveDocumentStore):
 
         def operation(connection):
             lock_connection_graph_users(connection, user_ids=[owner_user_id, recipient.user_id])
-            live_connection = self._row(
+            drive = self._row(
                 connection,
                 """SELECT status,validation_state,verified_policy_hash
                    FROM user_external_connector_connections
@@ -967,13 +1041,21 @@ class DriveSharingStore(DriveDocumentStore):
             # Only newly created requests receive this authority marker. An
             # old pending request must not turn into an automatic grant after
             # a deploy, and owner-initiated sharing keeps its own review path.
+            # A Trusted request made before the owner's Drive is live is marked
+            # too: it waits as trusted_auto_queued, the search queue admits only
+            # a live Drive, and every automatic step rechecks Drive, background
+            # access and the Trusted circle. A Drive verified for selected files
+            # only keeps its manual file review (DriveSuggestionStore), unmarked.
+            selected_files_review = bool(
+                drive
+                and drive["status"] == "connected"
+                and drive["validation_state"] == "verified"
+                and drive["verified_policy_hash"] != LIVE_POLICY_HASH
+            )
             trusted_auto = bool(
                 not owner_initiated
+                and not selected_files_review
                 and connector_feature_enabled("google_drive_chat_reads", owner_user_id)
-                and live_connection
-                and live_connection["status"] == "connected"
-                and live_connection["validation_state"] == "verified"
-                and live_connection["verified_policy_hash"] == LIVE_POLICY_HASH
                 and self._trusted_recipient_current(connection, owner_user_id, recipient.user_id)
             )
             payment_required = (
@@ -1995,6 +2077,7 @@ class DriveSharingStore(DriveDocumentStore):
                 ),
                 **(self._payment_metadata(connection, request_id) if recipient else {}),
                 **setup,
+                **({} if recipient else self._owner_drive_setup(connection, row)),
             }
 
         return cast(dict, await self._transaction(operation))
@@ -2098,6 +2181,7 @@ class DriveSharingStore(DriveDocumentStore):
                 "priceCents": row.get("quoted_amount_cents") or owner_allowed_price_cents(private),
             }
             result.update(self._request_setup(connection, row, private))
+            result.update(self._owner_drive_setup(connection, row))
             # Owner earnings are bound to this authenticated request review.
             # Stripe transfer IDs and account details remain server-side.
             payout = self._row(

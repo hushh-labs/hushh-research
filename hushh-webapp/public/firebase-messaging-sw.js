@@ -31,6 +31,15 @@ const DRIVE_QUESTION_NOTIFICATION_TYPES = new Set([
 ]);
 const DOCUMENT_REQUEST_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// The screen that clears each owner setup step a document_share_request push
+// may name. This worker cannot import TypeScript: keep every value equal to
+// documentRequestSetupHref(step) in lib/consent/document-request-setup.ts.
+const DOCUMENT_REQUEST_SETUP_TARGETS = {
+  drive:
+    "/one/feed?profile_pane=1&profile_panel=connectors&profile_detail=connector%3Agoogle_drive",
+  payouts: "/one/profile/payouts?from=%2Fone%2Ffeed",
+  price: "/one/profile/request-pricing?from=%2Fone%2Ffeed",
+};
 const DOCUMENT_SHARE_NOTIFICATION_COPY = {
   title: "Document request",
   body: "Open One for next steps.",
@@ -114,6 +123,16 @@ function documentShareNotificationRequestId(data) {
   return DOCUMENT_REQUEST_UUID.test(requestId) ? requestId.toLowerCase() : null;
 }
 
+// Only a closed step on the owner's request push, with an exact request UUID.
+function documentRequestSetupStep(data) {
+  if (normalizedDocumentShareType(data) !== "document_share_request") return null;
+  if (!documentShareNotificationRequestId(data)) return null;
+  const setup = data?.setup;
+  return setup === "drive" || setup === "payouts" || setup === "price"
+    ? setup
+    : null;
+}
+
 function sanitizeDocumentShareNotificationData(data) {
   // Unknown document-share events must remain unacknowledged downstream, but
   // they still cannot carry private content into a log, notification, or click
@@ -123,6 +142,8 @@ function sanitizeDocumentShareNotificationData(data) {
   if (!isDocumentShareNotificationType(data)) return safe;
   const requestId = documentShareNotificationRequestId(data);
   if (requestId) safe.request_id = requestId;
+  const setup = documentRequestSetupStep(data);
+  if (setup) safe.setup = setup;
   const userId = typeof data?.user_id === "string" ? data.user_id.trim() : "";
   if (userId && userId.length <= 128) safe.user_id = userId;
   return safe;
@@ -186,6 +207,8 @@ function notificationTapTarget(data) {
     if (eventType === "document_share_payment_ready" ||
         eventType === "document_share_payment_confirmed" ||
         eventType === "document_share_payment_refunded") return "/one/feed";
+    const setup = documentRequestSetupStep(data);
+    if (setup) return DOCUMENT_REQUEST_SETUP_TARGETS[setup];
     const selection = DRIVE_QUESTION_NOTIFICATION_TYPES.has(
       normalizedDocumentShareType(data),
     )

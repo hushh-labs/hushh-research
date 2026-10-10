@@ -6,9 +6,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
@@ -24,6 +26,7 @@ from tests.services.test_drive_sharing_store import (  # noqa: F401
     drive,
     drive_connect,
     lifecycle,
+    live_drive,
     request,
     rows,
     sharing,
@@ -90,6 +93,9 @@ async def test_document_event_push_is_opaque_deduped_and_settled_as_dispatch_onl
             "request_id": str(before["request_id"]),
             "event_id": str(before["event_id"]),
             "message_id": f"drive-share-event:{before['event_id']}",
+            # The fixture owner holds picker-only Drive access. The one extra
+            # field is a closed step name, never request or provider detail.
+            "setup": "drive",
         },
         # The generic FCM adapter requires presentation/link arguments. They
         # are fixed fallbacks, never a dynamic request/provider URL; the client
@@ -333,6 +339,85 @@ async def test_payment_push_accepts_approved_requests_but_suppresses_expired_che
 
 
 @pytest.mark.asyncio
+async def test_owner_setup_step_is_the_first_unmet_step_of_the_owners_open_request(
+    sharing, notification_store, monkeypatch
+):
+    request_id, circle = (await request(sharing))["requestId"], str(uuid4())
+
+    def change(sql):
+        with sharing.db.engine.begin() as connection:
+            connection.execute(text(sql), {"request": request_id, "circle": circle})
+
+    async def step(user_id="owner"):
+        return await notification_store.owner_setup_step(request_id=request_id, user_id=user_id)
+
+    # Picker-only access cannot find files for a request.
+    assert await step() == "drive"
+    # Negative control: the requester never reads the owner's setup state.
+    assert await step("recipient") is None
+    live_drive(sharing, monkeypatch)
+    assert await step() is None
+    change("""UPDATE drive_share_requests SET preparation_error_code='owner_payout_required'
+      WHERE request_id=:request""")
+    assert await step() == "payouts"
+    change("""UPDATE drive_share_requests SET preparation_error_code='owner_price_required'
+      WHERE request_id=:request""")
+    # Outside the Trusted circle the owner prices the request on Allow.
+    assert await step() is None
+    change("INSERT INTO one_location_circles VALUES (:circle,'owner','trusted','active')")
+    change("INSERT INTO one_location_circle_memberships VALUES (:circle,'recipient','active')")
+    assert await step() == "price"
+    # A paid request never regains a setup action.
+    change("""INSERT INTO drive_request_payment_orders
+      (request_id,user_id,requester_user_id,status,paid_at)
+      VALUES (:request,'owner','recipient','paid',clock_timestamp())""")
+    assert await step() is None
+
+
+@pytest.mark.asyncio
+async def test_request_push_names_only_a_closed_setup_step_and_never_waits_on_it(caplog):
+    job = {
+        "event_id": "11111111-1111-4111-8111-111111111111",
+        "request_id": "22222222-2222-4222-8222-222222222222",
+        "event_type": "document_share_request",
+        "user_id": "opaque-owner",
+        "notification_lease_id": "33333333-3333-4333-8333-333333333333",
+    }
+    store = SimpleNamespace(
+        owner_setup_step=AsyncMock(return_value="payouts"), settle=AsyncMock(return_value=True)
+    )
+    send = MagicMock(return_value=1)
+    worker = DriveShareNotificationWorker(store=store, send_push=send)
+
+    assert await worker._dispatch(job) == "settled"
+    store.owner_setup_step.assert_awaited_once_with(
+        request_id=job["request_id"], user_id="opaque-owner"
+    )
+    assert send.call_args.kwargs["data"]["setup"] == "payouts"
+
+    # Negative controls: any other value, or a failed lookup, sends the plain
+    # review push. The failure log names no identity or request.
+    for lookup in (
+        AsyncMock(return_value="https://evil.example"),
+        AsyncMock(side_effect=RuntimeError(f"{job['request_id']} opaque-owner")),
+    ):
+        store.owner_setup_step = lookup
+        with caplog.at_level(logging.WARNING):
+            assert await worker._dispatch(job) == "settled"
+        assert "setup" not in send.call_args.kwargs["data"]
+    assert "drive_notify.setup_unavailable RuntimeError" in caplog.text
+    assert job["request_id"] not in caplog.text and "opaque-owner" not in caplog.text
+
+    # A Drive question comes from its own outbox; that store is never asked.
+    questions = SimpleNamespace(owner_setup_step=AsyncMock(), settle=AsyncMock(return_value=True))
+    question = {**job, "event_type": "document_share_question"}
+    assert await DriveShareNotificationWorker(questions, send_push=send)._dispatch(question) == (
+        "settled"
+    )
+    questions.owner_setup_step.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_zero_push_delivery_is_retried_not_falsely_settled():
     store = SimpleNamespace(retry=AsyncMock(return_value="retry_scheduled"), settle=AsyncMock())
     send = MagicMock(return_value=0)
@@ -367,6 +452,7 @@ def test_every_surface_shares_one_type_list_and_the_same_words():
     import re
 
     from hushh_mcp.services.drive_share_notification_worker import (
+        DOCUMENT_REQUEST_SETUP_STEPS,
         DOCUMENT_SHARE_NOTIFICATION_COPY,
     )
 
@@ -382,6 +468,12 @@ def test_every_surface_shares_one_type_list_and_the_same_words():
         ), relative
         for title, body in DOCUMENT_SHARE_NOTIFICATION_COPY.values():
             assert f'"{title}"' in source and f'"{body}"' in source, (relative, title)
+    # A setup step the web worker cannot route would silently open the review.
+    worker = (web / "public/firebase-messaging-sw.js").read_text()
+    targets = re.search(r"DOCUMENT_REQUEST_SETUP_TARGETS = \{(.*?)\};", worker, re.S)
+    assert targets and set(re.findall(r"^\s*([a-z]+):", targets.group(1), re.M)) == (
+        DOCUMENT_REQUEST_SETUP_STEPS
+    )
 
 
 @pytest.mark.asyncio

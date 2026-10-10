@@ -176,7 +176,11 @@ import {
   revokeVaultBanksBeforeErasure,
 } from "@/lib/flows/delete-account";
 import { buildLoginRouteWithAuthSessionNotice } from "@/lib/auth/session-invalidation";
-import { normalizeInvitationReturnTo, ROUTES } from "@/lib/navigation/routes";
+import {
+  normalizeInternalRouteHref,
+  normalizeInvitationReturnTo,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { WALLET_CARD_COPY } from "@/components/wallet-card/wallet-card-copy";
 import { isWalletCardEntryEnabled } from "@/components/wallet-card/wallet-card-entry";
 import {
@@ -4376,12 +4380,22 @@ function ProfilePageContent({
       ),
     });
   } else if (!routeBlockedByVault && activePanel === "request-pricing") {
+    // Opened from another screen (Feed's "Set price"), a save returns there.
+    // Without a safe origin, and in the pane, the card confirms inline.
+    const pricingReturnTo = isPanePresentation
+      ? null
+      : normalizeInternalRouteHref(searchParams.get("from"));
     profileStackEntries.push({
       key: "panel:request-pricing",
       title: "Request pricing",
       content: (
         <div className={cn(isPanePresentation && "profile-account-content", isPanePresentation && accountStyles.paneAccountContent, isPanePresentation && accountStyles.managedContent)}>
-          <DocumentRequestPricingCard />
+          <DocumentRequestPricingCard
+            onSaved={pricingReturnTo ? () => {
+              toast.success("Price saved");
+              router.replace(pricingReturnTo);
+            } : undefined}
+          />
         </div>
       ),
     });

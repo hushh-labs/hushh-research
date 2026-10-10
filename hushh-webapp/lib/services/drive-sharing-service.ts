@@ -170,10 +170,12 @@ function preparationError(value: unknown): SharingPreparationError | null {
     : null;
 }
 function parseRequestSetup(value: Record<string, unknown>): DocumentRequestSetup {
+  const ownerDriveReady = optionalFlag(value.ownerDriveReady);
   const ownerPriceRequired = optionalFlag(value.ownerPriceRequired);
   const ownerPayoutAccountReady = optionalFlag(value.ownerPayoutAccountReady);
   const paymentsReady = optionalFlag(value.paymentsReady);
   return {
+    ...(ownerDriveReady === undefined ? {} : { ownerDriveReady }),
     ...(ownerPriceRequired === undefined ? {} : { ownerPriceRequired }),
     ...(ownerPayoutAccountReady === undefined ? {} : { ownerPayoutAccountReady }),
     ...(paymentsReady === undefined ? {} : { paymentsReady }),

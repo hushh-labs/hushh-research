@@ -51,6 +51,7 @@ from hushh_mcp.services.drive_sharing_retention import erase_drive_account_in_tr
 from hushh_mcp.services.drive_sharing_service import DriveSharingService
 from hushh_mcp.services.drive_sharing_store import DriveSharingStore
 from hushh_mcp.services.drive_suggestion_store import DriveSuggestionStore
+from hushh_mcp.services.feed_service import FeedService
 from hushh_mcp.services.stripe_connect_bank_payouts import StripeConnectBankPayouts
 from tests.services.test_drive_request_bulk_postgres import _search, request_bulk  # noqa: F401
 from tests.services.test_drive_sharing_store import (  # noqa: F401
@@ -62,6 +63,7 @@ from tests.services.test_drive_sharing_store import (  # noqa: F401
     live_drive,
     request,
     sharing,
+    trusted_unpriced_request,
 )
 
 DATED_PURPOSE = {"purpose": "Statements", "periodStart": "2026-10-01", "periodEnd": "2026-10-09"}
@@ -1675,6 +1677,36 @@ async def test_payment_state_reports_expired_checkout_link(sharing):
     assert state["status"] == "expired"
     assert state["paymentLinkExpired"] is True
     assert state["checkoutExpiresAt"] is not None
+
+
+@pytest.mark.asyncio
+async def test_feed_never_asks_a_coin_owner_to_set_up_bank_payouts(sharing, monkeypatch):
+    # Regression: Hussh Coin requests need no bank to earn, yet Feed told
+    # their owners "Set up US payouts" and the line never cleared.
+    monkeypatch.setenv("DRIVE_REQUEST_HASHCOINS_ENABLED", "true")
+    coins = (await trusted_unpriced_request(sharing, monkeypatch, payout_ready=False))["requestId"]
+    monkeypatch.setenv("DRIVE_REQUEST_HASHCOINS_ENABLED", "false")
+    bank = (await request(sharing))["requestId"]
+
+    def execute_raw(sql, params):
+        # The projection swallows read errors, so run its real SQL here.
+        with sharing.db.engine.connect() as connection:
+            found = connection.execute(text(sql), params).mappings().all()
+        return SimpleNamespace(data=[dict(row) for row in found])
+
+    feed = FeedService()
+    feed._db = SimpleNamespace(execute_raw=execute_raw)
+    rows = feed._with_drive_payment_status(
+        "owner",
+        [
+            {"event_type": "document_share_request", "metadata": {"request_id": request_id}}
+            for request_id in (coins, bank)
+        ],
+    )
+    coin_row, bank_row = (row["metadata"] for row in rows)
+    assert "owner_payout_account_ready" not in coin_row
+    # Negative control: a bank-settled request still asks for payouts.
+    assert bank_row["owner_payout_account_ready"] is False
 
 
 @pytest.mark.asyncio

@@ -1309,6 +1309,87 @@ async def test_a_trusted_members_unmarked_request_keeps_the_trusted_path(sharing
 
 
 @pytest.mark.asyncio
+async def test_a_trusted_request_made_before_drive_is_live_continues_once_it_is(
+    sharing, monkeypatch
+):
+    circle = str(uuid4())
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("INSERT INTO one_location_circles VALUES (:id,'owner','trusted','active')"),
+            {"id": circle},
+        )
+        connection.execute(
+            text("INSERT INTO one_location_circle_memberships VALUES (:id,'recipient','active')"),
+            {"id": circle},
+        )
+    # Negative control: a Drive verified for selected files only (this fixture)
+    # keeps its manual file review, so that request is never marked.
+    selected_files = await request(sharing)
+    assert stored_request(sharing, selected_files["requestId"])[1].get("trusted_auto") is None
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE user_external_connector_connections
+              SET validation_state='unverified',verified_policy_hash=NULL
+              WHERE user_id='owner' AND connector_id='google_drive'""")
+        )
+    waiting, deferred = await request(sharing), await request(sharing)
+    owner_selected = await sharing.create_request(
+        recipient=VerifiedGoogleRecipient(
+            "recipient", "1234567", "recipient@example.invalid", datetime.now(UTC)
+        ),
+        owner_user_id="owner",
+        client_request_id=str(uuid4()),
+        purpose=ShareRequestPurpose(purpose="Files the owner chose"),
+        owner_initiated=True,
+    )
+    for created in (waiting, deferred):
+        row, private = stored_request(sharing, created["requestId"])
+        assert (private.get("trusted_auto"), row["preparation_error_code"]) == (
+            True,
+            "trusted_auto_queued",
+        )
+    # The search queue admits only a live Drive, so nothing runs yet.
+    assert await sharing.due_trusted_searches(limit=20) == []
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_requests
+              SET preparation_next_at=clock_timestamp()+INTERVAL '5 minutes'
+              WHERE request_id=:id"""),
+            {"id": deferred["requestId"]},
+        )
+
+    live_drive(sharing, monkeypatch)
+    assert [item["request_id"] for item in await sharing.due_trusted_searches(limit=20)] == [
+        waiting["requestId"]
+    ]
+    with sharing.db.engine.connect().execution_options(isolation_level="AUTOCOMMIT") as listener:
+        listener.exec_driver_sql("LISTEN one_user_state_changed")
+        assert await sharing.resume_owner_drive(user_id="owner") == {
+            "resumed": 0,
+            "rescheduled": 1,
+            "notified": 4,
+        }
+        # A round trip drains committed notifications without a timed wait.
+        listener.exec_driver_sql("SELECT 1")
+        notifies = listener.connection.driver_connection.notifies
+        messages = [json.loads(item.payload) for item in notifies]
+        listener.exec_driver_sql("UNLISTEN *")
+    opened = {item["requestId"] for item in (selected_files, waiting, deferred, owner_selected)}
+    assert sorted((message["request_id"], message["user_id"]) for message in messages) == sorted(
+        (request_id, user) for request_id in opened for user in ("owner", "recipient")
+    )
+    assert {message["type"] for message in messages} == {"document_share_feed_changed"}
+    assert {item["request_id"] for item in await sharing.due_trusted_searches(limit=20)} == {
+        waiting["requestId"],
+        deferred["requestId"],
+    }
+    # Negative control: an owner-initiated share never prepares in the background.
+    row, _ = stored_request(sharing, owner_selected["requestId"])
+    assert row["preparation_next_at"] == row["expires_at"]
+    assert (await sharing.resume_owner_drive(user_id="owner"))["rescheduled"] == 0
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("trusted", [True, False])
 async def test_hashcoin_requests_preserve_consent_without_requiring_bank(
     sharing, monkeypatch, trusted
