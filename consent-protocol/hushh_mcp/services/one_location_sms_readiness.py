@@ -51,22 +51,21 @@ async def refresh_sms_recipient_identities(
     ids = await asyncio.to_thread(incomplete_recipients)
     if not ids:
         return
-    limiter = asyncio.Semaphore(4)
     identity_service = ActorIdentityService()
 
     async def refresh(uid: str) -> None:
-        async with limiter:
-            try:
-                await identity_service.sync_verified_phone_from_firebase(uid)
-            except Exception:
-                # A provider/cache outage cannot prevent other contacts from
-                # being attempted. Unrepaired recipients still fail the original
-                # phone/key/relationship gate; never fabricate verification.
-                logger.warning("one.location.sms_identity_refresh_unavailable")
+        try:
+            await identity_service.sync_verified_phone_from_firebase(uid)
+        except Exception:
+            # A provider/cache outage cannot prevent other contacts from
+            # being attempted. Unrepaired recipients still fail the original
+            # phone/key/relationship gate; never fabricate verification.
+            logger.warning("one.location.sms_identity_refresh_unavailable")
 
     try:
-        # One budget for the whole circle, rather than five seconds per wave.
-        # Already-ready contacts must not wait on every unavailable provider.
+        # Start every member of this owner-scoped SMS roster together. A slow
+        # provider lookup must not consume the budget before later members start.
+        # The shared deadline bounds waiting without fabricating verification.
         await asyncio.wait_for(asyncio.gather(*(refresh(uid) for uid in ids)), timeout=3)
     except TimeoutError:
         logger.warning("one.location.sms_identity_refresh_deadline")

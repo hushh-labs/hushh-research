@@ -207,6 +207,21 @@ describe("SosPanel", () => {
     expect(onTrigger).toHaveBeenCalledTimes(2);
   });
 
+  it.each(["Enter", " "])("suppresses repeated %s activation after a completed hold returns without an active alert", async (key) => {
+    const onTrigger = vi.fn().mockResolvedValue(undefined);
+    render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
+    fireEvent.click(screen.getByRole("button", { name: "I'm not safe" }));
+    const send = screen.getByTestId("sos-send-custom-message");
+    fireEvent.keyDown(send, { key });
+    await act(async () => { vi.advanceTimersByTime(2_000); });
+    expect(onTrigger).toHaveBeenCalledTimes(1);
+    // Browsers use an unprevented repeated Enter keydown to click again.
+    expect(fireEvent.keyDown(send, { key, repeat: true })).toBe(false);
+    act(() => vi.advanceTimersByTime(2_000));
+    fireEvent.keyUp(send, { key });
+    expect(onTrigger).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps typed messages staged until either send hold completes", () => {
     const onTrigger = vi.fn();
     render(<SosPanel {...baseProps} onTrigger={onTrigger} />);

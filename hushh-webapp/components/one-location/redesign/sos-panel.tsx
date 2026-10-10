@@ -324,9 +324,9 @@ export function SosPanel({
     event: KeyboardEvent<HTMLButtonElement>,
     target: "sms" | "composer",
   ) => {
-    if ((event.key === " " || event.key === "Enter") && !event.repeat) {
+    if (event.key === " " || event.key === "Enter") {
       event.preventDefault();
-      startHold(target);
+      if (!event.repeat) startHold(target);
     }
   };
 

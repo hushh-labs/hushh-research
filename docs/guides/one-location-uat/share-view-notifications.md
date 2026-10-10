@@ -80,6 +80,8 @@ bounded. No database migration is required for this repair.
 6. Reconcile the share into Feed before delivering its push. The live emergency
    card must still appear once. Replaying the push must not duplicate the card or
    Feed row. Opened/unwatched shares stay quiet.
+   Repeat with an ended SMS and a separate active ordinary share from the same
+   owner: reconciliation must still silence the ended SMS's delayed push.
 7. With notifications disabled or an expired token, the durable share remains
    accessible when the recipient returns. The sender must not claim device
    receipt. Verify token re-registration after permission recovery/login.

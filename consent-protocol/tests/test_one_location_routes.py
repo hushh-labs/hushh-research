@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import uuid
@@ -202,6 +203,33 @@ def test_sms_repairs_stale_identity_before_roster_and_alert_without_bypassing_ve
     assert published.json()["envelope"]["ciphertext"]
     assert any(event["event_type"] == "location_share_created" for event in service.events.values())
     assert any(push["user_id"] == "user_b" for push in service.notifications)
+
+
+@pytest.mark.asyncio
+async def test_sms_identity_repair_attempts_every_member_when_first_four_lookups_stall(
+    monkeypatch,
+) -> None:
+    service = FourUserMemoryService()
+    ids = [f"sms-member-{index}" for index in range(8)]
+    identities = {uid: {"phone_verified": False, "phone_number": "+15551234567"} for uid in ids}
+    monkeypatch.setattr(service, "list_sms_contact_ids", lambda **_: ids)
+    monkeypatch.setattr(service, "_identity_row", lambda uid: identities[uid])
+    attempted = []
+
+    async def refresh(uid):
+        attempted.append(uid)
+        if uid in ids[:4]:
+            await asyncio.Event().wait()
+        identities[uid]["phone_verified"] = True
+
+    monkeypatch.setattr(
+        ActorIdentityService, "sync_verified_phone_from_firebase", AsyncMock(side_effect=refresh)
+    )
+    await one_location.refresh_sms_recipient_identities(service, owner_user_id="user_a")
+
+    assert set(attempted) == set(ids)
+    assert all(identities[uid]["phone_verified"] for uid in ids[4:])
+    assert not any(identities[uid]["phone_verified"] for uid in ids[:4])
 
 
 def test_sms_identity_repair_never_looks_up_an_unrelated_recipient(monkeypatch) -> None:

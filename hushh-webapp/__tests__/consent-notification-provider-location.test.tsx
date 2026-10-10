@@ -592,6 +592,26 @@ describe("global One Location Feed-first notification policy", () => {
     expect(mocks.startTask).toHaveBeenCalledTimes(status === "active" ? 1 : 2);
   });
 
+  it.each(["revoked", "expired"])("silences a reconciled %s SMS even while its owner has another active share", async (status) => {
+    const grant = {
+      ownerUserId: "owner-user", recipientUserId: "recipient-user",
+      ownerDisplayName: "Alex", recipientKeyId: "key-1",
+      consentScope: "cap.location.live.view", capabilityScopes: [], durationHours: 8,
+      expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(),
+    };
+    mocks.getState.mockResolvedValue({ ...EMPTY_LOCATION_STATE, receivedGrants: [
+      { ...grant, id: "ended-sms", status, shareKind: "sos" },
+      { ...grant, id: "ordinary-share", status: "active", shareKind: "share", latestEnvelopeId: "ordinary-envelope" },
+    ] });
+    renderProvider();
+    await waitFor(() => expect(mocks.startTask).toHaveBeenCalledTimes(1));
+    dispatchLocation({ type: "location_share_created", grant_id: "ended-sms",
+      owner_display_label: "Alex", share_kind: "sos",
+      notification_profile: "one_location_sms_emergency" });
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(mocks.startTask).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps a visibility-race reconciliation silent after refocus", async () => {
     const locationState = {
       ...EMPTY_LOCATION_STATE,

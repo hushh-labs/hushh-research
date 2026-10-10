@@ -2070,6 +2070,15 @@ export function ConsentNotificationProvider({
       const state = await OneLocationStateResource.load(user.uid, () =>
         OneLocationService.getState(vaultOwnerToken),
       );
+      // Feed may omit an ended grant when this owner has another live share.
+      // Alarm suppression is per grant, so retain every authoritative ending
+      // before the Feed projection filters those historical rows.
+      for (const grant of state.receivedGrants ?? []) {
+        if (grant.status === "revoked" || grant.status === "expired") {
+          markOneLocationNotificationSeen(user.uid, `share-ended:${grant.id}`);
+          toast.dismiss(`one-location-share:${grant.id}`);
+        }
+      }
       // Location owns a single memory-only server-state resource. Publishing
       // reconciliation results here lets the Location route update instantly
       // from the same push/resume read instead of issuing a second foreground
