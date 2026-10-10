@@ -156,7 +156,15 @@ class _EvalConnections(FakeConnectionsService):
             {"userId": PRIYA, "displayName": "Priya Nair", "relationship": "connected"},
         ]
 
-    def search_directory(self, user_id: str, *, query: str = "", page: int = 1, limit: int = 20):
+    def search_directory(
+        self,
+        user_id: str,
+        *,
+        query: str = "",
+        page: int = 1,
+        limit: int = 20,
+        name_only: bool = False,
+    ):
         needle = (query or "").lower()
         items = [
             row
