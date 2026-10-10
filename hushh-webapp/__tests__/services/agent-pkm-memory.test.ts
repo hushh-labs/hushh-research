@@ -39,6 +39,7 @@ import {
   getPkmConfirmationCards,
   loadAgentPkmContext,
   peekAgentPkmContext,
+  peekReceiptMemoryIndex,
   previewAgentPkmMemory,
   warmAgentPkmContext,
   type AgentPkmPreviewCard,
@@ -119,6 +120,62 @@ const METADATA = {
 let pkmBlob: Record<string, unknown>;
 
 describe("agent PKM memory helpers", () => {
+  it("an explicit Review recovers from a rejected warm-up without retrying across lock", async () => {
+    let rejectWarm!: (error: Error) => void;
+    pkmGetManyStaleFirstMock.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectWarm = reject; }));
+    const params = { userId: "user_1", vaultKey: "test-key", vaultOwnerToken: "test-token" };
+    const warm = AgentPkmContextStore.load(params).catch(() => null);
+    await vi.waitFor(() => expect(pkmGetManyStaleFirstMock).toHaveBeenCalledOnce());
+    const review = AgentPkmContextStore.load({ ...params, forceRefresh: true });
+    rejectWarm(new Error("optional warm-up unavailable"));
+    await warm;
+    expect(await review).not.toBeNull();
+    expect(pkmGetManyStaleFirstMock).toHaveBeenCalledTimes(2);
+    expect(pkmGetManyStaleFirstMock.mock.calls[1]![0]).toMatchObject({ forceRefresh: true });
+
+    clearAgentPkmContext();
+    pkmGetManyStaleFirstMock.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectWarm = reject; }));
+    const oldWarm = AgentPkmContextStore.load(params).catch(() => null);
+    await vi.waitFor(() => expect(pkmGetManyStaleFirstMock).toHaveBeenCalledTimes(3));
+    const oldReview = AgentPkmContextStore.load({ ...params, forceRefresh: true });
+    clearAgentPkmContext();
+    rejectWarm(new Error("warm-up failed after lock"));
+    await oldWarm;
+    expect(await oldReview).toBeNull();
+    expect(pkmGetManyStaleFirstMock).toHaveBeenCalledTimes(3);
+  });
+  it("a forced Review waits for warm-up then performs an authoritative complete read", async () => {
+    let finishWarm!: (value: unknown) => void;
+    pkmGetManyStaleFirstMock.mockReturnValueOnce(new Promise(resolve => { finishWarm = resolve; }));
+    const params = { userId: "user_1", vaultKey: "test-key", vaultOwnerToken: "test-token" };
+    const warm = AgentPkmContextStore.load(params);
+    await vi.waitFor(() => expect(pkmGetManyStaleFirstMock).toHaveBeenCalledOnce());
+    const review = AgentPkmContextStore.load({ ...params, forceRefresh: true });
+    finishWarm({ snapshots: {}, failedDomains: ["preferences"] });
+    await warm;
+    await review;
+    expect(pkmGetManyStaleFirstMock).toHaveBeenCalledTimes(2);
+    expect(pkmGetManyStaleFirstMock.mock.calls[1]![0]).toMatchObject({ forceRefresh: true });
+    expect(pkmGetMetadataMock.mock.calls[1]).toEqual(["user_1", true, "test-token", { allowStaleFallback: false }]);
+    expect(AgentPkmContextStore.findBusinessReconciliationCandidates({ userId: "user_1", businessUid: "not-stored" })).toEqual([]);
+  });
+  it("indexes current businesses by exact UID without sharing origin bookkeeping or other owners", async () => {
+    pkmGetMetadataMock.mockResolvedValue({ ...METADATA, domains: [{ key: "professional" }] });
+    pkmBlob = { professional: { businesses: { entities: {
+      first: { name: "Example", phone: "+15555550100", _business_origin: { business_uid: "business-one" } },
+      second: { name: "Example", _business_origin: { business_uid: "business-two" } },
+    } } } };
+    await AgentPkmContextStore.load({ userId: "user_1", vaultKey: "test-key", vaultOwnerToken: "test-token" });
+    const entries = AgentPkmContextStore.findBusinessReconciliationCandidates({ userId: "user_1", businessUid: "business-one" });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ entity_id: "first", domain: "professional", entity_scope: "businesses" });
+    expect(JSON.parse(entries[0]!.message)).toEqual({ name: "Example", phone: "+15555550100" });
+    expect(JSON.stringify(entries)).not.toContain("business-one");
+    expect(AgentPkmContextStore.findBusinessReconciliationCandidates({ userId: "user_1", businessUid: "unmatched" })).toEqual([]);
+    expect(() => AgentPkmContextStore.findBusinessReconciliationCandidates({ userId: "other-owner", businessUid: "business-one" })).toThrow();
+    clearAgentPkmContext();
+    expect(() => AgentPkmContextStore.findBusinessReconciliationCandidates({ userId: "user_1", businessUid: "business-one" })).toThrow();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     clearAgentPkmContext();
@@ -788,6 +845,67 @@ describe("agent PKM memory helpers", () => {
     expect(context.text).not.toContain("must-not-reach-agent-context");
   });
 
+  it("keeps the saved receipt index out of One's packet and offers it only as typed turn data", async () => {
+    const transaction = {
+      ref: `txn_${"a".repeat(24)}`,
+      merchant: "Supabase",
+      amount: 124.01,
+      currency: "USD",
+      category: "Cloud & Infra",
+      status: "overdue",
+      transaction_date: "2026-10-04",
+      identifiers: [{ kind: "invoice", value: "ZSUQHV-00028" }],
+      detail: null,
+    };
+    const index = {
+      schema: "receipt_canonical_index.v1",
+      generated_at: "2026-10-09T10:00:00Z",
+      total_transactions: 1,
+      truncated: false,
+      transactions: [transaction],
+    };
+    const shoppingMetadata = {
+      ...METADATA,
+      domains: [...METADATA.domains, { ...METADATA.domains[0], key: "shopping", displayName: "Shopping" }],
+    };
+    pkmGetMetadataMock.mockResolvedValue(shoppingMetadata);
+    pkmBlob = {
+      preferences: { writing: { default_style: "concise summaries" } },
+      shopping: { wishlists: { first: "noise-cancelling headphones" }, receipts_memory: { _canonical_index: index } },
+    };
+
+    const context = await loadAgentPkmContext({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+      message: "show my receipts",
+    });
+    // The rest of the shopping domain still reaches One; the transaction index never does.
+    expect(context.text).toContain("noise-cancelling headphones");
+    for (const leaked of ["Supabase", "ZSUQHV", "124.01", "txn_aaaa"]) {
+      expect(context.text).not.toContain(leaked);
+    }
+    expect(peekReceiptMemoryIndex({ userId: "user_1" })).toEqual(index);
+    expect(peekReceiptMemoryIndex({ userId: "someone_else" })).toBeNull();
+
+    // Negative control: an index carrying a field the reader's closed schema forbids is not offered.
+    clearAgentPkmContext();
+    pkmBlob = {
+      shopping: {
+        receipts_memory: {
+          _canonical_index: { ...index, transactions: [{ ...transaction, subject: "Invoice from Supabase" }] },
+        },
+      },
+    };
+    await loadAgentPkmContext({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+      message: "show my receipts",
+    });
+    expect(peekReceiptMemoryIndex({ userId: "user_1" })).toBeNull();
+  });
+
   it("sends communication preferences as standing style, never inside the memory packet", async () => {
     pkmBlob = {
       preferences: { writing: { default_style: "concise summaries" } },
@@ -1041,6 +1159,22 @@ describe("agent PKM memory helpers", () => {
       }),
     );
     consoleError.mockRestore();
+  });
+
+  it("identifies an outdated backend contract without exposing rejected business details", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    apiFetchMock.mockResolvedValue({ ok: false, status: 422, json: async () => ({
+      detail: [{ type: "literal_error", loc: ["body", "memory_profile"], input: "private source" }],
+    }) });
+    try {
+      await expect(previewAgentPkmMemory({ userId: "user_1", vaultOwnerToken: "vault_token",
+        message: "private source", currentDomains: [], memoryProfile: "business_directory_v1",
+      })).rejects.toMatchObject({ name: "PkmBackendContractMismatch",
+        message: "Review is unavailable until the backend update finishes." });
+      expect(JSON.stringify(consoleError.mock.calls)).not.toContain("private source");
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("saves reviewed PKM cards through the write coordinator and invalidates cached context", async () => {

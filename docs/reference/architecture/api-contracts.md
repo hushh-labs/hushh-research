@@ -200,6 +200,50 @@ from attempting its legacy issuance before returning the incompatible response.
 | DELETE | `/api/notifications/unregister`                       | Unregister FCM tokens (logout)                                                                                                                                  |
 | POST   | `/api/kai/consent/grant`                              | Grant consent for Kai scopes                                                                                                                                    |
 
+### Chat push device registration
+
+`POST /api/notifications/register` uses Firebase authentication and verifies the
+body's `user_id` against the authenticated account. Its body is
+`{user_id, token, platform, device_id?, preview_key_id?, preview_public_key?}`.
+Installation and preview identifiers are UUIDs. The preview public key is a
+canonical base64url raw uncompressed P-256 point (87 characters); its key ID
+and public key must be supplied together. It opens notification previews only
+and grants no vault or chat-history access. A stable installation can rotate
+its FCM token; a token or installation belongs to one account at a time.
+Multiple installations on the same platform remain registered independently.
+`DELETE /api/notifications/unregister` accepts `{user_id, device_id?, platform?}`;
+`device_id` removes only this account's installation. Legacy platform/all-account
+removal is retained for older clients. New clients always pass their installation.
+
+Circle chat state includes `notificationDevices` for current other members
+(`userId`, `keyId`, `publicKey`, bounded to 500 installations). The optional
+`notificationPreviews` message field maps preview key UUIDs to sealed envelopes,
+with at most 500 entries, 2600 characters per envelope and a 9 MiB total request
+limit including encrypted photo content. Normal Circle message access continues
+to require current membership and VAULT_OWNER authorization. Sender clients seal
+only a short message preview for each installation; the server separately seals
+canonical sender/Circle identity, preventing sender-supplied identity spoofing.
+New keys or old clients without a preview receive a generic alert.
+
+Migration `290_chat_push_delivery.sql` adds the transactional direct-message
+outbox, per-installation provider-acceptance ledger and preview metadata. Apply
+it before running the new workers. `PushTokensService` owns the additive
+`user_push_installations` registry and maintains the `user_push_tokens` legacy
+projection with its original `UNIQUE (user_id, platform)` conflict target. Serving
+older handlers and an unmodified backend rollback can still register tokens.
+A database reconciliation trigger revokes the former account's registration
+when an older handler transfers a token; a unique legacy token fence rejects
+unseen concurrent claims. Device transfers retire the old token's projection,
+including when the token changes. New readers prefer installation rows and
+deduplicate legacy projections; device unregister and stale-token cleanup remain
+owner-scoped and restore a surviving device's legacy projection. Full-account
+tombstones also erase both registries beneath older erasure handlers. SQL
+rollback removes the new outbox/ledger and Circle
+preview column while retaining the compatible registry and ownership bridge.
+Existing account-deletion write guards and erasure paths cover both registries. See
+[Feed notification model](../one/feed-notification-model.md#device-system-chat-notifications)
+for rendering, privacy, retries and native release verification.
+
 ### One Person Request History
 
 Chat records an inline scope-discovery send through
@@ -421,6 +465,35 @@ only for the VAULT_OWNER's own feed row that the server actually pushed
 that exact message and payload shape (`400`). The row's Feed projection is held
 as a 10-minute in-memory request secret for the turn; no tool runs in it; the
 history restores the message as a `selection` chip.
+
+**Saved receipts in chat.** A typed turn from an unlocked owner may carry
+`forwardedProps.receiptMemory`: the bounded canonical receipt index that the
+owner's device decrypted from `shopping.receipts_memory._canonical_index`
+(schema `receipt_canonical_index.v1`, at most 100 transactions and 96 KB). The
+server never holds the vault key, so this is the only way the Email specialist
+can read saved receipts. `POST /api/one/agent-chat` pops the field before the
+bridge can copy it, validates it against a closed schema (`extra=forbid`; no
+subject, preview, body, sender address, provider id, signed source handle or
+link can ride along; text is made single-line and markdown-inert, and a
+link-bearing field is dropped whole), and keeps it only as an expiring request
+secret for that turn; an invalid index is treated as absent, never repaired, and
+a locked or anonymous turn keeps nothing. It is never written to conversation
+state, logged, or shown to a model. A receipts question (`read_receipts`) filters,
+pages and formats it in code, newest first, ten at a time, with dates in the
+owner's timezone and any unavailable amount omitted. "Show more" continues a
+server-held position (`hussh:receipt_cursor`, filters and offset only, thirty
+minutes, void after a new save). A missing, malformed, empty or older-than-seven-day
+index answers `Your receipt memory is not ready yet. Sync and save your receipts
+in Mail.` with the generated `route.profile_receipts` action, and is never
+reported as an empty mailbox. The index is written only through writer
+`gmail_receipt_memory_save_button`: once, automatically, after each sync the
+owner starts on Mail > Receipts (the product default, set by
+`RECEIPT_MEMORY_AUTO_SAVE_DEFAULT`). The page shows no save control. Opening the
+page, a partly loaded list or a failed sync never writes; a failed save retries
+twice, quietly, then waits for the next sync. Every field of the write that
+names its author, including the structure decision's `source_agent`, is that
+writer id, because the pre-save validation request carries no mutation plan and
+the reserved-branch guard judges it by `source_agent` alone.
 
 **Queued messages (Claude-Code-style queueing).** While One works on a typed
 turn, the composer stays usable. A message sent then is offered to the running
@@ -793,9 +866,13 @@ unverified profile fields. Consumer email domains and non-US phones are omitted,
 not coerced. A failed canonical phone read is unavailable, not missing.
 
 The server invokes the protected directory at its pinned Cloud Run origin using
-workload OIDC; browsers receive no invocation credential. Local rehearsal uses
-the explicit Workspace gcloud account only under the existing peer/reviewer/
-UAT-resource gate, without changing CLI defaults or ADC. HTTP redirects are
+workload OIDC; browsers receive no invocation credential. An explicit approved
+gcloud account can invoke the directory in the local/development runtime,
+including ordinary live discovery without reviewer rehearsal. Deployment
+labels and Cloud Run service markers prohibit this CLI credential path.
+The process must select the credential store containing that account through
+`CLOUDSDK_CONFIG`; a local overlay may otherwise select the scraper's isolated
+store. This does not change shared CLI defaults or ADC. HTTP redirects are
 refused, response size is capped at 512 KB, token acquisition is off the event
 loop, and request I/O has a 40-second total budget. Contact lookup does not scan
 or write PKM or directory tables. Contacts and returned records are not logged.
@@ -900,6 +977,19 @@ and unlocked-vault admission, requiring known, unexpired owner authority.
 It opens a labelled synthetic suggestion with Review, Later and Not my business.
 Editing a name/HTTPS website invalidates prior proposals. Review uses the existing
 private-agent memory preparation and exact-card selection; it does not save.
+Business review additionally exposes the proposed entity's individual fields,
+including nested object leaves. Arrays and synthesized summaries are visible,
+atomic entries; they are not silently rewritten to remove an overlapping fact.
+The owner can select/deselect each entry and Save shows the selected field count.
+An empty selection cannot save. Consent narrowing retains the model's domain,
+entity identity and merge decision, but builds an incoming payload containing only
+selected fields and internal business provenance. Unreviewed sibling payloads and
+original model summary projections cannot ride along. Save checkpoints the narrowed
+cards and approved source text; the full listing snapshot remains encrypted recovery
+evidence, not information added to PKM. Pending jobs lock their field selection and
+retry the exact approved payload/scopes. Deselection does not delete existing memory.
+An existing same-UID entity cannot be replaced with `create_entity`; it requires a
+fresh model-prepared update to avoid erasing previously saved omitted fields.
 Save requires an explicit second action, plus separate acknowledgment when the
 selected memory affects active sharing. It rechecks fresh candidate eligibility
 before using `business_profile_review`, a governed memory-agent writer, through
@@ -965,7 +1055,11 @@ Create, reschedule, and cancel are always two-step: a short-lived proposal is
 reviewed by the client and then executed once. Plans are deleted after execution
 or failure and become unusable after ten minutes; a subsequent Calendar mutation
 purges expired plans. Event data is not persisted as PKM or a Calendar cache in
-this first release.
+this first release. After the owner confirms a successful Calendar create, the
+unlocked client may write a safe task presentation snapshot to the encrypted
+`one_todos` PKM domain. The Calendar event remains authoritative; the To-do
+record only retains its private completion or dismissal state and never stores
+attendees, description, location, or the provider's HTML event link.
 
 The shared Google credential boundary verifies provider subject before refresh
 reuse, rejects account replacement while connected, and requires fresh credentials
@@ -1074,23 +1168,39 @@ connection ended.
 
 | Method | Path | Description |
 | --- | --- | --- |
+| POST | `/api/one/messages/route-token` | Mint with exactly one of `{conversationId, personRef}`, or restore with `{token}`. Firebase authenticated, participant checked on both mint and restore, and private/no-store. Returns `{token, kind, ref}`; business identifiers remain in memory and API bodies. |
 | GET | `/api/one/messages/conversations` | Participant-only inbox with latest decrypted message projection, timestamp, unread count, peer-safe profile projection, and `canSend`. |
 | GET | `/api/one/messages/with/person/{personRef}` | Open the viewer's existing conversation with an opaque public person reference, or return a no-conversation draft state. Internal `/with/{userId}` compatibility remains Firebase-authenticated and is never exposed as a profile route. |
-| POST | `/api/one/messages` | Send `{recipientPersonRef|recipientUserId, content, replyToMessageId?}`. A reply must reference a message in the same participant conversation. Creates the canonical pair conversation on first message and returns the conversation plus sender/receiver-safe message projection. Empty text, self-send, unconnected pair, and a block fail closed. |
+| POST | `/api/one/messages` | Send `{recipientPersonRef|recipientUserId, content, replyToMessageId?, clientMessageId?}`. Optional UUID makes a retry return the original message without another Feed/push event. A reused ID with different normalized text, reply target, conversation or sender returns the same generic 409. Every replay rechecks the active connection and block gate. Creates the canonical pair conversation on first message; empty text, self-send, unconnected pair, and a block fail closed. | A reply must reference a message in the same participant conversation.
 | GET | `/api/one/messages/conversations/{conversationId}/messages?before=&limit=` | Participant-only chronological history page; `before` is an opaque message id and `limit` is bounded. |
 | PATCH | `/api/one/messages/conversations/{conversationId}/messages/{messageId}` | Edit the caller's non-deleted sent message using `{content}`. The envelope is re-encrypted with its original message identity, and the response is the participant-safe updated projection. |
 | DELETE | `/api/one/messages/conversations/{conversationId}/messages/{messageId}?scope=me\|everyone` | `scope=me` hides the message only for the caller. `scope=everyone` is sender-only and replaces content with the durable deleted-message marker for both participants. |
 | PUT | `/api/one/messages/conversations/{conversationId}/messages/{messageId}/reaction` | Set the caller's one durable emoji reaction using `{emoji}`. The response aggregates emoji counts without exposing participant identities. |
-| POST | `/api/one/messages/conversations/{conversationId}/read` | Mark the viewer's received unread messages as read. This remains available for preserved history after a connection ends. |
+| POST | `/api/one/messages/conversations/{conversationId}/read?throughMessageId=` | Mark the viewer's received unread messages through the supplied message's `(created_at,id)` boundary. The optional UUID must belong to this participant-scoped conversation; a foreign boundary returns 404 without updates. Returns `readCount`, `readAt` and, when bounded, `readThroughCreatedAt`. Omitting the boundary preserves the legacy whole-conversation behavior. Reading preserved history remains available after a connection ends. |
 | GET | `/api/one/messages/events` and `/stream` | Authenticated metadata-only realtime subscription. The event is a doorbell; clients re-read the inbox/history instead of trusting an event payload. |
 | POST / DELETE | `/api/one/messages/blocks` | Create/remove the caller's directed block using `{blockedPersonRef|blockedUserId}`. Blocking does not revoke the canonical connection or delete history, but either direction disables future sends. |
 
 Persisted body text is AES-256-GCM ciphertext under the server-managed
 direct-message envelope key. API responses decrypt only inside the authenticated
-service boundary and expose `senderIsViewer`, never a peer's raw user id. Push
-and realtime payloads contain no message content. Stable `403` failures are
+service boundary and expose `senderIsViewer`, never a peer's raw user id.
+Realtime doorbells contain no message content. System pushes may include a
+bounded preview sealed to an independent installation key, as described in
+the chat push device registration contract above; plaintext is never sent to
+the push provider. Stable `403` failures are
 `DIRECT_MESSAGE_CONNECTION_REQUIRED`, `DIRECT_MESSAGE_BLOCKED`, and
 `DIRECT_MESSAGE_SENDER_FORBIDDEN`; malformed/self/empty requests are `422`.
+
+Browser selections use `/one/messages?token=dm1.…`. AES-256-GCM seals a
+conversation or person selection with a random 12-byte IV, base64url encoding,
+and viewer-bound authenticated information. A purpose-specific route key derives
+from server-only `DIRECT_MESSAGE_ENCRYPTION_KEY_V1`; rotating that deployment key
+invalidates existing links as well as affecting message-envelope recovery. No
+client key or development fallback exists. Tokens conceal navigation identifiers
+and do not grant access: participant and connection checks remain authoritative.
+Legacy `conversation`, `conversationId`, and `person` URLs are accepted only as
+inbound compatibility links and replaced after authenticated token minting.
+Invalid/tampered selections return to the inbox. New Feed and push links use
+viewer-bound tokens; old notifications without a token open the inbox.
 
 Each newly received Direct Message also creates one recipient-only Feed row.
 That row contains only the opaque source message id; it never stores a body,
@@ -1098,7 +1208,8 @@ envelope, sender id, or preview. During the authenticated recipient's Feed
 read, the service verifies the recipient relationship again, decrypts the
 source in memory, and returns a whitespace-normalized preview capped at 256
 characters. The source message's delete path removes that derived Feed row,
-and push/SSE payloads remain metadata-only.
+and SSE payloads remain metadata-only. System push previews use the separate
+installation-key envelope; neither previews nor preview keys are stored in Feed.
 
 ### One Location Agent
 
@@ -1271,7 +1382,7 @@ RIA relationship bundle note:
 | GET    | `/api/pkm/device-sync/{user_id}`                                         | List metadata-only upsert/delete events after a monotonic cursor; trusted devices fetch ciphertext through the domain snapshot contract               |
 | GET    | `/api/pkm/metadata/{user_id}`                                            | Get PKM metadata for UI                                                                                                                               |
 | POST   | `/api/pkm/commits/lookup`                                                | Owner-scoped: whether each of the caller's own writes `{domain, plan_id}` already committed, in order. The commit id is derived from the token's user; the answer is `{exists, data_version}` only. The resumable save job asks this when a write's response was lost. |
-| POST   | `/api/pkm/memory/proposals`                                              | Produce an owner-local PKM preview. `memory_profile` is optional: `general` remains the compatibility default and `kyc_identity_v1` performs one constrained KYC fact-extraction pass. Preview cards may include canonical field IDs, confidence, source disposition, and value-free retrieval hints; they never contain server-stored PKM values. |
+| POST   | `/api/pkm/memory/proposals`                                              | Produce an owner-local PKM preview. Optional `memory_profile`: `general` (compatibility default), `kyc_identity_v1` (constrained KYC extraction), or `business_directory_v1` (one business record with selectable listing fields). Preview cards may include canonical field IDs, confidence, source disposition, and value-free retrieval hints; they never contain server-stored PKM values. |
 | POST   | `/api/pkm/domains/{domain}/scope-exposure`                               | Set a top-level PKM section posture: private or consent-required                                                                                      |
 | POST   | `/api/pkm/domains/{domain}/public-profile-projection`                    | Vault-owner publishes a client-generated public-profile projection independent of encrypted consent posture                                           |
 | GET    | `/api/pkm/domains/{domain}/public-profile-projections?user_id={user_id}` | Vault-owner lists active public-profile handles and metadata only; never projection payloads                                                          |
@@ -1296,6 +1407,19 @@ Repeated failures do not extend the original cache expiry. Internal continuation
 records are not returned to clients or persisted; sanitized stage telemetry marks
 reuse separately from a new model invocation. This is preparation only, never
 write or sharing authorization.
+
+Business Review revalidates the directory and complete owner inventory before
+preparing a proposal. An explicit Review never treats an incomplete or failed
+ambient warm-up as current evidence: it performs a fresh, no-stale-fallback
+read. The whole preparation has a 90-second client deadline; failure returns
+to a retryable offer, and late results cannot publish after retry, owner change,
+or vault-session change. This deadline never authorizes a save. PKM RPCs and
+consent entry/background database reads execute off the API event loop. Upgrade
+status batches manifest reads and preserves unavailable-versus-absent errors.
+The domain registry accepts both eager SQL RPC results and lazy adapters without
+duplicate fallback upserts. Idle message-push sweeps back off to at most five
+seconds; circle dispatch concurrency leaves capacity for foreground requests
+on small pools. Delivery leases, retry bounds and eligibility checks are unchanged.
 
 #### Connected Systems
 
@@ -2166,6 +2290,16 @@ asked for it. `gmail.modify` is a Google restricted scope and needs Google's
 restricted-scope verification before production use. Native Google sign-in does not yet
 request it.
 
+### Owner-confirmed Gmail To-do follow-ups
+
+An owner may explicitly ask One to prepare Gmail follow-ups for the encrypted
+`one_todos` domain. `propose_gmail_todo` resolves bounded Gmail metadata under
+the existing typed-chat read admission, then shows the exact selected emails in
+an owner confirmation card. Confirmation writes only an opaque proposal item
+identifier and the owner-visible follow-up title to the encrypted list; Gmail
+message identifiers, bodies, and received timestamps are never treated as a
+task due date or saved in the To-do record.
+
 ### Owner Drive searches
 
 `/api/connectors/google_drive/searches` requires a current Vault Owner and private/no-store responses.
@@ -2323,11 +2457,12 @@ tokens, subjects and endpoints are not returned. Mutations derive owner/generati
 | `POST /requests` | B's recent verified Google Firebase identity must match B's Vault Owner; an active A/B connection is required. Accepts an opaque client request ID, exactly one of `ownerUserId` or `ownerPersonRef`, and purpose/period. Every recipient file request requires both period dates or returns `422 date_range_required`. Public person references resolve server-side; no internal UID is exposed in the profile. B need not connect Drive. |
 | `GET /requests` | Participant-scoped incoming/outgoing metadata, bounded pagination; never private candidates. |
 | `GET /requests/{id}` | Participant-only generic status and server-derived `direction`. Preparation and private review remain pending to B; a deep link never grants owner review authority. |
-| `GET /requests/{id}/review` | A-only current private review; exact documents, coverage, recipient and review digest. |
+| `GET /requests/{id}/review` | A-only current private review; exact documents, coverage, recipient and review digest. Also `ownerAllowed`, `allowAvailable` (a read-only preview of the `/allow` checks below), `paymentRequired` and `priceCents` (A's price once allowed, else null). Before a request-bound search starts, the durable fields are only `search: null` and `bulkShare: null`. |
 | `POST /requests/{id}/prepare` | A-only foreground preparation with a current owner-token callback; empty body. Returns only `{status}`: `review_ready`, `no_ready_files`, `unavailable` or `not_claimed` (worker holds the lease). Bounded to 160 seconds. |
 | `POST /requests/{id}/prepare/stream` | Same authority and preparation as `/prepare`, as `text/event-stream` (`private, no-store, no-cache, no-transform`). Frames: `stage` (`starting`, `searching`, `choosing`, `checking`), then one `complete {status}` after the review commits or `error {code, message}` from the public error map, plus `heartbeat`. No frame carries files, ids, content or coverage. A stream that ends with no terminal frame (owner authority ended mid-run, or the 190 second stream deadline) means: read `GET /requests/{id}`. A process at its stream capacity answers `503 sharing_unavailable` before the stream opens; clients then use `/prepare`. Closing the tab, locking the vault or signing out never stops a started preparation (same as `/prepare`); token expiry or revocation, account deletion, decline and refresh stop it within the 160 second budget. |
 | `POST /requests/{id}/review/refresh` | A's current revision cancels unused review authority and queues preparation again. |
 | `POST /requests/{id}/approve` | A's exact revision, digest, document IDs and strict `confirmed=true`; atomically claims confirmation and records work. HTTP 202 means pending, not shared. |
+| `POST /requests/{id}/allow` | A's revision-bound Allow for a request from outside A's Trusted circle. Body `{revision, amountCents?, confirmed: true}`; `amountCents` is whole US dollars in cents (100–50000, a multiple of 100), required when the request is paid and rejected when it is free (`422 invalid_payment_amount`). Requires A's live Drive, an active A/B connection, both period dates, and a request that is still new: pending, unexpired, not stopped, not Trusted (by its marker or B's current Trusted membership) or already allowed, and with no search started. Re-seals the request with the same automatic marker a Trusted request gets plus A's price, so the Trusted pipeline runs next: background search, first frozen batch, payment order at A's price, then automatic grants. Each step still rechecks the connection, and a disconnect ends the Allow for good: reconnecting never restores it. Keeps the revision, emits no event and makes no provider call. HTTP 202 `{requestId,status,revision,ownerAllowed,amountCents}`. Repeating the same price returns the same result while the Allow stands; a different price or a decided request returns `409 request_already_decided`, and a stale revision `409 review_changed`. |
 | `POST /requests/{id}/decline` | A's revision-bound decision; no provider call. |
 | `POST /requests/{id}/cancel` | B's revision-bound cancellation before approval; no provider call. |
 | `GET /requests/{id}/delivery` | Recorded per-file outcomes. B's current verified Google identity is revalidated; only successfully delivered originals have links. These are not live ACL guarantees. |
@@ -2586,9 +2721,17 @@ The new chat wire uses camelCase directly on all surfaces. Clients encrypt a
 fresh AES-256-GCM content key per message, wrap it to every recipient using the
 existing vault-synced P-256 recipient keys, and authenticate Circle, client
 message ID, sender, recipient and payload kind as additional data. Text, image
-bytes, filename and MIME metadata remain encrypted; Feed and pushes carry only
-Circle identifiers and generic activity. This reuses the existing authenticated
+bytes, filename and MIME metadata remain encrypted. Feed carries Circle identifiers
+and generic activity. System pushes may carry a sender-sealed bounded snippet
+and server-sealed canonical identity, both encrypted to independent installation
+preview keys. Missing keys retain a generic alert. This reuses the existing authenticated
 key directory; it does not introduce key verification or a ratcheting protocol.
+
+Native push token teardown uses `HushhNotifications.deletePushToken()`, which
+resolves after the Firebase SDK completes deletion on iOS and Android. Native
+token retrieval waits for an already-started deletion so a rapid account switch
+cannot register an installation token that logout later invalidates. Preview key
+removal remains immediate and independent of network completion.
 
 Images are passive JPEG/PNG/WebP files up to 5 MiB and messages contain at most
 4,000 characters. Both API layers bound chat requests to 7,250,000 bytes.
@@ -2703,3 +2846,33 @@ are added. Existing
 masked email/phone visibility remains unchanged. The Next proxy and native HTTP
 transport forward these additive fields. Older servers omit them; clients omit
 the badge rather than inventing a mutual relationship. No migration is required.
+
+
+## Referral dashboard reads
+
+`/one/referrals` uses the existing `/api/one/[...path]` proxy on web and
+`ApiService.apiFetch` direct backend transport on native. Each referral read
+requires a Firebase ID token; the verified UID selects the owner, never a
+client-supplied user identifier.
+
+- `GET /api/one/referrals/points` returns `{points: number}` from the owner's
+  cumulative ledger, independently of published leaderboard snapshots.
+- `GET /api/one/referrals/challenge` returns `active`, `week_started_at`,
+  `cutoff_at`, and `timezone`. Its weekly window derives from active program
+  settings. Missing settings or an unset schedule returns inactive with null
+  timestamps. A scheduled challenge does not imply weekly prize finalization
+  is enabled.
+- `GET /api/one/referrals/milestones` retains lifetime count, earned entitlements,
+  and next milestone, and adds `available_milestones` from the same active
+  settings version. The dashboard does not substitute a hardcoded catalogue.
+
+Migration 289 versions the milestone catalogue and schedule without modifying
+migration 275 or recomputing past awards. Applying it is separate from source
+verification. Summary reads can mint a referral link and authenticated reads
+can schedule identity synchronization; this dashboard is not a read-only probe
+against an environment where writes are prohibited.
+
+- `GET /api/one/referrals/policy` requires Firebase authentication and returns
+  active settings `version`, `points`, `streak_rules`, `weekly_schedule`,
+  `challenge_duration_days` (null when unscheduled), and `weekly_prizes_enabled`.
+  Rules uses these amounts directly; this read does not activate policy or award rewards.

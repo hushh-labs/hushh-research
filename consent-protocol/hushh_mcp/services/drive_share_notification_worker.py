@@ -31,9 +31,10 @@ PUSH_TIMEOUT_SECONDS = 20
 DOCUMENT_SHARE_NOTIFICATION_COPY = {
     "document_share_request": ("Document request", "Open One for next steps."),
     "document_share_review_ready": ("Files ready to review", "Open One to choose what to share."),
+    # Prices vary by request and the payload carries none, so the copy names none.
     "document_share_payment_ready": (
         "Payment needed",
-        "Pay $10 in One to continue your document request.",
+        "Pay in One to continue your document request.",
     ),
     "document_share_payment_confirmed": (
         "Payment confirmed",

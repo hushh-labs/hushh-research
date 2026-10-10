@@ -23,7 +23,6 @@ import {
   Fingerprint,
   Eye,
   EyeOff,
-  UserRound,
   type LucideIcon,
 } from "@/components/icons";
 import { cn } from "@/lib/utils";
@@ -43,7 +42,7 @@ import { User } from "firebase/auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { Icon } from "@/lib/morphy-ux/ui";
-import { AppleIcon, GoogleIcon } from "@/lib/morphy-ux/social-icons";
+import { EmailIdentityMark } from "@/components/app-ui/email-identity-mark";
 import { useHostname } from "@/lib/hooks/use-hostname";
 import type { GeneratedVaultKeyMode } from "@/lib/services/vault-bootstrap-service";
 import { VaultBootstrapService } from "@/lib/services/vault-bootstrap-service";
@@ -302,9 +301,6 @@ function VaultFlowHeader({
   // Presentation only: the current authenticated owner supplies the identity.
   // Email/provider presence never authorizes unlock or infers a vault method.
   const providerId = user.providerData?.[0]?.providerId;
-  const providerLabel = providerId === "google.com"
-    ? "Google account"
-    : providerId === "apple.com" ? "Apple account" : "Signed-in account";
   return (
     <div data-vault-flow-header className="text-center">
       <div
@@ -329,11 +325,7 @@ function VaultFlowHeader({
         data-vault-account-identity
         className="mx-auto mt-3 flex max-w-[21rem] items-center justify-center gap-2 type-footnote text-muted-foreground"
       >
-        <span role="img" aria-label={providerLabel} className="inline-flex shrink-0 text-foreground">
-          {providerId === "google.com" ? <GoogleIcon size={17} />
-            : providerId === "apple.com" ? <AppleIcon size={17} />
-              : <Icon icon={UserRound} size={17} />}
-        </span>
+        <EmailIdentityMark email={user.email} providerId={providerId} />
         <span className="min-w-0 break-all">
           {user.email || user.phoneNumber || user.displayName || "Signed-in account"}
         </span>

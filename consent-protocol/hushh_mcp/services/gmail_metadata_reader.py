@@ -449,6 +449,8 @@ class GmailMetadataReader:
                     raise GmailMetadataError("connect_required")
                 if row.get("status") != "connected" or row.get("revoked"):
                     raise GmailMetadataError("reconnect_required")
+                if _SCOPE not in re.split(r"[\s,]+", str(row.get("scope_csv") or "")):
+                    raise GmailMetadataError("reconnect_required")
                 access_token, row = await self._gmail._ensure_access_token(user_id=self._user_id)
                 self._observation = self._gmail._refresh_observation(row)
                 self._account = row.get("google_sub")

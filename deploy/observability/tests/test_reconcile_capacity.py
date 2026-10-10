@@ -121,6 +121,26 @@ class CapacityObservabilityTest(unittest.TestCase):
         self.assertIn("server_error", error_metric["filter"])
         self.assertNotIn("client_error", error_metric["filter"])
 
+    def test_stream_failure_metric_covers_http_success_errors_without_refusal_noise(self) -> None:
+        metric = json.loads((ROOT / "log-metrics/obs_agent_stream_failure_count.json").read_text())
+        expression = re.search(r'textPayload=~"([^"]+)"', metric["filter"]).group(1)
+        def line(outcome="error", kind="other", code="execution.error", head="one"):
+            return f"INFO one_agent_chat_turn_complete head={head} run=redacted events=2 outcome={outcome} error_class={kind} error_code={code} tools_peak=0"
+        for kind, code in (("model", "model.capacity"), ("model", "model.unavailable"),
+                           ("connector", "unlisted"), ("database", "unlisted"),
+                           ("runtime", "unlisted"), ("other", "execution.error"),
+                           ("other", "execution.timeout"), ("other", "background.execution.error"),
+                           ("escaped_exception", "agent.error"), ("escaped_exception", "resource.exhausted"),
+                           ("escaped_exception", "model.unavailable")):
+            for head in ("one", "intro"):
+                self.assertIsNotNone(re.search(expression, line(kind=kind, code=code, head=head)))
+        for payload in (line(outcome="finished"), line(outcome="client_disconnect"),
+                        line(outcome="server_restarting", kind="shutdown", code="server.restarting"),
+                        line(code="unlisted"), line(kind="escaped_exception", code="unlisted"), line(code="chat.key.required"),
+                        'INFO {"message":"request.summary","outcome_class":"server_error"}'):
+            self.assertIsNone(re.search(expression, payload))
+        self.assertNotIn("labelExtractors", metric)
+
     def test_default_plan_never_mutates_cloud(self) -> None:
         args = module.cli(
             ["--project", "hushh-uat-123", "--sql-instance", "hushh-vault-db"]

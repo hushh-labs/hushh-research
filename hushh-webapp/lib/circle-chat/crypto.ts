@@ -10,6 +10,7 @@ export type SealedChatMessage = {
   clientMessageId: string; rosterVersion: string; ciphertext: string; iv: string;
   imageCiphertext: string | null; imageIv: string | null;
   recipients: { userId: string; envelope: RecipientPayloadEnvelope }[];
+  notificationPreviews?: Record<string, string>;
 };
 export type ChatMessage = {
   id: string; sequence: number; clientMessageId: string; senderUserId: string;

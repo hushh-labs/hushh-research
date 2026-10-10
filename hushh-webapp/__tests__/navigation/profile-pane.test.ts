@@ -98,6 +98,14 @@ describe("Profile pane navigation state", () => {
     ).toBe("/one/profile/connectors?connector=gmail");
   });
 
+  it.each(["instagram", "linkedin"])("returns from %s link entry to Connectors on Back", (id) => {
+    const state = resolveProfilePaneUrlState(
+      `profile_pane=1&profile_panel=connectors&profile_detail=connector:${id}`,
+    );
+    expect(state.location).toEqual({ panel: "connectors", detail: `connector:${id}` });
+    expect(profilePaneParentLocation(state.location)).toEqual({ panel: "connectors", detail: null });
+  });
+
   it("lands every connector sign-in on Connectors in the pane, never a page", () => {
     // Started in Profile: the pane over One.
     expect(buildConnectorSignInReturnHref("connector_settings")).toBe(

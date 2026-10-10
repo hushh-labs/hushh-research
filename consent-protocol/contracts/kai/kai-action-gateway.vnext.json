@@ -4,6 +4,7 @@
   "source_contracts": [
     "hushh-webapp/app/getting-started/page.voice-action-contract.json",
     "hushh-webapp/app/login/page.voice-action-contract.json",
+    "hushh-webapp/app/one/calendar/page.voice-action-contract.json",
     "hushh-webapp/app/one/connect/page.voice-action-contract.json",
     "hushh-webapp/app/one/gmail/page.voice-action-contract.json",
     "hushh-webapp/app/one/kai/analysis/page.voice-action-contract.json",
@@ -65,10 +66,7 @@
         },
         "speaker_persona": "one"
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -93,10 +91,45 @@
         },
         "speaker_persona": "one"
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
+      "search": {},
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_calendar",
+      "surface_title": "Calendar",
+      "docs_references": [
+        "docs/reference/one/one-calendar-knowledge-graph.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "contract_file": "hushh-webapp/app/one/calendar/page.voice-action-contract.json",
+      "defaults": {
+        "speaker_persona": "one",
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ],
+          "routes": [
+            "/one/calendar",
+            "/one"
+          ],
+          "screens": [
+            "one_calendar",
+            "one_agents"
+          ],
+          "hidden_navigable": true,
+          "navigation_prerequisites": [
+            "Open /one/calendar only when the owner asks to see the Calendar page."
+          ]
+        }
       },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -122,10 +155,7 @@
           "auth_signed_in"
         ]
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -149,10 +179,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -175,10 +202,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -209,8 +233,6 @@
         }
       },
       "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508,
         "subview_action_boost": {
           "": [
             "location.pause_updates",
@@ -291,10 +313,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -318,10 +337,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -350,10 +366,7 @@
           "auth_signed_in"
         ]
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -379,10 +392,7 @@
           "auth_signed_in"
         ]
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -408,10 +418,7 @@
           "auth_signed_in"
         ]
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -437,10 +444,7 @@
           "auth_signed_in"
         ]
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -465,10 +469,7 @@
           "auth_signed_in"
         ]
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -497,10 +498,7 @@
           "auth_signed_in"
         ]
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -528,10 +526,7 @@
           "auth_signed_in"
         ]
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -562,10 +557,7 @@
           "review_only": true
         }
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -591,10 +583,7 @@
           "auth_signed_in"
         ]
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -624,10 +613,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -653,10 +639,7 @@
         },
         "speaker_persona": "one"
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -682,10 +665,7 @@
           "auth_signed_in"
         ]
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -714,10 +694,7 @@
           "auth_signed_in"
         ]
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -740,10 +717,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -766,10 +740,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -792,10 +763,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -818,10 +786,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -848,9 +813,7 @@
         "query_defaults": {
           "source": "kai",
           "category": "top-picks"
-        },
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
+        }
       },
       "orchestration": {
         "instruction_id": null,
@@ -874,10 +837,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -900,10 +860,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -926,10 +883,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -952,10 +906,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -992,10 +943,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -1031,10 +979,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -1058,10 +1003,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -1093,10 +1035,7 @@
           "navigation_prerequisites": []
         }
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -1121,8 +1060,6 @@
         }
       },
       "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508,
         "legacy_control_exemptions": {
           "add_holding": "Existing control outside the current Search action catalog; retained as explicit legacy coverage debt.",
           "analysis_retry_save": "Existing control outside the current Search action catalog; retained as explicit legacy coverage debt.",
@@ -1176,10 +1113,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -1202,10 +1136,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -1228,10 +1159,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -1254,10 +1182,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -1286,10 +1211,7 @@
           "auth_signed_in"
         ]
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -1312,10 +1234,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -1338,10 +1257,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -1364,10 +1280,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-        "source_module_count": 1508
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -2306,6 +2219,121 @@
             "type": "action",
             "action_id": "onboarding.back_to_intro",
             "label": "Back to welcome",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "calendar.read",
+      "surface_id": "one_calendar",
+      "label": "Read Calendar",
+      "aliases": [
+        "what is on my calendar",
+        "show my calendar events",
+        "find a calendar event",
+        "when am i free"
+      ],
+      "search_keywords": [
+        "calendar events",
+        "calendar list",
+        "event details",
+        "busy times",
+        "free openings"
+      ],
+      "meaning": "Reads the owner's connected Google Calendar through One Live Voice. The read can list calendars, find events in a bounded time window, open a previously shown event, inspect busy periods, or find openings. Event text is displayed privately on screen; the operational voice model receives only counts and status. No event is created or changed.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/calendar",
+          "/one"
+        ],
+        "screens": [
+          "one_calendar",
+          "one_agents"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Open /one/calendar only when the owner asks to see the Calendar page."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "read_calendar"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "calendar_connection_state",
+        "vault_ready"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-calendar-knowledge-graph.md",
+        "docs/reference/one/one-voice-runtime-architecture.md",
+        "consent-protocol/hushh_mcp/one_voice/tools/calendar.py",
+        "consent-protocol/hushh_mcp/services/google_calendar_service.py"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/calendar"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.calendar.read",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "calendar.read",
+            "label": "Read Calendar",
             "failure_behavior": "stop"
           }
         ],

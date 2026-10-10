@@ -177,8 +177,5 @@
       "speaker_persona": "kai"
     }
   ],
-  "search": {
-    "source_revision": "e3fd0289ef00ab2faf98ab48572b432a98980b58733fd204c27bb623f3f4f0de",
-    "source_module_count": 1508
-  }
+  "search": {}
 }

@@ -20,6 +20,7 @@ import {
 } from "@/components/icons";
 import { ProfilePaneConnectorsIcon } from "@/components/profile/profile-pane-icons";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { ConnectorConfirm } from "@/components/agent/connector-confirm";
 import { Switch } from "@/components/ui/switch";
@@ -198,8 +199,15 @@ const MONOCHROME_LOGOS = new Set(["plaid", "attio", "notion"]);
 function ProfileConnectorGlyph({ id }: { id: string }) {
   const logo = CONNECTOR_LOGOS[id];
   return (
-    <span className="inline-flex size-7 shrink-0 items-center justify-center" aria-hidden="true">
-      {logo ? (
+    <span className="inline-flex size-6 shrink-0 items-center justify-center" aria-hidden="true">
+      {id === "instagram" ? (
+        <svg viewBox="1144 245 590 590" className="size-[22px]" aria-hidden="true">
+          <image href="/icons/connectors/instagram-reference.jpg" width="1920" height="1080" />
+        </svg>
+      ) : id === "linkedin" ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src="/icons/connectors/linkedin.png" alt="" className="size-[22px] object-contain" />
+      ) : logo ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={`/icons/connectors/${logo}.svg`} alt="" className={`size-[22px] object-contain${MONOCHROME_LOGOS.has(id) ? " dark:invert" : ""}`} />
       ) : (
@@ -217,7 +225,7 @@ function ConnectorGlyph({ id }: { id: string }) {
         // eslint-disable-next-line @next/next/no-img-element
         <img src={`/icons/connectors/${logo}.svg`} alt="" className={`size-6 object-contain${MONOCHROME_LOGOS.has(id) ? " dark:invert" : ""}`} />
       ) : (
-        <span className="text-sm font-semibold">•</span>
+        <span className="text-sm font-semibold">{id === "instagram" ? "IG" : id === "linkedin" ? "in" : "•"}</span>
       )}
     </span>
   );
@@ -454,6 +462,10 @@ function OwnerConnectorsPanel({
   // committed between two taps in one frame; a ref is.
   const changesInFlight = useRef(new Set<string>());
   const [search, setSearch] = useState("");
+  const [socialProfileLinks, setSocialProfileLinks] = useState({ instagram: "", linkedin: "" });
+  useEffect(() => {
+    setSocialProfileLinks({ instagram: "", linkedin: "" });
+  }, [user?.uid, vaultOwnerToken]);
   const driveBackgroundId = useId();
   const previousActiveConnector = useRef<string | null>(null);
   const appliedInitialConnector = useRef<string | null>(null);
@@ -2035,8 +2047,20 @@ function OwnerConnectorsPanel({
             ? "Sign-in needed"
             : undefined,
     },
+    ...(surface === "profile" ? ["instagram", "linkedin"].map((id): ConnectorListEntry => ({
+      id,
+      name: id === "instagram" ? "Instagram" : "LinkedIn",
+      connected: false,
+      detail: "Not connected",
+      onOpen: () => showConnector(id),
+      action: {
+        label: `Connect ${id === "instagram" ? "Instagram" : "LinkedIn"}`,
+        onClick: () => showConnector(id),
+      },
+    })) : []),
     ...(overview?.connectors ?? [])
       .filter((item, index, items) => {
+        if (surface === "profile" && ["instagram", "linkedin"].includes(item.connectorId)) return false;
         if (["google_drive", "gmail", "calendar", "plaid"].includes(item.connectorId)) return false;
         if (items.findIndex((candidate) => candidate.connectorId === item.connectorId) !== index) return false;
         // A reviewed manifest may request a card before its runtime row is
@@ -2268,6 +2292,33 @@ function OwnerConnectorsPanel({
             data-connector-detail={activeConnector}
             className="min-w-0 space-y-5 focus:outline-none motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-150"
           >
+            {inProfile && (activeConnector === "instagram" || activeConnector === "linkedin") && (
+              <SettingsGroup>
+                <div data-social-profile-form className="min-w-0 space-y-4 p-4">
+                  <p id={`social-profile-note-${activeConnector}`} className="text-sm text-muted-foreground">
+                    Your profile should be a public figure profile.
+                  </p>
+                  <div className="min-w-0 space-y-2">
+                    <label htmlFor={`social-profile-link-${activeConnector}`} className="text-sm font-medium">
+                      Profile link
+                    </label>
+                    <Input
+                      id={`social-profile-link-${activeConnector}`}
+                      type="url"
+                      inputMode="url"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      autoComplete="off"
+                      className="min-h-11 w-full min-w-0"
+                      placeholder={activeConnector === "instagram" ? "https://www.instagram.com/username/" : "https://www.linkedin.com/in/username/"}
+                      aria-describedby={`social-profile-note-${activeConnector}`}
+                      value={socialProfileLinks[activeConnector]}
+                      onChange={(event) => setSocialProfileLinks((current) => ({ ...current, [activeConnector]: event.target.value }))}
+                    />
+                  </div>
+                </div>
+              </SettingsGroup>
+            )}
             {activeConnector === "gmail" && <section
               aria-labelledby="connection-mail-title"
               className="space-y-3 rounded-xl border border-border p-3"
@@ -2790,7 +2841,7 @@ function OwnerConnectorsPanel({
                 )}
               </section>
             )}
-            {selectedCatalog && !["google_drive", "gmail", "calendar", "plaid"].includes(activeConnector ?? "") && (
+            {selectedCatalog && !["google_drive", "gmail", "calendar", "plaid", ...(inProfile ? ["instagram", "linkedin"] : [])].includes(activeConnector ?? "") && (
               <section className="space-y-3 rounded-xl border border-border p-3" aria-label={`${selectedCatalog.displayName} details`}>
                 <h3 className="font-semibold">{selectedCatalog.displayName}</h3>
                 <p className="text-sm text-muted-foreground">{selectedCatalog.description}</p>

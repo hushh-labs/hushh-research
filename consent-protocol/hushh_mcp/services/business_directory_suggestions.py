@@ -50,9 +50,18 @@ class DirectoryUnavailable(RuntimeError):
 
 
 def _invocation_token(*, local: bool) -> str:
+    # `local` describes the optional reviewer rehearsal, not the runtime.
+    # Ordinary live directory lookup must also work in the local runtime.
+    del local
     account = os.getenv("HUSHH_LOCAL_GCLOUD_ACCOUNT", "").strip()
     if account:
-        if not local or not (
+        local_runtime = (
+            os.getenv("ENVIRONMENT", "").strip().lower() == "development"
+            and os.getenv("APP_RUNTIME_PROFILE", "").strip().lower() == "local"
+            and not os.getenv("HUSHH_DEPLOY_ENV", "").strip()
+            and not os.getenv("K_SERVICE", "").strip()
+        )
+        if not local_runtime or not (
             re.fullmatch(r"[A-Za-z0-9._+%-]+@hushh\.ai", account)
             or account.lower() in _LOCAL_GCLOUD_ALLOWLIST
         ):

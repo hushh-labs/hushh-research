@@ -41,6 +41,7 @@ import { FeedPushPrompt } from "@/components/feed/feed-push-prompt";
 import { FeedPaymentReturnNotice } from "@/components/feed/feed-payment-return-notice";
 import { FeedSoundControl } from "@/components/feed/feed-sound-control";
 import { OwnerConsentUnlockPrompt } from "@/components/consent/owner-consent-unlock-prompt";
+import { DocumentRequestPriceSheet } from "@/components/consent/document-request-price-sheet";
 import { collapseConsentBundleRows } from "@/lib/feed/feed-consent-grouping";
 import { collapseDriveLifecycleRows } from "@/lib/feed/feed-drive-grouping";
 import {
@@ -49,10 +50,12 @@ import {
 } from "@/components/app-ui/settings-ui";
 import {
   useFeedActionables,
+  type DocumentPricePrompt,
   type FeedActionable,
 } from "@/lib/feed/use-feed-actionables";
 import { useFeedBriefing } from "@/lib/feed/use-feed-briefing";
 import { useFeedLiveRefresh } from "@/lib/feed/use-feed-live-refresh";
+import { useDocumentFeedStream } from "@/lib/feed/use-document-feed-stream";
 import { ROUTES } from "@/lib/navigation/routes";
 import { openExternalUrl } from "@/lib/utils/browser-navigation";
 import { listKaiActionsForSurface } from "@/lib/voice/kai-action-gateway";
@@ -99,6 +102,22 @@ function groupItemsByDay(
   }
   return groups;
 }
+
+/** A closed price step, for an actionables source that has none to offer. */
+const CLOSED_DOCUMENT_PRICE_PROMPT: DocumentPricePrompt = {
+  open: false,
+  requesterLabel: "",
+  paymentRequired: false,
+  purpose: null,
+  recipientEmail: null,
+  periodStart: null,
+  periodEnd: null,
+  detailsPending: true,
+  busy: false,
+  error: null,
+  submit: () => undefined,
+  cancel: () => undefined,
+};
 
 function eventInstant(value: { dateTime?: string; date?: string } | null): number {
   const raw = value?.dateTime ?? value?.date;
@@ -249,6 +268,7 @@ function FeedPageSession({
   user: User | null;
   authLoading: boolean;
 }) {
+  useDocumentFeedStream(user);
   const router = useRouter();
   const [pagination, setPagination] = useState(createFeedPaginationState);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -337,6 +357,7 @@ function FeedPageSession({
     hasClearableSmsEmergencies,
     clearSmsEmergencies,
     consentUnlockPrompt,
+    documentPricePrompt = CLOSED_DOCUMENT_PRICE_PROMPT,
   } = useFeedActionables();
   const { upcomingEvents, pendingKyc, needsReplyCount } = useFeedBriefing();
 
@@ -494,6 +515,28 @@ function FeedPageSession({
     }, [refresh]),
     Boolean(user?.uid),
   );
+
+  // Stripe and request deadlines are server-owned. Schedule one local wake at
+  // the next known deadline so an open Feed stops showing a live instruction
+  // without a manual refresh, even when no webhook event is emitted at expiry.
+  useEffect(() => {
+    if (!user?.uid) return;
+    const now = Date.now();
+    const deadlines = (data?.items ?? [])
+      .filter((item) => item.event_type === "document_share_payment_ready")
+      .flatMap((item) => [
+        item.metadata?.current_checkout_expires_at,
+        item.metadata?.current_request_expires_at,
+      ])
+      .map((value) => typeof value === "string" ? Date.parse(value) : NaN)
+      .filter((value) => Number.isFinite(value) && value > now);
+    if (deadlines.length === 0) return;
+    const next = Math.min(...deadlines);
+    const timer = window.setTimeout(() => {
+      void refresh({ force: true });
+    }, Math.min(next - now + 50, 2_147_483_647));
+    return () => window.clearTimeout(timer);
+  }, [data?.items, refresh, user?.uid]);
 
   useEffect(() => {
     if (!data) return;
@@ -983,6 +1026,21 @@ function FeedPageSession({
         </SettingsPresentationProvider>
       </div>
       <OwnerConsentUnlockPrompt prompt={consentUnlockPrompt} />
+      {/* One price step for every document request row; Allow only opens it. */}
+      <DocumentRequestPriceSheet
+        open={documentPricePrompt.open}
+        requesterLabel={documentPricePrompt.requesterLabel}
+        purpose={documentPricePrompt.purpose}
+        recipientEmail={documentPricePrompt.recipientEmail}
+        periodStart={documentPricePrompt.periodStart}
+        periodEnd={documentPricePrompt.periodEnd}
+        detailsPending={documentPricePrompt.detailsPending}
+        paymentRequired={documentPricePrompt.paymentRequired}
+        busy={documentPricePrompt.busy}
+        error={documentPricePrompt.error}
+        onSubmit={documentPricePrompt.submit}
+        onCancel={documentPricePrompt.cancel}
+      />
     </AppPageShell>
   );
 }

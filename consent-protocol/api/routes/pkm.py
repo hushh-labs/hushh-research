@@ -151,7 +151,7 @@ class PKMAgentLabStructureRequest(BaseModel):
     current_domains: list[str] = Field(default_factory=list, max_length=256)
     current_manifests: list[dict] = Field(default_factory=list, max_length=256)
     simulated_state: dict | None = None
-    memory_profile: Literal["general", "kyc_identity_v1"] = "general"
+    memory_profile: Literal["general", "kyc_identity_v1", "business_directory_v1"] = "general"
 
 
 class PKMAgentLabStructureResponse(BaseModel):

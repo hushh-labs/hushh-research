@@ -4787,7 +4787,10 @@ def test_targeted_circle_member_invite_expiry_is_ordered_locked_and_bounded() ->
     assert "WHERE invite.id = candidate.id" in service.sql
 
 
-def test_four_user_location_workflow_contract() -> None:
+def test_four_user_location_workflow_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Stable time prevents fractional timestamp digits resembling a phone suffix.
+    now = datetime.now(timezone.utc).replace(microsecond=222222)
+    monkeypatch.setattr(one_location_agent_module, "_utcnow", lambda: now)
     service = FourUserMemoryService()
     user_a = "user_a"
     user_b = "user_b"

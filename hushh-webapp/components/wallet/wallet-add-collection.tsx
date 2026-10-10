@@ -71,6 +71,7 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
   const openCard = (cardId: string) => { dismissHint(); (onOpen ?? onSelect)(cardId); };
   const stackId = useId();
   const stackRef = useRef<HTMLDivElement>(null);
+  const collectionRef = useRef<HTMLElement>(null);
   const start = useRef<{ x: number; y: number; time: number; cardId?: string } | null>(null);
   const suppressClickUntil = useRef(0);
   const selected = cards.find((card) => card.cardId === selectedCardId) ?? cards[0];
@@ -90,6 +91,39 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
     for (let element = stack.parentElement; element; element = element.parentElement) ancestors.push(element);
     const documentRoot = document.scrollingElement ?? document.documentElement;
     let frame = 0;
+    let foldedGap = (showDetailsLink ? 52 : 0) + 36;
+    let edgeStep = 28;
+    const chrome = document.querySelector<HTMLElement>("[data-app-bottom-shell], [data-bottom-chrome]");
+    const measureFit = () => {
+      const collection = collectionRef.current;
+      const host = collection?.parentElement;
+      if (!collection || !host) return;
+      const hostStyle = getComputedStyle(host);
+      const hostWidth = host.clientWidth - parseFloat(hostStyle.paddingLeft || "0") - parseFloat(hostStyle.paddingRight || "0");
+      if (hostWidth <= 0) { schedule(); return; }
+      const scrollOffset = ancestors.reduce((total, element) => total + Math.max(0, element.scrollTop), 0);
+      const viewportBottom = window.visualViewport ? window.visualViewport.offsetTop + window.visualViewport.height : window.innerHeight;
+      const visibleBottom = Math.min(viewportBottom, chrome?.getBoundingClientRect().top ?? viewportBottom);
+      // The entrance animation translates the collection without changing its
+      // layout. Exclude that transient offset so remounting a tab cannot resize
+      // the deck and leave a different native scroll range behind.
+      const transform = getComputedStyle(collection).transform;
+      const entranceOffset = transform === "none" ? 0 : new DOMMatrixReadOnly(transform).m42;
+      const deckTop = stack.getBoundingClientRect().top + scrollOffset - entranceOffset;
+      const room = Math.max(0, visibleBottom - deckTop);
+      const detailsHeight = showDetailsLink ? 52 : 0;
+      const visibleEdges = Math.min(2, cards.length - 1);
+      // Reserve two real edge strips and a little air above the shared dock.
+      // Only short windows use the smaller card measure; ordinary laptops and
+      // phones keep their full available width, with a readable 260px floor.
+      const fitWidth = Math.min(420, hostWidth, Math.max(260, (room - detailsHeight - visibleEdges * 12 - 8) * 85.6 / 53.98));
+      const cardHeight = fitWidth * 53.98 / 85.6;
+      edgeStep = Math.max(12, Math.min(28, (room - cardHeight - detailsHeight - 8) / Math.max(1, visibleEdges)));
+      foldedGap = detailsHeight + Math.max(0, Math.min(36, room - cardHeight - detailsHeight - visibleEdges * edgeStep - 8));
+      const nextWidth = `${fitWidth.toFixed(2)}px`;
+      if (collection.style.getPropertyValue("--wallet-deck-max-width") !== nextWidth) collection.style.setProperty("--wallet-deck-max-width", nextWidth);
+      schedule();
+    };
     const update = () => {
       frame = 0;
       const cardHeight = stack.clientWidth * 53.98 / 85.6;
@@ -107,7 +141,7 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
       stack.dataset.unfolded = String(progress === 1);
       layers.forEach(layer => {
         const rank = Number(layer.dataset.revealRank);
-        const folded = rank ? cardHeight + gap + (rank - 1) * 28 : 0;
+        const folded = rank ? cardHeight + foldedGap + (rank - 1) * edgeStep : 0;
         const lined = rank * (cardHeight + gap);
         const scale = rank ? 1 - Math.min(2, cards.length - 1 - rank) * .035 * (1 - progress) : 1;
         layer.style.transform = `translate3d(0, ${folded + (lined - folded) * progress}px, 0) scale(${scale})`;
@@ -116,24 +150,27 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
       });
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
-    const observer = new ResizeObserver(schedule);
+    const observer = new ResizeObserver(measureFit);
     observer.observe(stack);
+    if (chrome) observer.observe(chrome);
     ancestors.forEach(element => { observer.observe(element); element.addEventListener("scroll", schedule, { passive: true }); });
     reducedMotion.addEventListener("change", schedule);
     window.addEventListener("scroll", schedule, { passive: true });
-    window.addEventListener("resize", schedule);
+    window.addEventListener("resize", measureFit);
+    window.visualViewport?.addEventListener("resize", measureFit);
     // These only schedule a read of the ensuing native scroll position. They
     // never consume input or manufacture progress when the page did not move.
     stack.addEventListener("wheel", schedule, { passive: true });
     stack.addEventListener("touchmove", schedule, { passive: true });
-    schedule();
+    measureFit();
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
       reducedMotion.removeEventListener("change", schedule);
       ancestors.forEach(element => element.removeEventListener("scroll", schedule));
       window.removeEventListener("scroll", schedule);
-      window.removeEventListener("resize", schedule);
+      window.removeEventListener("resize", measureFit);
+      window.visualViewport?.removeEventListener("resize", measureFit);
       stack.removeEventListener("wheel", schedule);
       stack.removeEventListener("touchmove", schedule);
       stack.querySelectorAll<HTMLElement>("[data-stack-details]").forEach(details => { details.style.visibility = ""; });
@@ -201,8 +238,8 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
   };
 
   return (
-    <section className="motion-step-enter mx-auto w-full max-w-[420px] space-y-5 py-4" data-testid={preview ? "wallet-preview-collection" : "wallet-add-collection"} aria-label={preview && !renderCard ? "Example cards" : "Your cards"}>
-      {!preview ? <div className="space-y-1">
+    <section ref={collectionRef} style={scrollReveal ? { maxWidth: "var(--wallet-deck-max-width, 420px)" } : undefined} className={`motion-step-enter mx-auto w-full max-w-[420px] space-y-5 ${scrollReveal ? "py-0" : "py-4"}`} data-testid={preview ? "wallet-preview-collection" : "wallet-add-collection"} aria-label={preview && !renderCard ? "Example cards" : "Your cards"}>
+      {!preview && !scrollReveal ? <div className="space-y-1">
         <h2 className={TYPOGRAPHY_CLASSNAMES.mediumRowLabel}>Your cards</h2>
         <p className={TYPOGRAPHY_CLASSNAMES.helperText}>
           {cards.length ? "Manage the cards available to your Wallet." : "No cards added yet."}

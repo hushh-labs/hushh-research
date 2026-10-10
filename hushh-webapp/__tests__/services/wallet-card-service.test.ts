@@ -395,6 +395,23 @@ describe("resolvePublicCard", () => {
     expect(result.card.portfolio).toBeNull();
     expect(result.card.avatar_url).toBeNull();
   });
+
+  it("keeps an uploaded profile photo for a scan and for the owner preview", async () => {
+    const photo = `data:image/jpeg;base64,${"QUJD".repeat(8)}`;
+    const wire = { status: "active", card: { fullName: "Ada Lovelace", avatarUrl: photo } };
+    mockApiJson.mockResolvedValueOnce(wire).mockResolvedValueOnce(wire);
+
+    const scanned = await WalletCardService.resolvePublicCard(SHARE_TOKEN);
+    const previewed = await WalletCardService.previewAsVisitor({
+      vaultOwnerToken: "vault-owner-token",
+      userId: "user_123",
+    });
+
+    for (const result of [scanned, previewed]) {
+      if (result.state !== "available") throw new Error("expected available");
+      expect(result.card.avatar_url).toBe(photo);
+    }
+  });
 });
 
 // ==================== Pass availability ====================

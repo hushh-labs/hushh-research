@@ -13,6 +13,8 @@ import json
 import re
 import time
 from collections.abc import Awaitable, Callable
+from contextlib import asynccontextmanager, nullcontext
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -237,6 +239,26 @@ def _decode_json(payload: bytes) -> dict[str, Any]:
 
 
 class GoogleDriveAdapter:
+    def __init__(self):
+        # A search slice may read several pages and shortcut targets. Reuse
+        # connections only inside its task-local lifetime; no ambient client
+        # or credential survives the slice or crosses concurrent searches.
+        self._read_client: ContextVar[httpx.AsyncClient | None] = ContextVar(
+            "drive_read_client", default=None
+        )
+
+    @asynccontextmanager
+    async def read_session(self):
+        if self._read_client.get() is not None:
+            yield
+            return
+        async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
+            marker = self._read_client.set(client)
+            try:
+                yield
+            finally:
+                self._read_client.reset(marker)
+
     async def _get(
         self,
         path: str,
@@ -371,10 +393,18 @@ class GoogleDriveAdapter:
             raise DriveReadError("operation_not_allowed")
         if not isinstance(access_token, str) or not 1 <= len(access_token) <= 16384:
             raise DriveReadError("reconnect_required")
+        started = time.perf_counter()
+        headers_ms = None
+        body_started = None
+        outcome = "error"
         try:
             async with (
                 asyncio.timeout(DEADLINE_SECONDS),
-                httpx.AsyncClient(timeout=15, follow_redirects=False) as client,
+                (
+                    nullcontext(self._read_client.get())
+                    if self._read_client.get() is not None
+                    else httpx.AsyncClient(timeout=15, follow_redirects=False)
+                ) as client,
                 client.stream(
                     "GET",
                     DRIVE_BASE + path,
@@ -394,6 +424,8 @@ class GoogleDriveAdapter:
                     },
                 ) as response,
             ):
+                body_started = time.perf_counter()
+                headers_ms = (body_started - started) * 1000
                 if response.status_code == 401:
                     raise DriveReadError("reconnect_required")
                 if response.status_code == 403 and await retryable_403_response(response):
@@ -422,6 +454,7 @@ class GoogleDriveAdapter:
                     if len(body) + len(chunk) > limit:
                         raise DriveReadError("file_too_large")
                     body.extend(chunk)
+                outcome = "ok"
                 return bytes(body)
         except (httpx.HTTPError, TimeoutError) as error:
             logger.warning(
@@ -432,6 +465,26 @@ class GoogleDriveAdapter:
                 else "transport",
             )
             raise DriveReadError("provider_unavailable", retryable=True) from None
+        except asyncio.CancelledError:
+            outcome = "cancelled"
+            raise
+        finally:
+            # Fixed operation labels only: URLs, q, page tokens, IDs, keys and
+            # provider error bodies remain private. -1 means no headers/body
+            # were received, not a measured zero-duration provider response.
+            logger.info(
+                "drive_rest.response operation=%s outcome=%s headers_ms=%.2f body_ms=%.2f",
+                "list"
+                if path == "/files"
+                else "drives"
+                if path == "/drives"
+                else "account"
+                if path == "/about"
+                else "file",
+                outcome,
+                headers_ms if headers_ms is not None else -1,
+                (time.perf_counter() - body_started) * 1000 if body_started is not None else -1,
+            )
 
     async def account(self, *, access_token: str) -> dict[str, str]:
         result = _decode_json(

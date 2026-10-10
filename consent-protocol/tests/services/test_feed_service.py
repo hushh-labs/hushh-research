@@ -223,6 +223,46 @@ def test_feed_projection_allows_only_bounded_renderer_metadata() -> None:
     }
 
 
+def test_historical_drive_payment_reads_current_requester_scoped_status() -> None:
+    request_id = "11111111-2222-4333-8444-555555555555"
+    db = _QueuedDb(
+        raw_results=[
+            [
+                {
+                    "request_id": request_id,
+                    "current_request_status": "pending",
+                    "current_request_expires_at": "2026-10-10T00:00:00Z",
+                    "current_request_expired": False,
+                    "current_access_stopped": False,
+                    "current_payment_status": "paid",
+                    "current_checkout_expires_at": "2026-10-09T00:00:00Z",
+                    "current_checkout_expired": True,
+                    "provider_secret": "never-send-this",
+                }
+            ]
+        ]
+    )
+    service = FeedService()
+    service._db = db
+    rows = service._with_drive_payment_status(
+        "requester",
+        [
+            {
+                "event_type": "document_share_payment_ready",
+                "metadata": {"request_id": request_id, "file_name": "private.pdf"},
+            },
+        ],
+    )
+    sql, params = db.raw_calls[0]
+    assert "r.recipient_user_id=:user_id" in sql
+    assert params["user_id"] == "requester"
+    metadata = FeedService._to_item({"id": 1, **rows[0]})["metadata"]
+    assert metadata["current_payment_status"] == "paid"
+    assert metadata["current_checkout_expired"] is True
+    assert "provider_secret" not in str(metadata)
+    assert "private.pdf" not in str(metadata)
+
+
 def test_recipient_share_outcome_hides_owner_zero_match_result() -> None:
     recipient = FeedService._to_item(
         {

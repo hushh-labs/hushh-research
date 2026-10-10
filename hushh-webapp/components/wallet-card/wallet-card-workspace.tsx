@@ -1,13 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, Lock, Share2, Wallet } from "@/components/icons";
+import { Lock, Wallet } from "@/components/icons";
 import { SuccessRowIcon, WalletAgentIcon } from "@/components/icons/agents";
 import { toast } from "sonner";
 
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
-import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
+import { SettingsGroup, SettingsPresentationProvider, SettingsRow } from "@/components/profile/settings-ui";
+import { RowDescription, SectionTitle } from "@/components/app-ui/typography";
 import { PkmSettingsShell } from "@/components/profile/pkm-settings-shell";
+import { WalletCardImageShareButton } from "@/components/wallet/wallet-card-image-share-button";
+import type { WalletDemoProfile } from "@/components/wallet/wallet-demo-cards";
 import { useAuth } from "@/hooks/use-auth";
 import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
 import { Button } from "@/lib/morphy-ux/morphy";
@@ -89,10 +92,10 @@ type VisitorPreviewState =
 function WalletProfileShell({ embedded, title, description, children }: {
   embedded: boolean; title: string; description: string; children: ReactNode;
 }) {
-  return embedded ? <section aria-label={title} className="space-y-4">
-    <div className="space-y-1"><h3 className="ui-text-section-title">{title}</h3><p className="text-sm text-muted-foreground">{description}</p></div>
+  return <SettingsPresentationProvider separatorInset density="compact">{embedded ? <section aria-label={title} className="space-y-4">
+    <div className="space-y-1"><SectionTitle as="h3">{title}</SectionTitle><RowDescription compact>{description}</RowDescription></div>
     {children}
-  </section> : <PkmSettingsShell title={title} description={description} innerClassName="mx-auto max-w-[580px]">{children}</PkmSettingsShell>;
+  </section> : <PkmSettingsShell title={title} description={description} innerClassName="mx-auto max-w-[580px]">{children}</PkmSettingsShell>}</SettingsPresentationProvider>;
 }
 
 type WalletCardWorkspaceProps = { embedded?: boolean; passVariant?: WalletPassVariant; active?: boolean };
@@ -134,6 +137,20 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
   useScrollReset(stage, { enabled: true, behavior: "auto" });
   const [confirm, setConfirm] = useState<ConfirmKind | null>(null);
   const [applePassSupported, setApplePassSupported] = useState(false);
+  const imageShareProfile = useMemo<WalletDemoProfile>(() => ({
+    ownerId: userId ?? undefined,
+    displayName: card?.cardPayload?.full_name?.trim() || card?.displayName || user?.displayName || null,
+    cardPayload: card?.cardPayload ?? null,
+    memberSince: user?.metadata?.creationTime ?? card?.createdAt ?? null,
+    walletId: card?.passSerial ?? null,
+    shareUrl: shareLink?.shareUrl ?? null,
+    shareToken: shareLink?.shareToken ?? null,
+  }), [userId, user?.displayName, user?.metadata?.creationTime, card, shareLink]);
+  const imageShareAction = <WalletCardImageShareButton
+    cardId={passVariant === "nws" ? "agent-one-nws" : "agent-one-profile"}
+    profile={imageShareProfile}
+    disabled={!active || authLoading || !userId || !vaultOwnerToken || !isVaultUnlocked || card?.status !== "active" || !shareLink || saving || busyAction !== null}
+  />;
 
   const localStageOpen = stage === "edit" || stage === "preview" || stage === "success";
   const closeLocalStage = useCallback(() => {
@@ -663,7 +680,6 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
                 headline={draft.headline || card?.headline || ""}
                 organisation={draft.organisation}
                 locationLabel={draft.locationLabel}
-                avatarUrl={avatarUrl}
                 shareUrl={shareLink?.shareUrl ?? null}
               />
             </div>
@@ -695,13 +711,12 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
             </div>
           </SettingsGroup>
 
-          <p className="px-1 text-[12px] leading-[1.5] text-muted-foreground">
+          <RowDescription compact className="px-1">
             {WALLET_CARD_OWNER_COPY.updatesAutomatically}
-          </p>
+          </RowDescription>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {previewOrigin === "setup" ? (
-              <>
+          {previewOrigin === "setup" ? (
+            <div className="flex flex-wrap items-center gap-2">
                 {applePassSupported ? (
                   <Button
                     type="button"
@@ -713,18 +728,7 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
                     <Wallet className="mr-2 h-4 w-4" aria-hidden />
                     {WALLET_CARD_OWNER_COPY.addToWallet}
                   </Button>
-                ) : (
-                  <Button
-                    type="button"
-                    size="sm"
-                    loading={busyAction === "share"}
-                    disabled={!shareLink}
-                    onClick={() => void shareLinkAction()}
-                  >
-                    <Share2 className="mr-2 h-4 w-4" aria-hidden />
-                    {WALLET_CARD_OWNER_COPY.shareLink}
-                  </Button>
-                )}
+                ) : imageShareAction}
                 <Button
                   type="button"
                   size="sm"
@@ -743,20 +747,8 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
                 >
                   Not now
                 </Button>
-              </>
-            ) : (
-              <Button
-                type="button"
-                size="sm"
-                variant="none"
-                effect="fade"
-                onClick={closeLocalStage}
-              >
-                <ArrowLeft className="mr-2 h-4 w-4" aria-hidden />
-                Back
-              </Button>
-            )}
-          </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -787,6 +779,7 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
           applePassSupported={applePassSupported}
           busyAction={busyAction}
           onAction={onManageAction}
+          shareAction={imageShareAction}
         />
       ) : null}
 

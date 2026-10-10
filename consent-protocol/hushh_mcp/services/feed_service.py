@@ -115,6 +115,16 @@ _SAFE_METADATA_KEYS = frozenset(
         # own saved result. An opaque id owned by the same person.
         "run_id",
         "user_facing_status",
+        # Read-time status of a historical payment instruction. The source
+        # order and request remain authoritative; this bounded projection
+        # prevents an old Pay row from surviving payment or expiry.
+        "current_request_status",
+        "current_payment_status",
+        "current_checkout_expired",
+        "current_request_expired",
+        "current_access_stopped",
+        "current_checkout_expires_at",
+        "current_request_expires_at",
         "new_status",
         "actor_is_self",
         # Which lane a location share belongs to ("sos" vs everything else).
@@ -318,12 +328,100 @@ class FeedService:
         rows = rows[:bounded_limit]
         rows = self._with_counterpart_photos(user_id, rows)
         rows = self._with_direct_message_previews(user_id, rows)
+        rows = self._with_drive_payment_status(user_id, rows)
         next_cursor = str(rows[-1]["id"]) if has_more and rows else None
         return {
-            "items": [self._to_item(row) for row in rows],
+            "items": [self._to_item(row, user_id) for row in rows],
             "next_cursor": next_cursor,
             "unread_count": self.unread_count(user_id),
         }
+
+    def _with_drive_payment_status(
+        self, user_id: str, rows: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Batch refresh the authority behind historical Pay instructions.
+
+        A Feed page is capped at 100 items. The query is scoped to the
+        authenticated requester as well as each opaque request ID, and never
+        returns an owner ID, provider link, file, or request content.
+        """
+        request_ids: set[str] = set()
+        for row in rows:
+            if row.get("event_type") != "document_share_payment_ready":
+                continue
+            metadata = row.get("metadata")
+            if not isinstance(metadata, dict):
+                continue
+            try:
+                request_ids.add(str(UUID(str(metadata.get("request_id") or ""))))
+            except (TypeError, ValueError, AttributeError):
+                continue
+        if not request_ids:
+            return rows
+
+        by_request: dict[str, dict[str, Any]] = {}
+        try:
+            results = (
+                self._get_db()
+                .execute_raw(
+                    """
+                    SELECT r.request_id::TEXT AS request_id,
+                           r.status AS current_request_status,
+                           r.expires_at AS current_request_expires_at,
+                           (r.expires_at <= clock_timestamp()) AS current_request_expired,
+                           (r.access_stop_requested_at IS NOT NULL) AS current_access_stopped,
+                           o.status AS current_payment_status,
+                           (o.stripe_checkout_session_id IS NOT NULL AND
+                            o.stripe_checkout_expires_at IS NOT NULL AND
+                            o.stripe_checkout_expires_at <= clock_timestamp()) AS current_checkout_expired,
+                           CASE WHEN o.stripe_checkout_session_id IS NOT NULL
+                             THEN o.stripe_checkout_expires_at END AS current_checkout_expires_at
+                    FROM drive_share_requests r
+                    JOIN jsonb_array_elements_text(CAST(:request_ids_json AS JSONB)) ids(value)
+                      ON r.request_id = CAST(ids.value AS UUID)
+                    LEFT JOIN drive_request_payment_orders o ON o.request_id=r.request_id
+                    WHERE r.recipient_user_id=:user_id
+                    """,
+                    {
+                        "user_id": user_id,
+                        "request_ids_json": json.dumps(sorted(request_ids)),
+                    },
+                )
+                .data
+                or []
+            )
+            by_request = {str(item["request_id"]): item for item in results}
+        except Exception as exc:  # presentation must not break Feed availability
+            logger.warning("feed.drive_payment_status_unavailable error=%s", type(exc).__name__)
+
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            if row.get("event_type") != "document_share_payment_ready":
+                result.append(row)
+                continue
+            metadata = row.get("metadata")
+            if not isinstance(metadata, dict):
+                result.append(row)
+                continue
+            current = by_request.get(str(metadata.get("request_id") or ""), {})
+            # Fail closed in presentation: a missing read cannot authorize a
+            # historical Pay instruction. The live payment action is fetched
+            # separately from the authenticated consent/payment projection.
+            projection = {
+                "current_payment_status": current.get("current_payment_status") or "unavailable",
+                "current_request_status": current.get("current_request_status") or "unavailable",
+                "current_checkout_expired": current.get("current_checkout_expired") is True,
+                "current_request_expired": current.get("current_request_expired") is True,
+                "current_access_stopped": current.get("current_access_stopped") is True,
+            }
+            for field in ("current_checkout_expires_at", "current_request_expires_at"):
+                instant = current.get(field)
+                if instant is not None:
+                    projection[field] = (
+                        instant.isoformat() if hasattr(instant, "isoformat") else str(instant)
+                    )
+            result.append({**row, "metadata": {**metadata, **projection}})
+        return result
 
     def _with_counterpart_photos(
         self, user_id: str, rows: list[dict[str, Any]]
@@ -791,7 +889,7 @@ class FeedService:
         return {"status": "ok"}
 
     @staticmethod
-    def _to_item(row: dict[str, Any]) -> dict[str, Any]:
+    def _to_item(row: dict[str, Any], viewer_user_id: str | None = None) -> dict[str, Any]:
         metadata = _safe_feed_metadata(row.get("metadata"))
         if row.get("event_type") == _DIRECT_MESSAGE_RECEIVED_EVENT:
             # These fields originate only from `_with_direct_message_previews`.
@@ -807,6 +905,17 @@ class FeedService:
             conversation_id = _direct_message_source_id(row.get(_DIRECT_MESSAGE_CONVERSATION_FIELD))
             if conversation_id is not None:
                 metadata["direct_message_conversation_id"] = conversation_id
+                if viewer_user_id:
+                    from hushh_mcp.services.direct_message_route_cipher import (
+                        DirectMessageRouteCipher,
+                    )
+
+                    try:
+                        metadata["direct_message_route_token"] = DirectMessageRouteCipher().seal(
+                            viewer_user_id, "conversation", conversation_id
+                        )
+                    except DirectMessagesError:
+                        pass  # Keep Feed readable; unavailable messaging opens the inbox.
 
             preview = _direct_message_preview(row.get(_DIRECT_MESSAGE_PREVIEW_FIELD))
             if preview is not None:

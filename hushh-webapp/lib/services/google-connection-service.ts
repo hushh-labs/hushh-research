@@ -11,6 +11,8 @@ export type GoogleConnectionStatus = {
   status: "connected" | "needs_reauth" | "disconnected";
   access_level?: "read" | "manage" | null;
   scope_csv: string;
+  /** Calendar only: whether Google granted subscribed-calendar discovery. */
+  calendar_list_access?: boolean;
 };
 
 export type GoogleConnectionCompletion = GoogleConnectionStatus & {

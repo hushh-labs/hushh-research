@@ -75,7 +75,7 @@ function Page() {
           <button data-testid="fixture-mode" onClick={() => setVoice(value => !value)}>Switch input mode</button>
         </div> : null}
       </main>
-      <AppBottomShell model={{ navigationHidden: false, agentBarHidden: chat }} />
+      <AppBottomShell model={{ navigationHidden: false, agentBarHidden: chat || dataset.reserveFullDock === "true", includeComposerHeight: dataset.reserveFullDock === "true" }} />
       {chat ? <AgentDockPortal enabled visible={!voice}>
         <form data-agent-chat-composer-form="root" onSubmit={event => event.preventDefault()}>
           <AgentBarSurface embedded className="agent-chat-composer-surface agent-chat-composer-compact flex min-w-0 items-end gap-2 overflow-hidden">

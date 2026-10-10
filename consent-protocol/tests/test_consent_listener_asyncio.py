@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -44,6 +46,26 @@ def _clear_tasks():
     _background_notify_tasks.clear()
     yield
     _background_notify_tasks.clear()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("request_id", ["synthetic-request", ""])
+async def test_push_enrichment_reads_off_loop_with_owner_filter(monkeypatch, request_id):
+    from api import consent_listener
+
+    loop_thread = threading.get_ident()
+    observed = []
+
+    def execute_raw(query, parameters):
+        observed.append((threading.get_ident(), query, parameters))
+        return SimpleNamespace(data=[])
+
+    monkeypatch.setattr("db.db_client.get_db", lambda: SimpleNamespace(execute_raw=execute_raw))
+    payload = {"user_id": "synthetic-owner", "request_id": request_id}
+    assert await consent_listener._enrich_notify_payload(payload) == payload
+    assert observed[0][0] != loop_thread
+    assert "WHERE user_id = :user_id" in observed[0][1]
+    assert observed[0][2]["user_id"] == "synthetic-owner"
 
 
 # ===========================================================================
@@ -441,3 +463,19 @@ class TestConsentListenerHTTPReachability:
             assert isinstance(_background_notify_tasks, set)
 
         asyncio.run(_run())
+
+
+@pytest.mark.asyncio
+async def test_push_worker_keeps_blocking_sdk_work_off_loop(monkeypatch):
+    from api import consent_listener
+
+    loop_thread = threading.get_ident()
+    observed = []
+    monkeypatch.setattr(
+        consent_listener,
+        "_send_fcm_for_user_sync",
+        lambda user_id, data: observed.append((threading.get_ident(), user_id, data)),
+    )
+    await consent_listener._send_fcm_for_user("synthetic-owner", {"action": "REQUESTED"})
+    assert observed[0][0] != loop_thread
+    assert observed[0][1:] == ("synthetic-owner", {"action": "REQUESTED"})

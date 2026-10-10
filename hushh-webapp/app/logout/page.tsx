@@ -86,7 +86,7 @@ export default function LogoutPage() {
 
         // Sign out from Firebase
         const currentUid = auth.currentUser?.uid ?? null;
-        await AuthService.signOut();
+        await AuthService.signOut(currentUid);
         CacheSyncService.onAuthSignedOut(currentUid);
 
         // Step 1: Logout complete

@@ -22,6 +22,8 @@ def _drain(
     workers,
     search_worker=None,
     bulk_share_worker=None,
+    bulk_removal_worker=None,
+    checkout_worker=None,
     refund_worker=None,
     packet_order_worker=None,
 ):
@@ -31,6 +33,8 @@ def _drain(
         search_worker=search_worker or _worker({"outcomes": {"completed": 1}}),
         permission_worker=workers[2],
         bulk_share_worker=bulk_share_worker or _worker({"outcomes": {"not_claimed": 1}}),
+        bulk_removal_worker=bulk_removal_worker or _worker({"outcomes": {"materialized": 0}}),
+        checkout_worker=checkout_worker or _worker({"outcomes": {"not_claimed": 1}}),
         notification_worker=workers[3],
         refund_worker=refund_worker or _worker({"outcomes": {"disabled": 1}}),
         packet_order_worker=packet_order_worker or _worker({"outcomes": {"disabled": 1}}),
@@ -56,6 +60,8 @@ async def test_document_stage_is_exclusive_bounded_and_aggregate_only():
             "searches": {"deferred": 1},
             "permissions": {"deferred": 1},
             "bulk_shares": {"deferred": 1},
+            "bulk_removals": {"deferred": 1},
+            "checkouts": {"deferred": 1},
             "notifications": {"deferred": 1},
             "refunds": {"deferred": 1},
             "packet_orders": {"deferred": 1},
@@ -84,6 +90,8 @@ async def test_suggestion_stage_does_not_claim_document_or_sharing_work():
         "searches": {"completed": 1},
         "permissions": {"deferred": 1},
         "bulk_shares": {"deferred": 1},
+        "bulk_removals": {"deferred": 1},
+        "checkouts": {"deferred": 1},
         "notifications": {"deferred": 1},
         "refunds": {"deferred": 1},
         "packet_orders": {"deferred": 1},
@@ -110,11 +118,29 @@ async def test_sharing_stage_continues_notification_after_permission_failure():
         "searches": {"deferred": 1},
         "permissions": {"unavailable": 1},
         "bulk_shares": {"not_claimed": 1},
+        "bulk_removals": {"materialized": 0},
+        "checkouts": {"not_claimed": 1},
         "notifications": {"settled": 1},
         "refunds": {"disabled": 1},
         "packet_orders": {"disabled": 1},
     }
     assert "private" not in str(result)
+
+
+@pytest.mark.asyncio
+async def test_sharing_stage_binds_checkout_before_dispatching_payment_notice():
+    workers = [_worker({"outcomes": {}}) for _ in range(4)]
+    checkout = _worker({"outcomes": {"ready": 1}})
+
+    async def notification_after_checkout(**_):
+        assert checkout.run.await_count == 1
+        return {"outcomes": {"settled": 1}}
+
+    workers[3].run.side_effect = notification_after_checkout
+    result = await _drain(workers, checkout_worker=checkout).run(stage="sharing")
+
+    assert result["workers"]["checkouts"] == {"ready": 1}
+    assert result["workers"]["notifications"] == {"settled": 1}
 
 
 @pytest.mark.asyncio

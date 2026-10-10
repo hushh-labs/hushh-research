@@ -26,11 +26,13 @@ const mocks = vi.hoisted(() => ({
   identityRefresh: vi.fn(),
   clearMarketingSeen: vi.fn(),
   markForceIntroOnce: vi.fn(),
+  clearLocalChatNotificationState: vi.fn().mockResolvedValue(undefined),
   deleteFCMToken: vi.fn(),
   replaceDocument: vi.fn(),
 }));
 
 vi.mock("@/lib/notifications/fcm-service", () => ({
+  clearLocalChatNotificationState: vi.fn().mockResolvedValue(undefined),
   deleteFCMToken: mocks.deleteFCMToken,
 }));
 

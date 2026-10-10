@@ -2905,9 +2905,16 @@ async def test_tap_on_a_reused_card_reports_to_the_turn_it_was_reshown_on():
     assert event["kind"] == "tool_result"
 
 
-async def test_tap_tier_requires_receipt_and_rejects_spoken_yes():
+@pytest.mark.parametrize("provider_delay", [0, 0.35])
+async def test_tap_tier_requires_receipt_and_rejects_spoken_yes(provider_delay):
+    class DelayedLive(FakeLive):
+        async def events(self):
+            await asyncio.sleep(provider_delay)
+            async for event in super().events():
+                yield event
+
     transport = FakeTransport([AUTH])
-    fake = FakeLive(
+    fake = DelayedLive(
         [
             LiveEvent(
                 kind="tool_call",
@@ -2919,7 +2926,8 @@ async def test_tap_tier_requires_receipt_and_rejects_spoken_yes():
     pending = MemoryPendingStore()
     session = _session(transport, fake, pending=pending)
     task = asyncio.create_task(session.run())
-    await asyncio.sleep(0.3)
+    # Synchronize with observable frames, not the CI runner's scheduling speed.
+    await _until(lambda: transport.frames("pending_action"))
     card = transport.frames("pending_action")[0]
     assert card["tier"] == "tap" and card["requires_tap"] is True and card["receipt_token"]
     # spoken yes is refused
@@ -2935,7 +2943,7 @@ async def test_tap_tier_requires_receipt_and_rejects_spoken_yes():
             "receipt_token": "nope",
         }
     )
-    await asyncio.sleep(0.1)
+    await _until(lambda: transport.frames("pending_action.resolved"))
     resolved = transport.frames("pending_action.resolved")
     assert (
         resolved[-1]["status"] == "not_pending"
@@ -2950,7 +2958,8 @@ async def test_tap_tier_requires_receipt_and_rejects_spoken_yes():
             "receipt_token": card["receipt_token"],
         }
     )
-    await asyncio.sleep(0.1)
+    await _until(lambda: len(transport.frames("pending_action.resolved")) == 2)
+    await _until(lambda: fake.events_sent)
     assert transport.frames("pending_action.resolved")[-1]["status"] == "executed"
     assert pending.rows[card["pending_action_id"]].status == "executed"
     result = transport.frames("tool.result")[-1]

@@ -217,18 +217,22 @@
 
 .privacy { display: flex; justify-content: center; width: 100%; }
 
-.shell .privacyText {
-  margin: 0;
+/* The handshake mark and the sentence read as one centred unit, on a shared
+   vertical centre so the icon sits level with the text. */
+.shell .privacy > div {
+  align-items: center;
+  justify-content: center;
+  width: auto;
   max-width: 100%;
+  gap: 10px;
   color: #626b80;
   font-family: var(--font-app-body);
   font-size: 14px;
   font-weight: 400;
   line-height: 20px;
-  text-align: center;
 }
 
-:global(.dark) .shell .privacyText { color: #bfbfc8; }
+:global(.dark) .shell .privacy > div { color: #bfbfc8; }
 
 .ctaLabel { position: relative; }
 

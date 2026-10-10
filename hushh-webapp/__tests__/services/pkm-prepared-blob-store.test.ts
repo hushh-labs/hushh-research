@@ -28,6 +28,10 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
 import { ApiService } from "@/lib/services/api-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { buildPersonalKnowledgeModelStructureArtifacts } from "@/lib/personal-knowledge-model/manifest";
+import { webcrypto } from "node:crypto";
+import { encryptData, decryptData, type EncryptedPayload } from "@/lib/vault/encrypt";
+import { businessReviewFields, selectBusinessReviewFields } from "@/lib/agent/business-profile-fields";
+import type { AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
 
 function stringify(value: unknown): string {
   return JSON.stringify(value);
@@ -43,6 +47,48 @@ describe("PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob", () =
       iv: "iv-1",
       tag: "tag-1",
     });
+  });
+
+  it.each(["create_entity", "extend_entity"])("encrypts and round-trips only selected business fields (%s)", async mode => {
+    vi.stubGlobal("crypto", webcrypto);
+    const vaultKey = "7f".repeat(32); // Synthetic key; no live owner writes.
+    encryptDataMock.mockImplementation(({ plaintext, keyHex }: { plaintext: string; keyHex: string }) => encryptData(plaintext, keyHex));
+    vi.spyOn(PersonalKnowledgeModelService, "getDomainManifest").mockResolvedValue(null);
+    const api = vi.spyOn(ApiService, "apiFetch").mockResolvedValue(new Response(JSON.stringify({ success: true, data_version: 2 })));
+    const prior = { name: "Prior synthetic name", phone: "Previously saved phone", _business_origin: { business_uid: "business-one" } };
+    const sibling = { name: "Unrelated synthetic business", _business_origin: { business_uid: "business-two" } };
+    const card: AgentPkmPreviewCard = { card_id: "business-one", write_mode: "confirm_first", target_domain: "professional",
+      target_entity_scope: "businesses", target_entity_id: null,
+      candidate_payload: { businesses: { entities: { reviewed: {
+        name: "Selected synthetic name", phone: "Unchecked new phone", _business_origin: { business_uid: "business-one" },
+      } } } },
+      structure_decision: { target_domain: "professional" },
+      merge_decision: { merge_mode: mode, target_entity_path: mode === "create_entity" ? "" : "businesses.entities.reviewed" },
+    };
+    const chosen = selectBusinessReviewFields(card, businessReviewFields(card).filter(field => field.path[0] === "name").map(field => field.id))!;
+    try {
+      const result = await PersonalKnowledgeModelService.storePreparedDomainWithPreparedBlob({
+        userId: "synthetic-owner", vaultKey, vaultOwnerToken: "synthetic-owner-token", domain: "professional",
+        baseFullBlob: { professional: { businesses: { entities: { sibling, ...(mode === "extend_entity" ? { reviewed: prior } : {}) } } } },
+        domainData: chosen.candidate_payload!, summary: {}, mergeDecision: chosen.merge_decision,
+        structureDecision: chosen.structure_decision, cacheFullBlob: false,
+      });
+      expect(result.success).toBe(true);
+      expect(result.dataVersion).toBe(2);
+      const payload = JSON.parse(String(api.mock.calls[0]![1]!.body)) as { encrypted_blob: EncryptedPayload };
+      expect(payload.encrypted_blob.ciphertext).not.toContain("Selected synthetic name");
+      expect(JSON.stringify(payload)).not.toContain("Unchecked new phone");
+      const readback = JSON.parse(await decryptData(payload.encrypted_blob, vaultKey));
+      expect(readback).toEqual(result.fullBlob.professional);
+      expect(readback.businesses.entities.sibling).toEqual(sibling);
+      expect(readback.businesses.entities.reviewed).toMatchObject({ name: "Selected synthetic name", entity_id: "reviewed",
+        _business_origin: { business_uid: "business-one" } });
+      if (mode === "extend_entity") expect(readback.businesses.entities.reviewed.phone).toBe(prior.phone);
+      else expect(readback.businesses.entities.reviewed.phone).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+      encryptDataMock.mockReset().mockResolvedValue({ ciphertext: "ciphertext-1", iv: "iv-1", tag: "tag-1" });
+    }
   });
 
   it.each(["prepared", "merged"] as const)("retains reviewed semantic metadata in the %s writer", async (writer) => {

@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-10-07",
-  "total_routes": 126,
-  "native_required_routes": 105,
+  "generated_at": "2026-10-09",
+  "total_routes": 128,
+  "native_required_routes": 107,
   "excluded_routes": 21,
   "routes": [
     {
@@ -648,6 +648,21 @@
       ]
     },
     {
+      "route": "/one/todos",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Ftodos",
+      "expectedMarker": "native-route-one-todos",
+      "expectedRoute": "/one/todos",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loading",
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
       "route": "/one/marketplace",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fmarketplace",
@@ -997,13 +1012,28 @@
     {
       "route": "/one/profile/referrals",
       "classification": "native-required-functional",
+      "legacyAlias": true,
       "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Freferrals",
-      "expectedMarker": "native-route-profile",
-      "expectedRoute": "/one/profile/referrals",
+      "expectedMarker": "native-route-one-referrals",
+      "expectedRoute": "/one/referrals",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
-        "loaded"
+        "loaded",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/referrals",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Freferrals",
+      "expectedMarker": "native-route-one-referrals",
+      "expectedRoute": "/one/referrals",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "unavailable-valid"
       ]
     },
     {

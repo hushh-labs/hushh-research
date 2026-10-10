@@ -546,11 +546,8 @@ class ConsentDBService:
         # Note: Cannot use .neq("request_id", None) - SQL "!= NULL" is always NULL (not true)
         # Instead, fetch all rows and filter request_id IS NOT NULL in Python
         query = db.table("consent_audit").select("*")
-        response = (
-            self._apply_user_filter(query, user_id, user_ids)
-            .order("issued_at", desc=True)
-            .execute()
-        )
+        query = self._apply_user_filter(query, user_id, user_ids).order("issued_at", desc=True)
+        response = await asyncio.to_thread(query.execute)
 
         # Post-process to get latest per request_id (DISTINCT ON equivalent)
         latest_per_request = {}
@@ -931,15 +928,15 @@ class ConsentDBService:
         from hushh_mcp.services.revocation_worker import ExpiredConsent
 
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
-        response = (
+        query = (
             self._get_db()
             .table("consent_audit")
             .select(_REVOCATION_CONSENT_COLUMNS)
             .in_("action", ["CONSENT_GRANTED", "REVOKED"])
             .order("issued_at", desc=True)
             .limit(_background_scan_limit())
-            .execute()
         )
+        response = await asyncio.to_thread(query.execute)
         latest_by_authority: dict[tuple[str, str, str], Dict[str, Any]] = {}
         for row in response.data or []:
             if not self._is_external_audit_row(row):
@@ -1101,14 +1098,14 @@ class ConsentDBService:
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         try:
             db = self._get_db()
-            response_data = (
+            query = (
                 db.table("internal_access_events")
                 .select("*")
                 .eq("user_id", user_id)
                 .in_("action", ["CONSENT_GRANTED", "REVOKED"])
                 .order("issued_at", desc=True)
-                .execute()
-            ).data or []
+            )
+            response_data = (await asyncio.to_thread(query.execute)).data or []
         except DatabaseExecutionError as exc:
             if not self._is_missing_internal_access_events_error(exc):
                 raise
@@ -1371,16 +1368,19 @@ class ConsentDBService:
 
         # Get paginated results (TableQuery uses .limit/.offset, not .range)
         query = db.table("consent_audit").select("*")
-        response = (
+        query = (
             self._apply_user_filter(query, user_id, user_ids)
             .order("issued_at", desc=True)
             .limit(limit)
             .offset(offset)
-            .execute()
         )
-
         count_query = db.table("consent_audit").select("id,agent_id,action,scope")
-        count_response = self._apply_user_filter(count_query, user_id, user_ids).execute()
+        count_query = self._apply_user_filter(count_query, user_id, user_ids)
+
+        def read_audit():
+            return query.execute(), count_query.execute()
+
+        response, count_response = await asyncio.to_thread(read_audit)
         total = len(
             [row for row in (count_response.data or []) if self._is_external_audit_row(row)]
         )
@@ -1428,22 +1428,27 @@ class ConsentDBService:
         day_cutoff_ms = now_ms - (24 * 60 * 60 * 1000)
         try:
             db = self._get_db()
-            recent_rows = (
+            recent_query = (
                 db.table("internal_access_events")
                 .select("*")
                 .eq("user_id", user_id)
                 .order("issued_at", desc=True)
                 .limit(limit)
-                .execute()
-            ).data or []
-            daily_rows = (
+            )
+            daily_query = (
                 db.table("internal_access_events")
                 .select("id")
                 .eq("user_id", user_id)
                 .gt("issued_at", day_cutoff_ms)
                 .limit(5000)
-                .execute()
-            ).data or []
+            )
+
+            def read_activity():
+                return recent_query.execute(), daily_query.execute()
+
+            recent_response, daily_response = await asyncio.to_thread(read_activity)
+            recent_rows = recent_response.data or []
+            daily_rows = daily_response.data or []
         except DatabaseExecutionError as exc:
             if not self._is_missing_internal_access_events_error(exc):
                 raise
@@ -1875,14 +1880,14 @@ class ConsentDBService:
         db = self._get_db()
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         scan_limit = _background_scan_limit()
-        response = (
+        query = (
             db.table("consent_audit")
             .select(_BACKGROUND_CONSENT_COLUMNS)
             .eq("action", "REQUESTED")
             .order("issued_at", desc=True)
             .limit(scan_limit)
-            .execute()
         )
+        response = await asyncio.to_thread(query.execute)
         if response.count and response.count >= scan_limit:
             logger.info(
                 "consent_timeout_scan_capped rows=%d limit=%d",
@@ -1910,13 +1915,13 @@ class ConsentDBService:
         if not request_ids:
             return []
         # Which of these are already resolved (or already timed out)?
-        resolved_resp = (
+        resolved_query = (
             db.table("consent_audit")
             .select("request_id")
             .in_("action", _REQUEST_RESOLVED_ACTIONS)
             .in_("request_id", request_ids)
-            .execute()
         )
+        resolved_resp = await asyncio.to_thread(resolved_query.execute)
         already = {r.get("request_id") for r in (resolved_resp.data or []) if r.get("request_id")}
         return [by_req[rid] for rid in request_ids if rid not in already]
 
@@ -1994,7 +1999,8 @@ class ConsentDBService:
             query = query.in_("request_id", request_ids)
             if actions:
                 query = query.in_("action", actions)
-            rows = query.order("issued_at", desc=False).execute().data or []
+            query = query.order("issued_at", desc=False)
+            rows = (await asyncio.to_thread(query.execute)).data or []
         except DatabaseExecutionError as exc:
             if not self._is_missing_internal_access_events_error(exc):
                 raise
@@ -2009,7 +2015,8 @@ class ConsentDBService:
             query = query.in_("request_id", request_ids)
             if actions:
                 query = query.in_("action", actions)
-            legacy_rows = query.order("issued_at", desc=False).execute().data or []
+            query = query.order("issued_at", desc=False)
+            legacy_rows = (await asyncio.to_thread(query.execute)).data or []
             rows = [
                 row
                 for row in legacy_rows
@@ -2030,14 +2037,14 @@ class ConsentDBService:
         db = self._get_db()
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         scan_limit = _background_scan_limit()
-        response = (
+        query = (
             db.table("consent_audit")
             .select(_BACKGROUND_CONSENT_COLUMNS)
             .in_("action", _BACKGROUND_CONSENT_ACTIONS)
             .order("issued_at", desc=True)
             .limit(scan_limit)
-            .execute()
         )
+        response = await asyncio.to_thread(query.execute)
         if response.count and response.count >= scan_limit:
             logger.info(
                 "consent_notification_scan_capped rows=%d limit=%d",
@@ -2150,7 +2157,7 @@ class ConsentDBService:
         """
         db = self._get_db()
 
-        response = (
+        query = (
             db.table("consent_audit")
             .select(
                 "token_id,request_id,action,scope,agent_id,issued_at,scope_description,metadata,expires_at"
@@ -2170,8 +2177,8 @@ class ConsentDBService:
             .gt("issued_at", after_timestamp_ms)
             .order("issued_at", desc=True)
             .limit(limit)
-            .execute()
         )
+        response = await asyncio.to_thread(query.execute)
         events = []
         for row in response.data or []:
             if not self._is_external_audit_row(row):
@@ -2286,7 +2293,7 @@ class ConsentDBService:
             return {}
 
         db = self._get_db()
-        response = (
+        query = (
             db.table("consent_audit")
             .select(
                 "id,user_id,token_id,request_id,action,scope,agent_id,issued_at,scope_description,metadata,expires_at,poll_timeout_at"
@@ -2295,8 +2302,8 @@ class ConsentDBService:
             .in_("request_id", normalized_ids)
             .neq("action", "EXPORT_READ")
             .order("issued_at", desc=True)
-            .execute()
         )
+        response = await asyncio.to_thread(query.execute)
 
         latest: Dict[str, Dict[str, Any]] = {}
         seen_request_ids: set[str] = set()
@@ -2784,7 +2791,8 @@ class ConsentDBService:
         # ``DatabaseClient.rpc`` executes immediately and returns a QueryResult.
         # Chaining ``.execute()`` here turns a successful refresh claim into an
         # AttributeError, which makes the Memory surface report a 503.
-        response = db.rpc(
+        response = await asyncio.to_thread(
+            db.rpc,
             "claim_consent_export_refresh_jobs_v2",
             {
                 "p_user_id": user_id,
@@ -2801,7 +2809,7 @@ class ConsentDBService:
         claim_id: str,
     ) -> Optional[Dict[str, Any]]:
         db = self._get_db()
-        response = (
+        query = (
             db.table("consent_export_refresh_jobs")
             .select("*")
             .eq("user_id", user_id)
@@ -2809,8 +2817,8 @@ class ConsentDBService:
             .eq("status", "processing")
             .gt("claim_expires_at", datetime.now(timezone.utc).isoformat())
             .limit(1)
-            .execute()
         )
+        response = await asyncio.to_thread(query.execute)
         return response.data[0] if response.data else None
 
     async def complete_claimed_consent_export_refresh(
@@ -2835,31 +2843,37 @@ class ConsentDBService:
         """Commit one revision with a DB-side lease and revision CAS."""
 
         db = self._get_db()
-        response = db.rpc(
-            "complete_consent_export_refresh_v2",
-            {
-                "p_user_id": user_id,
-                "p_claim_id": claim_id,
-                "p_expected_export_revision": expected_export_revision,
-                "p_encrypted_data": encrypted_data,
-                "p_iv": iv,
-                "p_tag": tag,
-                "p_wrapped_key_bundle": wrapped_key_bundle,
-                "p_connector_key_id": connector_key_id,
-                "p_connector_wrapping_alg": connector_wrapping_alg,
-                "p_envelope_aad": envelope_aad,
-                "p_envelope_aad_sha256": envelope_aad_sha256,
-                "p_ciphertext_sha256": ciphertext_sha256,
-                "p_ciphertext_bytes": ciphertext_bytes,
-                "p_source_content_revision": source_content_revision,
-                "p_source_manifest_revision": source_manifest_revision,
-            },
-        ).execute()
-        if isinstance(response.data, bool):
-            return response.data
-        if isinstance(response.data, list) and response.data:
-            return response.data[0] is True
-        return False
+
+        def complete_refresh():
+            call = db.rpc(
+                "complete_consent_export_refresh_v2",
+                {
+                    "p_user_id": user_id,
+                    "p_claim_id": claim_id,
+                    "p_expected_export_revision": expected_export_revision,
+                    "p_encrypted_data": encrypted_data,
+                    "p_iv": iv,
+                    "p_tag": tag,
+                    "p_wrapped_key_bundle": wrapped_key_bundle,
+                    "p_connector_key_id": connector_key_id,
+                    "p_connector_wrapping_alg": connector_wrapping_alg,
+                    "p_envelope_aad": envelope_aad,
+                    "p_envelope_aad_sha256": envelope_aad_sha256,
+                    "p_ciphertext_sha256": ciphertext_sha256,
+                    "p_ciphertext_bytes": ciphertext_bytes,
+                    "p_source_content_revision": source_content_revision,
+                    "p_source_manifest_revision": source_manifest_revision,
+                },
+            )
+            return call.execute() if hasattr(call, "execute") else call
+
+        response = await asyncio.to_thread(complete_refresh)
+        payload = response.data
+        if isinstance(payload, list):
+            payload = payload[0] if payload else None
+        if isinstance(payload, dict):
+            payload = payload.get("complete_consent_export_refresh_v2")
+        return payload is True
 
     async def complete_consent_export_refresh_job(self, consent_token: str) -> bool:
         db = self._get_db()
@@ -2948,7 +2962,7 @@ class ConsentDBService:
             # Call the cleanup function
             # ``rpc`` already returns the executed QueryResult; keep this
             # maintenance path consistent with the refresh-claim contract.
-            response = db.rpc("cleanup_expired_consent_exports")
+            response = await asyncio.to_thread(db.rpc, "cleanup_expired_consent_exports")
 
             if response.data is not None:
                 deleted_count = response.data

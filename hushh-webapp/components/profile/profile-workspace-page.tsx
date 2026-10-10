@@ -198,6 +198,7 @@ import { Icon } from "@/lib/morphy-ux/ui";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { AppleIcon, GoogleIcon } from "@/lib/morphy-ux/social-icons";
+import { EmailIdentityMark } from "@/components/app-ui/email-identity-mark";
 import { shouldUseGoogleBrandMark } from "@/lib/profile/profile-auth-provider-presentation";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { cn } from "@/lib/utils";
@@ -4582,7 +4583,7 @@ function ProfilePageContent({
               className="profile-home-meta flex w-full min-w-0 items-center justify-start gap-1.5 text-xs font-normal text-muted-foreground"
               title={provider.name}
             >
-              <ProviderIcon providerId={provider.id} email={user.email} />
+              <EmailIdentityMark email={user.email} providerId={provider.id} />
               <span className="[overflow-wrap:anywhere]">
                 {user.email || "Not available"}
               </span>
@@ -4646,12 +4647,7 @@ function ProfilePageContent({
                 voiceActionId="route.profile_referrals_panel"
                 voiceLabel={PROFILE_LABELS.referrals}
                 voicePurpose="Opens your referral link and referral status."
-                onClick={() =>
-                  updateProfileView(
-                    { panel: "referrals", detail: null },
-                    "push",
-                  )
-                }
+                onClick={() => router.push(ROUTES.ONE_REFERRALS)}
               />
               <SettingsRow
                 icon={isPanePresentation ? ProfilePaneHelpIcon : SupportProfileIcon}
