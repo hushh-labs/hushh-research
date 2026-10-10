@@ -481,7 +481,7 @@ def _submit_notification_send(
     token: str,
     notification_type: str,
     user_id: str,
-) -> None:
+) -> bool:
     def _deliver() -> None:
         try:
             messaging.send(message)
@@ -505,6 +505,7 @@ def _submit_notification_send(
 
     try:
         _NOTIFICATION_EXECUTOR.submit(_deliver)
+        return True
     except Exception as exc:
         logger.warning(
             "one.location.notification_submit_failed type=%s user=%s error=%s",
@@ -512,6 +513,7 @@ def _submit_notification_send(
             redact_log_field("user_id", user_id),
             exc,
         )
+        return False
 
 
 def _mask_phone(value: Any) -> str | None:
@@ -1673,16 +1675,13 @@ class OneLocationAgentService:
     ) -> bool:
         """Best-effort metadata-only FCM delivery for location workflow state.
 
-        Returns True when at least one push message was handed to FCM, False when
-        the recipient could not be reached at all -- no registered device token
-        (notifications never enabled, or the token was reaped after an uninstall),
-        Firebase not configured, or a payload the redaction guard rejected.
+        Returns True when at least one registered device's push was queued for
+        asynchronous dispatch. False covers missing tokens, Firebase not being
+        configured, rejected payloads, and executor submission failures.
 
-        The boolean exists because Save My Soul must never report a confident
-        "SENT" for an alert that reached nobody. Actual FCM delivery stays
-        asynchronous and best-effort; this only reports whether there was a
-        device to deliver to, which is the failure the sender could otherwise
-        never see.
+        This is a dispatch request, not an FCM acknowledgement or device receipt.
+        Save My Soul reports it separately from persisted location shares;
+        delivery remains best-effort and can fail after this method returns.
         """
         safe_data = _notification_safe_data(data)
         if not user_id or _contains_plaintext_location_key(safe_data):
@@ -1739,14 +1738,14 @@ class OneLocationAgentService:
                     notification_tag=notification_tag,
                     show_alert=show_alert,
                 )
-                _submit_notification_send(
+                queued = _submit_notification_send(
                     messaging=messaging,
                     message=message,
                     token=token,
                     notification_type=notification_type,
                     user_id=user_id,
                 )
-                submitted = True
+                submitted = submitted or queued
             return submitted
         except Exception as exc:
             logger.warning(
@@ -5148,7 +5147,7 @@ class OneLocationAgentService:
                 identity = self._identity_row(recipient_user_id)
                 if identity and not bool(identity.get("phone_verified")):
                     resolved_unavailable_message = (
-                        "Ask this SMS contact to verify their phone before receiving alerts."
+                        "This contact's SMS setup could not be confirmed. Try again."
                     )
             raise OneLocationAgentError(
                 "LOCATION_RECIPIENT_UNAVAILABLE",

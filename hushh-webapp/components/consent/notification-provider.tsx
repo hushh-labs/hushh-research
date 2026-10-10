@@ -76,11 +76,14 @@ import {
   buildOneLocationNotificationHref,
   buildOneLocationWorkflowHref,
   dismissOneLocationShareNotification,
+  hasSeenOneLocationNotification,
+  isOneLocationGrantOpened,
   isOneLocationGrantUnwatched,
   isOneLocationSmsEmergencyAlert,
   locationShareNotificationCopy,
   locationWorkflowNotificationCopy,
   markOneLocationGrantOpened,
+  markOneLocationNotificationSeen,
   oneLocationSectionForWorkflowNotificationType,
   playOneLocationNotificationSound,
   privacySafeOneLocationNotificationBody,
@@ -776,8 +779,12 @@ export function ConsentNotificationProvider({
       if (!user?.uid) return;
       const grantId = String(data.grant_id || data.grantId || "").trim();
       if (!grantId) return;
+      // A delayed creation push cannot resurrect a share already known to end.
+      if (hasSeenOneLocationNotification(user.uid, `share-ended:${grantId}`) ||
+          hasSeenOneLocationNotification(user.uid, `location_share_revoked:${grantId}`) ||
+          hasSeenOneLocationNotification(user.uid, `location_share_expired:${grantId}`)) return;
       const ownerLabel = oneLocationOwnerLabel(data);
-      const created = recordOneLocationShareNotification({
+      recordOneLocationShareNotification({
         userId: user.uid,
         grantId,
         ownerLabel,
@@ -797,7 +804,13 @@ export function ConsentNotificationProvider({
       });
       // Routine notification cards are owned by Feed. The only foreground
       // popup retained here is the safety-critical Save My Soul alarm.
-      if (!created || options.present === false || !isEmergencySms) return;
+      if (options.present === false || !isEmergencySms ||
+          isOneLocationGrantOpened(user.uid, grantId) ||
+          isOneLocationGrantUnwatched(user.uid, grantId)) return;
+      // Feed reconciliation is silent and must not consume the live alarm.
+      const presentationId = `sms-presented:${grantId}`;
+      if (hasSeenOneLocationNotification(user.uid, presentationId)) return;
+      markOneLocationNotificationSeen(user.uid, presentationId);
 
       const toastKey = `one-location-share:${grantId}`;
       const href = oneLocationPayloadRoute(
@@ -928,6 +941,9 @@ export function ConsentNotificationProvider({
         msgType === "location_share_revoked" ||
         msgType === "location_share_expired"
       ) {
+        // Workflow Feed ids may use message_id. Keep terminal state keyed by
+        // grant as well, so a delayed creation cannot sound a stopped alert.
+        if (grantId) markOneLocationNotificationSeen(user.uid, `share-ended:${grantId}`);
         if (grantId && isOneLocationGrantUnwatched(user.uid, grantId)) {
           publishStateMutation();
           return;

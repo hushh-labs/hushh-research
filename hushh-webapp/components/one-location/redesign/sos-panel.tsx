@@ -10,7 +10,6 @@ import {
   type PointerEvent,
 } from "react";
 import { Check, Loader2 } from "@/components/icons";
-import { trackEvent } from "@/lib/observability/client";
 
 import {
   AlertDialog,
@@ -39,10 +38,7 @@ import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-l
 
 const HOLD_DURATION_MS = 2_000;
 export type SmsQuickMessage = "Come get me" | "I'm not safe";
-/**
- * Presets and the custom field are separate choices in the UI. Only one is
- * staged at a time, and both resolve to the same note for the alert.
- */
+/** Presets populate the same editable message that either send control uses. */
 const QUICK_MESSAGES: readonly SmsQuickMessage[] = [
   "I'm not safe",
   "Come get me",
@@ -57,6 +53,7 @@ const RING_CIRCUMFERENCE = 1055.6;
 
 export type SosPanelProps = {
   recipients: OneLocationRecipient[];
+  contactCount?: number;
   /** The authoritative SMS Circle roster is still being reconciled. */
   recipientsLoading?: boolean;
   active: boolean;
@@ -89,6 +86,7 @@ export type SosPanelProps = {
 
 export function SosPanel({
   recipients,
+  contactCount,
   recipientsLoading = false,
   active,
   busy,
@@ -99,7 +97,6 @@ export function SosPanel({
   isRecipientShareReady,
 }: SosPanelProps) {
   const [customMessage, setCustomMessage] = useState("");
-  const [quickMessage, setQuickMessage] = useState<SmsQuickMessage | null>(null);
   const [holdTarget, setHoldTarget] = useState<"sms" | "composer" | null>(null);
   const [tapCountdownActive, setTapCountdownActive] = useState(false);
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
@@ -117,12 +114,11 @@ export function SosPanel({
   const [progress, setProgress] = useState(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frameRef = useRef<number | null>(null);
-  const holdStartedAtRef = useRef(0);
+  const holdStartedAtRef = useRef<number | null>(null);
   const holdTargetRef = useRef<"sms" | "composer" | null>(null);
   const countdownModeRef = useRef<"hold" | "tap" | null>(null);
   const tapCountdownRef = useRef(false);
   const suppressSendClickRef = useRef(false);
-  const suppressClickTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firedRef = useRef(false);
   const observedBusyRef = useRef(false);
 
@@ -136,15 +132,17 @@ export function SosPanel({
   // An empty field is valid. The payload of the alert is the location; the
   // message is an optional note on top of it, so "send with no message" must
   // stay reachable in the state someone is actually in when they need it.
-  const selectedMessage = customMessage.trim() || quickMessage;
+  const selectedMessage = customMessage.trim() || null;
   const customMessageInvalid = customMessageLimitExceeded;
   const noReadyRecipients = !recipientsLoading && readyRecipients.length === 0;
   const hardDisabled = busy || active || customMessageInvalid;
   const disabled = hardDisabled || recipientsLoading || noReadyRecipients;
-  const recipientCount = readyRecipients.length;
+  const recipientCount = contactCount ?? recipients.length;
   const recipientCountLabel =
     recipientCount === 1 ? "1 contact" : `${recipientCount} contacts`;
-  const alertedSummary = `${recipientCountLabel} alerted`;
+  const readyCountLabel =
+    readyRecipients.length === 1 ? "1 contact" : `${readyRecipients.length} contacts`;
+  const alertedSummary = "Live location sharing is active";
   const messageDescribedBy = customMessageLimitExceeded
     ? "sos-short-message-error sos-short-message-count"
     : "sos-short-message-count";
@@ -162,7 +160,7 @@ export function SosPanel({
     if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
     timeoutRef.current = null;
     frameRef.current = null;
-    holdStartedAtRef.current = 0;
+    holdStartedAtRef.current = null;
     holdTargetRef.current = null;
     countdownModeRef.current = null;
     tapCountdownRef.current = false;
@@ -191,42 +189,26 @@ export function SosPanel({
     // Captured before the await so the record is of what was sent, not of
     // whatever the picker happens to hold when the request settles.
     setSentMessage(selectedMessage ?? "");
-    try {
-      trackEvent("one_location_sos_triggered", {
-        route_id: "one_location",
-        result: "success",
-        selected_count: readyRecipients.length,
-        reached_count: readyRecipients.length,
-        unreachable_count: 0,
-        emailed_count: 0,
-        has_note: Boolean(selectedMessage),
-      });
-    } catch {}
     void Promise.resolve(onTrigger(selectedMessage)).finally(() => {
       if (observedBusyRef.current) return;
       firedRef.current = false;
       setProgress(0);
     });
-  }, [clearHold, disabled, onTrigger, readyRecipients.length, selectedMessage]);
+  }, [clearHold, disabled, onTrigger, selectedMessage]);
 
   const completeHold = useCallback(() => {
     // A browser emits click after pointerup/Space keyup. A completed hold has
     // already sent, so that trailing click must not arm a second countdown.
     if (countdownModeRef.current === "hold" && holdTargetRef.current === "composer") {
       suppressSendClickRef.current = true;
-      // Touch browsers may synthesize click after pointerup rather than in the
-      // same task. Keep the guard briefly, then let a later deliberate tap in.
-      if (suppressClickTimeoutRef.current) clearTimeout(suppressClickTimeoutRef.current);
-      suppressClickTimeoutRef.current = setTimeout(() => {
-        suppressSendClickRef.current = false;
-        suppressClickTimeoutRef.current = null;
-      }, 750);
+      // Keep this until release/click, even when the finger stays down well
+      // beyond two seconds. A new deliberate press clears it in startHold.
     }
     fireTrigger();
   }, [fireTrigger]);
 
   const updateProgress = useCallback(function tickProgress() {
-    if (!holdStartedAtRef.current || firedRef.current) return;
+    if (holdStartedAtRef.current === null || firedRef.current) return;
     const elapsed = performance.now() - holdStartedAtRef.current;
     setProgress(Math.min(elapsed / HOLD_DURATION_MS, 1));
     if (elapsed < HOLD_DURATION_MS) {
@@ -235,7 +217,8 @@ export function SosPanel({
   }, []);
 
   const startHold = useCallback((target: "sms" | "composer") => {
-    if (disabled || holdStartedAtRef.current || firedRef.current || tapCountdownRef.current) return;
+    if (disabled || holdStartedAtRef.current !== null || firedRef.current || tapCountdownRef.current) return;
+    suppressSendClickRef.current = false;
     holdStartedAtRef.current = performance.now();
     holdTargetRef.current = target;
     countdownModeRef.current = "hold";
@@ -246,7 +229,7 @@ export function SosPanel({
   }, [completeHold, disabled, updateProgress]);
 
   const startTapCountdown = useCallback(() => {
-    if (disabled || !customMessage.trim() || holdStartedAtRef.current || firedRef.current) return;
+    if (disabled || !customMessage.trim() || holdStartedAtRef.current !== null || firedRef.current) return;
     tapCountdownRef.current = true;
     countdownModeRef.current = "tap";
     holdTargetRef.current = "composer";
@@ -263,8 +246,6 @@ export function SosPanel({
   const handleSendClick = () => {
     if (suppressSendClickRef.current) {
       suppressSendClickRef.current = false;
-      if (suppressClickTimeoutRef.current) clearTimeout(suppressClickTimeoutRef.current);
-      suppressClickTimeoutRef.current = null;
       return;
     }
     if (tapCountdownRef.current) {
@@ -285,7 +266,6 @@ export function SosPanel({
       window.removeEventListener("blur", onWindowBlur);
       document.removeEventListener("visibilitychange", onVisibility);
       clearHold();
-      if (suppressClickTimeoutRef.current) clearTimeout(suppressClickTimeoutRef.current);
     };
   }, [cancelHold, clearHold]);
 
@@ -328,6 +308,12 @@ export function SosPanel({
   };
 
   const handlePointerEnd = (event: PointerEvent<HTMLButtonElement>) => {
+    // Releasing an unfinished hold cancels it. Only a short tap may arm the
+    // separate countdown through the browser's following click event.
+    if (countdownModeRef.current === "hold" && holdTargetRef.current === "composer" && holdStartedAtRef.current !== null &&
+        (event.type === "pointercancel" || performance.now() - holdStartedAtRef.current >= 250)) {
+      suppressSendClickRef.current = true;
+    }
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
@@ -344,10 +330,17 @@ export function SosPanel({
     }
   };
 
-  const handleKeyUp = (event: KeyboardEvent<HTMLButtonElement>) => {
+  const handleKeyUp = (event: KeyboardEvent<HTMLButtonElement>, target: "sms" | "composer") => {
     if (event.key === " " || event.key === "Enter") {
       event.preventDefault();
-      if (!tapCountdownRef.current) cancelHold();
+      if (target === "composer" && tapCountdownRef.current) {
+        cancelHold();
+        return;
+      }
+      const wasTap = target === "composer" && !suppressSendClickRef.current &&
+        holdStartedAtRef.current !== null && performance.now() - holdStartedAtRef.current < 250;
+      cancelHold();
+      if (wasTap) startTapCountdown();
     }
   };
 
@@ -383,7 +376,7 @@ export function SosPanel({
           <PageSubtitle>Checking emergency contacts…</PageSubtitle>
         ) : noReadyRecipients ? (
           <PageSubtitle>
-            No emergency contacts
+            {recipientCount ? `${recipientCountLabel} · Setup needs attention` : "No emergency contacts"}
           </PageSubtitle>
         ) : (
           <div className="flex items-center gap-3">
@@ -402,7 +395,7 @@ export function SosPanel({
         )}
       </header>
 
-      {recipientsLoading && !readyRecipients.length ? (
+      {!active && recipientsLoading && !readyRecipients.length ? (
         <div
           role="status"
           className="mt-6 flex min-h-24 items-center justify-center gap-2 rounded-[16px] bg-[color:var(--app-card-surface-default-solid)] text-[14px] text-[color:var(--app-secondary-label)]"
@@ -410,14 +403,14 @@ export function SosPanel({
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
           Updating your SMS Circle…
         </div>
-      ) : noReadyRecipients ? (
+      ) : !active && noReadyRecipients ? (
         <div className="mt-6">
           <button
             type="button"
             onClick={onEditContacts}
             className="ui-text-button-label press-scale flex h-[52px] w-full items-center justify-center rounded-[16px] bg-[color:var(--app-accent)] px-5 text-[color:var(--app-accent-fg)]"
           >
-            Add emergency contacts
+            {recipientCount ? "Review emergency contacts" : "Add emergency contacts"}
           </button>
         </div>
       ) : active ? (
@@ -466,24 +459,26 @@ export function SosPanel({
       ) : (
         <>
           <div className="mt-5 sm:mt-6">
-            <RowLabel as="p">Choose a message</RowLabel>
-            <RowDescription className="mt-1">
-              Pick a quick message.
-            </RowDescription>
+            <RowLabel as="p">Choose or type a message</RowLabel>
+            {readyRecipients.length < recipientCount ? (
+              <HelperText as="p" className="mt-1">
+                {readyRecipients.length} of {recipientCount} contacts ready. Review contacts that need attention.
+              </HelperText>
+            ) : null}
           </div>
 
           <div className="mt-3 flex gap-2.5">
             {QUICK_MESSAGES.map((option) => {
-              const selected = quickMessage === option;
+              const selected = customMessage === option;
               return (
                 <button
                   key={option}
                   type="button"
                   aria-pressed={selected}
+                  disabled={busy}
                   onClick={() => {
                     cancelHold();
-                    setCustomMessage("");
-                    setQuickMessage((current) => current === option ? null : option);
+                    setCustomMessage(option);
                   }}
                   className={cn(
                     quickPill,
@@ -516,10 +511,10 @@ export function SosPanel({
                 aria-describedby={messageDescribedBy}
                 aria-invalid={customMessageLimitExceeded}
                 value={customMessage}
+                disabled={busy}
                 onChange={(event) => {
                   cancelHold();
                   setCustomMessage(event.target.value);
-                  setQuickMessage(null);
                 }}
                 placeholder="Type a message"
                 className="ui-text-input-value h-11 min-w-0 flex-1 bg-transparent text-[color:var(--app-label)] outline-none placeholder:text-[color:var(--sos-placeholder)]"
@@ -530,7 +525,7 @@ export function SosPanel({
                 disabled={disabled || !customMessage.trim()}
                 aria-label={tapCountdownActive
                   ? "Cancel pending Save My Soul alert"
-                  : "Send custom message: tap for a two-second countdown or hold for two seconds"}
+                  : "Send message: tap for a two-second countdown or hold for two seconds"}
                 aria-describedby={customMessageLimitExceeded ? "sos-short-message-error" : "sos-send-hint"}
                 onClick={handleSendClick}
                 onPointerDown={(event) => handlePointerDown(event, "composer")}
@@ -538,7 +533,8 @@ export function SosPanel({
                 onPointerCancel={handlePointerEnd}
                 onPointerLeave={handlePointerLeave}
                 onKeyDown={(event) => handleKeyDown(event, "composer")}
-                onKeyUp={handleKeyUp}
+                onKeyUp={(event) => handleKeyUp(event, "composer")}
+                onBlur={cancelHold}
                 onContextMenu={(event) => event.preventDefault()}
                 className="ui-text-button-label relative flex h-11 min-w-[72px] touch-none select-none items-center justify-center overflow-hidden rounded-[calc(var(--app-input-radius)-6px)] bg-[color:var(--app-destructive)] px-3 text-[color:var(--app-destructive-fg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-[color:var(--sos-control-surface-hover)] disabled:text-[color:var(--sos-label)]"
               >
@@ -616,13 +612,14 @@ export function SosPanel({
               <button
                 type="button"
                 disabled={disabled}
-                aria-label={`Press and hold for two seconds to send Save My Soul SMS alert with your live location to ${recipientCountLabel}`}
+                aria-label={`Press and hold for two seconds to send Save My Soul SMS alert with your live location to ${readyCountLabel}`}
                 onPointerDown={(event) => handlePointerDown(event, "sms")}
                 onPointerUp={handlePointerEnd}
                 onPointerCancel={handlePointerEnd}
                 onPointerLeave={handlePointerLeave}
                 onKeyDown={(event) => handleKeyDown(event, "sms")}
-                onKeyUp={handleKeyUp}
+                onKeyUp={(event) => handleKeyUp(event, "sms")}
+                onBlur={cancelHold}
                 onContextMenu={(event) => event.preventDefault()}
                 data-sos-core={busy ? "" : undefined}
                 className={cn(
@@ -647,7 +644,7 @@ export function SosPanel({
               {statusLabel}
             </StatusText>
             <HelperText as="p" className="mt-1 text-center text-[color:var(--sos-label)]">
-              Sends {selectedMessage ? "your message and live location" : "live location"} to {recipientCountLabel}
+              Sends {selectedMessage ? "your message and live location" : "live location"} to {readyCountLabel}
             </HelperText>
           </div>
         </>

@@ -569,6 +569,29 @@ describe("global One Location Feed-first notification policy", () => {
     );
   });
 
+  it.each(["active", "revoked", "expired"])("reconciles Feed before a live SMS push without reviving a %s share", async (status) => {
+    mocks.getState.mockResolvedValue({ ...EMPTY_LOCATION_STATE, receivedGrants: [{
+      id: "sms-race", ownerUserId: "owner-user", recipientUserId: "recipient-user",
+      ownerDisplayName: "Alex", recipientKeyId: "key-1", status: "active",
+      consentScope: "cap.location.live.view", capabilityScopes: [], durationHours: 8,
+      expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(), shareKind: "sos",
+      latestEnvelopeId: "envelope-sms-race",
+    }] });
+    renderProvider();
+    await waitFor(() => expect(mocks.startTask).toHaveBeenCalledTimes(1));
+    expect(mocks.toast).not.toHaveBeenCalled();
+    const push = { type: "location_share_created", grant_id: "sms-race",
+      owner_display_label: "Alex", share_kind: "sos",
+      notification_profile: "one_location_sms_emergency" };
+    if (status !== "active") {
+      dispatchLocation({ ...push, type: `location_share_${status}`, message_id: `terminal-${status}-event` });
+    }
+    dispatchLocation(push);
+    dispatchLocation(push);
+    expect(mocks.toast).toHaveBeenCalledTimes(status === "active" ? 1 : 0);
+    expect(mocks.startTask).toHaveBeenCalledTimes(status === "active" ? 1 : 2);
+  });
+
   it("keeps a visibility-race reconciliation silent after refocus", async () => {
     const locationState = {
       ...EMPTY_LOCATION_STATE,

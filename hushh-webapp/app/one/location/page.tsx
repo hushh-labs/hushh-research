@@ -3837,6 +3837,7 @@ export function OneLocationAgentPageContent({
     string[] | null
   >(null);
   const [smsRosterLoading, setSmsRosterLoading] = useState(true);
+  const [smsRosterRecipients, setSmsRosterRecipients] = useState<OneLocationRecipient[] | null>(null);
 
   /**
    * Circle first, legacy list as the fallback.
@@ -3853,14 +3854,15 @@ export function OneLocationAgentPageContent({
     [legacySmsContactUserIds, smsSystemCircleMemberIds],
   );
   const smsActionRecipients = useMemo(
-    () => selectSmsRecipients(sosActionRecipients, smsContactUserIds),
-    [smsContactUserIds, sosActionRecipients],
+    () => selectSmsRecipients(smsRosterRecipients ?? rankedRecipients, smsContactUserIds),
+    [smsContactUserIds, smsRosterRecipients, rankedRecipients],
   );
 
   // Provision on bootstrap, once the vault token exists. Idempotent server-side,
   // so a re-run costs one request and changes nothing.
   useEffect(() => {
     setSmsSystemCircleMemberIds(null);
+    setSmsRosterRecipients(null);
     setSmsRosterLoading(true);
     const rosterRevision = ++smsRosterRevision.current;
     if (!auth.userId || !vaultOwnerToken) {
@@ -3915,7 +3917,8 @@ export function OneLocationAgentPageContent({
       const rosterRevision = ++smsRosterRevision.current;
       if (options?.showLoading) setSmsRosterLoading(true);
       try {
-        const roster = await OneLocationService.getSmsContacts(token);
+        const rosterResult = await OneLocationService.getSmsRecipientRoster(token);
+        const roster = rosterResult.smsContactUserIds;
         if (
           sosOwnerRef.current !== owner ||
           rosterRevision !== smsRosterRevision.current
@@ -3930,6 +3933,7 @@ export function OneLocationAgentPageContent({
           ),
         );
         setSmsSystemCircleMemberIds(normalized);
+        setSmsRosterRecipients(rosterResult.recipients);
         OneLocationStateResource.replaceSmsContactUserIds(owner, normalized);
         setSmsRosterLoading(false);
         return normalized;
@@ -5909,29 +5913,26 @@ export function OneLocationAgentPageContent({
       if (sosIncidentRef.current || activeSosGrantsRef.current.length || !auth.userId) return;
       if (!vaultOwnerToken || locationPermissionBlocksSharing(permission))
         return;
-      const readyRecipients = smsActionRecipients.filter(
-        isSosShareReadyRecipient,
-      );
-      const totalSelected = smsActionRecipients.length;
-      if (!readyRecipients.length) {
-        // Emitted before returning. This is an alert that reached nobody, which
-        // is precisely the case the event exists to surface; leaving it on the
-        // success path only meant the failures we most need to see were the
-        // ones that produced no telemetry at all.
-        trackSosTriggered({
-          selectedCount: totalSelected,
-          reachedCount: 0,
-          unreachableCount: 0,
-          note,
-        });
-        toast.error(sosRecipientReadinessMessage(smsActionRecipients));
-        return;
-      }
+      let totalSelected = smsContactUserIds.length;
       const owner = auth.userId;
       const operation = sosOperations.current.begin(owner);
       if (!operation) return;
       setBusy("sos");
       try {
+        // Refresh the exact roster and its verified identities at send time.
+        // A cached directory page is neither membership nor readiness authority.
+        const roster = await OneLocationService.getSmsRecipientRoster(vaultOwnerToken);
+        if (sosOwnerRef.current !== owner) return;
+        totalSelected = roster.smsContactUserIds.length;
+        setSmsSystemCircleMemberIds(roster.smsContactUserIds);
+        setSmsRosterRecipients(roster.recipients);
+        const readyRecipients = roster.recipients.filter(isSosShareReadyRecipient);
+        if (!readyRecipients.length) {
+          trackSosTriggered({ selectedCount: totalSelected, reachedCount: 0,
+            unreachableCount: totalSelected, note });
+          toast.error(sosRecipientReadinessMessage(roster.recipients));
+          return;
+        }
         const point = await resolveSosLocation();
         if (sosOwnerRef.current !== owner) return;
         if (!point) {
@@ -5954,6 +5955,14 @@ export function OneLocationAgentPageContent({
           note,
           publish: (grant, recipient, pt) =>
             publishEnvelopeWithRetry(grant, recipient, "manual", pt),
+        }).catch((error: unknown) => {
+          // The common executor retains its error contract for voice/legacy
+          // callers. This screen can show the full per-contact partial result
+          // and still run the authorized email fallback for created grants.
+          if (error instanceof SosPanicError && error.partialIncident) {
+            return { ...error.partialIncident, delivery: error.delivery };
+          }
+          throw error;
         });
         if (sosOwnerRef.current !== owner) return;
         setSosIncident(incident);
@@ -5965,7 +5974,8 @@ export function OneLocationAgentPageContent({
         const unreachable = incident.delivery
           .filter((outcome) => outcome.alerted === false)
           .map((outcome) => outcome.displayName);
-        const reached = readyRecipients.length - unreachable.length;
+        const reached = incident.delivery.filter((outcome) => outcome.alerted === true).length;
+        const shared = incident.delivery.filter((outcome) => !outcome.failed).length;
 
         // Second channel. A push reaches nobody when notifications are off, so
         // the same alert goes out by email — the one place a closed app cannot
@@ -5986,6 +5996,7 @@ export function OneLocationAgentPageContent({
           note,
           emergencyNumber: sosEmergency?.number ?? null,
         });
+        if (sosOwnerRef.current !== owner) return;
 
         // Only worth saying when it changes what the sender should do next:
         // "nobody's phone lit up" reads very differently if two inboxes got it.
@@ -6011,26 +6022,15 @@ export function OneLocationAgentPageContent({
           note,
         });
 
-        if (reached === 0) {
-          const stillNoOne = mail.emailed === 0;
-          toast.error(
-            stillNoOne
-              ? // Action first. A clamp cuts from the bottom, and the one
-                // sentence that must survive is the one telling someone in
-                // trouble what to do. Who has notifications off is on the
-                // screen behind this.
-                "Call emergency services now — nobody was alerted."
-              : "Call emergency services now — no phones lit up.",
-          );
-        } else if (unreachable.length > 0) {
+        if (shared === 0 && mail.emailed === 0) {
+          toast.error("The alert could not be sent. Call for help directly.");
+        } else if (shared < totalSelected || unreachable.length > 0) {
           toast.warning(
-            `Alerted ${reached} of ${readyRecipients.length}. The rest have notifications off.`,
+            `Alert saved for ${shared} of ${totalSelected} contacts. Notifications requested for ${reached} contacts.${mailNote}`,
           );
         } else {
           toast.success(
-            skipped > 0
-              ? `Alerted ${readyRecipients.length} of ${totalSelected} contacts (${skipped} not ready).${mailNote}`
-              : `Alerted ${readyRecipients.length} contact(s).${mailNote}`,
+            `Alert saved for ${shared} contacts. Notifications requested for ${reached} contacts.${mailNote}`,
           );
         }
         void refresh().catch(() => null);
@@ -6066,7 +6066,7 @@ export function OneLocationAgentPageContent({
       publishEnvelopeWithRetry,
       resolveSosLocation,
       setSosIncident,
-      smsActionRecipients,
+      smsContactUserIds,
       refresh,
       trackSosTriggered,
       // The local emergency number is read at send time so the email can tell
@@ -14622,6 +14622,7 @@ export function OneLocationAgentPageContent({
       reverseGeocodeForSavedLocation(point.latitude, point.longitude),
     sosRecipients: sosActionRecipients,
     smsRecipients: smsActionRecipients,
+    smsContactCount: smsContactUserIds.length,
     smsContactCandidates: sosActionRecipients,
     smsContactUserIds,
     smsContactsLoading: smsRosterLoading,

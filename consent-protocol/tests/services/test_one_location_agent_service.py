@@ -560,6 +560,47 @@ def test_nearby_check_in_preferences_default_visible_true_requests_false(
     }
 
 
+@pytest.mark.parametrize("accepts_submission", [True, False])
+def test_location_push_reports_queue_acceptance_not_device_delivery(
+    monkeypatch: pytest.MonkeyPatch, accepts_submission: bool
+) -> None:
+    def submit(deliver):
+        if not accepts_submission:
+            raise RuntimeError("executor unavailable")
+        # Deliberately do not execute: queue acceptance is not device receipt.
+        return object()
+
+    monkeypatch.setattr(
+        one_location_agent_module, "_NOTIFICATION_EXECUTOR", SimpleNamespace(submit=submit)
+    )
+    monkeypatch.setattr(
+        one_location_agent_module,
+        "get_db",
+        lambda: SimpleNamespace(
+            execute_raw=lambda *args: SimpleNamespace(
+                data=[{"token": "test-device-token", "platform": "ios"}]
+            )
+        ),
+    )
+    monkeypatch.setattr(one_location_agent_module, "ensure_firebase_admin", lambda: (True, None))
+    monkeypatch.setattr(
+        one_location_agent_module, "build_push_message", lambda *args, **kwargs: object()
+    )
+
+    assert (
+        OneLocationAgentService()._send_metadata_notification(
+            user_id="test-recipient",
+            notification_type="location_share_created",
+            title="SMS",
+            body="Emergency alert",
+            notification_tag="sms:test",
+            request_url="/one/location",
+            data={"share_kind": "sos"},
+        )
+        is accepts_submission
+    )
+
+
 def test_settings_sync_notification_is_silent_and_metadata_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -4841,7 +4882,7 @@ def test_four_user_location_workflow_contract(monkeypatch: pytest.MonkeyPatch) -
             duration_hours=1,
         )
     assert unverified_share.value.code == "LOCATION_RECIPIENT_UNAVAILABLE"
-    assert "verify their phone" in str(unverified_share.value)
+    assert "SMS setup could not be confirmed" in str(unverified_share.value)
 
     request_event_count = sum(
         event["event_type"] == "location_access_request" for event in service.events.values()
