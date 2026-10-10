@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ConversationComposer } from "@/components/app-ui/conversation-composer";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { MessageCircle, ImageIcon, BellOff, Bell, ArrowDown, Mic } from "@/components/icons";
+import { MessageCircle, ImageIcon, BellOff, Bell, ArrowDown, Mic, Plus } from "@/components/icons";
 import { CircleChatService, type CircleChatSession, type CircleChatState, type CircleChatReceipt, type CircleMembershipEvent, type CircleChatPage } from "@/lib/services/circle-chat-service";
 import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { MAX_CHAT_IMAGE_BYTES, MAX_CHAT_TEXT, validateChatAttachmentBytes, type ChatImageThumbnail, type ChatMessage, type SealedChatMessage } from "@/lib/circle-chat/crypto";
@@ -179,7 +179,7 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
     {!state && !error && !revoked ? <p role="status" className="p-4 text-sm text-muted-foreground">Connecting chat…</p> : null}
     {revoked ? <p role="alert" className="p-4 text-sm">You no longer have access to this circle chat.</p> : null}
     {error && !revoked ? <div role="alert" className="p-4 text-sm">{error} <Button variant="ghost" size="sm" onClick={() => setRevision((n) => n + 1)}>Reconnect</Button></div> : null}
-    {started && state && !revoked ? <div hidden={!open || !paneActive} className={chatLane ? "min-h-0 flex-1" : undefined}><CircleChatThread key={threadScope.current.revision} session={session} visible={open && paneActive} readingBlocked={readingBlocked} chatLane={chatLane} chatLaneTheme={chatLaneTheme}
+    {started && state && !revoked ? <div hidden={!open || !paneActive} className={chatLane ? "min-h-0 flex-1" : undefined}><CircleChatThread key={threadScope.current.revision} circleName={circleName} session={session} visible={open && paneActive} readingBlocked={readingBlocked} chatLane={chatLane} chatLaneTheme={chatLaneTheme}
       onRead={(sequence) => { acknowledgedRead.current = Math.max(acknowledgedRead.current, sequence); setState((old) => old && old.latestSequence <= sequence ? { ...old, unreadCount: 0 } : old); }}
       onRevoked={() => { setRevoked(true); setState(null); setOpen(false); }} /></div> : null}
   </section>
@@ -195,9 +195,9 @@ function ChatLaneMicAction() {
   }}><Mic aria-hidden="true" className="size-5" /></ShellActionSurface>;
 }
 
-function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked, chatLane, chatLaneTheme }: {
+function CircleChatThread({ circleName, session, visible, onRead, onRevoked, readingBlocked, chatLane, chatLaneTheme }: {
   session: CircleChatSession; visible: boolean; onRead: (sequence: number) => void; onRevoked: () => void;
-  readingBlocked: boolean; chatLane: boolean; chatLaneTheme: "light" | "dark";
+  circleName: string; readingBlocked: boolean; chatLane: boolean; chatLaneTheme: "light" | "dark";
 }) {
   const blockingLayer = useVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions;
   const [messages, setMessages] = useState<OpenMessage[]>([]);
@@ -543,7 +543,7 @@ function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked,
           setError(errorText(caught)); event.target.value = "";
         }
       }} />
-    <ConversationComposer value={text} onChange={setText} onSend={() => void send()} maxLength={MAX_CHAT_TEXT} visible={visible} editorRef={chatLane ? composerEditor : undefined}
+    <ConversationComposer placeholder={chatLane ? `Message ${circleName}` : undefined} value={text} onChange={setText} onSend={() => void send()} maxLength={MAX_CHAT_TEXT} visible={visible} editorRef={chatLane ? composerEditor : undefined}
       busy={sending} locked={Boolean(pending)} sendLabel={pending ? "Retry message" : "Send message"}
       sendDisabled={loading || (!pending && Boolean(file) && validFile !== file) || (!text.trim() && !file && !pending)}
       showSend={!chatLane || Boolean(text.trim() || file || pending || sending)}
@@ -555,7 +555,7 @@ function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked,
         requestAnimationFrame(() => { editor?.focus(); editor?.setSelectionRange(start + emoji.length, start + emoji.length); });
       }} /> : undefined}
       emptyAction={chatLane ? <ChatLaneMicAction /> : undefined}
-      leadingAction={<ShellActionSurface className="size-11" aria-label="Attach photo, video, or document" disabled={sending || Boolean(pending)} onClick={() => fileInput.current?.click()}><ImageIcon aria-hidden="true" className="size-5" /></ShellActionSurface>} />
+      leadingAction={<ShellActionSurface className="size-11" aria-label="Attach photo, video, or document" disabled={sending || Boolean(pending)} onClick={() => fileInput.current?.click()}>{chatLane ? <Plus aria-hidden="true" className="size-5" /> : <ImageIcon aria-hidden="true" className="size-5" />}</ShellActionSurface>} />
     {pending && !sending ? <p className="text-xs text-muted-foreground">Delivery is unconfirmed. Retry sends the same message safely.</p> : null}
     <p className="text-center text-[11px] leading-4 text-muted-foreground">Only circle members can read these messages.</p>
     </div>
