@@ -12,7 +12,7 @@ import Link from "next/link";
 import { documentRequestSetupState, documentRequestSetupHref, documentRequestSetupLabel } from "@/lib/consent/document-request-setup";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
-import { ExternalLink, Loader2 } from "@/components/icons";
+import { ExternalLink, Loader2, RefreshCw } from "@/components/icons";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
@@ -39,7 +39,6 @@ import {
 import { DocumentPayoutAccountCard } from "@/components/consent/document-payout-account";
 import { formatDocumentRequestPrice } from "@/lib/consent/document-request-price";
 import { documentPayoutStatusCopy } from "@/lib/consent/document-payout-status";
-import { SEMANTIC_ROLE_SOLID } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { useArmedAction } from "@/lib/ui/use-armed-action";
 import {
   DriveSharingError,
@@ -155,11 +154,12 @@ const STAGE_LABELS: Record<PrepareStage, string> = {
 const TRUST_DESCRIPTION =
   "Your private agent shares any Drive file they request, including future files, without asking. This can happen while you’re away if background preparation is on. You can stop future sharing anytime.";
 const CHECKBOX_CLASS = "size-5 border-2 border-foreground/40";
-// Allow is the one green decision: the solid success fill and its readable tone.
+// A decision-grade success action needs a darker fill so white label text stays
+// legible in both colour schemes. The general success token is intentionally
+// lighter and pairs with dark text in status surfaces.
 const ALLOW_CLASS = cn(
-  SEMANTIC_ROLE_SOLID.success.fill,
-  SEMANTIC_ROLE_SOLID.success.fg,
-  "border-transparent hover:bg-[color:var(--app-success)] hover:text-[color:var(--app-success-fg)] hover:opacity-90",
+  "border-transparent bg-[color:var(--app-success-deep)] text-white",
+  "hover:bg-[color:color-mix(in_srgb,var(--app-success-deep)_88%,black_12%)] hover:text-white",
 );
 const SEARCH_FILE_UNAVAILABLE: Record<NonNullable<DriveSearchResults["files"][number]["unavailableReason"]>, string> = {
   shortcut_target_unavailable: "Shortcut target unavailable",
@@ -1265,7 +1265,7 @@ function UnlockedDocumentReview({
             </Button>
           }
           secondary={priceOnly ? undefined :
-            <Button size="standard" variant={denyConfirm.armed ? "destructive" : "none"}
+            <Button size="prominent" variant={denyConfirm.armed ? "destructive" : "none"}
               className={denyConfirm.armed ? undefined : "text-destructive hover:text-destructive"}
               disabled={locked} aria-label={denyConfirm.ariaLabel("Deny")}
               onClick={() => denyConfirm.activate(() => decide("decline"))}>
@@ -2166,6 +2166,13 @@ function UnlockedDocumentReview({
           disabled={activity !== "idle"}
           onClick={refresh}
         >
+          <RefreshCw
+            aria-hidden="true"
+            className={cn(
+              "mr-2 size-4",
+              activity !== "idle" && "animate-spin motion-reduce:animate-none",
+            )}
+          />
           Refresh status
         </Button>
       ) : null}
