@@ -1,14 +1,18 @@
 {
-  "version": "2026.10-dev.13",
+  "version": "2026.10-dev.14",
   "channel": "dev",
-  "summary": "A leaner conversation startup for your private agent.",
+  "summary": "More reliable private conversations and Puppy controls.",
   "notes": {
     "improvements": [
       "Conversation loading avoids a repeated storage read.",
       "Encrypted checkpoints preserve the existing recovery path.",
       "Private-agent startup skips unrelated shared-service route initialization."
     ],
-    "fixes": [],
+    "fixes": [
+      "Stopping Puppy confirms cancellation even when the stream closes first.",
+      "Private connector approvals preserve their owner and pod boundaries.",
+      "Memory instructions retain their rules within the existing prompt budget."
+    ],
     "security": [
       "Files analysis remains opt-in and uses the approved provider boundary.",
       "Existing pods require a qualified image transition and exact owner approval before installation.",

@@ -4713,7 +4713,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "28b155fc837fb0dbbe61f386de6c9dd7ae985ae8beeb66a1311b2ec9b229d7ff",
+      "system_instruction_sha256": "220e736e90392e81e311a934c668b511b169fdc02f8ca428cafab7d211089d71",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",
