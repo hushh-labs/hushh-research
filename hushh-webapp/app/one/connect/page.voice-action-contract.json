@@ -15,7 +15,7 @@
     {"action_id": "connect.remove_connection", "label": "Remove a connection", "meaning": "Ends existing connections with the named people -- multiple people can be named in one turn, e.g. 'Alice and Bob'. They stop being someone you can share things with, including your location. It does not notify them and it does not block them.", "aliases": ["remove connection", "disconnect from", "unconnect", "remove them from my connections"], "search_keywords": ["remove", "disconnect", "delete", "connection", "unfriend"], "reachability": {"routes": ["/one/connect"], "screens": ["connect"], "hidden_navigable": false, "navigation_prerequisites": []}, "guard_ids": ["auth_signed_in"], "risk_level": "high", "execution_policy": "confirm_required", "execution_target": {"status": "wired", "path": "local_handler", "target": "connect.remove_connection"}, "control_ids": [], "state_exposure": ["connection count"], "goal": {"goal_id": "goal.connect.remove_connection", "slot_schema": {"person": "spoken_person_name_list", "connectionId": "opaque_id_optional"}, "required_inputs": [{"name": "person", "slot": "person", "resolver": "spoken_person_name_list", "prompt": "Who should I remove from your connections?", "required": true}], "workflow_steps": [{"type": "action", "action_id": "connect.remove_connection", "label": "Remove a connection", "settlement_target": {"route": "/one/connect", "screen": "connect"}}]}, "text_backend_executor": {"binding": "connect.remove_connection"}}
   ],
   "search": {
-    "source_revision": "66fddcc27388240fa9a6001c0d83b70297e3c3ef1f92a5ee23a95a2c9d02dcd8",
+    "source_revision": "a08de351efbd30703359e3fd92e7efa70bf12f02852c8746ed5dc362afca9496",
     "source_module_count": 1698
   }
 }

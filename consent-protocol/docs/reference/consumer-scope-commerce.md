@@ -2210,3 +2210,17 @@ synthetic fixture before primary enrollment. Owner Azure OAuth and official Stri
 host/owner OAuth remain separate interactive prerequisites. Physical iOS acceptance
 remains deferred to the separately operating device session; Android physical
 acceptance remains a follow-up. Keep issue #7587 In Progress.
+
+The founder subsequently explicitly authorized transferring the existing recorded
+test-phone binding to the primary reviewer. This supersedes the unbound-fixture
+recommendation above; the canonical claim must clear the previous verified owner.
+No transfer has occurred while the exact Dev origin remains unresolved. Preserve
+the global reviewer selection and require normal owner Azure authorization.
+
+Candidate `cb17ec4a94d3052c3e8324e7fe45d7fe116a643b` passed the local core bundle.
+[Hosted CI 38021529016](https://github.com/hushh-labs/hushh-research/actions/runs/38021529016)
+found a Files route-screen mismatch in full web shard 1: the authored `one_files`
+action fell through to the generic `app` screen. The correction adds the exact
+existing Files route to canonical screen derivation and regenerates the owning
+Back and Search projections. It changes no library access authority. Qualification
+of the successor candidate remains required before deployment.
