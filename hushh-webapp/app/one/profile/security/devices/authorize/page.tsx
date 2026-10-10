@@ -12,6 +12,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { ApiService } from "@/lib/services/api-service";
 import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 import { buildTrustedDevicePasskeyHandoff } from "@/lib/vault/trusted-device-passkey-handoff";
+import { resolvePasskeyEnvironment } from "@/lib/vault/passkey-rp";
 
 function requiredParam(
   params: { get(name: string): string | null },
@@ -79,9 +80,7 @@ export default function TrustedDeviceAuthorizePage() {
             recipientPublicKey: handoffPublicKey,
             hostname: window.location.hostname,
             environment:
-              window.location.hostname === "one.hushh.ai"
-                ? "production"
-                : "uat",
+              resolvePasskeyEnvironment(window.location.hostname) ?? "uat",
           });
           if (handoff) {
             const attachResponse =
