@@ -24,6 +24,7 @@ import type {
   OneLocationCircleDetail,
   OneLocationCircleInvitePreview,
   OneLocationCircleMemberInvite,
+  OneLocationCircleMemberPage,
 } from "@/lib/one-location/types";
 
 vi.mock("sonner", () => ({
@@ -92,6 +93,120 @@ function detailProps(
 describe("named Circle flows", () => {
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  it.each([false, true])("retains the selected identity and an early rename through roster loading (saved: %s)", async (saveRename) => {
+    let overview!: (value: OneLocationCircleDetail) => void;
+    let roster!: (value: OneLocationCircleMemberPage) => void;
+    const props = detailProps(vi.fn());
+    const onLoadOverview = vi.fn(() => new Promise<OneLocationCircleDetail>((resolve) => { overview = resolve; }));
+    const pendingRoster = new Promise<OneLocationCircleMemberPage>((resolve) => { roster = resolve; });
+    const onLoadMembersPage = vi.fn(() => pendingRoster);
+    render(<CircleDetailFlow circleId="emergency" initialCircleSummary={{ id: "emergency", name: "Emergency contacts", memberCount: 3 }}
+      {...props} onLoadOverview={onLoadOverview} onLoadMembersPage={onLoadMembersPage} />);
+    expect(screen.getByRole("heading", { name: "Emergency contacts" })).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Loading circle members" })).toBeInTheDocument();
+    expect(screen.queryByText("Loading Circle…")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    await act(async () => overview(circle("emergency", "Updated circle")));
+    expect(screen.getByRole("heading", { name: "Updated circle" })).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Loading circle members" })).toBeInTheDocument();
+    expect(screen.queryByText("No members found")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit", exact: true }));
+    fireEvent.change(await screen.findByLabelText("Circle name"), { target: { value: "My renamed circle" } });
+    if (saveRename) {
+      fireEvent.click(screen.getByRole("button", { name: "Save", exact: true }));
+      await waitFor(() => expect(screen.queryByLabelText("Circle name")).not.toBeInTheDocument());
+    }
+    await act(async () => roster({ items: circle("emergency", "Updated circle").members, page: 1, hasMore: false, totalCount: 1 }));
+    if (saveRename) {
+      expect(screen.getByRole("heading", { name: "My renamed circle" })).toBeInTheDocument();
+    } else {
+      expect(screen.getByLabelText("Circle name")).toHaveValue("My renamed circle");
+      expect(screen.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+      fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+    }
+    expect(screen.getByText("Owner")).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "Loading circle members" })).not.toBeInTheDocument();
+  });
+
+  it("keeps a newer member search when the initial roster finishes late", async () => {
+    const current = { ...circle("family", "Family"), memberCount: 8 };
+    const asha = { ...current.members[0]!, userId: "asha", displayName: "Asha Rao", role: "member" as const };
+    let initialRoster!: (page: OneLocationCircleMemberPage) => void;
+    const pending = new Promise<OneLocationCircleMemberPage>((resolve) => { initialRoster = resolve; });
+    const onLoadMembersPage = vi.fn((_id: string, options: { query?: string }) => options.query
+      ? Promise.resolve({ items: [asha], page: 1, hasMore: false, totalCount: 1 })
+      : pending);
+    render(<CircleDetailFlow circleId="family" {...detailProps(vi.fn())}
+      onLoadOverview={async () => current} onLoadMembersPage={onLoadMembersPage} />);
+    fireEvent.change(await screen.findByRole("textbox", { name: "Search members" }), { target: { value: "Asha" } });
+    await screen.findByText("Asha Rao");
+    await act(async () => initialRoster({ items: [...current.members, asha], page: 1, hasMore: false, totalCount: 8 }));
+    expect(screen.getByRole("textbox", { name: "Search members" })).toHaveValue("Asha");
+    expect(screen.getByText("Asha Rao")).toBeInTheDocument();
+    expect(screen.queryByText("Owner")).not.toBeInTheDocument();
+    expect(screen.getByText("1 match")).toBeInTheDocument();
+  });
+
+  it("keeps a failed first roster distinct from an empty circle and recovers on retry", async () => {
+    const current = circle("emergency", "Emergency contacts");
+    const props = detailProps(vi.fn());
+    const onLoadOverview = vi.fn(async () => current);
+    const onLoadMembersPage = vi.fn().mockRejectedValue(new Error("Members unavailable"));
+    render(<CircleDetailFlow circleId="emergency" {...props} onLoadOverview={onLoadOverview} onLoadMembersPage={onLoadMembersPage} />);
+    await screen.findByText("Members unavailable");
+    expect(screen.getByRole("heading", { name: "Emergency contacts" })).toBeInTheDocument();
+    expect(screen.queryByText("No members found")).not.toBeInTheDocument();
+    expect(screen.queryByText("Try a different name.")).not.toBeInTheDocument();
+    onLoadMembersPage.mockResolvedValue({ items: current.members, page: 1, hasMore: false, totalCount: 1 });
+    fireEvent.click(screen.getByRole("button", { name: "Retry", exact: true }));
+    await screen.findByText("Owner");
+    expect(screen.queryByText("Members unavailable")).not.toBeInTheDocument();
+  });
+
+  it("closes an open invitation sheet as soon as fresh overview revokes permission while the roster is pending", async () => {
+    const current = circle("family", "Family");
+    const props = detailProps(vi.fn());
+    props.onLoadEligibleConnections = vi.fn(async () => ({
+      eligibleConnections: [{ connectionId: "connection-asha", userId: "asha", displayName: "Asha Rao" }],
+      pendingInvites: [], remainingCapacity: 19,
+    }));
+    const onLoadOverview = vi.fn().mockResolvedValue(current);
+    const onLoadMembersPage = vi.fn().mockResolvedValue({ items: current.members, page: 1, hasMore: false, totalCount: 1 });
+    const view = render(<CircleDetailFlow circleId="family" {...props} onLoadOverview={onLoadOverview} onLoadMembersPage={onLoadMembersPage} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Asha Rao/i }));
+    expect(screen.getByRole("button", { name: "Add 1 person" })).toBeEnabled();
+    onLoadOverview.mockResolvedValue({ ...current, viewerCapabilities: { ...current.viewerCapabilities, canInviteMembers: false } });
+    let rejectRoster!: (error: Error) => void;
+    const pendingRoster = new Promise((_, reject) => { rejectRoster = reject; });
+    onLoadMembersPage.mockReturnValue(pendingRoster);
+    view.rerender(<CircleDetailFlow circleId="family" reloadSignal={1} {...props} onLoadOverview={onLoadOverview} onLoadMembersPage={onLoadMembersPage} />);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add people" })).not.toBeInTheDocument());
+    expect(props.onInviteConnections).not.toHaveBeenCalled();
+    await act(async () => rejectRoster(new Error("Members unavailable")));
+    expect(screen.queryByRole("button", { name: "Add 1 person" })).not.toBeInTheDocument();
+  });
+
+  it("withholds old detail and ignores late responses after an unlock scope changes", async () => {
+    const first = circle("same-circle", "Old private circle");
+    let stale!: (value: OneLocationCircleDetail) => void;
+    const load = vi.fn().mockResolvedValueOnce(first).mockImplementationOnce(() => new Promise((resolve) => { stale = resolve; }))
+      .mockRejectedValueOnce(new Error("New session unavailable"));
+    const props = detailProps(load);
+    const view = render(<CircleDetailFlow circleId="same-circle" sessionScope="first-unlock" {...props} />);
+    await screen.findByRole("heading", { name: "Old private circle" });
+    view.rerender(<CircleDetailFlow circleId="same-circle" sessionScope="first-unlock" reloadSignal={1} {...props} />);
+    await waitFor(() => expect(stale).toBeDefined());
+    view.rerender(<CircleDetailFlow circleId="same-circle" sessionScope="next-unlock" reloadSignal={1}
+      initialCircleSummary={{ id: "another-circle", name: "Wrong seed", memberCount: 3 }} {...props} />);
+    expect(screen.queryByRole("heading", { name: "Old private circle" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Wrong seed")).not.toBeInTheDocument();
+    await screen.findByText("New session unavailable");
+    await act(async () => stale(first));
+    expect(screen.queryByRole("heading", { name: "Old private circle" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
   });
 
   it("guides a new circle through a failed add, retry, confirmed membership, and opening chat", async () => {

@@ -8,8 +8,8 @@ import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { MessageCircle, ImageIcon, BellOff, Bell, ArrowDown, Mic } from "@/components/icons";
 import { CircleChatService, type CircleChatSession, type CircleChatState, type CircleChatReceipt, type CircleMembershipEvent, type CircleChatPage } from "@/lib/services/circle-chat-service";
 import { ApiError, apiErrorCode } from "@/lib/services/api-client";
-import { MAX_CHAT_IMAGE_BYTES, MAX_CHAT_TEXT, validateChatAttachmentBytes, type ChatMessage, type SealedChatMessage } from "@/lib/circle-chat/crypto";
-import { CircleChatMessage, type OpenChatMessage as OpenMessage } from "./circle-chat-message";
+import { MAX_CHAT_IMAGE_BYTES, MAX_CHAT_TEXT, validateChatAttachmentBytes, type ChatImageThumbnail, type ChatMessage, type SealedChatMessage } from "@/lib/circle-chat/crypto";
+import { CircleChatMessage, type OutgoingChatMessage, type OpenChatMessage as OpenMessage } from "./circle-chat-message";
 import { FileAttachmentPreview, ImageAttachmentPreview } from "./circle-chat-media";
 import { CIRCLE_CHAT_CHANGED, dispatchCircleChatChanged } from "@/lib/circle-chat/events";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
@@ -60,6 +60,11 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
   const [revision, setRevision] = useState(0);
   const [muting, setMuting] = useState(false);
   const acknowledgedRead = useRef(0);
+  const threadScope = useRef({ session, revision: 0 });
+  if (threadScope.current.session !== session) {
+    threadScope.current = { session, revision: threadScope.current.revision + 1 };
+    acknowledgedRead.current = 0;
+  }
   useEffect(() => {
     let active = true;
     let cursor = 0;
@@ -174,7 +179,7 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
     {!state && !error && !revoked ? <p role="status" className="p-4 text-sm text-muted-foreground">Connecting chat…</p> : null}
     {revoked ? <p role="alert" className="p-4 text-sm">You no longer have access to this circle chat.</p> : null}
     {error && !revoked ? <div role="alert" className="p-4 text-sm">{error} <Button variant="ghost" size="sm" onClick={() => setRevision((n) => n + 1)}>Reconnect</Button></div> : null}
-    {started && state && !revoked ? <div hidden={!open || !paneActive} className={chatLane ? "min-h-0 flex-1" : undefined}><CircleChatThread session={session} visible={open && paneActive} readingBlocked={readingBlocked} chatLane={chatLane} chatLaneTheme={chatLaneTheme}
+    {started && state && !revoked ? <div hidden={!open || !paneActive} className={chatLane ? "min-h-0 flex-1" : undefined}><CircleChatThread key={threadScope.current.revision} session={session} visible={open && paneActive} readingBlocked={readingBlocked} chatLane={chatLane} chatLaneTheme={chatLaneTheme}
       onRead={(sequence) => { acknowledgedRead.current = Math.max(acknowledgedRead.current, sequence); setState((old) => old && old.latestSequence <= sequence ? { ...old, unreadCount: 0 } : old); }}
       onRevoked={() => { setRevoked(true); setState(null); setOpen(false); }} /></div> : null}
   </section>
@@ -207,6 +212,10 @@ function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked,
   const [validFile, setValidFile] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
   const [pending, setPending] = useState<SealedChatMessage | null>(null);
+  const [outgoing, setOutgoing] = useState<OutgoingChatMessage | null>(null);
+  const outgoingRef = useRef<OutgoingChatMessage | null>(null);
+  const sendAttempt = useRef<{ id: string | null; confirmed: boolean } | null>(null);
+  const thumbnailRef = useRef<{ file: File; thumbnail?: ChatImageThumbnail } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [readRevision, setReadRevision] = useState(0);
   const [atBottom, setAtBottom] = useState(true);
@@ -239,7 +248,7 @@ function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked,
 
   const fail = useCallback((err: unknown) => {
     if (!active.current) return;
-    if (unavailable(err)) { active.current = false; setMessages([]); setText(""); setFile(null); setPending(null); onRevokedRef.current(); }
+    if (unavailable(err)) { active.current = false; setMessages([]); messagesRef.current = []; outgoingRef.current = null; thumbnailRef.current = null; setOutgoing(null); setText(""); setFile(null); setValidFile(null); setPending(null); onRevokedRef.current(); }
     else setError(errorText(err));
   }, []);
   const decrypt = useCallback(async (items: ChatMessage[]) => Promise.all(items.map(async (message) => {
@@ -259,7 +268,18 @@ function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked,
       const previous = existing.get(item.id);
       // A delayed POST can arrive after a newer receipt refresh. Transcript
       // receipt pages remain authoritative, including recipient erasure.
-      existing.set(item.id, { ...item, receipt: previous?.receipt ?? item.receipt });
+      const local = outgoingRef.current;
+      const attempt = sendAttempt.current;
+      if (attempt?.id && item.senderUserId === session.userId && attempt.id === item.clientMessageId) attempt.confirmed = true;
+      const matchesOutgoing = local && item.senderUserId === session.userId && item.clientMessageId === local.clientMessageId;
+      existing.set(item.id, { ...item, receipt: previous?.receipt ?? item.receipt,
+        reactions: previous?.reactions ?? item.reactions,
+        localImage: previous?.localImage ?? (matchesOutgoing ? local.localImage : undefined) });
+      if (matchesOutgoing) {
+        outgoingRef.current = null; setOutgoing(null); setPending(null); setText(""); setFile(null); setValidFile(null); thumbnailRef.current = null;
+        setPickerDismissSignal((value) => value + 1);
+        if (fileInput.current) fileInput.current.value = "";
+      }
     }
     const merged = [...existing.values()].sort((a, b) => a.sequence - b.sequence);
     const byId = new Map(receipts.map((receipt) => [receipt.id, receipt]));
@@ -276,6 +296,12 @@ function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked,
     }
     if (merged.length > 300) setHasOlder(true);
     messagesRef.current = merged.slice(-300);
+    // Four local originals at most (20 MB); older photos use their encrypted preview.
+    let originals = 0;
+    for (let i = messagesRef.current.length - 1; i >= 0; i--) {
+      const item = messagesRef.current[i]!;
+      if (item.localImage && ++originals > 4) messagesRef.current[i] = { ...item, localImage: undefined };
+    }
     setMessages(messagesRef.current);
     if (items.length && atBottomRef.current) requestAnimationFrame(() => {
       if (active.current && transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
@@ -401,23 +427,53 @@ function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked,
   const send = async () => {
     if (sendLock.current || !active.current || loading || (!pending && file && validFile !== file) || (!pending && !text.trim() && !file)) return;
     sendLock.current = true; setSending(true); setError(null);
+    let sealed = pending;
+    let local = outgoingRef.current;
+    if (file?.type.startsWith("image/")) {
+      local = local ? { ...local, delivery: "sending" } : {
+        id: crypto.randomUUID(), clientMessageId: "", senderUserId: session.userId, senderName: "You",
+        createdAt: new Date().toISOString(), content: { text: text.trim(), attachment: { kind: "photo", type: file.type, name: file.name.slice(0, 160) } },
+        failed: false, localImage: file, delivery: "sending",
+      };
+      local.clientMessageId ||= local.id;
+      outgoingRef.current = local; setOutgoing(local);
+      atBottomRef.current = true; setAtBottom(true);
+      requestAnimationFrame(() => { if (active.current && transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight; });
+    }
+    const attempt = { id: sealed?.clientMessageId ?? local?.clientMessageId ?? null, confirmed: false };
+    sendAttempt.current = attempt;
     try {
-      const sealed = pending ?? await CircleChatService.prepare(session, text, file);
+      sealed ??= await CircleChatService.prepare(session, text, file, local ? { clientMessageId: local.clientMessageId,
+        thumbnail: thumbnailRef.current?.file === file ? thumbnailRef.current.thumbnail : undefined } : undefined);
       if (!active.current) return;
+      attempt.id = sealed.clientMessageId;
+      if (local && local.clientMessageId !== sealed.clientMessageId) {
+        local = { ...local, id: sealed.clientMessageId, clientMessageId: sealed.clientMessageId };
+        outgoingRef.current = local; setOutgoing(local);
+      }
       setPending(sealed);
       const sent = await CircleChatService.send(session, sealed);
       if (!active.current) return;
       atBottomRef.current = true;
       setAtBottom(true);
       append(await decrypt([sent]));
-      setPending(null); setText(""); setFile(null); setPickerDismissSignal((value) => value + 1);
+      setPending(null); setText(""); setFile(null); setValidFile(null); thumbnailRef.current = null;
+      outgoingRef.current = null; setOutgoing(null); setPickerDismissSignal((value) => value + 1);
       if (fileInput.current) fileInput.current.value = "";
     } catch (err) {
+      if (!active.current) return;
+      // The transcript can confirm delivery before an uncertain POST settles.
+      if (!unavailable(err) && attempt.confirmed) return;
       fail(err);
       // A definite roster refusal never committed; reseal only on the person's next Send.
       if (["CIRCLE_CHAT_ROSTER_CHANGED", "CIRCLE_CHAT_RETRY_CONFLICT"].includes(apiErrorCode(err) ?? "")
-          || err instanceof ApiError && [413, 422].includes(err.status)) setPending(null);
-    } finally { sendLock.current = false; if (active.current) setSending(false); }
+          || err instanceof ApiError && [413, 422].includes(err.status) || !sealed) {
+        setPending(null); outgoingRef.current = null; setOutgoing(null);
+      } else if (active.current && local) {
+        const uncertain: OutgoingChatMessage = { ...local, delivery: "unconfirmed" };
+        outgoingRef.current = uncertain; setOutgoing(uncertain);
+      }
+    } finally { if (sendAttempt.current === attempt) sendAttempt.current = null; sendLock.current = false; if (active.current) setSending(false); }
   };
   return <div className={`${file ? "[--chat-preview-height:5rem]" : "[--chat-preview-height:0px]"} ${chatLane ? "flex h-full min-h-0 flex-col" : ""}`}>
     <div ref={transcript} tabIndex={0} aria-label="Circle messages" style={chatLane ? { height: "auto", minHeight: 0, flex: "1 1 0", paddingBottom: "10rem" } : undefined}
@@ -452,9 +508,10 @@ function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked,
           }
         }
       }}>Load earlier messages</Button> : null}
-      {loading ? <p role="status" className="text-sm text-muted-foreground">Loading messages…</p> : !messages.length && !membershipEvents.length ? <p className="py-8 text-center text-sm text-muted-foreground">Start the conversation. Say hello or share a file.</p> : null}
+      {loading ? <p role="status" className="text-sm text-muted-foreground">Loading messages…</p> : !messages.length && !membershipEvents.length && !outgoing ? <p className="py-8 text-center text-sm text-muted-foreground">Start the conversation. Say hello or share a file.</p> : null}
       <div role="log" aria-label="Circle message history" aria-live={atBottom && visible ? "polite" : "off"} aria-relevant="additions" aria-busy={loading || loadingOlder}><ol ref={messageList}>{[
-        ...messages.map((message, index) => ({ kind: "message" as const, id: message.id, createdAt: message.createdAt, message, previous: messages[index - 1] })),
+        ...messages.map((message, index) => ({ kind: "message" as const, id: `${message.senderUserId}:${message.clientMessageId ?? message.id}`, createdAt: message.createdAt, message, previous: messages[index - 1] })),
+        ...(outgoing ? [{ kind: "message" as const, id: `${outgoing.senderUserId}:${outgoing.clientMessageId}`, createdAt: outgoing.createdAt, message: outgoing, previous: messages.at(-1) }] : []),
         ...membershipEvents.map((event) => ({ kind: "event" as const, id: event.id, createdAt: event.createdAt, event })),
       ].sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt) || left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id))
         .map((item) => item.kind === "event" ? <CircleMembershipEventPill key={`event:${item.id}`} event={item.event} /> : <CircleChatMessage key={`message:${item.id}`}
@@ -470,7 +527,7 @@ function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked,
       window.dispatchEvent(new CustomEvent(CIRCLE_CHAT_CHANGED, { detail: { userId: session.userId, circleId: session.circleId } }));
     }}><ArrowDown className="size-4" aria-hidden="true" />Go to latest messages</Button> : null}
     {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-    {file ? file.type.startsWith("image/") ? <ImageAttachmentPreview key={`${file.name}:${file.lastModified}`} file={file} disabled={sending || Boolean(pending)} onValidity={(previewFile, valid) => { if (previewFile === file) setValidFile(valid ? previewFile : null); }} onRemove={() => { setFile(null); setValidFile(null); if (fileInput.current) fileInput.current.value = ""; }} />
+    {file && !outgoing ? file.type.startsWith("image/") ? <ImageAttachmentPreview key={`${file.name}:${file.lastModified}`} file={file} disabled={sending || Boolean(pending)} onThumbnail={(previewFile, thumbnail) => { if (previewFile === file) thumbnailRef.current = { file: previewFile, thumbnail }; }} onValidity={(previewFile, valid) => { if (previewFile === file) setValidFile(valid ? previewFile : null); }} onRemove={() => { setFile(null); setValidFile(null); thumbnailRef.current = null; if (fileInput.current) fileInput.current.value = ""; }} />
       : <FileAttachmentPreview file={file} disabled={sending || Boolean(pending)} onRemove={() => { setFile(null); setValidFile(null); if (fileInput.current) fileInput.current.value = ""; }} /> : null}
       <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" className="hidden" tabIndex={-1} aria-label="Attach photo, video, or document" disabled={sending || Boolean(pending)} onChange={async (event) => {
         const next = event.target.files?.[0];
