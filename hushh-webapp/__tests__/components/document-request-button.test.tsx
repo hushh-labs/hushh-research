@@ -19,6 +19,7 @@ const state = vi.hoisted(() => ({
   create: vi.fn(),
   createQuery: vi.fn(),
   lookupClient: vi.fn(),
+  quote: vi.fn(),
   invalidate: vi.fn(),
 }));
 vi.mock("@/lib/cache/cache-sync-service", () => ({ CacheSyncService: { onConsentMutated: state.invalidate } }));
@@ -48,6 +49,9 @@ vi.mock("@/lib/services/api-service", () => ({
 vi.mock("@/lib/services/drive-sharing-service", async (original) => ({
   ...(await original<typeof import("@/lib/services/drive-sharing-service")>()),
   DriveSharingService: { create: state.create, createQuery: state.createQuery, lookupClient: state.lookupClient },
+}));
+vi.mock("@/lib/services/drive-request-pricing-service", () => ({
+  DriveRequestPricingService: { quote: state.quote },
 }));
 vi.mock("@/components/consent/drive-query-request-card", () => ({
   DriveQueryRequestCard: ({ requestId, direction, initial }: { requestId: string; direction?: string; initial?: { query: string } }) => (
@@ -97,6 +101,7 @@ describe("asking a connection about their Drive", () => {
     });
     state.createQuery.mockImplementation(async (_token, draft) => queryView(draft.query));
     state.lookupClient.mockResolvedValue(null);
+    state.quote.mockResolvedValue({ amountCents: 1000, version: 1, paymentRequired: true, priceReady: true, paymentsReady: true, payoutReady: true });
   });
   afterEach(cleanup);
 
@@ -267,11 +272,13 @@ describe("requesting exact files from a connection", () => {
     state.linkGoogle.mockResolvedValue(firebaseProof);
     state.create.mockResolvedValue({ requestId, status: "pending", revision: 1 });
     state.lookupClient.mockResolvedValue(null);
+    state.quote.mockResolvedValue({ amountCents: 1000, version: 1, paymentRequired: true, priceReady: true, paymentsReady: true, payoutReady: true });
   });
   afterEach(cleanup);
 
   async function openFiles(purpose = "Six months of statements", withDates = true) {
     fireEvent.click(await screen.findByRole("button", { name: "Request files" }));
+    expect(await screen.findByText("Price: $10. Pay only if files are found.")).toBeVisible();
     fireEvent.change(screen.getByLabelText("What do you need?"), { target: { value: purpose } });
     if (withDates) {
       fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2026-03-01" } });
@@ -323,6 +330,7 @@ describe("requesting exact files from a connection", () => {
         {
           ownerPersonRef: personRef,
           clientRequestId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+          expectedQuoteVersion: 1,
           purpose: { purpose: "Files modified in the last two days", periodStart: "2026-09-29", periodEnd: "2026-10-01" },
         },
         expect.any(Function),
@@ -353,6 +361,42 @@ describe("requesting exact files from a connection", () => {
     expect(state.create.mock.calls[1][2].clientRequestId).toBe(
       state.create.mock.calls[0][2].clientRequestId,
     );
+  });
+
+  it("refreshes a stale quote before retrying with a new version and key", async () => {
+    state.quote.mockResolvedValueOnce({ amountCents: 1000, version: 1, paymentRequired: true, priceReady: true, paymentsReady: true, payoutReady: true })
+      .mockResolvedValueOnce({ amountCents: 2500, version: 2, paymentRequired: true, priceReady: true, paymentsReady: true, payoutReady: true });
+    state.create.mockRejectedValueOnce(new DriveSharingError("price_changed", 409))
+      .mockResolvedValueOnce({ requestId, status: "pending", revision: 1 });
+    mount();
+    await openFiles();
+    expect(state.create).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Review the updated quote");
+    expect(await screen.findByText("Price: $25. Pay only if files are found.")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    expect(await screen.findByText("Request sent.")).toBeVisible();
+    expect(state.create.mock.calls[0][2].expectedQuoteVersion).toBe(1);
+    expect(state.create.mock.calls[1][2].expectedQuoteVersion).toBe(2);
+    expect(state.create.mock.calls[1][2].clientRequestId).not.toBe(state.create.mock.calls[0][2].clientRequestId);
+  });
+
+  it("allows a request to wait for owner price and payout setup without inventing a price", async () => {
+    state.quote.mockResolvedValueOnce({ amountCents: null, version: 0, paymentRequired: true,
+      priceReady: false, payoutReady: false, paymentsReady: false });
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: "Request files" }));
+    expect(await screen.findByText("The owner will set a price. You review it before paying.")).toBeVisible();
+    expect(screen.getByText("We'll ask the owner to set up payouts.")).toBeVisible();
+    expect(screen.queryByText(/Price: \$10/)).toBeNull();
+    fireEvent.change(screen.getByLabelText("What do you need?"), { target: { value: "Bank statements" } });
+    fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2026-03-01" } });
+    fireEvent.change(screen.getByLabelText("End date"), { target: { value: "2026-08-31" } });
+    expect(screen.getByRole("button", { name: "Send request" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    expect(await screen.findByText("Request sent.")).toBeVisible();
+    expect(state.create).toHaveBeenCalledOnce();
+    expect(state.create.mock.calls[0][2]).toMatchObject({ expectedQuoteVersion: 0 });
   });
 
   it("refuses an incomplete period before any identity check", async () => {
@@ -391,6 +435,7 @@ describe("chat draft question card", () => {
     state.overview.mockResolvedValue({ features: { drive_document_sharing: true }, connectors: [] });
     state.createQuery.mockImplementation(async (_token, draft) => queryView(draft.query));
     state.lookupClient.mockResolvedValue(null);
+    state.quote.mockResolvedValue({ amountCents: 1000, version: 1, paymentRequired: true, priceReady: true, paymentsReady: true, payoutReady: true });
   });
   afterEach(cleanup);
 
@@ -439,6 +484,7 @@ describe("chat draft question card", () => {
       clientRequestId, purpose: "Six months of statements",
       periodStart: "2026-03-01", periodEnd: "2026-08-31",
     }} />);
+    expect(await screen.findByText("Price: $10. Pay only if files are found.")).toBeVisible();
     fireEvent.click(await screen.findByRole("button", { name: "Request files" }));
     expect(await screen.findByTestId("legacy-document-review")).toHaveTextContent(requestId);
     expect(state.create).toHaveBeenCalledWith(
@@ -447,6 +493,7 @@ describe("chat draft question card", () => {
       {
         ownerPersonRef: personRef,
         clientRequestId,
+        expectedQuoteVersion: 1,
         purpose: { purpose: "Six months of statements", periodStart: "2026-03-01", periodEnd: "2026-08-31" },
       },
       expect.any(Function),

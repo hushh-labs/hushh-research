@@ -7,10 +7,46 @@ vi.mock("@/app/api/_utils/backend", () => ({
 }));
 
 import { proxyExternalConnectorRequest } from "@/app/api/connectors/_proxy";
+import { PUT } from "@/app/api/connectors/[...path]/route";
 
 afterEach(() => vi.restoreAllMocks());
 
 describe("connector proxy privacy", () => {
+  it.each([
+    { status: 200, payload: { enabled: true, amountCents: 500, version: 2 } },
+    { status: 409, payload: { detail: "Request price changed. Refresh and try again." } },
+  ])("forwards owner pricing PUT through the actual route and preserves $status", async ({ status, payload }) => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json(payload, { status }));
+    vi.stubGlobal("fetch", fetchMock);
+    const path = ["google_drive", "sharing", "pricing"];
+    const body = JSON.stringify({ enabled: true, amountCents: 500, expectedVersion: 1 });
+    const response = await PUT(
+      new NextRequest(`https://app.test/api/connectors/${path.join("/")}`, {
+        method: "PUT",
+        headers: {
+          authorization: "Bearer synthetic-owner",
+          "x-hushh-consent": "synthetic-vault",
+          "content-type": "application/json",
+        },
+        body,
+      }),
+      { params: Promise.resolve({ path }) },
+    );
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://backend.test/api/connectors/google_drive/sharing/pricing");
+    expect(init.method).toBe("PUT");
+    expect(init.body).toBe(body);
+    expect(init.headers.get("authorization")).toBe("Bearer synthetic-owner");
+    expect(init.headers.get("x-hushh-consent")).toBe("synthetic-vault");
+    expect(init.headers.get("content-type")).toBe("application/json");
+    expect(response.status).toBe(status);
+    expect(await response.json()).toEqual(payload);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("pragma")).toBe("no-cache");
+  });
+
   it("forwards an explicitly confirmed bulk retry through the private no-store proxy", async () => {
     const fetchMock = vi.fn().mockResolvedValue(Response.json({ status: "queued" }));
     vi.stubGlobal("fetch", fetchMock);

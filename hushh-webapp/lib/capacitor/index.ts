@@ -850,6 +850,10 @@ export const HushhSync = registerPlugin<HushhSyncPlugin>("HushhSync", {
 // Push notification token registration (FCM/APNs)
 
 export interface HushhNotificationsPlugin {
+  deletePushToken(): Promise<void>;
+  prepareNotificationKey(options: { userId: string; deviceId: string }): Promise<{ deviceId: string; keyId: string; publicKey: string }>;
+  clearNotificationKey(options: { userId: string }): Promise<void>;
+  clearChatNotifications(options: { threadId: string; keyId: string; sequence?: number; before?: number; messageId?: string }): Promise<void>;
   /**
    * Register push notification token for consent notifications.
    * Next.js source of truth: POST /api/notifications/register
@@ -861,6 +865,9 @@ export interface HushhNotificationsPlugin {
     platform: "web" | "ios" | "android";
     idToken: string; // Firebase ID token
     backendUrl?: string;
+    deviceId?: string;
+    previewKeyId?: string;
+    previewPublicKey?: string;
   }): Promise<{ success: boolean }>;
 
   /**
@@ -873,6 +880,7 @@ export interface HushhNotificationsPlugin {
     idToken: string; // Firebase ID token
     platform?: "web" | "ios" | "android";
     backendUrl?: string;
+    deviceId?: string;
   }): Promise<{ success: boolean }>;
 }
 

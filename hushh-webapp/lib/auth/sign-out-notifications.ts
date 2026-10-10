@@ -15,9 +15,10 @@ export async function settleSignOutNotifications(user: User): Promise<void> {
   });
 
   const cleanup = async () => {
+    const { clearLocalChatNotificationState, deleteFCMToken } = await import("@/lib/notifications/fcm-service");
+    // Remove preview keys before asking Firebase for a potentially stalled token.
+    await clearLocalChatNotificationState(user.uid);
     const idToken = await user.getIdToken();
-    if (controller.signal.aborted) return;
-    const { deleteFCMToken } = await import("@/lib/notifications/fcm-service");
     if (controller.signal.aborted) return;
     await deleteFCMToken(user.uid, idToken, { signal: controller.signal });
   };

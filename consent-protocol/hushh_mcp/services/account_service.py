@@ -342,6 +342,12 @@ class AccountService:
             "pkm_owner_payout_accounts": text(
                 "DELETE FROM pkm_owner_payout_accounts WHERE user_id = :user_id"
             ),
+            "stripe_owner_payout_accounts": text(
+                "DELETE FROM stripe_owner_payout_accounts WHERE user_id = :user_id"
+            ),
+            "drive_request_owner_pricing": text(
+                "DELETE FROM drive_request_owner_pricing WHERE user_id = :user_id"
+            ),
             # The Stripe subscription id moves to an identity-free table so the
             # work drain cancels it at Stripe: a deleted person is never billed.
             "pkm_credit_subscriptions": text(
@@ -1580,6 +1586,8 @@ class AccountService:
                 "pkm_credit_ledger",
                 "pkm_credit_subscriptions",
                 "pkm_owner_payout_accounts",
+                "stripe_owner_payout_accounts",
+                "drive_request_owner_pricing",
                 "marketplace_opportunity_signals",
                 "trusted_device_challenges",
                 "trusted_device_authorizations",
@@ -1997,6 +2005,8 @@ class AccountService:
             "pkm_credit_ledger": False,
             "pkm_credit_subscriptions": False,
             "pkm_owner_payout_accounts": False,
+            "stripe_owner_payout_accounts": False,
+            "drive_request_owner_pricing": False,
             "marketplace_opportunity_signals": False,
             "one_referral_risk_reviews": False,
             "one_referral_events": False,
@@ -2167,6 +2177,8 @@ class AccountService:
                         "pkm_credit_ledger",
                         "pkm_credit_subscriptions",
                         "pkm_owner_payout_accounts",
+                        "stripe_owner_payout_accounts",
+                        "drive_request_owner_pricing",
                         "marketplace_opportunity_signals",
                         "trusted_device_challenges",
                         "trusted_device_authorizations",

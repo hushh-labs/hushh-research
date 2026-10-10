@@ -1275,6 +1275,166 @@
     },
     {
       "aliases": [
+        "Read Calendar",
+        "what is on my calendar",
+        "show my calendar events",
+        "find a calendar event",
+        "when am i free"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_owner_token"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "calendar.read",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Reads the owner's connected Google Calendar through One Live Voice. The read can list calendars, find events in a bounded time window, open a previously shown event, inspect busy periods, or find openings. Event text is displayed privately on screen; the operational voice model receives only counts and status. No event is created or changed.",
+      "execution": {
+        "binding_ref": "render:calendar.read",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "voice_tool",
+          "status": "wired",
+          "target": "read_calendar"
+        }
+      },
+      "goal_id": "goal.calendar.read",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Read Calendar",
+      "navigation": {
+        "fallback": "read_calendar",
+        "routes": [
+          "/one/calendar",
+          "/one"
+        ],
+        "screens": [
+          "one_calendar",
+          "one_agents"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "calendar events",
+        "calendar list",
+        "event details",
+        "busy times",
+        "free openings"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open Connect",
         "open connect",
         "connect",
@@ -15561,6 +15721,452 @@
       "search_keywords": [
         "profile",
         "account"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Open Memory",
+        "open my saved details",
+        "my saved details"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "route.profile_my_data",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens saved details and sharing in Profile.",
+      "execution": {
+        "binding_ref": "route:/one/profile/my-data",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/profile/my-data"
+        }
+      },
+      "goal_id": "goal.route.profile_my_data",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Open Memory",
+      "navigation": {
+        "fallback": "/one/profile/my-data",
+        "routes": [
+          "/one/profile/my-data"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_my_data"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": false,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "memory",
+        "saved details",
+        "sharing"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Open Request pricing",
+        "set my Drive price",
+        "document price",
+        "request pricing"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "route.profile_request_pricing",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens the default price for document requests.",
+      "execution": {
+        "binding_ref": "route:/one/profile/request-pricing",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/profile/request-pricing"
+        }
+      },
+      "goal_id": "goal.route.profile_request_pricing",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Open Request pricing",
+      "navigation": {
+        "fallback": "/one/profile/request-pricing",
+        "routes": [
+          "/one/profile/request-pricing"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_request_pricing"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": false,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "set my Drive price",
+        "document price",
+        "request pricing"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Open Payouts",
+        "link my bank",
+        "set up payouts",
+        "document earnings"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "route.profile_payouts",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens payout setup and transaction history.",
+      "execution": {
+        "binding_ref": "route:/one/profile/payouts",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/profile/payouts"
+        }
+      },
+      "goal_id": "goal.route.profile_payouts",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Open Payouts",
+      "navigation": {
+        "fallback": "/one/profile/payouts",
+        "routes": [
+          "/one/profile/payouts"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_payouts"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": false,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "link my bank",
+        "set up payouts",
+        "document earnings"
       ],
       "settlement_proof": "validated_route_settlement",
       "side_effect": {
@@ -37910,7 +38516,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "7ecfa3a90391c98c50251f2579c2489d9229343e925079622b341d93e283725f",
+      "projection_digest": "e2287dad4fcb527cfa8e079c9c872be3e01ded104d63a7602a088da7bba5ee43",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -37929,7 +38535,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
       },
-      "source_revision": "3186f9f8f525e755",
+      "source_revision": "4edbe976abb27a27",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -39447,7 +40053,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "3186f9f8f525e755",
+    "source_revision": "4edbe976abb27a27",
     "web": {
       "actions": [
         {
@@ -39490,7 +40096,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "346808a6f6c0bd6d8876edf124cb482ce835bb8d1c5a4a786ec8f9e04a9b4a57",
+      "projection_digest": "9ef871cbe3d9477770733b46a17468506537c36b0cf66493da3ec1a80591310c",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -39509,7 +40115,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
       },
-      "source_revision": "3186f9f8f525e755",
+      "source_revision": "4edbe976abb27a27",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -41066,7 +41672,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "3186f9f8f525e755",
+  "revision": "4edbe976abb27a27",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -41375,6 +41981,7 @@
     },
     {
       "action_ids": [
+        "calendar.read",
         "consent.chat.turn",
         "location.chat.turn",
         "route.one_agents",
@@ -41395,7 +42002,9 @@
       "version": 1
     },
     {
-      "action_ids": [],
+      "action_ids": [
+        "calendar.read"
+      ],
       "capability_id": "screen:/one/calendar",
       "kind": "screen",
       "label": "calendar",
@@ -41978,9 +42587,12 @@
         "route.profile",
         "route.profile_access_panel",
         "route.profile_connected_systems",
+        "route.profile_my_data",
+        "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
         "route.profile_referrals_panel",
+        "route.profile_request_pricing",
         "route.profile_security_panel",
         "route.profile_support_panel",
         "route.ria_settings_compat"
@@ -42024,9 +42636,12 @@
         "route.profile",
         "route.profile_access_panel",
         "route.profile_connected_systems",
+        "route.profile_my_data",
+        "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
         "route.profile_referrals_panel",
+        "route.profile_request_pricing",
         "route.profile_security_panel",
         "route.profile_support_panel",
         "route.ria_settings_compat"
@@ -42052,9 +42667,12 @@
         "route.profile",
         "route.profile_access_panel",
         "route.profile_connected_systems",
+        "route.profile_my_data",
+        "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
         "route.profile_referrals_panel",
+        "route.profile_request_pricing",
         "route.profile_security_panel",
         "route.profile_support_panel",
         "route.ria_settings_compat"
@@ -42168,7 +42786,9 @@
       "version": 1
     },
     {
-      "action_ids": [],
+      "action_ids": [
+        "route.profile_my_data"
+      ],
       "capability_id": "screen:/one/profile/my-data",
       "kind": "screen",
       "label": "profile_my_data",
@@ -42177,11 +42797,24 @@
       "version": 1
     },
     {
-      "action_ids": [],
+      "action_ids": [
+        "route.profile_my_data"
+      ],
       "capability_id": "screen:/one/profile/my-data/domain",
       "kind": "screen",
       "label": "profile_my_data",
       "route_pattern": "/one/profile/my-data/domain",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
+      "action_ids": [
+        "route.profile_payouts"
+      ],
+      "capability_id": "screen:/one/profile/payouts",
+      "kind": "screen",
+      "label": "profile_payouts",
+      "route_pattern": "/one/profile/payouts",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
     },
@@ -42297,12 +42930,10 @@
       "version": 1
     },
     {
-      "action_ids": [
-        "route.profile_referrals_panel"
-      ],
+      "action_ids": [],
       "capability_id": "screen:/one/profile/referrals",
       "kind": "screen",
-      "label": "profile_referrals_panel",
+      "label": "profile_referrals_redirect",
       "route_pattern": "/one/profile/referrals",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
@@ -42313,6 +42944,17 @@
       "kind": "screen",
       "label": "profile_regulatory",
       "route_pattern": "/one/profile/regulatory",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
+      "action_ids": [
+        "route.profile_request_pricing"
+      ],
+      "capability_id": "screen:/one/profile/request-pricing",
+      "kind": "screen",
+      "label": "profile_request_pricing",
+      "route_pattern": "/one/profile/request-pricing",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
     },
@@ -42406,6 +43048,15 @@
       "kind": "screen",
       "label": "app",
       "route_pattern": "/one/puppy",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
+      "action_ids": [],
+      "capability_id": "screen:/one/referrals",
+      "kind": "screen",
+      "label": "one_referrals",
+      "route_pattern": "/one/referrals",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
     },
@@ -42579,6 +43230,15 @@
       "kind": "screen",
       "label": "one_setup_ria",
       "route_pattern": "/one/setup/ria",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
+      "action_ids": [],
+      "capability_id": "screen:/one/todos",
+      "kind": "screen",
+      "label": "app",
+      "route_pattern": "/one/todos",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
     },
@@ -42865,21 +43525,38 @@
   ],
   "semantic_diff": {
     "added": [
+      "actions:calendar.read",
       "actions:route.one_files",
+      "actions:route.profile_my_data",
+      "actions:route.profile_payouts",
+      "actions:route.profile_request_pricing",
       "actions:setup.finish_cloud",
       "actions:setup.open_cloud",
       "screens:screen:/one/files",
       "screens:screen:/one/profile/discovery",
       "screens:screen:/one/profile/hosting",
+      "screens:screen:/one/profile/payouts",
+      "screens:screen:/one/profile/request-pricing",
       "screens:screen:/one/profile/software-updates",
+      "screens:screen:/one/referrals",
       "screens:screen:/one/setup/cloud",
       "screens:screen:/one/setup/cloud/azure/return",
+      "screens:screen:/one/todos",
       "services:service.cloud",
       "workflows:workflow.setup.cloud"
     ],
     "breaking": [],
     "changed": [
-      "screens:screen:/one/setup"
+      "screens:screen:/one",
+      "screens:screen:/one/calendar",
+      "screens:screen:/one/profile",
+      "screens:screen:/one/profile/account",
+      "screens:screen:/one/profile/account/phone",
+      "screens:screen:/one/profile/my-data",
+      "screens:screen:/one/profile/my-data/domain",
+      "screens:screen:/one/profile/referrals",
+      "screens:screen:/one/setup",
+      "services:service.calendar"
     ],
     "compatible": [],
     "deprecated": [],
@@ -42890,6 +43567,7 @@
   "services": [
     {
       "action_ids": [
+        "calendar.read",
         "setup.finish_calendar",
         "setup.open_calendar",
         "setup.skip_calendar"
@@ -45171,18 +45849,18 @@
     "capability_graph_evolution": "b99e70e7a502fc76b70c9d2d010c8be01fb93aba6972bd6d4e1fab938b7b6b59",
     "capability_runtime_compiler": "465de0a7294d6b0733e422548f9ed9c087fc41fd5b2632431d0f120136da819f",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "9025cd57078eefa9380831b35ef63dba4f06180fe065d028f1b14443bd601dfa",
+    "kai_action_gateway": "b8fe3d27551c6a45d8f90f393ec62258a2b0965a423e1753f294d3039ad06c64",
     "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
     "location_knowledge_package": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "39fccd758b05033a07ce46f89e7a36fa006f51e284836264ed72e66ff658428d",
-    "route_orchestration_index": "44eece85a1e813aecfafe2bb3d4e1891fb7e530a80d2159a187dd946cf7776e9",
+    "product_agent_registry": "88d912d87e1df894453587a0824d62bb53adf3463f94e8f699bfa55f9ed6dac6",
+    "route_orchestration_index": "e95777ccd2b8d3ec96680feae19becf7e2491b0b9d7418664df68990c7f3ad2c",
     "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
   },
-  "source_revision": "3186f9f8f525e755",
+  "source_revision": "4edbe976abb27a27",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "3186f9f8f525e755",
+    "current_graph_revision": "4edbe976abb27a27",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {

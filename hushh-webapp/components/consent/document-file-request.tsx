@@ -24,6 +24,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { MobileDocumentDateRange } from "@/components/consent/mobile-document-date-range";
 import {
+  DocumentRequestQuoteNotice,
+  useDocumentRequestQuote,
+} from "@/components/consent/document-request-quote";
+import type { DriveRequestQuote } from "@/lib/services/drive-request-pricing-service";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -80,6 +85,8 @@ function fileRequestError(code: string): string {
       return "You need an active connection with this person.";
     case "request_changed":
       return "This request was already sent with different details. Start a new request.";
+    case "price_changed":
+      return "The owner changed the price. Review the updated quote before sending.";
     case "date_range_required":
       return "Choose exact start and end dates before sending this request.";
     default:
@@ -97,11 +104,13 @@ export function useFileRequest({
   personRef,
   getToken,
   initial,
+  onQuoteChanged,
 }: {
   userId: string;
   personRef: string;
   getToken: () => string | null;
   initial?: { terms: FileRequestTerms; clientRequestId: string };
+  onQuoteChanged?: () => void;
 }) {
   const [phase, setPhase] = useState<"idle" | "verifying" | "sending">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -109,11 +118,12 @@ export function useFileRequest({
   const alive = useRef(false);
   const serial = useRef(0);
   const inFlight = useRef(false);
-  const attempt = useRef<{ fingerprint: string; id: string } | null>(
+  const attempt = useRef<{ fingerprint: string; id: string; quoteVersion: number | null } | null>(
     initial
       ? {
           fingerprint: fingerprintOf(personRef, initial.terms),
           id: initial.clientRequestId,
+          quoteVersion: null,
         }
       : null,
   );
@@ -127,8 +137,8 @@ export function useFileRequest({
       inFlight.current = false;
     };
   }, []);
-  const send = async (terms: FileRequestTerms): Promise<string | null> => {
-    if (inFlight.current || !validFileRequest(terms) || !alive.current) return null;
+  const send = async (terms: FileRequestTerms, quote: DriveRequestQuote | null): Promise<string | null> => {
+    if (inFlight.current || !validFileRequest(terms) || !quote || !alive.current) return null;
     const token = getToken();
     if (!token) return null;
     const epoch = snapshotVaultSessionEpoch();
@@ -143,8 +153,12 @@ export function useFileRequest({
     };
     const clean = normalize(terms);
     const fingerprint = fingerprintOf(personRef, clean);
-    if (attempt.current?.fingerprint !== fingerprint)
-      attempt.current = { fingerprint, id: crypto.randomUUID() };
+    if (attempt.current?.fingerprint !== fingerprint ||
+        (attempt.current.quoteVersion !== null && attempt.current.quoteVersion !== quote.version)) {
+      attempt.current = { fingerprint, id: crypto.randomUUID(), quoteVersion: quote.version };
+    } else {
+      attempt.current.quoteVersion = quote.version;
+    }
     const clientRequestId = attempt.current.id;
     const linkGoogle = needsGoogle;
     inFlight.current = true;
@@ -160,7 +174,7 @@ export function useFileRequest({
       const result = await DriveSharingService.create(
         token,
         firebaseToken,
-        { ownerPersonRef: personRef, clientRequestId, purpose: clean },
+        { ownerPersonRef: personRef, clientRequestId, expectedQuoteVersion: quote.version, purpose: clean },
         guard,
       );
       guard();
@@ -183,6 +197,7 @@ export function useFileRequest({
             : "request_failed";
       if (IDENTITY_REQUIRED.has(code)) setNeedsGoogle(true);
       setError(fileRequestError(code));
+      if (code === "price_changed") onQuoteChanged?.();
       return null;
     } finally {
       if (serial.current === operation) {
@@ -239,7 +254,8 @@ export function RequestFilesButton({
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const [created, setCreated] = useState<string | null>(null);
-  const request = useFileRequest({ userId, personRef, getToken });
+  const quote = useDocumentRequestQuote({ active: open && !created, ownerPersonRef: personRef, getToken });
+  const request = useFileRequest({ userId, personRef, getToken, onQuoteChanged: quote.refresh });
   const terms = { purpose, periodStart: start || null, periodEnd: end || null };
   const valid = validFileRequest(terms);
   const busy = request.phase !== "idle";
@@ -250,7 +266,7 @@ export function RequestFilesButton({
     setOpen(false);
   };
   const submit = async () => {
-    const requestId = await request.send(terms);
+    const requestId = await request.send(terms, quote.quote);
     if (!requestId) return;
     setCreated(requestId);
     setPurpose("");
@@ -378,9 +394,11 @@ export function RequestFilesButton({
                   {request.error}
                 </HelperText>
               ) : null}
+              <DocumentRequestQuoteNotice quote={quote.quote} loading={quote.loading}
+                error={quote.error} onRetry={quote.refresh} />
               <FlowActionGroup
                 primary={
-                  <Button type="submit" size="prominent" disabled={!valid || busy}>
+                  <Button type="submit" size="prominent" disabled={!valid || !quote.quote || busy}>
                     {request.phase !== "idle"
                       ? "Sending…"
                       : request.needsGoogle

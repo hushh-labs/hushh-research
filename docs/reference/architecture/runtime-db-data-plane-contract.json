@@ -32,7 +32,9 @@
     "drive_request_bulk_removals",
     "drive_request_payment_webhook_events",
     "circle_chat_messages",
-    "circle_chat_recipients"
+    "circle_chat_recipients",
+    "circle_chat_reactions",
+    "direct_message_attachments"
   ],
   "retention_registry": [
     {
@@ -106,10 +108,10 @@
         "vault_keys",
         "vault_key_wrappers"
       ],
-      "primary_access_path": "vault setup, unlock-status, wrapper selection, and account deletion services; owner-authenticated pre-vault Shared choice through HostingChoiceRepo",
+      "primary_access_path": "vault setup, unlock-status, wrapper selection, and account deletion services",
       "retention_policy": "Retain while account exists; delete on account deletion or explicit vault reset flow.",
       "deletion_behavior": "Hard-delete with account deletion after dependent personal data is purged.",
-      "trust_boundary": "Vault key material and wrappers remain encrypted or hashed; raw vault keys never persist server-side. Non-secret pre-vault setup metadata includes the explicit Shared tier and server choice timestamp; it grants no vault decryption or pod provisioning authority.",
+      "trust_boundary": "Vault key material and wrappers remain encrypted or hashed; raw vault keys never persist server-side.",
       "plaintext_posture": "ciphertext_or_hash_only",
       "expected_row_growth": "low_per_user"
     },
@@ -155,15 +157,17 @@
       "data_class": "workflow_state",
       "lifecycle_status": "parked_flag_off_with_live_environment_drift",
       "exact_tables": [
+        "personal_agent_registry",
         "byoc_setup_jobs",
-        "pod_lifecycle_events"
+        "pod_lifecycle_events",
+        "personal_agent_deletion_tombstones"
       ],
-      "primary_access_path": "Feature-flagged personal-agent reservation, BYOC setup (Google Cloud and Connect Azure; an Azure job's project_id holds its resource group ARM id), provider provisioning, lifecycle replay, and the parked provider-deprovision intent design",
-      "retention_policy": "Retain current setup rows while they may own provider work. Lifecycle events use the existing 30-day operational TTL. Registry and deletion-intent retention is owned by the personal_agent_registry family. Orphaned lifecycle state cannot prove resource absence. Dev-only migration928 retains authorization intents and verified bootstrap grant acknowledgements in the existing setup row across retries and attachment; unresolved entries cannot be discarded or rolled back.",
+      "primary_access_path": "Feature-flagged personal-agent reservation, BYOC setup, provider provisioning, lifecycle replay, and the parked provider-deprovision intent design",
+      "retention_policy": "Registry and current setup rows exist only while the account exists. Lifecycle events have a 30-day operational TTL and account deletion removes them immediately only when the registry proves status=unprovisioned with no external coordinates, BYOC job, or pending deprovision intent. A lifecycle row without its registry cannot establish that absence and therefore fails closed. The parked personal_agent_deletion_tombstones design has no in-repo consumer, so an existing intent remains a no-ship operational state rather than evidence that provider cleanup will happen.",
       "deletion_behavior": "AccountService locks all present personal-agent rows and directly deletes only demonstrably unprovisioned state with no provider coordinates. Any BYOC job, orphaned lifecycle row, non-unprovisioned status, external coordinate, or existing personal_agent_deletion_tombstone returns ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING and rolls back the entire account-deletion transaction. Account deletion cannot report success until an owned provider deprovisioner exists and the external or billable resource is independently proven absent.",
-      "trust_boundary": "OAuth tokens remain request-memory-only. Account deletion neither copies arbitrary backend_metadata nor discards provider coordinates that may be required for teardown; those rows stay intact behind the fail-closed response until an approved deprovision path exists. Authorization receipts contain exact owner/job/project, bootstrap account identity, grantee and bounded policy etags, never OAuth tokens. Public setup status does not expose the internal authorization_attempts column. Late acknowledgements remain bound to their original admitted intent; historical project dependencies participate in grant-release fencing.",
+      "trust_boundary": "OAuth tokens remain request-memory-only. Account deletion neither copies arbitrary backend_metadata nor discards provider coordinates that may be required for teardown; those rows stay intact behind the fail-closed response until an approved deprovision path exists.",
       "plaintext_posture": "provider_teardown_metadata_only",
-      "expected_row_growth": "one current setup row per opted-in owner and bounded lifecycle events; no new per-attempt table"
+      "expected_row_growth": "one mutable registry and setup row per opted-in user, bounded 30-day lifecycle events, and parked deprovision intents that must not be activated without an owned consumer and compaction policy"
     },
     {
       "id": "consent_authority_audit",
@@ -272,12 +276,13 @@
       "data_class": "personal_encrypted",
       "lifecycle_status": "current",
       "exact_tables": [
-        "messages"
+        "messages",
+        "direct_message_attachments"
       ],
-      "primary_access_path": "Participant-scoped conversation history, latest-message inbox projection, unread/read-receipt updates, sender-only edit and global delete actions, same-conversation replies, and transactionally committed recipient doorbells from the Direct Messages service.",
-      "retention_policy": "Retain encrypted message history while its participant accounts exist. Disconnect and block preserve history but prohibit new message envelopes; no automatic disconnect deletion occurs.",
-      "deletion_behavior": "Delete with the parent conversation or either actor account through foreign-key cascades and AccountService account-erasure cleanup. A person can hide a message only from their own history; a sender can tombstone it for both participants. Never delete history merely because a connection is removed or blocked.",
-      "trust_boundary": "Each text body is an AES-256-GCM envelope under server-managed DIRECT_MESSAGE_ENCRYPTION_KEY_V1. content_ciphertext contains the GCM tag and AAD binds direct-message-v1, conversation id, message id and sender id; plaintext is never stored. The transactional one_user_state_changed doorbell carries only opaque ids, time and a deep link\u00e2\u20ac\u201dnever content, cipher fields, sender identity or an unread count. This is encrypted-at-rest server-readable messaging, not client-key end-to-end encryption.",
+      "primary_access_path": "Participant-scoped conversation history and attachment reads, latest-message inbox projection, unread/read-receipt updates, sender-only edit and global delete actions, same-conversation replies, and transactionally committed recipient doorbells from the Direct Messages service.",
+      "retention_policy": "Retain encrypted message history and attachments while its participant accounts exist. Disconnect and block preserve history but prohibit new message envelopes; no automatic disconnect deletion occurs. Attachments are limited to 5 MB each.",
+      "deletion_behavior": "Delete attachments with their parent message, conversation, or either actor account through foreign-key cascades and AccountService account-erasure cleanup. A person can hide a message only from their own history; a sender can tombstone it for both participants. Never delete history merely because a connection is removed or blocked.",
+      "trust_boundary": "Each text body and attachment is an AES-256-GCM envelope under server-managed DIRECT_MESSAGE_ENCRYPTION_KEY_V1. The GCM tag and AAD bind the conversation id, message id, and sender id; plaintext file bytes are never stored. Attachment reads require participant authorization and reject hidden or deleted messages. The transactional one_user_state_changed doorbell carries only opaque ids, time and a deep link, never content, cipher fields, sender identity or an unread count. This is encrypted-at-rest server-readable messaging, not client-key end-to-end encryption.",
       "plaintext_posture": "ciphertext_and_minimal_message_metadata",
       "expected_row_growth": "high_per_participant_conversation"
     },
@@ -782,7 +787,7 @@
       "primary_access_path": "hussh.ai White Pages buy flow: a signed-in buyer pays hussh for one packet through Stripe Checkout; the signed Stripe webhook marks the order paid and files an owner-approved marketplace access request; denied, expired or orphaned requests are refunded by the packet-order reconcile.",
       "retention_policy": "Retained while payment or refund is unsettled and for bounded financial and consent-audit review afterwards; snapshots the packet title and price paid.",
       "deletion_behavior": "On account deletion, paid but undelivered orders move to refund_pending, are refunded in full by the reconcile, and the row is then deleted; all other rows (unpaid, settled, or delivered) are deleted, and an owner earning not yet transferred is forfeited.",
-      "trust_boundary": "Stores buyer and owner references, the public listing id, packet id and title, amounts, status and Stripe object ids. No card data (Stripe-hosted Checkout) and no PKM values.",
+      "trust_boundary": "Stores buyer and owner references, the public listing id, packet id and title, amounts, status and Stripe object ids. No card data (Stripe-hosted Checkout) and no PKM values. Orders record Stripe mode; provider operations require the current matching mode, while unresolved historical mode remains legacy and fails closed.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_per_user_request"
     },
@@ -823,14 +828,15 @@
       "data_class": "personal_metadata",
       "lifecycle_status": "current",
       "exact_tables": [
-        "pkm_owner_payout_accounts"
+        "pkm_owner_payout_accounts",
+        "stripe_owner_payout_accounts"
       ],
-      "primary_access_path": "One marketplace Owner tab payouts: a packet owner onboards to a Stripe Connect Express account; the work drain marks delivered orders' earnings due and transfers them (amount minus platform fee) once Stripe enables payouts.",
-      "retention_policy": "Retained while the owner keeps their account.",
-      "deletion_behavior": "Delete the row on account reset and deletion; the Stripe Express account itself is held by Stripe.",
-      "trust_boundary": "Stores the user reference, Stripe Connect account id and readiness flags only. Bank and identity details stay with Stripe.",
+      "primary_access_path": "Profile Payouts and marketplace owner payouts use stripe_owner_payout_accounts keyed by owner and Stripe test/live mode. Stripe-hosted Express onboarding collects bank and identity details. The legacy pkm_owner_payout_accounts mapping remains for rolling compatibility and is adopted only after provider verification under the current mode key.",
+      "retention_policy": "Retained while the owner keeps their account; at most one current mapping per owner and Stripe mode, plus the legacy compatibility row until its separately reviewed retirement.",
+      "deletion_behavior": "Account reset and deletion remove both current-mode mappings and the legacy mapping after settlement obligations retain their previously verified destination. The Stripe Express account itself is held by Stripe.",
+      "trust_boundary": "Stores user reference, explicit test/live mode, Stripe Connect account ID and readiness flags only. Never substitute an account across modes. Bank and identity details stay with Stripe. Postgres is authoritative; any future Redis readiness cache must preserve owner-plus-mode keys and signed-event invalidation and cannot authorize settlement.",
       "plaintext_posture": "metadata_only",
-      "expected_row_growth": "low_per_user"
+      "expected_row_growth": "at_most_two_mode_mappings_plus_one_legacy_mapping_per_owner"
     },
     {
       "id": "information_marketplace_delivery",
@@ -1136,7 +1142,7 @@
       "primary_access_path": "Default-off owner-protected request/review/approval/delivery/removal routes and finite durable worker entrypoints. One OIDC-protected, default-off bounded UAT sweep sequences indexing, suggestions, permission delivery/reconciliation and notification work; it remains unverified until the scheduler and authenticated acceptance are configured.",
       "retention_policy": "Requests have a 30-day authority lifetime and reviews five minutes; those bounds do not themselves delete records. Encrypted management receipts survive ordinary disconnect/index removal. Hard scheduled retention remains a release prerequisite.",
       "deletion_behavior": "Transactional reset/deletion erases private requests, reviews and app-identity linkage. Recipient erasure preserves only another owner's encrypted exact Google-management facts, not request narratives, filenames, source versions, recipient provider subject or full ACL snapshots. Owner erasure removes those receipts; it never claims to revoke external Google sharing.",
-      "trust_boundary": "DRIVE_SHARING_KEY_V1 is independent of document/OAuth keys. AES-256-GCM envelopes bind owner, resource and purpose. Google IDs, names, live content fingerprints, verified account identity, purpose, coverage, exact approval and permission receipts remain encrypted; only opaque workflow IDs, statuses, source versions and keyed binding digests are plaintext. A confirmation claim and pending work commit atomically before external calls.",
+      "trust_boundary": "DRIVE_SHARING_KEY_V1 is independent of document/OAuth keys. AES-256-GCM envelopes bind owner, resource and purpose. Google IDs, names, live content fingerprints, verified account identity, purpose, coverage, exact approval, the owner's Allow with its price, and permission receipts remain encrypted; only opaque workflow IDs, statuses, source versions, keyed binding digests and workflow timestamps such as owner_allowed_at are plaintext. A confirmation claim and pending work commit atomically before external calls.",
       "plaintext_posture": "encrypted_private_request_approval_and_provider_evidence_with_workflow_metadata",
       "expected_row_growth": "up_to_25_operations_per_review_retention_gate_before_enablement"
     },
@@ -1151,12 +1157,58 @@
         "drive_request_payment_webhook_events",
         "drive_request_payment_refunds"
       ],
-      "primary_access_path": "One $10 USD Stripe Checkout order is created only after a new eligible Trusted Circle Drive request has a nonempty frozen shareable batch. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority.",
+      "primary_access_path": "One USD Stripe Checkout order is created only after an eligible Drive request, from the owner's Trusted circle or explicitly allowed by the owner, has a nonempty frozen shareable batch. New requests lock the owner's effective whole-dollar quote from 100 to 50000 cents at creation; legacy requests retain their original price rule. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority.",
       "retention_policy": "At most one live order and one account-free obligation per request, plus one refund attempt and verified event dedupe receipts. Checkout URLs expire with their Stripe session and are cleared on settlement. The obligation and refund evidence survive request erasure until payment and refund duties are settled under merchant retention policy.",
       "deletion_behavior": "The live order cascades from the request. Before account reset or erasure removes the request, an opaque obligation snapshots delivery state and removes all account linkage; late signed charges and in-flight refunds remain reconcilable. Stripe's own merchant records follow the payment account's retention policy.",
-      "trust_boundary": "The retained obligation has only a random request UUID, payer digest, fixed amount/currency, Stripe provider IDs, status and timestamps. No account ID, email, filename, search term, request purpose, document ID, content or Checkout URL is retained there. The requester-visible Feed event is never written after erasure.",
-      "plaintext_posture": "opaque_payment_identifiers_fixed_price_and_workflow_status_only",
+      "trust_boundary": "The retained obligation has only a random request UUID, payer digest, amount (whole dollars, 100 to 50000 cents) and currency, Stripe provider IDs, status and timestamps. No account ID, email, filename, search term, request purpose, document ID, content or Checkout URL is retained there. The requester-visible Feed event is never written after erasure. Orders and retained obligations bind an immutable Stripe mode; unproven legacy rows cannot authorize live money. Current-mode processing never reinterprets a test Checkout or refund as live.",
+      "plaintext_posture": "opaque_payment_identifiers_bounded_price_and_workflow_status_only",
       "expected_row_growth": "one_order_per_eligible_request_plus_verified_event_dedupe_receipts"
+    },
+    {
+      "id": "drive_request_owner_pricing",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "drive_request_owner_pricing"
+      ],
+      "primary_access_path": "An authenticated document owner sets one whole-dollar USD Drive request price in Profile. Request creation locks the effective price and version on the encrypted request; later edits affect future requests only.",
+      "retention_policy": "One active preference row per owner while the account exists. The default price applies when no custom preference is enabled.",
+      "deletion_behavior": "Account reset and erasure remove the preference row. Existing payment obligations retain their original quoted amount without the profile setting.",
+      "trust_boundary": "Only the authenticated owner may read or change the preference. Server-side quote/version checks bind the requester to the price at request creation.",
+      "plaintext_posture": "owner_reference_and_bounded_price_only",
+      "expected_row_growth": "one_per_owner"
+    },
+    {
+      "id": "drive_request_owner_payouts",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "drive_request_owner_payouts"
+      ],
+      "primary_access_path": "New eligible paid Drive orders enroll one owner earning. Signed charge, refund, delivery and Stripe fee evidence determine a 3% platform share and one idempotent Connect transfer after confirmed delivery.",
+      "retention_policy": "Retain unsettled earnings and transfer or reversal evidence through financial reconciliation under the merchant retention policy. Historical orders are not backfilled.",
+      "deletion_behavior": "Account erasure removes live identity joins but retains the opaque obligation and provider settlement identifiers until any earned share, refund or reversal is resolved.",
+      "trust_boundary": "No document name, search term, bank number or user ID is stored in the retained payout row. Stripe account IDs and charge or transfer IDs remain restricted to service-role settlement paths. Settlement binds the original test/live payment mode and verified destination; changing runtime mode cannot convert an old earning into live money.",
+      "plaintext_posture": "opaque_financial_identifiers_amounts_and_status_only",
+      "expected_row_growth": "one_per_new_eligible_paid_request"
+    },
+    {
+      "id": "stripe_connect_bank_payout_status",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "stripe_connect_bank_payouts",
+        "stripe_connect_bank_payout_events"
+      ],
+      "primary_access_path": "A separately signed connected-account Stripe webhook deduplicates events, verifies current provider state and updates aggregate bank-deposit status. Bank creation, update and deletion events also refresh readiness. Authenticated owners read recent deposits through the current owner-plus-mode connected-account mapping.",
+      "retention_policy": "Provider payout and event receipts support settlement, reversal and duplicate-event reconciliation under the merchant retention policy.",
+      "deletion_behavior": "Deleting the owner's connected-account mapping removes their app access to these account-keyed financial receipts; any retained provider evidence remains restricted to settlement operators.",
+      "trust_boundary": "Only Stripe Connect account and payout IDs, amount, status, mode, failure code and timestamps are stored. No bank details or document request ID are present; a deposit may combine several earnings.",
+      "plaintext_posture": "provider_financial_identifiers_and_aggregate_status_only",
+      "expected_row_growth": "one_per_provider_bank_payout_plus_signed_event_receipts"
     },
     {
       "id": "drive_document_trust_rules",
@@ -1745,6 +1797,22 @@
       "expected_row_growth": "medium_per_purchase_funding_and_settlement"
     },
     {
+      "id": "circle_chat_interaction_metadata",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "circle_chat_reactions",
+        "circle_chat_membership_events"
+      ],
+      "primary_access_path": "Authenticated Circle chat member reactions and membership event history, rendered as reaction counts and system pills for current members.",
+      "retention_policy": "Reaction choices remain while their message and reacting member exist. Membership events remain while their Circle exists and are shown only from the viewer's current membership generation.",
+      "deletion_behavior": "Message, Circle and account deletion cascade reaction rows; leaving or removal clears that member's reactions. Circle deletion erases event history, and actor deletion nulls event actor and subject identifiers.",
+      "trust_boundary": "Only active Circle members can react or read event history. Plaintext contains allowlisted emoji, event kind, opaque actor and subject identifiers, and timestamps; encrypted message content and keys never enter these tables or notifications.",
+      "plaintext_posture": "member_scoped_interaction_metadata_only",
+      "expected_row_growth": "high_per_message_reaction_and_membership_change"
+    },
+    {
       "id": "chat_push_delivery",
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",
@@ -1760,52 +1828,6 @@
       "plaintext_posture": "opaque_source_device_and_recipient_delivery_metadata",
       "expected_row_growth": "one_outbox_per_direct_message_and_one_acceptance_per_recipient_installation",
       "trust_boundary": "Verified recipient, active connection/current Circle membership, block/mute/read/deletion checks, installation owner/key lifecycle fences. No plaintext message or avatar persists in these tables."
-    },
-    {
-      "id": "drive_request_owner_pricing",
-      "owner": "iam-consent-governance",
-      "data_class": "personal_metadata",
-      "lifecycle_status": "customer0",
-      "exact_tables": [
-        "drive_request_owner_pricing"
-      ],
-      "primary_access_path": "An authenticated document owner sets one whole-dollar USD Drive request price in Profile. Request creation locks the effective price and version on the encrypted request; later edits affect future requests only.",
-      "retention_policy": "One active preference row per owner while the account exists. The default price applies when no custom preference is enabled.",
-      "deletion_behavior": "Account reset and erasure remove the preference row. Existing payment obligations retain their original quoted amount without the profile setting.",
-      "trust_boundary": "Only the authenticated owner may read or change the preference. Server-side quote/version checks bind the requester to the price at request creation.",
-      "plaintext_posture": "owner_reference_and_bounded_price_only",
-      "expected_row_growth": "one_per_owner"
-    },
-    {
-      "id": "drive_request_owner_payouts",
-      "owner": "iam-consent-governance",
-      "data_class": "workflow_state",
-      "lifecycle_status": "customer0",
-      "exact_tables": [
-        "drive_request_owner_payouts"
-      ],
-      "primary_access_path": "New eligible paid Drive orders enroll one owner earning. Signed charge, refund, delivery and Stripe fee evidence determine a 3% platform share and one idempotent Connect transfer after confirmed delivery.",
-      "retention_policy": "Retain unsettled earnings and transfer or reversal evidence through financial reconciliation under the merchant retention policy. Historical orders are not backfilled.",
-      "deletion_behavior": "Account erasure removes live identity joins but retains the opaque obligation and provider settlement identifiers until any earned share, refund or reversal is resolved.",
-      "trust_boundary": "No document name, search term, bank number or user ID is stored in the retained payout row. Stripe account IDs and charge or transfer IDs remain restricted to service-role settlement paths.",
-      "plaintext_posture": "opaque_financial_identifiers_amounts_and_status_only",
-      "expected_row_growth": "one_per_new_eligible_paid_request"
-    },
-    {
-      "id": "stripe_connect_bank_payout_status",
-      "owner": "iam-consent-governance",
-      "data_class": "workflow_state",
-      "lifecycle_status": "customer0",
-      "exact_tables": [
-        "stripe_connect_bank_payouts",
-        "stripe_connect_bank_payout_events"
-      ],
-      "primary_access_path": "A separately signed connected-account Stripe webhook deduplicates events, verifies the latest provider state and updates aggregate bank-deposit status. The authenticated owner reads recent deposits through their current connected-account mapping.",
-      "retention_policy": "Provider payout and event receipts support settlement, reversal and duplicate-event reconciliation under the merchant retention policy.",
-      "deletion_behavior": "Deleting the owner's connected-account mapping removes their app access to these account-keyed financial receipts; any retained provider evidence remains restricted to settlement operators.",
-      "trust_boundary": "Only Stripe Connect account and payout IDs, amount, status, mode, failure code and timestamps are stored. No bank details or document request ID are present; a deposit may combine several earnings.",
-      "plaintext_posture": "provider_financial_identifiers_and_aggregate_status_only",
-      "expected_row_growth": "one_per_provider_bank_payout_plus_signed_event_receipts"
     }
   ]
 }

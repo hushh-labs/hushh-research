@@ -89,6 +89,8 @@ export function resolveContactPhoneRegion(signals: {
   accountPhoneNumber?: string | null;
   /** BCP-47 locale tag, e.g. `en-IN`. Defaults to the browser locale. */
   localeTag?: string | null;
+  /** Disable locale guessing when an authoritative identity read is unavailable. */
+  allowLocaleFallback?: boolean;
 }): CountryCode | undefined {
   const fromDevice = asCountryCode(signals.deviceRegion);
   if (fromDevice && signals.deviceRegionFromNumberPlan) return fromDevice;
@@ -99,6 +101,8 @@ export function resolveContactPhoneRegion(signals: {
     const fromAccount = asCountryCode(parsed?.country);
     if (fromAccount) return fromAccount;
   }
+
+  if (signals.allowLocaleFallback === false) return undefined;
 
   // A locale-derived device region still beats the browser's own language --
   // on native it is the phone's region setting, which at least belongs to the

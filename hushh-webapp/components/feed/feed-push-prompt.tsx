@@ -15,31 +15,32 @@ function browserPermission(): BrowserPermission {
   return Notification.permission;
 }
 
-/**
- * The one place a web browser is asked for notification permission.
- *
- * Web push registers only after the browser grants permission, and the
- * provider deliberately never prompts on load. Nothing else asked, so a
- * browser that had not granted permission some other way never registered a
- * device: shares, Drive questions and answers reached nobody on the web
- * while the app was open. The request runs inside the tap, which browsers
- * require, and only then does the provider register this device.
- */
+/** Explicit permission action for browser and native notification registration. */
 export function FeedPushPrompt() {
   const { deliveryMode, retryPushRegistration, isRetryingPushRegistration } =
     useConsentNotificationState();
   const [permission, setPermission] = useState<BrowserPermission>("unsupported");
 
   useEffect(() => {
-    setPermission(browserPermission());
+    if (Capacitor.isNativePlatform()) setPermission(deliveryMode === "push_blocked" ? "denied" : "default");
+    else setPermission(browserPermission());
   }, [deliveryMode]);
 
-  if (Capacitor.isNativePlatform() || deliveryMode === "push_active") {
+  if (deliveryMode === "push_active") {
     return null;
   }
   if (permission === "unsupported" || permission === "granted") return null;
 
   const enable = async () => {
+    if (Capacitor.isNativePlatform()) {
+      if (permission === "denied") {
+        const { NotificationSettingsService } = await import("@/lib/services/notification-settings-service");
+        await NotificationSettingsService.open();
+        return;
+      }
+      retryPushRegistration();
+      return;
+    }
     let result: BrowserPermission;
     try {
       result = await Notification.requestPermission();
@@ -58,10 +59,10 @@ export function FeedPushPrompt() {
     >
       <p className="text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
         {permission === "denied"
-          ? "Notifications are blocked for One in this browser. Allow them in site settings to get alerts."
-          : "Get an alert when someone shares with you or asks you something."}
+          ? Capacitor.isNativePlatform() ? "Allow notifications in device settings to get message alerts." : "Notifications are blocked for One in this browser. Allow them in site settings to get alerts."
+          : "Get notifications for direct messages, Circle chats, and requests."}
       </p>
-      {permission === "default" ? (
+      {permission === "default" || (permission === "denied" && Capacitor.isNativePlatform()) ? (
         <Button
           type="button"
           variant="none"
@@ -70,7 +71,7 @@ export function FeedPushPrompt() {
           disabled={isRetryingPushRegistration}
           onClick={() => void enable()}
         >
-          Turn on
+          {permission === "denied" ? "Open settings" : "Turn on"}
         </Button>
       ) : null}
     </div>

@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -10,6 +11,85 @@ from api.middleware import require_vault_owner_token
 from api.middlewares.rate_limit import limiter, rate_limit_exceeded_handler
 from api.routes.one import business_suggestions as routes
 from hushh_mcp.services import business_suggestion_service as service
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "row,expected",
+    [
+        (None, False),
+        ({"setup_completed": False, "vault_status": "active"}, False),
+        ({"setup_completed": True, "vault_status": "inactive"}, False),
+        ({"setup_completed": True, "vault_status": "active"}, True),
+    ],
+)
+async def test_setup_admission_reads_fresh_canonical_async_state(monkeypatch, row, expected):
+    connection = SimpleNamespace(fetchrow=AsyncMock(return_value=row))
+    lease = MagicMock()
+    lease.__aenter__ = AsyncMock(return_value=connection)
+    lease.__aexit__ = AsyncMock(return_value=None)
+    monkeypatch.setattr(
+        service, "get_pool", AsyncMock(return_value=SimpleNamespace(acquire=lambda: lease))
+    )
+    assert await service._setup_resolved("synthetic-owner") is expected
+    connection.fetchrow.assert_awaited_once_with(
+        "SELECT setup_completed, vault_status FROM vault_keys WHERE user_id = $1 LIMIT 1",
+        "synthetic-owner",
+    )
+
+
+@pytest.mark.asyncio
+async def test_setup_admission_does_not_disguise_database_failure_as_incomplete(monkeypatch):
+    monkeypatch.setattr(service, "get_pool", AsyncMock(side_effect=RuntimeError("unavailable")))
+    with pytest.raises(RuntimeError, match="unavailable"):
+        await service._setup_resolved("synthetic-owner")
+
+
+def test_live_local_directory_uses_explicit_cli_identity(monkeypatch):
+    from hushh_mcp.services import business_directory_suggestions as adapter
+
+    monkeypatch.setenv("HUSHH_LOCAL_GCLOUD_ACCOUNT", "operator@hushh.ai")
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("APP_RUNTIME_PROFILE", "local")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.delenv("K_SERVICE", raising=False)
+    monkeypatch.setattr(adapter.shutil, "which", lambda name: "gcloud.cmd")
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        return SimpleNamespace(stdout="test-token")
+
+    monkeypatch.setattr(adapter.subprocess, "run", run)
+    assert adapter._invocation_token(local=False) == "test-token"
+    assert "--account=operator@hushh.ai" in calls[0]
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"ENVIRONMENT": "uat"},
+        {"APP_RUNTIME_PROFILE": "hosted"},
+        {"HUSHH_DEPLOY_ENV": "uat"},
+        {"K_SERVICE": "backend"},
+        {"HUSHH_LOCAL_GCLOUD_ACCOUNT": "unapproved@gmail.com"},
+    ],
+)
+def test_directory_cli_identity_cannot_escape_local_runtime(monkeypatch, override):
+    from hushh_mcp.services import business_directory_suggestions as adapter
+
+    monkeypatch.setenv("HUSHH_LOCAL_GCLOUD_ACCOUNT", "operator@hushh.ai")
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("APP_RUNTIME_PROFILE", "local")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.delenv("K_SERVICE", raising=False)
+    for key, value in override.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(
+        adapter.subprocess, "run", lambda *args, **kwargs: pytest.fail("CLI must not run")
+    )
+    with pytest.raises(adapter.DirectoryUnavailable):
+        adapter._invocation_token(local=True)
 
 
 @pytest.fixture
@@ -26,7 +106,7 @@ def fixture_identity(monkeypatch):
     monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
     monkeypatch.delenv("APP_RUNTIME_PROFILE", raising=False)
     monkeypatch.setattr(service, "get_firebase_auth_app", lambda: object())
-    monkeypatch.setattr(service, "_setup_resolved", lambda uid: True)
+    monkeypatch.setattr(service, "_setup_resolved", AsyncMock(return_value=True))
     record = SimpleNamespace(
         uid="owner", disabled=False, email="person@hushh.ai", email_verified=True
     )
@@ -83,7 +163,7 @@ async def test_verified_owner_uses_directory_candidate_not_synthetic_fixture(
 
 @pytest.mark.asyncio
 async def test_unfinished_setup_never_offers_candidate(fixture_identity, monkeypatch):
-    monkeypatch.setattr(service, "_setup_resolved", lambda uid: False)
+    monkeypatch.setattr(service, "_setup_resolved", AsyncMock(return_value=False))
     result = await service.get_business_suggestion("owner")
     assert result["status"] == "no_match"
     assert result["candidates"] == []
@@ -91,7 +171,7 @@ async def test_unfinished_setup_never_offers_candidate(fixture_identity, monkeyp
 
 @pytest.mark.asyncio
 async def test_setup_read_failure_is_unavailable_not_no_match(fixture_identity, monkeypatch):
-    def unavailable(uid):
+    async def unavailable(uid):
         raise RuntimeError("synthetic database unavailable")
 
     monkeypatch.setattr(service, "_setup_resolved", unavailable)

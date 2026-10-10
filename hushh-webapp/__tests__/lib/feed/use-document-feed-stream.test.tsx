@@ -37,6 +37,42 @@ describe("document Feed stream", () => {
     vi.clearAllMocks();
   });
 
+  it("shares one stream between Feed and Payouts until the last surface closes", async () => {
+    mocks.apiFetchStream.mockResolvedValue({ ok: true, status: 200, body: stream("event: feed_reset\ndata: {}\n\n") });
+    const user = { uid: "requester", getIdToken: vi.fn().mockResolvedValue("token") };
+    const feed = renderHook(() => useDocumentFeedStream(user));
+    const payouts = renderHook(() => useDocumentFeedStream(user));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(mocks.apiFetchStream).toHaveBeenCalledTimes(1);
+    const signal = mocks.apiFetchStream.mock.calls[0][1].signal as AbortSignal;
+    feed.unmount();
+    expect(signal.aborted).toBe(false);
+    payouts.unmount();
+    expect(signal.aborted).toBe(true);
+  });
+
+  it("does not dispatch an account event after its last consumer closes", async () => {
+    let resolveResponse!: (value: unknown) => void;
+    const pending = new Promise((resolve) => { resolveResponse = resolve; });
+    mocks.apiFetchStream.mockReturnValueOnce(pending);
+    const user = { uid: "requester", getIdToken: vi.fn().mockResolvedValue("token") };
+    const view = renderHook(() => useDocumentFeedStream(user));
+    await act(async () => { await Promise.resolve(); });
+    view.unmount();
+    const body = stream("event: feed_reset\ndata: {}\n\n");
+    const cancel = vi.spyOn(body, "cancel");
+    await act(async () => { resolveResponse({ ok: true, status: 200, body }); });
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(mocks.dispatchConsentStateChanged).not.toHaveBeenCalled();
+  });
+
+  it("does not create a stream for an inactive Profile panel", async () => {
+    const view = renderHook(() => useDocumentFeedStream(null));
+    await act(async () => { await Promise.resolve(); });
+    expect(mocks.apiFetchStream).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
   it("repairs on reconnect reset and on an opaque event, ignoring malformed request ids", async () => {
     const body = stream([
       "event: feed_reset\ndata: {}\n\n",

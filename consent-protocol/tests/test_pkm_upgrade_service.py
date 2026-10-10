@@ -52,6 +52,9 @@ class _FakePkmService:
     async def get_domain_manifest(self, user_id: str, domain: str):
         return self._manifest
 
+    async def get_domain_manifests(self, user_id: str, domains: list[str], *, raise_on_error=False):
+        return {domain: self._manifest for domain in domains if self._manifest is not None}
+
     async def get_domain_snapshot(self, user_id: str, domain: str):
         return {"ciphertext": "blob"} if self._has_blob else None
 
@@ -277,6 +280,40 @@ async def test_build_status_reuses_metadata_manifest_headers():
 
     assert status["upgrade_status"] == "current"
     assert status["upgradable_domains"] == []
+
+
+@pytest.mark.asyncio
+async def test_standalone_status_batches_manifests_including_missing_domains():
+    from unittest.mock import AsyncMock
+
+    service = PkmUpgradeService()
+    service._pkm_service = _FakePkmService()
+    service._pkm_service._index.available_domains = ["financial", "professional", "preferences"]
+    service._pkm_service.get_domain_manifest = AsyncMock(side_effect=AssertionError("N+1 read"))
+    batch = AsyncMock(return_value={"financial": {"summary_projection": _RELOCATED}})
+    service._pkm_service.get_domain_manifests = batch
+    service._get_latest_run = AsyncMock(return_value=None)
+    status = await service.build_status("synthetic-owner")
+    batch.assert_awaited_once_with(
+        "synthetic-owner", ["financial", "professional", "preferences"], raise_on_error=True
+    )
+    service._pkm_service.get_domain_manifest.assert_not_awaited()
+    assert {row["domain"] for row in status["upgradable_domains"]} == {
+        "financial",
+        "professional",
+        "preferences",
+    }
+
+
+@pytest.mark.asyncio
+async def test_status_does_not_treat_unavailable_manifest_batch_as_absent():
+    from unittest.mock import AsyncMock
+
+    service = PkmUpgradeService()
+    service._pkm_service = _FakePkmService()
+    service._pkm_service.get_domain_manifests = AsyncMock(side_effect=RuntimeError("unavailable"))
+    with pytest.raises(RuntimeError, match="unavailable"):
+        await service.build_status("synthetic-owner")
 
 
 @pytest.mark.asyncio

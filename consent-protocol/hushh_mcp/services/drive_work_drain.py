@@ -18,6 +18,7 @@ from hushh_mcp.services.drive_document_worker import DriveDocumentWorker
 from hushh_mcp.services.drive_owner_search_worker import DriveOwnerSearchWorker
 from hushh_mcp.services.drive_permission_worker import DrivePermissionWorker
 from hushh_mcp.services.drive_request_bulk_removal_worker import DriveRequestBulkRemovalWorker
+from hushh_mcp.services.drive_request_owner_payout_worker import DriveRequestOwnerPayoutWorker
 from hushh_mcp.services.drive_request_payment_checkout_worker import (
     DriveRequestPaymentCheckoutWorker,
 )
@@ -37,6 +38,7 @@ WORKER_JOB_LIMITS = {
     "checkouts": 4,
     "notifications": 20,
     "refunds": 4,
+    "owner_payouts": 4,
     "packet_orders": 20,
 }
 STAGE_WORKERS = {
@@ -50,6 +52,7 @@ STAGE_WORKERS = {
             "checkouts",
             "notifications",
             "refunds",
+            "owner_payouts",
             "packet_orders",
         }
     ),
@@ -64,6 +67,7 @@ STAGE_MAX_SECONDS = {
     "checkouts": 35,
     "notifications": 35,
     "refunds": 35,
+    "owner_payouts": 40,
     "packet_orders": 35,
 }
 STAGE_MIN_SECONDS = {
@@ -76,6 +80,7 @@ STAGE_MIN_SECONDS = {
     "checkouts": 20,
     "notifications": 35,
     "refunds": 20,
+    "owner_payouts": 20,
     "packet_orders": 20,
 }
 MAX_OUTCOME_COUNT = 500
@@ -206,6 +211,26 @@ _WORKER_ALLOWED_OUTCOMES = {
             "deferred",
         }
     ),
+    "owner_payouts": frozenset(
+        {
+            "checked",
+            "awaiting_refund",
+            "awaiting_fee",
+            "void",
+            "fees_resolved",
+            "claimed",
+            "transferred",
+            "unknown",
+            "manual_review",
+            "reversed",
+            "reversal_due",
+            "reversal_unknown",
+            "disabled",
+            "unavailable",
+            "deadline",
+            "deferred",
+        }
+    ),
     "packet_orders": frozenset(
         {
             "marked",
@@ -273,6 +298,7 @@ class DriveWorkDrain:
         checkout_worker: DriveRequestPaymentCheckoutWorker | None = None,
         notification_worker: DriveShareNotificationWorker | None = None,
         refund_worker: DriveRequestPaymentRefundWorker | None = None,
+        owner_payout_worker: DriveRequestOwnerPayoutWorker | None = None,
         packet_order_worker: PkmPacketOrderWorker | None = None,
     ) -> None:
         # Sharing permissions precede notifications in the same stage. Other
@@ -287,6 +313,7 @@ class DriveWorkDrain:
             ("checkouts", checkout_worker or DriveRequestPaymentCheckoutWorker()),
             ("notifications", notification_worker or DriveShareNotificationWorker()),
             ("refunds", refund_worker or DriveRequestPaymentRefundWorker()),
+            ("owner_payouts", owner_payout_worker or DriveRequestOwnerPayoutWorker()),
             # PKM packet refunds ride the same minute-by-minute sharing drain.
             ("packet_orders", packet_order_worker or PkmPacketOrderWorker()),
         )
@@ -360,6 +387,11 @@ class DriveWorkDrain:
                     if name == "checkouts"
                 ),
             )
+            # Snapshot confirmed delivery before claiming a prorated refund.
+            # A confirmed refund becomes payable in the next bounded sweep.
+            for name, worker in self._workers:
+                if name == "owner_payouts":
+                    await run_worker(name, worker)
             # Refund reconciliation and revocations remain independent.
             await asyncio.gather(
                 *(

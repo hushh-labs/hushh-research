@@ -215,6 +215,9 @@ def _capacity_upstream_run() -> dict:
 
 
 def test_capacity_cleanup_accepts_trusted_upstream_and_manual_modes() -> None:
+    scheduled = _validate_capacity_trigger("schedule", {})
+    assert scheduled.returncode == 0, scheduled.stderr
+    assert scheduled.stdout == "environment=uat\nrelease_run_id=\nactor=maintainer\napply=true\n"
     result = _validate_capacity_trigger("workflow_run", _capacity_upstream_run())
     assert result.returncode == 0, result.stderr
     assert result.stdout == "environment=uat\nrelease_run_id=42\nactor=release-maintainer\napply=true\n"

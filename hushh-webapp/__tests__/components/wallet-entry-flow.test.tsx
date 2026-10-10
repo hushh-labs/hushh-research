@@ -1,6 +1,6 @@
 import { Preferences } from "@capacitor/preferences";
 import { removeLocalItem } from "@/lib/utils/session-storage";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const navigationMock = vi.hoisted(() => ({
@@ -79,6 +79,10 @@ vi.mock("@/components/wallet/wallet-referral-card-details", () => ({
   WalletReferralCardDetails: () => <section>Live referral controls</section>,
 }));
 
+vi.mock("@/components/wallet/wallet-sharing", () => ({
+  WalletSharing: () => <section>Card recipients</section>,
+}));
+
 import { WalletWorkspace } from "@/components/wallet/wallet-workspace";
 
 function makeCards(count: number) {
@@ -148,15 +152,22 @@ describe("Wallet visit introduction", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Add" }));
     expect(screen.getByLabelText("Name on card")).toHaveValue("");
   });
-  it("keeps real cards behind Continue and retains explicit secure reveal", async () => {
+  it("keeps real cards behind Continue and opens masked saved details with recipients", async () => {
     serviceMock.listCardSummaries.mockResolvedValue(makeCards(2));
     render(<WalletWorkspace />);
     await enter();
     expect(screen.queryByTestId("wallet-preview-collection")).toBeNull();
     expect(screen.getByTestId("wallet-add-layer-1000")).toBeTruthy();
     expect(serviceMock.getCard).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000", exact: true }));
-    expect(screen.getByRole("button", { name: "Show card details" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
+    const details = within(screen.getByRole("region", { name: "Saved card details" }));
+    expect(details.getByText("•••• •••• •••• 1000")).toBeVisible();
+    expect(details.getByText("Test Cardholder")).toBeVisible();
+    expect(details.getByText("Visa")).toBeVisible();
+    expect(screen.getByText("Card recipients")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Show card details" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reveal saved details" })).toBeNull();
+    expect(serviceMock.getCard).not.toHaveBeenCalled();
   });
   it("returns a saved payment card to Cards while retaining the three system cards", async () => {
     const summary = { ...makeCards(1)[0], cardId: "saved", nickname: "New card", last4: "4242" };
@@ -177,6 +188,9 @@ describe("Wallet visit introduction", () => {
     expect(screen.getByRole("button", { name: "All (4)" })).toBeEnabled();
     expect(screen.getByTestId("one-wallet-reveal-4242")).toBeEnabled();
     expect(screen.queryByTestId("wallet-preview-collection")).toBeNull();
+    expect(within(screen.getByRole("region", { name: "Saved card details" })).getByText("•••• •••• •••• 4242")).toBeVisible();
+    expect(screen.getByText("Card recipients")).toBeVisible();
+    expect(serviceMock.getCard).not.toHaveBeenCalled();
   });
   it("removes the form and card details when the vault locks", async () => {
     const page = render(<WalletWorkspace />);

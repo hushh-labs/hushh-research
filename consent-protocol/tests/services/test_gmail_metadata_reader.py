@@ -1318,9 +1318,10 @@ def _mailbox_context(monkeypatch, *, sdk_owner="owner", authorized=True):
     )
 
 
+@pytest.mark.parametrize("tool", ["propose_gmail_mailbox_change", "propose_gmail_todo"])
 @pytest.mark.parametrize("sdk_owner,authorized", [("other", True), ("owner", False)])
 async def test_mailbox_proposal_refuses_unbound_or_revoked_owner(
-    monkeypatch, sdk_owner, authorized
+    monkeypatch, sdk_owner, authorized, tool
 ):
     from hushh_mcp.agents.email import mailbox_tools
 
@@ -1328,7 +1329,9 @@ async def test_mailbox_proposal_refuses_unbound_or_revoked_owner(
         mailbox_tools, "get_gmail_mailbox_actions", lambda: pytest.fail("service accessed")
     )
     context = _mailbox_context(monkeypatch, sdk_owner=sdk_owner, authorized=authorized)
-    result = await mailbox_tools.propose_gmail_mailbox_change(context, action="archive")
+    result = await getattr(mailbox_tools, tool)(
+        context, **({"action": "archive"} if tool == "propose_gmail_mailbox_change" else {})
+    )
     assert result["status"] == "unavailable"
     assert "hussh:pending_directive:gmail_mailbox" not in context.state
 
@@ -1413,3 +1416,76 @@ async def test_mailbox_never_retries_an_ambiguous_or_completed_write(failure):
     with pytest.raises(GmailApiError):
         await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
     assert len(writes) == count
+
+
+async def test_gmail_todo_card_uses_opaque_ids_and_keeps_email_details_out_of_model_result(
+    monkeypatch,
+):
+    from hushh_mcp.agents.email import mailbox_tools
+
+    class Reader:
+        def __init__(self, *, gmail, user_id, require_access):
+            assert user_id == "owner"
+            self.require_access = require_access
+
+        async def read(self, operation, arguments):
+            assert operation == "search_inbox"
+            assert arguments == {
+                "mailbox": "inbox",
+                "limit": 2,
+                "query": "subject:plan",
+            }
+            await self.require_access()
+            return {
+                "untrusted_external_content": [
+                    {
+                        "subject": "Project plan",
+                        "sender": "Alice",
+                        "received_at": "2026-10-09T08:30:00Z",
+                    }
+                ],
+                "truncated": False,
+            }
+
+    monkeypatch.setattr(mailbox_tools, "GmailMetadataReader", Reader)
+    monkeypatch.setattr(mailbox_tools, "get_gmail_receipts_service", lambda: object())
+    context = _mailbox_context(monkeypatch)
+    state = context.state
+
+    result = await mailbox_tools.propose_gmail_todo(
+        context,
+        query="subject:plan",
+        limit=2,
+    )
+
+    payload = state["hussh:pending_directive:gmail_mailbox:todo"]["payload"]
+    assert payload["type"] == "gmail.create_todos"
+    assert payload["confirmLabel"] == "Add to To-do list"
+    assert payload["messages"] == [
+        {
+            "subject": "Project plan",
+            "sender": "Alice",
+            "receivedAt": "2026-10-09T08:30:00Z",
+        }
+    ]
+    assert payload["todos"] == [
+        {
+            "id": f"{payload['proposalId']}:1",
+            "title": "Follow up: Project plan",
+        }
+    ]
+    assert "Project plan" not in json.dumps(result)
+    assert "gmail-message-id" not in json.dumps(payload)
+
+
+@pytest.mark.parametrize("scope", ["", "https://www.googleapis.com/auth/gmail.send"])
+async def test_missing_read_permission_refuses_before_token_refresh(scope):
+    gmail = _Gmail()
+    gmail.row["scope_csv"] = scope
+
+    async def no_refresh(**kwargs):
+        pytest.fail("a missing permission must not refresh credentials")
+
+    gmail._ensure_access_token = no_refresh
+    with pytest.raises(GmailMetadataError, match="reconnect_required"):
+        await _reader(gmail, lambda _: pytest.fail("provider called")).read("list_recent", {})

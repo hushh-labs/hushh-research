@@ -56,7 +56,7 @@ describe("EmailDeliveryService", () => {
     expect(ApiService.apiFetch).not.toHaveBeenCalled();
   });
 
-  it("reads a send status through both owner credentials without provider or mail content", async () => {
+  it("reconciles a send status through both owner credentials without provider or mail content", async () => {
     vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(new Response(JSON.stringify({
       action_id: ACTION_ID,
       state: "sent",
@@ -66,7 +66,7 @@ describe("EmailDeliveryService", () => {
       .resolves.toEqual({ actionId: ACTION_ID, state: "sent" });
     expect(ApiService.apiFetch).toHaveBeenCalledWith(
       `/api/one/email/send/status/${ACTION_ID}`,
-      { method: "GET", headers: expect.objectContaining({
+      { method: "POST", headers: expect.objectContaining({
         Authorization: "Bearer firebase-token",
         "X-Hushh-Consent": "Bearer vault-owner-token",
       }) },

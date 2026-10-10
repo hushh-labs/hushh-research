@@ -5,6 +5,8 @@ on:
     workflows: [Deploy to UAT]
     types: [completed]
     branches: [main]
+  schedule:
+    - cron: "11,26,41,56 * * * *"
   workflow_dispatch:
     inputs:
       environment:
@@ -19,7 +21,7 @@ on:
         required: true
         type: string
       apply:
-        description: Remove old tags and revisions after a dry run
+        description: Apply cleanup (UAT defers deletion until its drain deadline)
         required: true
         default: false
         type: boolean
@@ -30,13 +32,13 @@ permissions:
   id-token: write
 
 concurrency:
-  group: deploy-${{ github.event_name == 'workflow_run' && 'uat' || inputs.environment }}
+  group: capacity-maintenance-${{ inputs.environment || 'uat' }}
   cancel-in-progress: false
 
 jobs:
   select-release:
     name: Verify cleanup authority and healthy release
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -46,8 +48,9 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     outputs:
       environment: ${{ steps.authority.outputs.environment }}
+      release_run_id: ${{ steps.authority.outputs.release_run_id }}
       apply: ${{ steps.authority.outputs.apply }}
-      cleanup_ready: ${{ steps.release.outputs.cleanup_ready }}
+      cleanup_ready: ${{ steps.release.outputs.cleanup_ready || steps.scheduled-release.outputs.cleanup_ready }}
       backend_revision: ${{ steps.release.outputs.backend_revision }}
       frontend_revision: ${{ steps.release.outputs.frontend_revision }}
       backend_rollback: ${{ steps.release.outputs.backend_rollback }}
@@ -92,11 +95,16 @@ jobs:
               release_run_id = str(inputs.get("healthy_release_run_id") or "")
               actor = os.environ["GITHUB_ACTOR"]
               apply = str(inputs.get("apply", False)).lower()
+          elif event_name == "schedule":
+              environment = "uat"
+              release_run_id = ""
+              actor = os.environ["GITHUB_ACTOR"]
+              apply = "true"
           else:
               raise SystemExit("Unsupported cleanup trigger")
           if environment not in {"uat", "production"} or apply not in {"true", "false"}:
               raise SystemExit("Invalid cleanup environment or apply mode")
-          if not re.fullmatch(r"[1-9][0-9]*", release_run_id):
+          if event_name != "schedule" and not re.fullmatch(r"[1-9][0-9]*", release_run_id):
               raise SystemExit("Invalid release run ID")
           if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?", actor):
               raise SystemExit("Invalid cleanup actor")
@@ -115,6 +123,7 @@ jobs:
           ref: main
 
       - name: Require main and governed actor
+        if: github.event_name != 'schedule'
         shell: bash
         env:
           RELEASE_ENV: ${{ steps.authority.outputs.environment }}
@@ -124,7 +133,15 @@ jobs:
           test "${GITHUB_REF_NAME}" = main
           python3 scripts/ci/assert-governed-actor.py --surface "$RELEASE_ENV" --actor "$CLEANUP_ACTOR"
 
+      - name: Verify scheduled source before cloud authentication
+        id: scheduled-release
+        if: github.event_name == 'schedule'
+        run: |
+          python3 scripts/ci/uat-retention-maintenance.py --verify-source-only \
+            --state-dir "$RUNNER_TEMP/uat-retention-source"
+
       - name: Require a successful healthy release artifact
+        if: github.event_name != 'schedule'
         id: release
         shell: bash
         env:
@@ -191,10 +208,78 @@ jobs:
           PY
           echo "cleanup_ready=true" >> "$GITHUB_OUTPUT"
 
+  uat-maintenance:
+    name: UAT revision maintenance (no drain wait)
+    needs: select-release
+    if: needs.select-release.outputs.cleanup_ready == 'true' && needs.select-release.outputs.environment == 'uat'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Keep only this short mutation pass mutually exclusive with rollout/rollback.
+    # The hour-long grace period is stored in an artifact and holds no runner/lock.
+    concurrency:
+      group: deploy-uat
+      cancel-in-progress: false
+      queue: max
+    environment:
+      name: uat
+      deployment: false
+    env:
+      GCP_PROJECT_ID: hushh-pda-uat
+      GCP_REGION: us-central1
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout current maintenance tooling
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Authenticate to UAT
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Prepare or finish eligible UAT revision cleanup
+        env:
+          RELEASE_RUN_ID: ${{ needs.select-release.outputs.release_run_id }}
+          APPLY: ${{ needs.select-release.outputs.apply }}
+        run: |
+          set -euo pipefail
+          flags=()
+          if [ "$APPLY" = true ]; then flags=(--apply); fi
+          python3 scripts/ci/uat-retention-maintenance.py \
+            --release-run-id "$RELEASE_RUN_ID" \
+            --state-dir "$RUNNER_TEMP/uat-retention-state" "${flags[@]}"
+
+      - name: Save UAT drain evidence for a later maintenance pass
+        if: success() && needs.select-release.outputs.apply == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: uat-retention-state
+          path: ${{ runner.temp }}/uat-retention-state/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Report remaining UAT connection capacity
+        if: needs.select-release.outputs.apply == 'true'
+        continue-on-error: true
+        run: python3 scripts/ci/runtime-capacity-budget.py --environment uat
+
   cleanup:
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
     name: Verify and retire old Cloud Run revisions
     needs: select-release
-    if: needs.select-release.outputs.cleanup_ready == 'true'
+    if: needs.select-release.outputs.cleanup_ready == 'true' && needs.select-release.outputs.environment == 'production'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     environment: ${{ needs.select-release.outputs.environment }}

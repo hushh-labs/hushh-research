@@ -46,21 +46,26 @@ describe("AgentHistorySidebar", () => {
     expect(screen.queryByTestId("drive-activity")).toBeNull();
   });
 
-  it("pins Get the app and Connectors in a footer below the scrollable chat list", () => {
+  it("pins To-do List, Get the app and Connectors in a footer below the scrollable chat list", () => {
+    const onOpenTodoList = vi.fn();
     const onGetApp = vi.fn();
     const onOpenConnectors = vi.fn();
-    renderSidebar({ onGetApp, onOpenConnectors, getAppOpen: false });
+    renderSidebar({ onOpenTodoList, onGetApp, onOpenConnectors, getAppOpen: false });
     const connectors = screen.getByRole("button", { name: "Open Connectors" });
     const getApp = screen.getByRole("button", { name: "Get the app" });
+    const todoList = screen.getByRole("button", { name: "Open To-do List" });
     expect(connectors).toHaveClass("min-h-11");
     const footer = connectors.closest("[data-agent-history-footer]");
     expect(footer).toHaveClass("shrink-0", "border-t");
     expect(footer?.contains(getApp)).toBe(true);
-    // Get the app first, Connectors last, as in the reference layout.
+    // The daily list precedes Get the app and Connectors in the pinned footer.
+    expect(todoList.compareDocumentPosition(getApp) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(getApp.compareDocumentPosition(connectors) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByLabelText("Agent chat history").lastElementChild).toBe(footer);
     expect(footer?.contains(screen.getByRole("searchbox", { name: "Search chats" }))).toBe(false);
 
+    fireEvent.click(todoList);
+    expect(onOpenTodoList).toHaveBeenCalledTimes(1);
     expect(getApp).toHaveAttribute("aria-haspopup", "dialog");
     expect(getApp).toHaveAttribute("aria-expanded", "false");
     fireEvent.click(getApp);

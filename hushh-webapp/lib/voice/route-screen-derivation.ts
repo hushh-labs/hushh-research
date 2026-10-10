@@ -379,9 +379,17 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.PROFILE_SOFTWARE_UPDATES) {
     return { screen: "profile_software-updates", subview: null };
   }
+  if (normalizedPath === ROUTES.ONE_REFERRALS) {
+    return { screen: "one_referrals", subview: null };
+  }
+  if (normalizedPath === ROUTES.PROFILE_REFERRALS) {
+    return { screen: "profile_referrals_redirect", subview: null };
+  }
   if (normalizedPath === ROUTES.PROFILE) {
     const { panel } = resolveProfileRouteState(normalizedPath, query);
     const tab = query.get("tab");
+    if (panel === "payouts") return { screen: "profile_payouts", subview: null };
+    if (panel === "request-pricing") return { screen: "profile_request_pricing", subview: null };
     if (panel === "gmail") {
       return { screen: "profile_gmail_panel", subview: tab || null };
     }
@@ -411,6 +419,8 @@ export function deriveVoiceRouteScreen(
   }
   if (normalizedPath.startsWith(`${ROUTES.PROFILE}/`)) {
     const { panel, detail } = resolveProfileRouteState(normalizedPath, query);
+    if (panel === "payouts") return { screen: "profile_payouts", subview: null };
+    if (panel === "request-pricing") return { screen: "profile_request_pricing", subview: null };
     if (panel === "gmail") {
       return {
         screen: "profile_gmail_panel",

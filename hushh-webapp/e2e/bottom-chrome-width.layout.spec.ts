@@ -15,7 +15,7 @@ import {
  * Founder report, 2026-09-29: "talk to one bar and the bottom bar width is not
  * the same". They had two width sources and two gutter formulas: the voice
  * bar capped at `--app-agent-bar-max-width` (34rem) inside `100vw - 2rem`, the
- * navigation at `--app-bottom-shell-max-width` (48rem, 40rem from 1280px)
+ * navigation at `--app-bottom-shell-max-width` (760px)
  * inside `100vw - 1.5rem`, re-capped at `100vw - 2rem`, and a /one/location
  * frame of 45rem on top. On a phone the caps happened to coincide; from about
  * 576px up the two pills parted (544px over 736px at 768, 544px over 640px at
@@ -234,7 +234,8 @@ test("shared dock retains material and input identity with aligned edges and key
     await input.fill(Array.from({ length: 30 }, (_, i) => `Line ${i + 1}: ${"wrappedtext".repeat(8)}`).join("\n"));
     const multiline = await measureInput();
     expect(multiline.within).toBe(true);
-    expect(multiline.height).toBeLessThanOrEqual(160);
+    // CSS transforms can introduce subpixel floating-point noise (160.00006px).
+    expect(Math.round(multiline.height)).toBeLessThanOrEqual(160);
     expect(multiline.contentHeight).toBeGreaterThan(multiline.height);
     expect(multiline.radius).toBe("0px");
     const sendFrame = await page.getByRole("button", { name: "Send message" }).boundingBox();
@@ -243,6 +244,11 @@ test("shared dock retains material and input identity with aligned edges and key
     expect(sendFrame!.width).toBeGreaterThanOrEqual(44);
     await input.fill("");
     expect((await measureInput()).height).toBeLessThanOrEqual(48);
+    // The multiline input shrinks with a transition. Compare settled route
+    // frames rather than capturing an intermediate height during that shrink.
+    await expect.poll(() => dock.evaluate(node =>
+      node.getAnimations({ subtree: true }).filter(animation => animation.playState === "running").length,
+    )).toBe(0);
     const emptyTextFrame = await dock.boundingBox();
     const material = () => dock.evaluate(node => {
       const style = getComputedStyle(node);
@@ -300,6 +306,51 @@ test("shared dock retains material and input identity with aligned edges and key
   }
 });
 
+test("Messages dock remains above the keyboard when the transcript reserves the full shell", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  for (const width of [320, 393, 768]) {
+    await open(page, width, false, { name: "Messages dock", html: { composer: "true", reserveFullDock: "true" } }, errors);
+    await expect(page.getByRole("textbox", { name: "Message One" })).toBeVisible();
+    await page.evaluate(() => {
+      document.documentElement.classList.add("native-keyboard-inset", "kb-open");
+      document.documentElement.style.setProperty("--kb-height", "280px");
+    });
+    await expect(page.locator("[data-bottom-shell-navigation-slot]")).toBeHidden();
+    await expect.poll(async () => {
+      const frame = await page.locator("[data-agent-dock-surface]").boundingBox();
+      return frame ? Math.round(844 - 280 - frame.y - frame.height) : -1;
+    }).toBeGreaterThanOrEqual(7);
+    await expect.poll(async () => {
+      const frame = await page.locator("[data-agent-dock-surface]").boundingBox();
+      return frame ? Math.round(844 - 280 - frame.y - frame.height) : -1;
+    }).toBeLessThanOrEqual(9);
+    expect(errors).toEqual([]);
+  }
+});
+
+test("Messages inbox hides its idle launcher while the search keyboard is open", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await open(page, 320, false, { name: "Messages inbox", html: { reserveFullDock: "true" } }, errors);
+  const agentSlot = page.locator("[data-bottom-shell-agent-slot]");
+  await expect(agentSlot).toBeVisible();
+  await page.evaluate(() => {
+    document.documentElement.classList.add("kb-open");
+    document.documentElement.style.setProperty("--kb-height", "280px");
+  });
+  await expect(agentSlot).toBeHidden();
+  // Live voice and command surfaces publish engagement on their own shell.
+  // Their cancellation controls remain accessible during inbox search.
+  await agentSlot.locator("[data-agent-bar-shell]").evaluate(node => node.setAttribute("data-command-active", "true"));
+  await expect(agentSlot).toBeVisible();
+  await agentSlot.locator("[data-agent-bar-shell]").evaluate(node => node.removeAttribute("data-command-active"));
+  await expect(agentSlot).toBeHidden();
+  await page.evaluate(() => document.documentElement.classList.remove("kb-open"));
+  await expect(agentSlot).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 type Edges = { left: number; right: number; width: number };
 type Measure = {
   voice: Edges;
@@ -329,6 +380,10 @@ function assertOneColumn(measured: Measure, label: string) {
   const detail = `${label}: Talk to One ${voice.left.toFixed(2)}..${voice.right.toFixed(2)} (${voice.width.toFixed(2)}px), navigation ${navigation.left.toFixed(2)}..${navigation.right.toFixed(2)} (${navigation.width.toFixed(2)}px)`;
   expect.soft(Math.abs(voice.left - navigation.left), `${detail}: left edges`).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
   expect.soft(Math.abs(voice.right - navigation.right), `${detail}: right edges`).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
+  expect.soft(navigation.width, `${label}: 760px maximum`).toBeLessThanOrEqual(760 + EDGE_TOLERANCE_PX);
+  if (shell.width >= 792) {
+    expect.soft(Math.abs(navigation.width - 760), `${label}: full desktop width`).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
+  }
   if (panel) {
     expect.soft(Math.abs(panel.left - navigation.left), `${label}: voice panel left edge`).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
     expect.soft(Math.abs(panel.right - navigation.right), `${label}: voice panel right edge`).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);

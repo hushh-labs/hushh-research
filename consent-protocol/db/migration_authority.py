@@ -278,6 +278,29 @@ def _assert_checksum(entry: MigrationManifestEntryV2, row: dict[str, Any] | None
         raise MigrationAuthorityError(f"Applied migration checksum changed: {entry.filename}")
 
 
+def _replay_sql(entry: MigrationManifestEntryV2) -> str:
+    # Migration 295 shipped a bare CREATE POLICY. Preserve its immutable source
+    # and ledger/baseline hashes, while making its known body replayable inside
+    # the original transaction. Never adapt other or drifted migration bodies.
+    if entry.migration_id != "295" or entry.filename != "295_direct_message_attachments.sql":
+        return entry.sql
+    checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
+    if (
+        checksum != "f76a5e6e71d1979dbcd71d2e3c5ad390c1aa9f018742946bee2dcea3831d4edc"
+        or entry.checksum_sha256 != checksum
+    ):
+        raise MigrationAuthorityError("Legacy attachment replay source checksum changed")
+    policy = (
+        "CREATE POLICY direct_message_attachments_deny_all ON public.direct_message_attachments"
+    )
+    return entry.sql.replace(
+        policy,
+        "DROP POLICY IF EXISTS direct_message_attachments_deny_all ON public.direct_message_attachments;\n"
+        + policy,
+        1,
+    )
+
+
 async def _record_result(
     conn: Any,
     *,
@@ -480,6 +503,7 @@ async def apply_manifest_entries(
                 if covered_by_baseline or (existing and existing.get("status") == "applied"):
                     continue
 
+            sql = _replay_sql(entry) if mode is MigrationMode.REPLAY else entry.sql
             for attempt in range(1, _LOCK_RETRY_ATTEMPTS + 1):
                 started = time.perf_counter()
                 recorded_applied = False
@@ -497,7 +521,7 @@ async def apply_manifest_entries(
                             await conn.execute(
                                 f"SET LOCAL statement_timeout = '{entry.statement_timeout_ms}ms'"
                             )
-                            await _execute_observed(conn, entry.sql, probe)
+                            await _execute_observed(conn, sql, probe)
                             duration_ms = round((time.perf_counter() - started) * 1000)
                             await _record_result(
                                 conn,
@@ -513,7 +537,7 @@ async def apply_manifest_entries(
                         await conn.execute(
                             f"SET statement_timeout = '{entry.statement_timeout_ms}ms'"
                         )
-                        await _execute_observed(conn, entry.sql, probe)
+                        await _execute_observed(conn, sql, probe)
                 except Exception as exc:
                     duration_ms = round((time.perf_counter() - started) * 1000)
                     # A busy database is not a broken migration. Roll back first

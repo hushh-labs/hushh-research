@@ -14,6 +14,35 @@
   line-height: 1.35 !important;
 }
 
+:global(.profile-pane-scroll-root) .connectors :global([data-social-profile-form]) {
+  padding: 16px;
+  font-family: var(--font-app-body);
+}
+
+:global(.profile-pane-scroll-root) .connectors :global([data-social-profile-form] p) {
+  color: var(--ios-account-secondary-label);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+:global(.profile-pane-scroll-root) .connectors :global([data-social-profile-form] label) {
+  display: block;
+  color: var(--ios-account-label);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+:global(.profile-pane-scroll-root) .connectors :global([data-social-profile-form] input) {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 :global(.profile-pane-scroll-root) .connectors :global([data-testid^="profile-connectors-"] > div:first-child) {
   margin: 0 0 7px;
   padding-inline: 6px;
@@ -41,8 +70,13 @@
 
 :global(.profile-pane-scroll-root) .connectors :global([data-row-layout="settings"]) {
   --settings-row-px: 14px;
-  --settings-row-py: 11px;
-  --settings-row-gap: 12px;
+  --settings-row-py: 7px;
+  --settings-row-gap: 9px;
+}
+
+:global(.profile-pane-scroll-root) .connectors :global([data-row-layout="settings"] > .grid) {
+  min-height: 58px;
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 :global(.profile-pane-scroll-root) .connectors :global([data-row-layout="settings"]:not(:last-child)::after) {
@@ -72,17 +106,30 @@
 }
 
 :global(.profile-pane-scroll-root) .connectors :global([data-slot="settings-row-trailing"] button) {
-  min-width: 72px;
-  min-height: 34px;
+  width: 88px;
+  min-width: 88px;
+  min-height: 44px;
   border: 1px solid var(--profile-pane-hair);
   border-radius: 999px;
   background: var(--profile-pane-surface-soft);
   color: var(--ios-account-accent);
-  font-size: 11px;
+  font-family: var(--font-app-body);
+  font-size: 11px !important;
   font-weight: 600;
 }
 
-:global(.profile-pane-scroll-root) .connectors :global([data-connector-detail] > section) {
+:global(.profile-pane-scroll-root) .connectors :global(section[aria-label="Custom connectors"] > h3) {
+  padding-inline: 6px;
+  color: var(--ios-account-secondary-label);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  letter-spacing: 0.02em;
+}
+
+:global(.profile-pane-scroll-root) .connectors :global([data-connector-detail] > section:not(:has([data-slot="settings-group-shell"]))) {
+  min-width: 0;
+  padding: 16px;
   border-color: var(--profile-pane-card-border);
   border-radius: 17px;
   background: var(--profile-pane-card-surface);
@@ -143,6 +190,47 @@
     line-height: 14px !important;
     letter-spacing: 0.02em !important;
   }
+}
+
+/* One reading and form rhythm for all connector details inside Profile. */
+:global(.profile-pane-scroll-root) .connectors :global([data-connector-detail]) {
+  min-width: 0;
+  font-family: var(--font-app-body);
+  overflow-wrap: anywhere;
+}
+
+:global(.profile-pane-scroll-root) .connectors :global([data-connector-detail] :is(h3, h4, label)) {
+  font-family: var(--font-app-body) !important;
+  font-size: 13px !important;
+  font-weight: 500;
+  line-height: 1.35 !important;
+}
+
+:global(.profile-pane-scroll-root) .connectors :global([data-connector-detail] :is(p, li)) {
+  font-family: var(--font-app-body) !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+
+:global(.profile-pane-scroll-root) .connectors :global([data-connector-detail] :is(input:not([type="checkbox"]):not([type="radio"]), textarea, select)) {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 44px;
+  font-family: var(--font-app-body) !important;
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+}
+
+:global(.profile-pane-scroll-root) .connectors :global([data-connector-detail] button:not([role="switch"]):not([role="checkbox"]):not([role="radio"])) {
+  min-height: 44px;
+  max-width: 100%;
+  font-family: var(--font-app-body) !important;
+  font-size: 12px !important;
+  white-space: normal;
 }
 
 :global(.profile-pane-scroll-root) .support {

@@ -41,8 +41,7 @@
         }
       ],
       "kind": "root",
-      "reason": "Chat entry is an application root.",
-      "sourceRevision": "39c67df50add4ba10ff52844d61de0c3e83c6397569cf7a8266fe26c495a7ba0"
+      "reason": "Chat entry is an application root."
     }
   },
   {
@@ -1646,6 +1645,55 @@
     }
   },
   {
+    "route": "/one/todos",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/todos/todo-list-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceCard"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.todos",
+      "purpose": "Review private to-do items and the safe, read-only Calendar agenda. Calendar changes remain in the Calendar agent and owner-added items remain encrypted in the private agent.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Owner-added items are saved only after the owner confirms them; calendar items remain read-only projections of Calendar.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/todos",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
+    }
+  },
+  {
     "route": "/pkm",
     "mode": "redirect",
     "exemptionReason": "Compatibility redirect route only launches the canonical /one/pkm surface.",
@@ -2390,7 +2438,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.messages",
-      "purpose": "Read and send private one-to-one messages with accepted connections.",
+      "purpose": "Read and send private messages with accepted connections and circles you belong to.",
       "screen": "app",
       "entryCue": "",
       "proactivity": "ambient",
@@ -2405,10 +2453,10 @@
         "callbackError": "Keep the message screen open and explain that the update could not be verified.",
         "routeMismatch": "Use only the verified private message route and its generated controls."
       },
-      "completionBoundary": "A send completes only after the server accepts the message for the active connection.",
+      "completionBoundary": "A send completes only after the server accepts the message for the selected connection or circle.",
       "nextRoute": null,
       "returnPolicy": "stay",
-      "outOfScopeBehavior": "Do not infer a connection or reveal another person's message history."
+      "outOfScopeBehavior": "Do not infer a connection or circle membership or reveal another person's message history."
     },
     "backVerification": {
       "cases": [
@@ -2418,7 +2466,7 @@
         }
       ],
       "kind": "root",
-      "reason": "Messages owns thread-level navigation inside its workspace."
+      "reason": "Messages owns thread-level navigation inside its workspace through route-scoped Back layers."
     }
   },
   {
@@ -5481,6 +5529,120 @@
     }
   },
   {
+    "route": "/one/profile/payouts",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/profile-workspace-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.payouts",
+      "purpose": "Help the person use payouts through its generated controls.",
+      "screen": "profile_payouts",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/payouts",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/profile/payouts?documentPayouts=done",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/profile/payouts?documentPayouts=refresh",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
+    }
+  },
+  {
+    "route": "/one/profile/request-pricing",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/profile-workspace-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.request.pricing",
+      "purpose": "Help the person use request pricing through its generated controls.",
+      "screen": "profile_request_pricing",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/request-pricing",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
+    }
+  },
+  {
     "route": "/one/profile/my-data",
     "mode": "standard",
     "shellVerification": {
@@ -5519,6 +5681,22 @@
       "cases": [
         {
           "href": "/one/profile/my-data",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/profile/my-data?documentPayouts=done",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/profile/my-data?documentPayouts=refresh",
           "expected": {
             "href": "/one/profile",
             "mode": "push",
@@ -5925,27 +6103,16 @@
   },
   {
     "route": "/one/profile/referrals",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "app/profile/profile-workspace-page.tsx",
-      "includes": [
-        "AppPageShell",
-        "AppPageHeaderRegion",
-        "AppPageContentRegion",
-        "PageHeader",
-        "SurfaceStack"
-      ]
-    },
+    "mode": "redirect",
+    "exemptionReason": "Compatibility-only redirect; Referrals is now a dedicated dashboard at /one/referrals.",
     "voicePlaybook": {
-      "playbookId": "route.profile.support",
-      "purpose": "Help the person understand and use the support screen through its generated controls.",
-      "screen": "profile_referrals_panel",
-      "entryCue": "You can say “Open Support Panel” to use the primary control on this screen.",
-      "proactivity": "on_entry",
-      "primaryActionId": "route.profile_referrals_panel",
-      "happyPathActionIds": [
-        "route.profile_referrals_panel"
-      ],
+      "playbookId": "route.profile.referrals.redirect",
+      "purpose": "Send the person to the dedicated Referrals dashboard.",
+      "screen": "profile_referrals_redirect",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -5955,9 +6122,9 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
-      "nextRoute": "/one/profile/referrals",
-      "returnPolicy": "stay",
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": "/one/referrals",
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     },
     "backVerification": {
@@ -5972,6 +6139,55 @@
         }
       ],
       "kind": "parent"
+    }
+  },
+  {
+    "route": "/one/referrals",
+    "mode": "hidden",
+    "persistentChrome": "none",
+    "interactionLayerPolicy": {
+      "allowedFamilies": []
+    },
+    "shellVerification": {
+      "file": "components/referrals/referral-dashboard-page.tsx",
+      "includes": [
+        "NativeTestBeacon"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.referrals",
+      "purpose": "Welcome the person to referrals with a replayable, device/account-scoped introduction, then help them read their referral link, points, ranking, and reward progress through the dashboard's own controls. Continuing or skipping the introduction never grants setup completion or referral credit.",
+      "screen": "one_referrals",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "kind": "parent",
+      "cases": [
+        {
+          "href": "/one/referrals",
+          "expected": {
+            "href": "/one",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ]
     }
   },
   {

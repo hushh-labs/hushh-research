@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   requestInternalAppNavigation: vi.fn(),
   dispatchFeedStateChanged: vi.fn(),
   platform: "ios",
+  keyId: "current-key",
 }));
 
 vi.mock("@capacitor/core", () => ({
@@ -16,6 +17,8 @@ vi.mock("@capacitor/core", () => ({
 
 vi.mock("@capacitor-firebase/messaging", () => ({
   FirebaseMessaging: {
+    checkPermissions: vi.fn(async () => ({ receive: "granted" })),
+    getToken: vi.fn(async () => ({ token: "fixture-token" })),
     addListener: vi.fn(
       async (eventName: string, listener: (payload: unknown) => void) => {
         mocks.listeners.set(eventName, listener);
@@ -27,7 +30,7 @@ vi.mock("@capacitor-firebase/messaging", () => ({
 
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
-    registerPushToken: vi.fn(),
+    registerPushToken: vi.fn(async () => ({ ok: true, clone: () => ({ json: async () => ({ registered: true }) }) })),
   },
 }));
 
@@ -48,7 +51,9 @@ vi.mock("@/lib/feed/feed-events", () => ({
   dispatchFeedStateChanged: mocks.dispatchFeedStateChanged,
 }));
 
-import { prepareFCMListeners } from "@/lib/notifications/fcm-service";
+vi.mock("@/lib/notifications/preview-keys", () => ({ activeNotificationKeyId: () => mocks.keyId }));
+
+import { prepareFCMListeners, initializeFCM } from "@/lib/notifications/fcm-service";
 import {
   acknowledgeInternalAppNavigation,
   consumePendingInternalAppNavigation,
@@ -318,4 +323,21 @@ describe("native system-notification routing", () => {
     });
     expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledWith("action");
   });
+  it("holds a cold chat tap until its owner key hydrates and ignores a later wrong-owner tap", async () => {
+    await prepareFCMListeners();
+    const onAction = mocks.listeners.get("notificationActionPerformed");
+    const tap = (key: string) => onAction?.({ actionId: "tap", notification: { data: { type: "direct_message", route_token: "dm1.test", recipient_key_id: key } } });
+    tap("current-key");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mocks.requestInternalAppNavigation).not.toHaveBeenCalled();
+    await initializeFCM("current-owner", "fixture-id-token");
+    await vi.waitFor(() => expect(mocks.requestInternalAppNavigation).toHaveBeenCalledOnce());
+    expect(mocks.requestInternalAppNavigation.mock.calls[0][0].href).toBe("/one/messages?token=dm1.test");
+    tap("previous-key");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mocks.requestInternalAppNavigation).toHaveBeenCalledOnce();
+    tap("current-key");
+    await vi.waitFor(() => expect(mocks.requestInternalAppNavigation).toHaveBeenCalledTimes(2));
+  });
+
 });

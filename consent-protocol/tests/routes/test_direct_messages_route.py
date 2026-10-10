@@ -42,6 +42,46 @@ def test_send_person_ref_threads_authenticated_sender_and_never_accepts_a_peer_u
     )
 
 
+def test_attachment_send_and_read_keep_authenticated_identity_and_private_bytes():
+    service = MagicMock()
+    service.send_message.return_value = {
+        "message": {"id": "message-1", "attachment": {"kind": "document"}}
+    }
+    service.get_attachment.return_value = {
+        "content": b"%PDF-1.4\nprivate",
+        "mimeType": "application/pdf",
+        "name": "notes.pdf",
+    }
+    conversation_id = "11111111-1111-4111-8111-111111111111"
+    message_id = "22222222-2222-4222-8222-222222222222"
+    attachment = {"name": "notes.pdf", "mimeType": "application/pdf", "data": "JVBERi0xLjQK"}
+
+    with patch("api.routes.one.messages._service", return_value=service):
+        client = _client()
+        sent = client.post(
+            "/api/one/messages",
+            json={"recipientPersonRef": conversation_id, "content": "", "attachment": attachment},
+        )
+        fetched = client.get(
+            f"/api/one/messages/conversations/{conversation_id}/messages/{message_id}/attachment"
+        )
+
+    assert sent.status_code == 200
+    service.send_message.assert_called_once_with(
+        "viewer-user",
+        content="",
+        recipient_user_id=None,
+        recipient_person_ref=conversation_id,
+        reply_to_message_id=None,
+        attachment=attachment,
+    )
+    assert fetched.status_code == 200
+    assert fetched.content == b"%PDF-1.4\nprivate"
+    assert fetched.headers["cache-control"] == "private, no-store"
+    assert fetched.headers["x-content-type-options"] == "nosniff"
+    service.get_attachment.assert_called_once_with("viewer-user", conversation_id, message_id)
+
+
 def test_send_returns_clear_server_enforced_connection_error():
     service = MagicMock()
     service.send_message.side_effect = DirectMessagesError(

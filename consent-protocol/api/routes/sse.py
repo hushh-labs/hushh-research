@@ -206,7 +206,7 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
             limit=10,
         )
         for event in recent_events:
-            if event.get("type") == "document_share_feed_changed":
+            if event.get("type") in {"document_share_feed_changed", "bank_payout_changed"}:
                 continue
             event_id = _sse_event_id(event)
             if not event_id or event_id in notified_event_ids:
@@ -236,7 +236,7 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
                 continue
 
             event_id = _sse_event_id(data)
-            if data.get("type") == "document_share_feed_changed":
+            if data.get("type") in {"document_share_feed_changed", "bank_payout_changed"}:
                 continue
             if not event_id or event_id in notified_event_ids:
                 continue
@@ -278,6 +278,9 @@ async def document_feed_event_generator(
                 data = await asyncio.wait_for(queue.get(), timeout=30)
             except asyncio.TimeoutError:
                 yield {"event": "heartbeat", "data": "{}"}
+                continue
+            if data.get("type") == "bank_payout_changed":
+                yield {"event": "feed_reset", "data": "{}"}
                 continue
             if data.get("type") != "document_share_feed_changed":
                 continue

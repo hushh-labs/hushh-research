@@ -28,6 +28,8 @@ import {
 import { Capacitor } from "@capacitor/core";
 import { HushhPersonalKnowledgeModel } from "@/lib/capacitor";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { currentPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import { logRequestAudit } from "@/lib/cache/request-audit-log";
 import type { PortfolioData as CachedPortfolioData } from "@/lib/cache/cache-context";
 import { AuthService } from "./auth-service";
@@ -384,6 +386,8 @@ export class PersonalKnowledgeModelService {
   private static metadataInflight = new Map<string, Promise<PersonalKnowledgeModelMetadata>>();
   private static encryptedDataInflight = new Map<string, Promise<EncryptedUserBlob | null>>();
   private static domainDataInflight = new Map<string, Promise<EncryptedDomainBlob | null>>();
+  // Publication tickets, not payloads: older reads cannot replace a fresh read.
+  private static domainReadTickets = new Map<string, object>();
   private static domainManifestInflight = new Map<string, Promise<DomainManifest | null>>();
   private static domainSnapshotInflight = new Map<string, Promise<DomainSnapshotV1 | null>>();
   private static tickerSyncInflight = new Map<string, Promise<void>>();
@@ -398,6 +402,7 @@ export class PersonalKnowledgeModelService {
       this.metadataInflight,
       this.encryptedDataInflight,
       this.domainDataInflight,
+      this.domainReadTickets,
       this.domainManifestInflight,
       this.domainSnapshotInflight,
       this.tickerSyncInflight,
@@ -1637,6 +1642,7 @@ export class PersonalKnowledgeModelService {
     vaultOwnerToken?: string,
     options: { allowStaleFallback?: boolean } = {},
   ): Promise<PersonalKnowledgeModelMetadata> {
+    const vaultEpoch = snapshotVaultSessionEpoch();
     const cache = CacheService.getInstance();
     const cacheKey = CACHE_KEYS.PKM_METADATA(userId);
     const deviceResourceKey = this.metadataDeviceResourceKey(userId);
@@ -1690,8 +1696,9 @@ export class PersonalKnowledgeModelService {
       userId,
       Capacitor.isNativePlatform() ? "native" : "web",
       vaultOwnerToken ? "vault_owner" : "anonymous",
-      forceRefresh ? "refresh" : "cached",
+      shouldBypassProxyCache ? "refresh" : "cached",
       options.allowStaleFallback === false ? "authoritative" : "fallback_allowed",
+      String(vaultEpoch),
     ]);
     const existingRequest = this.metadataInflight.get(dedupeKey);
     if (existingRequest) {
@@ -2010,10 +2017,10 @@ export class PersonalKnowledgeModelService {
         }
       }
 
-      if (shouldCacheResult) {
+      if (shouldCacheResult && isVaultSessionEpochCurrent(vaultEpoch)) {
         cache.set(cacheKey, result, cacheTtlMs);
       }
-      if (persistToDeviceCache && shouldCacheResult) {
+      if (persistToDeviceCache && shouldCacheResult && isVaultSessionEpochCurrent(vaultEpoch)) {
         await DeviceResourceCacheService.write({
           userId,
           resourceKey: deviceResourceKey,
@@ -3844,13 +3851,15 @@ export class PersonalKnowledgeModelService {
     userId: string,
     domain: string,
     vaultOwnerToken?: string,
-    segmentIds?: string[]
+    segmentIds?: string[],
+    forceRefresh = false,
   ): Promise<EncryptedDomainBlob | null> {
     const cache = CacheService.getInstance();
     const normalizedSegmentIds = this.normalizeSegmentIds(segmentIds);
+    const vaultEpoch = snapshotVaultSessionEpoch();
     const canUseCache = normalizedSegmentIds.length === 0;
     const cacheKey = CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, domain);
-    if (canUseCache) {
+    if (canUseCache && !forceRefresh) {
       const cached = cache.peek<EncryptedDomainBlob | null>(cacheKey);
       if (cached?.isFresh) {
         return cached.data;
@@ -3860,19 +3869,26 @@ export class PersonalKnowledgeModelService {
       }
     }
 
-    const dedupeKey = this.inflightKey([
+    const readKeyParts = [
       "domain_blob",
       userId,
       domain,
       normalizedSegmentIds.join(",") || "all_segments",
       Capacitor.isNativePlatform() ? "native" : "web",
       vaultOwnerToken ? "vault_owner" : "anonymous",
-    ]);
+      String(vaultEpoch),
+    ];
+    const authoritativeRequest = this.domainDataInflight.get(this.inflightKey([...readKeyParts, "authoritative"]));
+    if (!forceRefresh && authoritativeRequest) return authoritativeRequest;
+    const dedupeKey = this.inflightKey([...readKeyParts, forceRefresh ? "authoritative" : "normal"]);
     const existingRequest = this.domainDataInflight.get(dedupeKey);
     if (existingRequest) {
       return existingRequest;
     }
 
+    const readTicket = {};
+    const invalidationEpoch = currentPkmInvalidationEpoch(userId);
+    if (canUseCache) this.domainReadTickets.set(cacheKey, readTicket);
     const request = (async (): Promise<EncryptedDomainBlob | null> => {
       let encryptedBlob: EncryptedDomainBlob | null = null;
 
@@ -3946,7 +3962,10 @@ export class PersonalKnowledgeModelService {
               : ""
           }`,
           {
-            headers: this.getAuthHeaders(vaultOwnerToken),
+            headers: {
+              ...this.getAuthHeaders(vaultOwnerToken),
+              ...(forceRefresh ? { "Cache-Control": "no-cache" } : {}),
+            },
           }
         );
 
@@ -3996,9 +4015,11 @@ export class PersonalKnowledgeModelService {
         }
       }
 
-      if (encryptedBlob && canUseCache) {
+      const canPublish = canUseCache && this.domainReadTickets.get(cacheKey) === readTicket &&
+        currentPkmInvalidationEpoch(userId) === invalidationEpoch && isVaultSessionEpochCurrent(vaultEpoch);
+      if (encryptedBlob && canPublish) {
         cache.set(cacheKey, encryptedBlob, CACHE_TTL.SESSION);
-      } else if (!encryptedBlob && canUseCache) {
+      } else if (!encryptedBlob && canPublish) {
         cache.set(cacheKey, null, CACHE_TTL.SHORT);
       }
 
@@ -4729,6 +4750,7 @@ export class PersonalKnowledgeModelService {
     vaultKey: string;
     vaultOwnerToken?: string;
     segmentIds?: string[];
+    forceRefresh?: boolean;
   }): Promise<{
     data: Record<string, unknown> | null;
     blob: EncryptedDomainBlob | null;
@@ -4737,7 +4759,8 @@ export class PersonalKnowledgeModelService {
       params.userId,
       params.domain,
       params.vaultOwnerToken,
-      params.segmentIds
+      params.segmentIds,
+      params.forceRefresh === true,
     );
     if (!blob) {
       return {

@@ -336,6 +336,7 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "nws_nearby_v4_project_id": args.project,
         "one_places_directory_enabled": args.one_places_directory_enabled,
         **_azure_owner_cloud_config(args.project, getattr(args, "app_frontend_origin", "")),
+        "one_business_directory_enabled": getattr(args, "one_business_directory_enabled", "false"),
     }
     return _scope_commerce_runtime_policy()["apply_policy"](_drop_empty(config), getattr(args, "scope_commerce_policy", {}))
 
@@ -535,6 +536,9 @@ def main() -> int:
     # key mirrored from the project that owns it.
     parser.add_argument("--insurance-agents-api-base-url", default="")
     parser.add_argument("--one-places-directory-enabled", default="")
+    parser.add_argument(
+        "--one-business-directory-enabled", default="false", choices=["true", "false"]
+    )
     parser.add_argument("--insurance-agents-api-key-source-project", default="hushh-tech-prod")
     parser.add_argument(
         "--insurance-agents-api-key-source-secret", default="insurance-agents-api-key"

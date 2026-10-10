@@ -16,20 +16,20 @@ the cold-response target still require evidence.
 Finish one integrated candidate on the existing infrastructure branch. Keep
 owner resources, selected configurations and trusted identities. No application
 merge to main, UAT/production deployment or stable-channel publication is included.
-Computer Use and cross-cloud moves remain disabled.
+Computer Use and cross-cloud moves remain disabled. The new load-balancer domain serves TLS and login successfully; that ingress receipt does not qualify pod journeys. The normal owner session must be reauthenticated at `dev.one.hussh.ai`.
 
 ## Source and serving evidence
 
 | Surface | Verified evidence | Limit |
 | --- | --- | --- |
-| Integrated source | Frozen application `2349b160907f`, containing reviewed main/ADK and concurrent fixes | Local core passes; affected PostgreSQL 769 pass with 38 explicit restored-schema cutover skips. Later root/ADK edits remain outside this serving revision. |
+| Integrated source | Current candidate integrates branch `fac10c796d`, frozen ADK `b5fc73b5c6` and main `89cf5c75f7` | Combined core and hosted CI are pending; prior 2349 evidence does not qualify this candidate. Concurrent PDF/host edits remain preserved outside it. |
 | Hosted CI | [Exact 2349 CI](https://github.com/hushh-labs/hushh-research/actions/runs/38006677635) succeeds; unchanged frontend/browser/native trees have [full 6cda CI](https://github.com/hushh-labs/hushh-research/actions/runs/38004827776) | Backend/security/governance gates were rerun for the exact repair; unchanged browser evidence reused. No gate weakened. |
-| Dev application | [Governed dev run](https://github.com/hushh-labs/hushh-research/actions/runs/38007611500) terminal healthy; ADC readback October 10, 00:27 UTC: backend `00154-mjh`, frontend `00132-7mn`, 100% each, matching 2349 provenance | GitHub Actions governs; Cloud Build builds. Prior `00153-nhx` / `00131-6r4` are captured rollback targets. Schema, parity and semantic checks pass. |
-| Serving digests | Backend `0997c5173f2adc4935abd252431a377910b96fd0281a64fb769f6997649de1f1`; frontend `c04ca290f6c001f8fac5f3b8db343af867919d65921e421b626914737229485c` | Application serving evidence is separate from owner installation. |
+| Dev application | Latest dev run 38019021921 failed frontend DNS validation and rolled back only the frontend. October 10 ADC readback: backend `00155-ld6` at `c3fc60c2cb`, frontend `00132-7mn` at `2349b160907f`, 100% each; application provenance is mixed | GitHub Actions governs; Cloud Build builds. Prior `00153-nhx` / `00131-6r4` are captured rollback targets. Schema, parity and semantic checks pass. |
+| Serving digests | Backend `00d6e0b5ac7dfab98bd5af0dc22c637e5752c8bcaad0cf1fb6d6c6049f9ca5f9`; frontend `c04ca290f6c001f8fac5f3b8db343af867919d65921e421b626914737229485c` | Application serving evidence is separate from owner installation. |
 | Personal Azure pod | Held operation completed October 10, 00:31 UTC; exact approved Dev 12 digest `e213acf2468179177371709fb2651eb622439ec8c2a2df3d11394d23867ffa1e`, ready revision `u390d187cc8d1`, matching server-verified release/incarnation receipt | Same service, managed identity, keys/storage selection, min 0/max 1 and 0.5 vCPU/1 GiB retained. HTTP scale threshold 8 and managed-identity Files queue scaler confirmed. No resource resize or offer substitution. |
 | Update repair | Null scaler normalization and durable pre-dispatch replacement intent are source-backed; bounded legacy continuation requires exact owner/operation/resource/readback evidence | The original pre-replacement failure remains recorded. Normal owner Microsoft continuation completed the same operation; no lease reset, duplicate approval or reinstallation. Dev 13 is published but not installed and is not qualified for this predecessor. |
 | Files interface | Correction verified atop `c3fc60c2cb`: shared Files top bar and reading-width explorer; inline rename, hierarchical Back, secondary Activity/settings, observed retention and requested usage | Local source only: 38 focused frontend cases pass, including dialog closure on vault lock, safe failure feedback and retained transfer recovery hints; 28 Files route/job cases pass across two focused runs, including authority/integrity refusal after upload. TypeScript/lint and architecture ratchet pass. Actual components/CSS at 390/768/1440 px: 0 px list/search gutter mismatch or refresh shift, no overflow, p95 frames 9 ms, zero frames over 50 ms. Synthetic layout ports do not prove cloud behavior; this layout is not yet deployed. |
-| Migration lineage | Canonical 249/289–291 preserved; commerce 292, Shared 293 and profile bridge 294 registered | Checksum-pinned dev replay defers destructive 249; no destructive cutover or production migration is claimed. |
+| Migration lineage | Canonical 249/289–298 preserved; pending enrollment 299, commerce 300, Shared choice 301, profile bridge 302, placement-reader foundation 303 and evidenced legacy Shared continuity 304 | Read-only dev ledger has no canonical 290–304 entries; recorded parked checksums match. Pending files were renumbered without changing applied history. Destructive 249 remains deferred; no production migration is claimed. |
 
 ## Acceptance matrix
 
@@ -70,18 +70,19 @@ tails extend paid time. Spending thresholds warn without stopping service.
 
 ## Reviewed integration debt
 
-At `eb3402499`, 104 exact upstream finding slots and 46 independently reviewed
-merge slots were reconciled against frozen source revisions and file hashes.
-Budgets (500/250/80), scanner, exclusions and future regression enforcement remain
-unchanged. Review found and fixed a Mail account/session race; 43 nearest cases
-pass and the original callbacks fail the behavioral negative control. This is a
-measured structural-debt baseline, not a readiness or live acceptance receipt.
+The October 10 candidate combines infrastructure `fac10c796d`, ADK `b5fc73b5c6`
+and main `89cf5c75f7`. Independent review accepted 239 inherited finding slots
+and 75 exact integration spans. Calendar selection and Mail dispatch were
+extracted into existing-module genes before accepting the combined baseline.
+Exact occurrence-ranked values and source hashes are retained in the governed
+baseline. Budgets (500/250/80), scanner, exclusions and future regression gates
+are unchanged. This records reviewed structural debt, not live acceptance.
 
 ## Owners and next gate
 
 | Owner | Required receipt |
 | --- | --- |
-| Engineering / release | Exact 2349 CI, governed deployment and serving readback pass. Azure held Dev 12 update and live Files gates now pass. Files layout correction now includes shared top-bar title, bounded explorer, inline rename, hierarchical Back and audited settings. Local responsive evidence is separate from live acceptance; canonical 249 stays deferred. |
+| Engineering / release | Prior 2349 acceptance is retained; the combined candidate still needs its own exact-SHA CI, governed deployment and serving readback. Azure held Dev 12 update and live Files gates now pass. Files layout correction now includes shared top-bar title, bounded explorer, inline rename, hierarchical Back and audited settings. Local responsive evidence is separate from live acceptance; canonical 249 stays deferred. |
 | Owner / device | Normal Google-authenticated owner browser, memory-only unlock, exact approval; device-session or admin credentials cannot substitute for browser authority |
 | Azure subscription | Eligible fresh environment/model resources; existing-environment qualification is narrower |
 | Production | Migration/release graduation, actual legacy cohort continuity, IAM, erasure, recovery, hub capacity and independent UAT acceptance |
@@ -103,6 +104,6 @@ Google/Azure choices and cloud-specific gates belong to the deployment standard.
 Historical pointer: early source checks were not owner-cloud activation receipts.
 Dev history cleanup 944 completed September 28 under
 [run 36392414630](https://github.com/hushh-labs/hushh-research/actions/runs/36392414630).
-The former branch-only profile bridge is now canonical 294; canonical 249 remains
+The former branch-only profile bridge is now pending canonical 302; canonical 249 remains
 deferred in shared-dev pending separate cutover evidence. Current acceptance belongs to the
 matrix above; Git history retains the chronology.

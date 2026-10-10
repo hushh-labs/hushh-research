@@ -193,7 +193,7 @@ async def match_marketplace_contacts(
             # as canonical contact sync. It must share the verified-requester
             # gate and Postgres lookup allowance so changing routes cannot
             # bypass the cross-instance enumeration budget.
-            await ActorIdentityService().sync_from_firebase(firebase_uid, force=False)
+            await ActorIdentityService().sync_verified_phone_from_firebase(firebase_uid)
             await run_in_threadpool(
                 ConnectionsService().reserve_contact_sync_lookup_budget,
                 firebase_uid,

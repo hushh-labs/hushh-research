@@ -141,6 +141,8 @@ export const ROUTES = {
   PROFILE_SECURITY_SESSION: "/one/profile/security/session",
   PROFILE_SECURITY_DEVICE_AUTHORIZE: "/one/profile/security/devices/authorize",
   PROFILE_MY_DATA: "/one/profile/my-data",
+  PROFILE_PAYOUTS: "/one/profile/payouts",
+  PROFILE_REQUEST_PRICING: "/one/profile/request-pricing",
   PROFILE_MY_DATA_DOMAIN: "/one/profile/my-data/domain",
   PROFILE_ACCESS: "/one/profile/access",
   PROFILE_ACCESS_CONNECTION: "/one/profile/access/connection",
@@ -178,6 +180,8 @@ export const ROUTES = {
   GMAIL: "/one/gmail",
   EMAIL_AGENT: "/one/email",
   CALENDAR: "/one/calendar",
+  /** Owner's to-do items and safe read-only Calendar agenda. */
+  ONE_TODOS: "/one/todos",
   PKM: "/one/pkm",
   PKM_RECENT: "/one/pkm/recent",
   PKM_LOCATION: "/one/pkm/location",
@@ -210,6 +214,8 @@ export const ROUTES = {
   ONE_KYC: "/one/email",
   ONE_FILES: "/one/files",
   ONE_CAREER: "/one/career",
+  /** Dedicated full-page weekly referral dashboard. `/one/profile/referrals` redirects here. */
+  ONE_REFERRALS: "/one/referrals",
   ONE_LOCATION: "/one/location",
   /** Immersive, consented multi-person Location map. */
   ONE_LOCATION_MAP: "/one/location/map",

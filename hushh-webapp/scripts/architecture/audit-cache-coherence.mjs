@@ -154,6 +154,10 @@ function isFeedRoute(route) {
   return route === "/one/feed";
 }
 
+function isTodoListRoute(route) {
+  return route === "/one/todos";
+}
+
 function isConnectedSystemsRoute(route) {
   return (
     route === "/one/connected-systems" ||
@@ -201,6 +205,7 @@ function screenClassForRoute(route, mode, flags) {
     return "PKM-secure";
   }
   if (route.startsWith("/one/kai")) return "vault-backed";
+  if (isTodoListRoute(route)) return "PKM-secure";
   if (route === "/one/profile" || isConsentCenterRoute(route))
     return "vault-backed";
   return mode === "hidden" ? "hidden flow" : "vault-backed";
@@ -245,6 +250,9 @@ function routeCacheKeys(route) {
     return ["CONSENT_CENTER_SUMMARY", "CONSENT_CENTER_LIST"];
   if (route === "/one/kyc")
     return ["PKM_DOMAIN_RESOURCE", "KYC workflow client state"];
+  if (isTodoListRoute(route)) {
+    return ["PKM_DOMAIN_RESOURCE(one_todos)", "Calendar event projection (memory-only)"];
+  }
   if (route === "/one/profile")
     return ["KAI_PROFILE", "PKM_METADATA", "VAULT_STATUS"];
   if (route === "/pkm")
@@ -302,6 +310,7 @@ function resourceClassesFor(route, screenClass) {
     ];
   }
   if (route === "/one/kyc") return ["pkm_projection", "consent_list"];
+  if (isTodoListRoute(route)) return ["pkm_projection", "calendar_events"];
   if (route === "/one/profile") return ["vault_metadata", "pkm_metadata"];
   if (isConnectedSystemsRoute(route)) {
     return ["crm_registry_metadata", "crm_schema_metadata"];
@@ -494,7 +503,8 @@ function invalidatorFor(route, screenClass) {
     isPkmEpochRoute(route) ||
     route === "/gmail" ||
     route === "/one/profile/receipts" ||
-    route === "/one/kyc"
+    route === "/one/kyc" ||
+    isTodoListRoute(route)
   ) {
     return "CacheSyncService PKM/portfolio/write-through hooks";
   }

@@ -3,6 +3,14 @@ import { ApiService } from "@/lib/services/api-service";
 
 const PATH = "/api/connectors/google_drive/searches";
 const STATES = ["queued", "running", "completed", "stopped", "failed", "limited"] as const;
+type DriveSearchSelectionCoverage = {
+  requestedResultLimit: number;
+  resultOrder: "createdTime desc" | "modifiedTime desc";
+  selectionFinalized: boolean;
+  candidateCount: number;
+  candidateCountScope: "retained_pool" | "all_unique_matches";
+  candidatePoolPruned: boolean;
+};
 export type DriveSearchCoverage = {
   corpora: Array<"user" | "member_shared_drives">;
   fileKind: string;
@@ -18,7 +26,7 @@ export type DriveSearchCoverage = {
   deduplicatedCount: number;
   unavailableShortcutCount: number;
   providerPagesExhausted: boolean;
-};
+} & Partial<DriveSearchSelectionCoverage>;
 export type DriveSearchStatus = {
   jobId: string;
   status: (typeof STATES)[number];
@@ -87,6 +95,36 @@ function date(value: unknown): string {
   if (!Number.isFinite(Date.parse(result))) throw new DriveSearchError("invalid_response");
   return result;
 }
+function selectionCoverage(item: RecordValue): Partial<DriveSearchSelectionCoverage> {
+  const fields = ["requestedResultLimit", "resultOrder", "selectionFinalized", "candidateCount",
+    "candidateCountScope", "candidatePoolPruned"];
+  if (!fields.some(field => item[field] !== undefined)) return {};
+  const requestedResultLimit = count(item.requestedResultLimit, 1000);
+  if (requestedResultLimit < 1 ||
+    (item.resultOrder !== "createdTime desc" && item.resultOrder !== "modifiedTime desc") ||
+    typeof item.selectionFinalized !== "boolean" || typeof item.candidatePoolPruned !== "boolean" ||
+    item.candidateCountScope !== (item.candidatePoolPruned ? "retained_pool" : "all_unique_matches"))
+    throw new DriveSearchError("invalid_response");
+  return { requestedResultLimit, resultOrder: item.resultOrder,
+    selectionFinalized: item.selectionFinalized,
+    candidateCount: count(item.candidateCount, Number.MAX_SAFE_INTEGER),
+    candidateCountScope: item.candidateCountScope as DriveSearchSelectionCoverage["candidateCountScope"],
+    candidatePoolPruned: item.candidatePoolPruned };
+}
+
+/** The server may prove a final top-N selection without exhausting older provider pages. */
+export function isDriveSearchSelectionReady(
+  search: DriveSearchStatus | null | undefined,
+): search is DriveSearchStatus & { status: "completed"; incompleteSearch: false } {
+  if (search?.status !== "completed" || search.incompleteSearch ||
+    search.coverage?.shareabilityVerified !== true) return false;
+  try {
+    const selection = selectionCoverage(search.coverage);
+    if (selection.requestedResultLimit === undefined) return search.coverage.providerPagesExhausted === true;
+    return selection.selectionFinalized === true && search.matched <= selection.requestedResultLimit &&
+      search.matched <= selection.candidateCount!;
+  } catch { return false; }
+}
 function coverage(value: unknown): DriveSearchCoverage {
   const item = record(value);
   if (!Array.isArray(item.corpora) || item.corpora.length > 2 ||
@@ -104,7 +142,8 @@ function coverage(value: unknown): DriveSearchCoverage {
       throw new DriveSearchError("invalid_response");
     requestedPeriod = { start, end, timezone: text(period.timezone, 100) };
   }
-  return { corpora: item.corpora as DriveSearchCoverage["corpora"], fileKind: text(item.fileKind, 32), requestedPeriod,
+  return { ...selectionCoverage(item),
+    corpora: item.corpora as DriveSearchCoverage["corpora"], fileKind: text(item.fileKind, 32), requestedPeriod,
     dateBasis: item.dateBasis, contentPeriodVerified: false,
     providerRowsScanned: count(item.providerRowsScanned, Number.MAX_SAFE_INTEGER),
     excludedByDateCount: count(item.excludedByDateCount, Number.MAX_SAFE_INTEGER),
@@ -124,7 +163,7 @@ export function parseDriveSearchStatus(value: unknown): DriveSearchStatus {
     throw new DriveSearchError("invalid_response");
   if (item.unshareableCount !== undefined && count(item.unshareableCount) > count(item.matched))
     throw new DriveSearchError("invalid_response");
-  return {
+  const result: DriveSearchStatus = {
     jobId: id(item.jobId), status: item.status as DriveSearchStatus["status"],
     revision: count(item.revision, Number.MAX_SAFE_INTEGER), matched: count(item.matched),
     pagesScanned: count(item.pagesScanned, Number.MAX_SAFE_INTEGER),
@@ -134,6 +173,12 @@ export function parseDriveSearchStatus(value: unknown): DriveSearchStatus {
     ...(item.unshareableCount === undefined ? {} : { unshareableCount: count(item.unshareableCount) }),
     ...(item.coverage == null ? {} : { coverage: coverage(item.coverage) }),
   };
+  if (result.coverage?.requestedResultLimit !== undefined &&
+    (result.coverage.selectionFinalized
+      ? result.status !== "completed" || result.incompleteSearch ||
+        result.matched > result.coverage.requestedResultLimit || result.matched > result.coverage.candidateCount!
+      : result.matched !== 0)) throw new DriveSearchError("invalid_response");
+  return result;
 }
 function file(value: unknown): DriveSearchFile {
   const item = record(value);

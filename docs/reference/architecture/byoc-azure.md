@@ -1,13 +1,14 @@
 # The private agent in the person's own Azure subscription
 
-**Status:** approved design (2026-10-01), live platform spike done in a consumer
-free-trial subscription (2026-10-02). Implementation lanes 1 to 5 and the
-image-source round are on the dev workspace branch. The first live Azure agent
-answered owner-direct chat turns on dev on 2026-10-05 (see *First live agent*);
-tool turns and the rest of the admission bar still need live evidence (see
-*Known gaps*). Not on `main`, UAT or production. Inherits
-`private-agent-north-star.md` by pointer; where this page and the north star
-disagree, the north star wins and this page moves.
+**Status — 2026-10-10:** dev implementation with qualified owner-direct chat,
+Dev 12 owner-approved installation, Files transfer/organization and post-update
+Puppy inference. Existing selected resources are preserved. Active-work update
+drain, native connector/voice journeys, independent-network acceptance and the
+cold-response target remain unverified or failing. See the
+[readiness decision](../quality/adk-orchestration-docs-audit.md) for exact receipts.
+No UAT/production release is qualified. This page inherits the
+[private-agent north star](./private-agent-north-star.md); historical observations
+below retain their dates.
 
 ## Visual Map
 
@@ -306,9 +307,11 @@ rendered topology, never from a flag
   route refuses before accepting a connection.
 - `gmailPush`: unavailable, reason `requires_google_pubsub` (Gmail push only
   targets Google Pub/Sub).
-- `filesBackgroundOrganization`: unavailable (`files_disabled`, or
-  `requires_google_cloud_storage` where Files is turned on); an update that
-  carries a Files plan is refused on Azure.
+- `filesBackgroundOrganization`: available only when Files is enabled, its
+  owner-scoped Storage Queue and managed-identity worker are configured, and its
+  organization model is available. Dev 12 passed an actual queue-delivered job
+  on October 10. Older images retain their explicit unavailable result; Files
+  activation and image installation require the exact owner-approved plan.
 - `webSearch`: unavailable. One's web search is Google Search grounding, a Gemini
   tool that ADK refuses for any other model. A head on the person's Azure OpenAI
   deployment (or on Puppy) is built without it and, when a request needs the
@@ -384,8 +387,10 @@ reaches each one through a typed capability in
   stored. A retry then cannot finish, because Hussh's removal grant is already gone.
   It fails closed: the account stays refused and the person deletes the resource
   group.
-- **Not enumerated by the agent:** orphan records from lost append races and Files
-  objects (Files is off). Both are sealed under the destroyed key.
+- **Erasure inventory:** retained Blob objects, Files revisions and remembered
+  browser sessions require their owning erasure receipts. Key destruction does
+  not establish physical deletion; cloud retention and orphan cleanup remain
+  separate evidence requirements.
 - **Heal** is the observer's `revisions/restart/action` through the backend, never
   the hub's Cloud Run client.
 - **A crashed update** leaves the lease and the provider acknowledgement on the row.
@@ -410,15 +415,12 @@ reaches each one through a typed capability in
 
 ## Known gaps
 
-- **No Azure tool turn has completed yet.** Setup, attach, plain owner-direct
-  turns and memory recall are proven live on dev (2026-10-05, *First live
-  agent*). The first tool turn failed on the model call after its tool ran; the
-  fix is in agent release `2026.10-dev.7`, which is built but not installed on
-  the Azure agent. That release offers no predecessor until a recovery rehearsal
-  qualifies one, and an Azure update also needs the repository mapping described
-  below.
-  Every other gate in the admission bar still needs live evidence, and
-  `config/pod-completion-ledger.yaml` has no Azure rows yet.
+- **Dated tool qualification:** Azure Luna passed three native tool round trips
+  and six representative first-tool cases in the bounded qualification. Dev 12
+  also completed owner Files organization and direct Puppy turns. These receipts
+  do not establish native Google authorization, recorded commands, active-work
+  update drain or production eligibility. Dev 13 has no qualified predecessor
+  offer; do not widen compatibility by its version label.
 - **Operator setup exists for dev only:** the `Hussh One (dev)` Entra app, the
   `hussh-azure-broker` and `hussh-pod-image-reader` service accounts in
   `hushh-pda-dev`, with Token Creator on each held only by the dev hub runtime.

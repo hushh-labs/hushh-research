@@ -109,3 +109,22 @@ export function ProfileAccountDeleteIcon(props: AccountIconProps) {
     </AccountIcon>
   );
 }
+
+/** Payouts and pricing share the account screen's outline and accent. */
+export function ProfileAccountBankIcon(props: AccountIconProps) {
+  return (
+    <AccountIcon {...props}>
+      <path d="m3 8 9-5 9 5H3ZM4 20h16M5 17h14M6 9v7M10 9v7M14 9v7M18 9v7" />
+      <path className="profile-account-icon-accent" d="M12 5.8h.01" />
+    </AccountIcon>
+  );
+}
+
+export function ProfileAccountPriceIcon(props: AccountIconProps) {
+  return (
+    <AccountIcon {...props}>
+      <path d="M3.5 4h8l9 9-7.5 7.5-9.5-9.5V4Z" />
+      <circle className="profile-account-icon-accent" cx="8" cy="8.5" r="1.5" />
+    </AccountIcon>
+  );
+}

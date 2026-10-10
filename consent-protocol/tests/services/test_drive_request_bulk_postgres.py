@@ -36,6 +36,7 @@ from hushh_mcp.services.google_drive_adapter import (
     LIVE_POLICY_HASH,
     DriveReadError,
 )
+from hushh_mcp.services.pkm_payout_service import PkmPayoutService
 from tests.services.test_drive_sharing_store import (  # noqa: F401
     MIGRATIONS,
     connector_postgres_url,
@@ -53,13 +54,35 @@ def request_bulk(sharing, monkeypatch):
     monkeypatch.setenv("GOOGLE_DRIVE_LIVE", "true")
     monkeypatch.setenv("DRIVE_DOCUMENT_SHARING", "true")
     monkeypatch.setenv("DRIVE_REQUEST_PAYMENTS_ENABLED", "true")
+    monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", "true")
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_local_only_synthetic")
     monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_payment_test_secret")
     monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://test.example")
     clear_runtime_settings_caches()
     monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner,recipient,trusted-member")
     monkeypatch.setenv("DRIVE_SHARING_KEY_V1", base64.b64encode(b"s" * 32).decode())
+    # Paid-flow tests start with the owner's explicit price and verified bank
+    # setup. Missing/restricted setup has separate negative controls.
+    monkeypatch.setattr(
+        PkmPayoutService,
+        "refresh_account",
+        AsyncMock(
+            return_value={
+                "stripe_account_id": "acct_test_owner",
+                "readiness": {"ready": True},
+            }
+        ),
+    )
     with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO drive_request_owner_pricing
+          (user_id,enabled,amount_cents,version) VALUES ('owner',TRUE,1000,1)""")
+        )
+        connection.execute(
+            text("""INSERT INTO stripe_owner_payout_accounts
+          (stripe_mode,user_id,stripe_account_id,details_submitted,payouts_enabled,account_ready)
+          VALUES ('test','owner','acct_test_owner',TRUE,TRUE,TRUE)""")
+        )
         connection.execute(
             text("""UPDATE external_mcp_connectors SET transport_kind='google_drive_rest',
             mcp_endpoint=:endpoint,capability_policy=CAST(:policy AS jsonb)
@@ -126,6 +149,7 @@ async def _request(sharing):
         ),
         owner_user_id="owner",
         client_request_id=str(uuid4()),
+        expected_quote_version=1,
         purpose=ShareRequestPurpose(
             purpose="Standup notes from last 3 months",
             periodStart=(today - timedelta(days=90)).isoformat(),
@@ -239,7 +263,16 @@ async def test_nontrusted_progressive_payment_starts_only_after_owner_approval(
         )
 
 
-def _search(bulk, *, request_id, count=525, incomplete=False, shareability=None, verified=True):
+def _search(
+    bulk,
+    *,
+    request_id,
+    count=525,
+    incomplete=False,
+    shareability=None,
+    verified=True,
+    selection=None,
+):
     job = str(uuid4())
     rows = []
     for position in range(1, count + 1):
@@ -297,6 +330,7 @@ def _search(bulk, *, request_id, count=525, incomplete=False, shareability=None,
                         "request_origin_id": request_id,
                         "request_revision": request_revision,
                         **({"request_shareability_version": 1} if verified else {}),
+                        **(selection or {}),
                     },
                     user_id="owner",
                     resource_id=job,
@@ -312,6 +346,76 @@ def _search(bulk, *, request_id, count=525, incomplete=False, shareability=None,
                 rows,
             )
     return job
+
+
+@pytest.mark.parametrize("status", ["queued", "running", "completed"])
+@pytest.mark.parametrize("progressive", [False, True])
+async def test_bounded_candidates_cannot_be_frozen_or_paid_before_final_ranking(
+    request_bulk, sharing, status, progressive
+):
+    request_id = (await _request(sharing))["requestId"]
+    search = _search(
+        request_bulk,
+        request_id=request_id,
+        count=1,
+        selection={"request_result_limit": 100, "request_order_field": "modifiedTime"},
+    )
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_owner_search_jobs SET status=:status WHERE job_id=:job"),
+            {"job": search, "status": status},
+        )
+    assert await request_bulk.unclaimed_positions(user_id="owner", request_id=request_id) == []
+    with pytest.raises(DriveSharingError, match="search_in_progress"):
+        await request_bulk.create_review(
+            user_id="owner",
+            search_job_id=search,
+            client_request_id=str(uuid4()),
+            recipients=[_recipient("recipient", "b@example.invalid")],
+            excluded=[],
+            origin_request_id=request_id,
+            **({"selected_positions": [1]} if progressive else {}),
+        )
+    with sharing.db.engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_request_payment_orders WHERE request_id=:request"),
+                {"request": request_id},
+            ).scalar_one()
+            == 0
+        )
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_bulk_shares WHERE origin_request_id=:request"),
+                {"request": request_id},
+            ).scalar_one()
+            == 0
+        )
+
+
+async def test_bounded_final_selection_can_enter_normal_review(request_bulk, sharing):
+    request_id = (await _request(sharing))["requestId"]
+    search = _search(
+        request_bulk,
+        request_id=request_id,
+        count=1,
+        selection={
+            "request_result_limit": 100,
+            "request_order_field": "modifiedTime",
+            "request_results_finalized": True,
+        },
+    )
+    assert await request_bulk.unclaimed_positions(user_id="owner", request_id=request_id) == [1]
+    review = await request_bulk.create_review(
+        user_id="owner",
+        search_job_id=search,
+        client_request_id=str(uuid4()),
+        recipients=[_recipient("recipient", "b@example.invalid")],
+        excluded=[],
+        origin_request_id=request_id,
+        selected_positions=[1],
+    )
+    assert review["status"] == "review_ready"
 
 
 @pytest.mark.asyncio
@@ -801,6 +905,7 @@ async def _trusted_request(sharing):
         ),
         owner_user_id="owner",
         client_request_id=str(uuid4()),
+        expected_quote_version=1,
         purpose=ShareRequestPurpose(
             purpose="Standup notes from last 3 months",
             periodStart=(today - timedelta(days=90)).isoformat(),
@@ -831,8 +936,8 @@ async def _trusted_review(bulk, sharing, *, paid=True):
         if paid:
             connection.execute(
                 text("""INSERT INTO drive_request_payment_orders
-                  (request_id,user_id,requester_user_id,status,paid_at)
-                  VALUES (:request,'owner','trusted-member','paid',clock_timestamp())"""),
+                  (stripe_mode,request_id,user_id,requester_user_id,status,paid_at)
+                  VALUES ('test',:request,'owner','trusted-member','paid',clock_timestamp())"""),
                 {"request": request["requestId"]},
             )
     return review
@@ -844,8 +949,8 @@ async def _paid_partial_progressive_request(bulk, sharing, *, batches=1):
     with bulk.db.engine.begin() as connection:
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-              (request_id,user_id,requester_user_id,status,paid_at)
-              VALUES (:request,'owner','trusted-member','paid',clock_timestamp())"""),
+              (stripe_mode,request_id,user_id,requester_user_id,status,paid_at)
+              VALUES ('test',:request,'owner','trusted-member','paid',clock_timestamp())"""),
             {"request": request_id},
         )
     reviews = []
@@ -1162,8 +1267,8 @@ async def test_new_trusted_request_cannot_queue_or_claim_grants_until_paid(reque
         )
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-              (request_id,user_id,requester_user_id,status)
-              VALUES (:request,'owner','trusted-member','awaiting_payment')"""),
+              (stripe_mode,request_id,user_id,requester_user_id,status)
+              VALUES ('test',:request,'owner','trusted-member','awaiting_payment')"""),
             {"request": request_id},
         )
     assert str(request_id) in {
@@ -1337,8 +1442,8 @@ async def _paid_request_review(bulk, sharing):
         )
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-              (request_id,user_id,requester_user_id,status,stripe_payment_intent_id,paid_at)
-              VALUES (:request,'owner','recipient','paid',:intent,clock_timestamp())"""),
+              (stripe_mode,request_id,user_id,requester_user_id,status,stripe_payment_intent_id,paid_at)
+              VALUES ('test',:request,'owner','recipient','paid',:intent,clock_timestamp())"""),
             {"request": request["requestId"], "intent": f"pi_test_{uuid4().hex}"},
         )
     return request, review
@@ -1519,6 +1624,106 @@ async def test_recipient_erasure_fences_paid_bulk_effect_settlement(
     assert obligation["delivery_unsettled_at_erasure"] is True
     assert obligation["reconciliation_required"] is True
     assert refunds == [] and refund_status == "manual_review"
+
+
+async def _erase_paid_pending_progressive_batch(request_bulk, sharing, monkeypatch, *, uncertain):
+    monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", "true")
+    request = await _request(sharing)
+    request_id = request["requestId"]
+    review = await request_bulk.create_review(
+        user_id="owner",
+        search_job_id=_search(request_bulk, request_id=request_id, count=4),
+        client_request_id=str(uuid4()),
+        recipients=[_recipient("recipient", "b@example.invalid")],
+        excluded=[],
+        origin_request_id=request_id,
+        selected_positions=[1, 2, 3],
+    )
+    await request_bulk.approve(
+        user_id="owner",
+        share_id=review["shareId"],
+        revision=review["revision"],
+        review_digest=review["reviewDigest"],
+    )
+    with request_bulk.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_request_payment_orders SET
+              status='paid',stripe_payment_intent_id=:intent,paid_at=clock_timestamp()
+              WHERE request_id=:request"""),
+            {"request": request_id, "intent": f"pi_test_{uuid4().hex}"},
+        )
+        connection.execute(
+            text("""UPDATE drive_bulk_share_effects SET state=CASE
+              WHEN position=1 THEN 'succeeded'
+              WHEN position=2 AND :uncertain THEN 'unknown'
+              ELSE 'skipped' END
+              WHERE share_id=:share"""),
+            {"share": review["shareId"], "uncertain": uncertain},
+        )
+        if not uncertain:
+            request_bulk._finalize(connection, review["shareId"])
+        status = connection.execute(
+            text("SELECT status FROM drive_share_requests WHERE request_id=:request"),
+            {"request": request_id},
+        ).scalar_one()
+        assert status == "pending"  # A fourth search result still awaits review.
+    with request_bulk.db.engine.begin() as connection:
+        lock_connection_graph_users(connection, user_ids=["recipient"])
+        erase_drive_account_in_transaction(connection, user_id="recipient", permanent=False)
+    with request_bulk.db.engine.begin() as connection:
+        payout = (
+            connection.execute(
+                text("SELECT * FROM drive_request_owner_payouts WHERE request_id=:request"),
+                {"request": request_id},
+            )
+            .mappings()
+            .one()
+        )
+        obligation = (
+            connection.execute(
+                text("SELECT * FROM drive_request_payment_obligations WHERE request_id=:request"),
+                {"request": request_id},
+            )
+            .mappings()
+            .one()
+        )
+        refunds = _claim_refunds(
+            DriveRequestPaymentService(db=request_bulk.db), connection, limit=1
+        )
+    return payout, obligation, refunds
+
+
+@pytest.mark.asyncio
+async def test_erasure_prorates_settled_progressive_batch_while_request_pending(
+    request_bulk, sharing, monkeypatch
+):
+    payout, obligation, refunds = await _erase_paid_pending_progressive_batch(
+        request_bulk, sharing, monkeypatch, uncertain=False
+    )
+    assert payout["expected_files"] == 3
+    assert payout["confirmed_files"] == 1
+    assert payout["retained_amount_cents"] == 333
+    assert payout["refund_amount_cents"] == 667
+    assert payout["status"] == "awaiting_refund"
+    assert payout["eligible_at_erasure"] is True
+    assert obligation["delivery_confirmed_at_erasure"] is True
+    assert obligation["delivery_unsettled_at_erasure"] is False
+    assert len(refunds) == 1 and refunds[0]["amount_cents"] == 667
+
+
+@pytest.mark.asyncio
+async def test_erasure_holds_progressive_batch_with_unknown_delivery(
+    request_bulk, sharing, monkeypatch
+):
+    payout, obligation, refunds = await _erase_paid_pending_progressive_batch(
+        request_bulk, sharing, monkeypatch, uncertain=True
+    )
+    assert payout["finalized_at"] is None
+    assert payout["eligible_at_erasure"] is False
+    assert payout["status"] == "manual_review"
+    assert obligation["delivery_confirmed_at_erasure"] is True
+    assert obligation["delivery_unsettled_at_erasure"] is True
+    assert refunds == []
 
 
 @pytest.mark.asyncio
@@ -1815,8 +2020,8 @@ async def test_request_freezes_all_525_matches_for_only_b(request_bulk, sharing)
     with request_bulk.db.engine.begin() as connection:
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-              (request_id,user_id,requester_user_id,status,paid_at)
-              VALUES (:request,'owner','recipient','paid',clock_timestamp())"""),
+              (stripe_mode,request_id,user_id,requester_user_id,status,paid_at)
+              VALUES ('test',:request,'owner','recipient','paid',clock_timestamp())"""),
             {"request": request["requestId"]},
         )
     search = await _complete_shared_drive_search(
@@ -1936,8 +2141,8 @@ async def test_progressive_batch_claims_keep_search_running_and_aggregate_delive
     with request_bulk.db.engine.begin() as connection:
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-              (request_id,user_id,requester_user_id,status,paid_at)
-              VALUES (:request,'owner','recipient','paid',clock_timestamp())"""),
+              (stripe_mode,request_id,user_id,requester_user_id,status,paid_at)
+              VALUES ('test',:request,'owner','recipient','paid',clock_timestamp())"""),
             {"request": request_id},
         )
     search = _search(request_bulk, request_id=request_id, count=50)

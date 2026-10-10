@@ -2915,7 +2915,15 @@ export class ApiService {
     token: string,
     platform: "web" | "ios" | "android",
     idToken: string,
+    isCurrent?: () => boolean,
   ): Promise<Response> {
+    if (isCurrent && !isCurrent()) throw new Error("Notification session changed");
+    const { prepareNotificationDevice, notificationDeviceId, activeNotificationKeyId } = await import("@/lib/notifications/preview-keys");
+    if (isCurrent && !isCurrent()) throw new Error("Notification session changed");
+    let device: { deviceId: string; keyId?: string; publicKey?: string };
+    try { device = await prepareNotificationDevice(userId); }
+    catch { device = { deviceId: await notificationDeviceId() }; }
+    if (isCurrent && !isCurrent() || device.keyId && activeNotificationKeyId() !== device.keyId) throw new Error("Notification session changed");
     if (Capacitor.isNativePlatform()) {
       try {
         const backendUrl = this.getDirectBackendUrl();
@@ -2925,6 +2933,9 @@ export class ApiService {
           platform,
           idToken,
           backendUrl,
+          deviceId: device.deviceId,
+          previewKeyId: device.keyId,
+          previewPublicKey: device.publicKey,
         });
         return new Response(JSON.stringify(result), {
           status: result.success ? 200 : 500,
@@ -2947,6 +2958,9 @@ export class ApiService {
         user_id: userId,
         token,
         platform,
+        device_id: device.deviceId,
+        preview_key_id: device.keyId,
+        preview_public_key: device.publicKey,
       }),
     });
   }
@@ -2960,6 +2974,7 @@ export class ApiService {
     idToken: string,
     platform?: "web" | "ios" | "android",
     signal?: AbortSignal,
+    deviceId?: string,
   ): Promise<Response> {
     if (Capacitor.isNativePlatform()) {
       try {
@@ -2969,6 +2984,7 @@ export class ApiService {
           idToken,
           ...(platform ? { platform } : {}),
           backendUrl,
+          deviceId,
         });
         return new Response(JSON.stringify(result), {
           status: result.success ? 200 : 500,
@@ -2992,6 +3008,7 @@ export class ApiService {
       body: JSON.stringify({
         user_id: userId,
         ...(platform ? { platform } : {}),
+        ...(deviceId ? { device_id: deviceId } : {}),
       }),
     });
   }

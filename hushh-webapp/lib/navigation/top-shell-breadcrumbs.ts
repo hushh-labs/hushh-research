@@ -174,6 +174,8 @@ function profilePanelLabel(panel: ProfilePanel | null): string | null {
   if (panel === "software-updates") return "Software updates";
   if (panel === "account") return "Account";
   if (panel === "my-data") return "Memory";
+  if (panel === "payouts") return "Payouts";
+  if (panel === "request-pricing") return "Request pricing";
   if (panel === "connected-systems") return "Connected Systems";
   if (panel === "connectors") return "Connectors";
   if (panel === "preferences") return "Preferences";
@@ -232,6 +234,7 @@ function profileOriginCrumbLabel(backHref: string): string {
     [ROUTES.CONNECTED_SYSTEMS]: "Connected Systems",
     [ROUTES.CONSENTS]: "Consent Center",
     [ROUTES.ONE_FEED]: "Feed",
+    [ROUTES.ONE_TODOS]: "To-do List",
     [ROUTES.ONE_KYC]: "KYC",
     [KAI_MARKET_PATH]: "Finance",
     [ROUTES.CONNECT]: "Connect",
@@ -337,6 +340,14 @@ function resolveTopShellBreadcrumbInner(
   connectedSystemLabel?: string | null,
 ): TopShellBreadcrumbConfig | null {
   pathname = normalizeBreadcrumbPathname(pathname);
+  if (pathname === ROUTES.ONE_REFERRALS) {
+    return {
+      backHref: ROUTES.ONE_HOME,
+      width: "content",
+      align: "center",
+      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Referrals" }],
+    };
+  }
   const resolvedConnectedSystemLabel =
     String(connectedSystemLabel || "").trim() || "CRM";
 
@@ -1056,6 +1067,15 @@ function resolveTopShellBreadcrumbInner(
       width: "profile",
       align: "center",
       items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Calendar" }],
+    };
+  }
+
+  if (pathname === ROUTES.ONE_TODOS) {
+    return {
+      backHref: ROUTES.ONE_HOME,
+      width: "profile",
+      align: "center",
+      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "To-do List" }],
     };
   }
 

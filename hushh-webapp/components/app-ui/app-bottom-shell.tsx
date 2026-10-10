@@ -27,8 +27,8 @@ export type BottomShellModel = {
   navigationHidden: boolean;
   /** Chat owns this same bar as its composer, including active voice controls. */
   agentBarHidden?: boolean;
-  /** The route reserves its own composer in flow; active shell controls remain measured. */
-  composerInFlow?: boolean;
+  /** Messages reserves the complete dock height above its transcript. */
+  includeComposerHeight?: boolean;
   /** An immersive route owns the full viewport and has no persistent chrome. */
   hidden?: boolean;
 };
@@ -76,8 +76,9 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
     const publishHeight = () => {
       // Chat reserves the composer separately. Publishing its height twice
       // creates a feedback loop between transcript padding and shell layout.
-      const agentHeight = model.agentBarHidden && !model.composerInFlow
-        ? shell.querySelector("[data-bottom-shell-agent-slot]")?.getBoundingClientRect().height ?? 0
+      const measuredAgentHeight = shell.querySelector("[data-bottom-shell-agent-slot]")?.getBoundingClientRect().height ?? 0;
+      const agentHeight = model.agentBarHidden && !model.includeComposerHeight
+        ? measuredAgentHeight
         : 0;
       const height = `${Math.ceil(shell.getBoundingClientRect().height - agentHeight)}px`;
       const navigationHeight = navigationSlotRef.current
@@ -86,6 +87,8 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
       // Keep the hide transform clear of the navigation pill's outer border.
       const navigationTravel = `${navigationHeight + 6}px`;
       root.style.setProperty("--app-bottom-shell-height", height);
+      // Keyboard lift reserves navigation and outer insets, never the input.
+      shell.style.setProperty("--app-bottom-shell-keyboard-reservation", `${Math.ceil(shell.getBoundingClientRect().height - measuredAgentHeight)}px`);
       root.style.setProperty("--bottom-nav-travel", navigationTravel);
       root.style.setProperty("--bottom-chrome-hide-distance", navigationTravel);
       root.style.setProperty(
@@ -98,7 +101,7 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
     observer.observe(shell);
     if (navigationSlotRef.current) observer.observe(navigationSlotRef.current);
     return () => observer.disconnect();
-  }, [hidden, model.agentBarHidden, model.composerInFlow, model.navigationHidden]);
+  }, [hidden, model.agentBarHidden, model.includeComposerHeight, model.navigationHidden]);
 
   return (
     <>
@@ -111,9 +114,10 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
         ref={shellRef}
         style={nativeBottomInset === null ? undefined : { paddingBottom: nativeBottomInset }}
         data-app-bottom-shell
-        data-agent-dock-chat={(model.agentBarHidden && !model.composerInFlow) || undefined}
+        data-agent-dock-chat={(model.agentBarHidden && !model.includeComposerHeight) || undefined}
         data-native-agent-dock={nativeDock?.owned || undefined}
-        data-command-active={command?.active || undefined}
+        data-messages-dock={model.includeComposerHeight || undefined}
+        data-command-active={command?.active || (command && command.view.phase !== "idle") || undefined}
         data-ui-role="bottom-shell"
         data-bottom-shell-navigation-hidden={
           model.navigationHidden || undefined

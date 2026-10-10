@@ -96,3 +96,21 @@ def test_legacy_native_completion_without_bound_state_is_rejected(monkeypatch) -
         },
     )
     assert response.status_code == 422
+
+
+def test_calendar_error_preserves_typed_recovery_reason() -> None:
+    from hushh_mcp.services.google_connection_service import GoogleConnectionError
+
+    error = calendar._http(
+        GoogleConnectionError(
+            "Google Calendar took too long to respond",
+            status_code=504,
+            reason_code="calendar_timeout",
+        )
+    )
+    assert error.status_code == 504
+    assert error.detail == {
+        "code": "GOOGLE_CALENDAR_ERROR",
+        "message": "Google Calendar took too long to respond",
+        "reason_code": "calendar_timeout",
+    }

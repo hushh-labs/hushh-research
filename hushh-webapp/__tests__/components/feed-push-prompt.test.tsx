@@ -5,6 +5,7 @@ const state = vi.hoisted(() => ({
   native: false,
   deliveryMode: "inbox_only",
   retry: vi.fn(),
+  openSettings: vi.fn(),
 }));
 
 vi.mock("@capacitor/core", () => ({
@@ -24,6 +25,8 @@ vi.mock("@/lib/morphy-ux/button", () => ({
     <button {...(props as object)}>{children as never}</button>
   ),
 }));
+
+vi.mock("@/lib/services/notification-settings-service", () => ({ NotificationSettingsService: { open: state.openSettings } }));
 
 import { FeedPushPrompt } from "@/components/feed/feed-push-prompt";
 
@@ -63,15 +66,24 @@ describe("FeedPushPrompt", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it("stays out of the way once push works, and on native", () => {
+  it("stays out of the way once push works", () => {
     setPermission("default");
     state.deliveryMode = "push_active";
     const { container, rerender } = render(<FeedPushPrompt />);
     expect(container.innerHTML).toBe("");
 
-    state.deliveryMode = "inbox_only";
-    state.native = true;
     rerender(<FeedPushPrompt />);
     expect(container.innerHTML).toBe("");
   });
+  it("provides native authorization and settings recovery", async () => {
+    state.native = true;
+    const { rerender } = render(<FeedPushPrompt />);
+    fireEvent.click(await screen.findByRole("button", { name: "Turn on" }));
+    expect(state.retry).toHaveBeenCalledOnce();
+    state.deliveryMode = "push_blocked";
+    rerender(<FeedPushPrompt />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open settings" }));
+    await waitFor(() => expect(state.openSettings).toHaveBeenCalledOnce());
+  });
+
 });

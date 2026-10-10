@@ -87,7 +87,7 @@ describe("one-location encryption durable recipient key", () => {
     expect(JSON.stringify(sealed)).not.toContain("private-family.png");
     const message: ChatMessage = { id: crypto.randomUUID(), sequence: 1, senderUserId: "chat-alice", senderName: "Alice", createdAt: new Date().toISOString(),
       ...sealed, hasImage: true, envelope: sealed.recipients.find((r) => r.userId === "chat-bob")!.envelope };
-    expect(await openChatContent(circle, "chat-bob", message)).toEqual({ text: "private meeting details", image: { type: "image/png", name: "private-family.png" } });
+    expect(await openChatContent(circle, "chat-bob", message)).toEqual({ text: "private meeting details", attachment: { kind: "photo", type: "image/png", name: "private-family.png" } });
     const blob = await openChatImage(circle, "chat-bob", message, { ciphertext: sealed.imageCiphertext!, iv: sealed.imageIv! }, "image/png");
     expect(new Uint8Array(await blob.arrayBuffer())).toEqual(png);
     await expect(openChatContent(crypto.randomUUID(), "chat-bob", message)).rejects.toThrow();

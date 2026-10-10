@@ -243,6 +243,7 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
                 "checkouts": {"ready": 1, "private_checkout_id": "not-allowed"},
                 "notifications": {"settled": 1},
                 "refunds": {"succeeded": 1, "private_payment_id": "not-allowed"},
+                "owner_payouts": {"transferred": 1, "private_transfer_id": "not-allowed"},
                 "packet_orders": {"refunded": 1, "private_order_id": "not-allowed"},
             },
         }
@@ -277,6 +278,7 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
             "checkouts": {"ready": 1},
             "notifications": {"settled": 1},
             "refunds": {"succeeded": 1},
+            "owner_payouts": {"transferred": 1},
             "packet_orders": {"refunded": 1},
         },
     }
@@ -284,6 +286,7 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
     assert "private_order_id" not in response.text
     assert "private_permission_id" not in response.text
     assert "private_checkout_id" not in response.text
+    assert "private_transfer_id" not in response.text
     assert "private_request_id" not in response.text
     assert "must-not-leak" not in response.text
     purge.assert_awaited_once_with()

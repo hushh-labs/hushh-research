@@ -134,6 +134,19 @@ def _as_response_dict(result: Any) -> dict:
     return result if isinstance(result, dict) else {"result": result}
 
 
+async def _run_inbox_tool(tools: dict[str, Callable], name: str, args: dict) -> dict:
+    tool = tools.get(name)
+    if tool is None:
+        logger.warning("email_chat.tool_dispatch_miss name=%s", name)
+        return {"error": "unknown_tool"}
+    try:
+        result = await tool(**args)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("email_chat.tool_failed name=%s type=%s", name, type(exc).__name__)
+        return {"error": "tool_failed"}
+    return _as_response_dict(result)
+
+
 class EmailChatService:
     def __init__(
         self,
@@ -234,8 +247,17 @@ class EmailChatService:
         message: str,
         require_access: Callable[[], Awaitable[None]],
         timezone: str = "UTC",
+        receipt_memory: object | None = None,
+        receipt_cursor: str | None = None,
+        read_offer: dict[str, Any] | None = None,
+        require_explicit_latest: bool = False,
     ) -> dict[str, Any]:
-        """Read Mail for One without creating or writing a second conversation."""
+        """Read Mail for One without creating or writing a second conversation.
+
+        ``receipt_memory`` is the owner's saved receipt index, sent by their device
+        for this one turn; ``receipt_cursor`` is where the last receipts list stopped.
+        Typed chat is the only caller, so it is the only surface that reads receipts.
+        """
         from hushh_mcp.services.email_delegated_read import run_delegated_mail_read
 
         dependencies: dict[str, Any] = {}
@@ -261,6 +283,11 @@ class EmailChatService:
             require_access=require_access,
             timezone=timezone,
             **dependencies,
+            receipt_memory=receipt_memory,
+            receipt_cursor=receipt_cursor,
+            receipt_reads=True,
+            read_offer=read_offer,
+            require_explicit_latest=require_explicit_latest,
         )
 
     async def _run_adk_tool_loop(
@@ -318,16 +345,7 @@ class EmailChatService:
         return reply, errored
 
     async def _run_tool(self, tools: dict[str, Callable], name: str, args: dict) -> dict:
-        tool = tools.get(name)
-        if tool is None:
-            logger.warning("email_chat.tool_dispatch_miss name=%s", name)
-            return {"error": "unknown_tool"}
-        try:
-            result = await tool(**args)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("email_chat.tool_failed name=%s type=%s", name, type(exc).__name__)
-            return {"error": "tool_failed"}
-        return _as_response_dict(result)
+        return await _run_inbox_tool(tools, name, args)
 
     def _build_tools(self, user_id: str) -> dict[str, Callable]:
         """Read-only inbox tools bound to the current user."""

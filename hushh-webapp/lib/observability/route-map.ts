@@ -9,6 +9,7 @@ export const ROUTE_ID_VALUES = [
   "chat",
   "one_dashboard",
   "one_messages",
+  "one_todos",
   "getting_started",
   "delete_account",
   "privacy_policy",
@@ -31,6 +32,8 @@ export const ROUTE_ID_VALUES = [
   "profile_software_updates",
   "profile_account",
   "profile_account_phone",
+  "profile_payouts",
+  "profile_request_pricing",
   "profile_preferences",
   "profile_preferences_kai",
   "profile_preferences_gemini",
@@ -184,6 +187,8 @@ export function resolveRouteId(rawPathname: string): RouteId {
   if (pathname === ROUTES.PROFILE_SOFTWARE_UPDATES) return "profile_software_updates";
   if (pathname === ROUTES.PROFILE_ACCOUNT) return "profile_account";
   if (pathname === ROUTES.PROFILE_ACCOUNT_PHONE) return "profile_account_phone";
+  if (pathname === ROUTES.PROFILE_PAYOUTS) return "profile_payouts";
+  if (pathname === ROUTES.PROFILE_REQUEST_PRICING) return "profile_request_pricing";
   if (pathname === ROUTES.PROFILE_PREFERENCES) return "profile_preferences";
   if (pathname === ROUTES.PROFILE_PREFERENCES_KAI)
     return "profile_preferences_kai";
@@ -235,7 +240,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
     return "profile_gmail_connection";
   if (pathname === ROUTES.PROFILE_GMAIL_ACTIONS) return "profile_gmail_actions";
   if (/^\/r\/[^/]+$/.test(pathname)) return "referral_landing";
-  if (pathname === ROUTES.PROFILE_REFERRALS) return "profile_referrals";
+  if (pathname === ROUTES.PROFILE_REFERRALS || pathname === ROUTES.ONE_REFERRALS) return "profile_referrals";
   if (pathname === ROUTES.PROFILE_SUPPORT) return "profile_support";
   if (pathname === ROUTES.PROFILE_SUPPORT_ROUTING)
     return "profile_support_routing";
@@ -272,6 +277,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
     return "consents";
   }
   if (pathname === ROUTES.ONE_MESSAGES) return "one_messages";
+  if (pathname === ROUTES.ONE_TODOS) return "one_todos";
   if (pathname === ROUTES.ONE_FEED) return "feed";
   if (pathname === ROUTES.LEGACY_AGENT) return "chat";
   if (pathname === ROUTES.ONE_PUPPY) return "puppy_one";

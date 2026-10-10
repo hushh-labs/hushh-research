@@ -40,7 +40,14 @@ class DriveSharingService:
         return row["connection_generation"]
 
     async def create(
-        self, *, recipient, owner_user_id, client_request_id, purpose, request_time_zone=None
+        self,
+        *,
+        recipient,
+        owner_user_id,
+        client_request_id,
+        purpose,
+        request_time_zone=None,
+        expected_quote_version=None,
     ):
         result = await self.store.create_request(
             recipient=recipient,
@@ -48,10 +55,38 @@ class DriveSharingService:
             client_request_id=client_request_id,
             purpose=purpose,
             request_time_zone=request_time_zone,
+            expected_quote_version=expected_quote_version,
         )
         await wake_drive_work("suggestions")
         await wake_drive_work("sharing")
         return result
+
+    async def owner_pricing(self, *, user_id):
+        await self._require_owner()
+        return await self.store.owner_pricing(user_id=user_id)
+
+    async def update_owner_pricing(self, *, user_id, enabled, amount_cents, expected_version):
+        await self._require_owner()
+        result = await self.store.update_owner_pricing(
+            user_id=user_id,
+            enabled=enabled,
+            amount_cents=amount_cents,
+            expected_version=expected_version,
+        )
+        await wake_drive_work("suggestions")
+        await wake_drive_work("sharing")
+        return result
+
+    async def resume_owner_setup(self, *, user_id):
+        """Internal verified account-refresh hook; no user consent is created here."""
+        result = await self.store.resume_owner_setup(user_id=user_id)
+        await wake_drive_work("suggestions")
+        await wake_drive_work("sharing")
+        return result
+
+    async def request_quote(self, *, user_id, owner_user_id):
+        await self._require_owner()
+        return await self.store.request_quote(user_id=user_id, owner_user_id=owner_user_id)
 
     async def list_requests(self, **kwargs):
         return await self.store.list_requests(**kwargs)
@@ -144,6 +179,24 @@ class DriveSharingService:
 
     async def decide(self, **kwargs):
         result = await self.store.decline_or_cancel(**kwargs)
+        await wake_drive_work("sharing")
+        return result
+
+    async def allow(self, *, user_id, request_id, revision, amount_cents):
+        """A's Allow hands one request to the automatic search; nothing is shared yet."""
+        await self._require_owner()
+        result = await self.store.allow_request(
+            user_id=user_id, request_id=request_id, revision=revision, amount_cents=amount_cents
+        )
+        await wake_drive_work("suggestions")
+        return result
+
+    async def set_request_price(self, *, user_id, request_id, revision, amount_cents):
+        await self._require_owner()
+        result = await self.store.set_request_price(
+            user_id=user_id, request_id=request_id, revision=revision, amount_cents=amount_cents
+        )
+        await wake_drive_work("suggestions")
         await wake_drive_work("sharing")
         return result
 

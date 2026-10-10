@@ -13,9 +13,10 @@ web_ci_install
 cd "$WEB_DIR"
 npm run verify:design-system
 npm run verify:docs
-npm run verify:search-contracts
+# Keep the local core mirror authoritative too; this costs only a few seconds.
+npm run verify:ui-contracts
+npm run test:ui-contract-validators
 npm run typecheck
 npm run lint
-npm run verify:back-contracts
 
 web_ci_build

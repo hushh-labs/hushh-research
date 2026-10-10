@@ -671,6 +671,37 @@ def test_the_projection_exposes_no_timestamp_finer_than_a_date(
     datetime.strptime(updated_on, "%Y-%m-%d")  # noqa: DTZ007 - date only by design
 
 
+def _avatar_projection(**row: Any) -> str | None:
+    projection = wallet_card_module.build_public_projection(
+        {"user_id": OWNER_ID, "card_payload": {"full_name": "Ada Lovelace"}, **row}
+    )
+    return projection.get("avatarUrl")
+
+
+def test_a_visitor_sees_the_live_account_photo_including_a_custom_upload() -> None:
+    custom = "data:image/png;base64," + "QUJD" * 8
+    stale = "https://cdn.example.com/old.jpg"
+
+    # The live identity photo wins over the snapshot stored on the card.
+    assert _avatar_projection(identity_photo_url=custom, avatar_url=stale) == custom
+    # A card created before the photo existed still shows it.
+    assert _avatar_projection(identity_photo_url=stale, avatar_url=None) == stale
+
+
+def test_the_visitor_photo_fails_closed_on_anything_but_a_bounded_image() -> None:
+    oversized = "data:image/png;base64," + "QUJD" * (300 * 1024 // 3 + 4)
+
+    for unsafe in (
+        "data:image/svg+xml;base64,QUJDRA==",
+        "data:text/html;base64,QUJDRA==",
+        "data:image/png;base64,not base64!",
+        oversized,
+        "javascript:alert(1)",
+        f"https://cdn.example.com/{OWNER_ID}/avatar.jpg",
+    ):
+        assert _avatar_projection(identity_photo_url=unsafe) is None
+
+
 def test_the_projection_reads_only_allowlisted_payload_keys(
     service: OneWalletCardService, db: FakeDb
 ) -> None:

@@ -310,6 +310,19 @@ The `audit:cache-coherence` script hard-fails when the screen cache manifest is 
 
 ## Reconciliation Notes
 
+### Business Review freshness and recovery
+
+Explicit Review forces both metadata and domain ciphertext reads. A normal
+background read may join an authoritative read, but not the reverse. Per-domain
+publication tickets and the existing PKM mutation epoch prevent an older response
+(including an empty response) from replacing the newer encrypted cache. Domain
+resources also discard late decrypted results after the vault-session epoch
+changes. In-flight reads and working sets are epoch-scoped, and device writes
+serialize stale cleanup before a successor session can publish. Working-context
+warm-up failures do not consume a current session's
+explicit Review attempt. All keys and decrypted context remain memory-only;
+existing secure device snapshots remain encrypted.
+
 ### Cross-route PKM freshness (2026-09-02)
 
 A domain stored on one route (Wallet, the Kai statement import, chat) used to

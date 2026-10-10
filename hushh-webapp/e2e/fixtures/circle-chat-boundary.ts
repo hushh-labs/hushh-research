@@ -17,6 +17,10 @@ if (new URLSearchParams(location.search).has("workspace")) {
 let failed = false;
 const fixture = window as unknown as { chatFixture: { failNext: boolean; sends: unknown[]; read: number[]; loseAccess: boolean } };
 fixture.chatFixture = { failNext: false, sends: [], read: [], loseAccess: false };
+Object.assign(fixture.chatFixture, { incoming: () => {
+  history.push({ id: `incoming-${history.length}`, sequence: history.length + 1, senderUserId: "bob", senderName: "Kushal Trivedi", createdAt: new Date().toISOString(), text: "Incoming while reading history", image: false });
+  window.dispatchEvent(new CustomEvent("hushh:circle-chat-changed", { detail: { userId: "alice", circleId: "circle" } }));
+} });
 export const CircleChatService = {
   initialize: async () => undefined,
   wait: () => new Promise(() => {}),

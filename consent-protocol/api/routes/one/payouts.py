@@ -2,6 +2,12 @@
 
   GET  /api/one/payouts          -> payout account readiness + earnings totals
   POST /api/one/payouts/onboard  -> {url} Stripe-hosted Express onboarding
+  GET  /api/one/payouts/account  -> account readiness only, for document owners
+  POST /api/one/payouts/account/onboard -> {url} document-owner onboarding
+  GET  /api/one/payouts/account/bank-payouts -> owner's aggregate bank deposits
+  GET  /api/one/payouts/account/earnings -> paginated document transactions
+  POST /api/one/payouts/account/manage -> owner's Express bank settings
+  POST /api/one/payouts/connect/webhook -> signed connected-account events
 
 Owner-scoped (vault owner token). Earnings become due when a bought packet is
 delivered; the work drain transfers them once payouts are enabled.
@@ -9,15 +15,22 @@ delivered; the work drain transfers them once payouts are enabled.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 
 from api.middleware import require_vault_owner_token
 from hushh_mcp.services.pkm_packet_order_service import PacketOrderError
 from hushh_mcp.services.pkm_payout_service import PkmPayoutService
+from hushh_mcp.services.stripe_connect_bank_payouts import (
+    ConnectBankPayoutError,
+    StripeConnectBankPayouts,
+)
 
 router = APIRouter(prefix="/api/one/payouts", tags=["One Packet Payouts"])
+logger = logging.getLogger(__name__)
 
 
 def _service() -> PkmPayoutService:
@@ -50,3 +63,106 @@ async def onboard(
         raise HTTPException(
             status_code=503, detail={"code": exc.code, "message": str(exc)}
         ) from None
+
+
+@router.get("/account")
+async def get_payout_account(
+    response: Response, token_data: dict = Depends(require_vault_owner_token)
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        account: dict[str, Any] = await _service().account_status(user_id=token_data["user_id"])
+        return account
+    except PacketOrderError as exc:
+        raise HTTPException(
+            status_code=503, detail={"code": exc.code, "message": str(exc)}
+        ) from None
+
+
+@router.post("/account/onboard")
+async def onboard_payout_account(
+    response: Response, token_data: dict = Depends(require_vault_owner_token)
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        link: dict[str, Any] = await _service().onboarding_link(
+            user_id=token_data["user_id"], surface="documents"
+        )
+        return link
+    except PacketOrderError as exc:
+        raise HTTPException(
+            status_code=503, detail={"code": exc.code, "message": str(exc)}
+        ) from None
+
+
+@router.get("/account/bank-payouts")
+async def get_bank_payouts(
+    response: Response, token_data: dict = Depends(require_vault_owner_token)
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        summary: dict[str, Any] = await StripeConnectBankPayouts().owner_summary(
+            user_id=token_data["user_id"]
+        )
+        return summary
+    except ConnectBankPayoutError:
+        raise HTTPException(status_code=503, detail="Bank payout status is unavailable.") from None
+
+
+@router.post("/account/manage")
+async def manage_payout_account(
+    response: Response, token_data: dict = Depends(require_vault_owner_token)
+) -> dict[str, str]:
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        link: dict[str, str] = await _service().management_link(user_id=token_data["user_id"])
+        return link
+    except PacketOrderError as exc:
+        raise HTTPException(
+            status_code=503, detail={"code": exc.code, "message": str(exc)}
+        ) from None
+
+
+@router.get("/account/earnings")
+async def document_earnings(
+    response: Response,
+    cursor: UUID | None = None,
+    token_data: dict = Depends(require_vault_owner_token),
+) -> dict[str, Any]:
+    from hushh_mcp.services.drive_request_owner_payout_service import DriveRequestOwnerPayoutService
+
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        history: dict[str, Any] = await DriveRequestOwnerPayoutService().owner_history(
+            user_id=token_data["user_id"], cursor=str(cursor) if cursor else None
+        )
+        return history
+    except Exception as exc:
+        logger.warning("document_earnings.unavailable type=%s", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Transactions are unavailable.") from None
+
+
+@router.post("/connect/webhook")
+async def stripe_connect_webhook(
+    request: Request,
+    stripe_signature: str | None = Header(default=None, alias="Stripe-Signature"),
+) -> dict[str, str]:
+    payload = await request.body()
+    if len(payload) > 128_000:
+        raise HTTPException(status_code=413, detail="Event is too large.")
+    try:
+        result = await StripeConnectBankPayouts().process_webhook(
+            payload=payload, signature=stripe_signature
+        )
+    except ConnectBankPayoutError as exc:
+        status = {
+            "invalid_signature": 400,
+            "invalid_event": 400,
+            "provider_mismatch": 409,
+        }.get(exc.code, 503)
+        raise HTTPException(
+            status_code=status,
+            detail="Connect event could not be processed.",
+            headers={"Cache-Control": "no-store"},
+        ) from None
+    return {"status": result}

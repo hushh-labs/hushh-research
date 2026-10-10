@@ -46,7 +46,9 @@
   padding: 0.625rem;
   border: 1px solid color-mix(in oklab, var(--foreground) 10%, transparent);
   border-radius: 1.125rem;
-  background: var(--one-chat-raised);
+  background: color-mix(in oklab, var(--one-chat-raised, var(--popover)) 90%, transparent);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   box-shadow: 0 18px 48px rgb(0 0 0 / 0.16), 0 3px 10px rgb(0 0 0 / 0.08);
   overflow: hidden;
 }

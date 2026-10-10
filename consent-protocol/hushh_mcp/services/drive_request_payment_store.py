@@ -1,15 +1,28 @@
-"""Database authority for one request-bound Drive payment."""
+"""Database authority for one request-bound Drive payment.
+
+An order's amount is fixed when the order is created: the owner's price from
+an owner Allow, otherwise the default price. Checkout, settlement and refunds
+all bind to that stored amount.
+"""
 
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Mapping
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
 
-from hushh_mcp.services.drive_sharing_contract import DriveSharingError
+from hushh_mcp.services.drive_owner_allowed import (
+    DEFAULT_PRICE_CENTS,
+    owner_allowed_price_cents,
+    valid_owner_price_cents,
+)
+from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher, DriveSharingError
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
+from hushh_mcp.services.stripe_mode import configured_stripe_mode
 
 
 def _request_id(value: object) -> str:
@@ -21,6 +34,68 @@ def _request_id(value: object) -> str:
 
 def _payer_ref(request_id: str, requester_user_id: str) -> str:
     return hashlib.sha256(f"{request_id}:{requester_user_id}".encode()).hexdigest()
+
+
+def _order_amount_cents(request: Mapping[str, Any], private: Mapping[str, Any]) -> int:
+    """An immutable request quote wins over the legacy Allow/default price."""
+    if private.get("owner_settlement_required") is True and not valid_owner_price_cents(
+        request.get("quoted_amount_cents")
+    ):
+        raise DriveSharingError("owner_price_required")
+    if request.get("quoted_amount_cents") is not None:
+        return int(request["quoted_amount_cents"])
+    return owner_allowed_price_cents(private) or DEFAULT_PRICE_CENTS
+
+
+def _quoted_amount_cents(
+    request: Mapping[str, Any], order: Mapping[str, Any] | None, private: Mapping[str, Any] | None
+) -> int:
+    """The stored order amount; before an order exists, the price it would be created at."""
+    if order is not None:
+        return int(order["amount_cents"])
+    if request.get("quoted_amount_cents") is not None:
+        return int(request["quoted_amount_cents"])
+    if private is None:
+        return DEFAULT_PRICE_CENTS
+    return _order_amount_cents(request, private)
+
+
+def _record_new_owner_payout(
+    connection,
+    *,
+    request_id: str,
+    owner_user_id: str,
+    amount_cents: int,
+    quoted_request: bool = False,
+) -> None:
+    """Enroll only new orders, atomically with their immutable payment price."""
+    from hushh_mcp.services.drive_request_owner_payout_service import (
+        DriveRequestOwnerPayoutService,
+        payout_enabled,
+    )
+
+    if quoted_request or payout_enabled():
+        if quoted_request:
+            if not payout_enabled():
+                raise DriveSharingError("payout_unavailable")
+            account = (
+                connection.execute(
+                    text(
+                        "SELECT account_ready FROM stripe_owner_payout_accounts WHERE user_id=:owner AND stripe_mode=:stripe_mode"
+                    ),
+                    {"owner": owner_user_id, "stripe_mode": configured_stripe_mode()},
+                )
+                .mappings()
+                .first()
+            )
+            if account is None or account["account_ready"] is not True:
+                raise DriveSharingError("owner_payout_required")
+        DriveRequestOwnerPayoutService.record_order(
+            connection,
+            request_id=request_id,
+            owner_user_id=owner_user_id,
+            amount_cents=amount_cents,
+        )
 
 
 class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
@@ -36,7 +111,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                     text("""SELECT o.request_id::text AS request_id,o.requester_user_id
                       FROM drive_request_payment_orders o
                       JOIN drive_share_requests r ON r.request_id=o.request_id
-                      WHERE o.status='awaiting_payment'
+                      WHERE o.status='awaiting_payment' AND o.stripe_mode=:stripe_mode
                         AND o.stripe_checkout_session_id IS NULL
                         AND r.payment_required=TRUE
                         AND r.status IN ('pending','approved','partial')
@@ -58,7 +133,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                                 AND b.status IN ('queued','running','completed','partial')))
                         ))
                       ORDER BY o.updated_at,o.request_id LIMIT :limit"""),
-                    {"limit": limit},
+                    {"limit": limit, "stripe_mode": configured_stripe_mode()},
                 )
                 .mappings()
                 .all()
@@ -137,7 +212,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             return
         row = (
             connection.execute(
-                text("""SELECT status,paid_at,reconciliation_required FROM drive_request_payment_orders
+                text("""SELECT status,paid_at,reconciliation_required,stripe_mode FROM drive_request_payment_orders
                  WHERE request_id=:request FOR SHARE"""),
                 {"request": request_row["request_id"]},
             )
@@ -146,6 +221,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
         )
         if (
             row is None
+            or row.get("stripe_mode") != configured_stripe_mode()
             or row["status"] != "paid"
             or row["paid_at"] is None
             or row["reconciliation_required"]
@@ -176,21 +252,40 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
         Non-trusted requests intentionally keep the owner's consent boundary:
         approval creates the order, while the permission worker remains
         blocked until Stripe confirms payment. The ready event is emitted
-        only after a Checkout session with a fixed deadline is bound.
+        only after a Checkout session with a fixed deadline is bound. A request
+        the owner allowed keeps the owner's price; a legacy manual approval
+        uses the default price.
         """
         if not request["payment_required"]:
             return False
-        connection.execute(
+        private = DriveSharingCipher().open(
+            request["request_envelope"],
+            user_id=request["user_id"],
+            resource_id=str(request["request_id"]),
+            purpose="request",
+        )
+        amount_cents = _order_amount_cents(request, private)
+        inserted = connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-              (request_id,user_id,requester_user_id)
-              VALUES (:request,:owner,:requester)
+              (request_id,user_id,requester_user_id,amount_cents,stripe_mode)
+              VALUES (:request,:owner,:requester,:amount,:stripe_mode)
               ON CONFLICT (request_id) DO NOTHING"""),
             {
                 "request": request["request_id"],
                 "owner": request["user_id"],
                 "requester": request["recipient_user_id"],
+                "amount": amount_cents,
+                "stripe_mode": configured_stripe_mode(),
             },
         )
+        if inserted.rowcount == 1:
+            _record_new_owner_payout(
+                connection,
+                request_id=str(request["request_id"]),
+                owner_user_id=request["user_id"],
+                amount_cents=amount_cents,
+                quoted_request=request.get("quoted_amount_cents") is not None,
+            )
         order = (
             connection.execute(
                 text("SELECT status FROM drive_request_payment_orders WHERE request_id=:request"),
@@ -269,7 +364,8 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             raise DriveSharingError("payment_not_ready")
         if existing is not None:
             return request, existing, False
-        # This is an explicit worker command for the Trusted path. An owner
+        # This is an explicit worker command for the automatic path: a Trusted
+        # request, or one the owner allowed at their price. A manual owner
         # approval creates the non-trusted order in the approval transaction;
         # an unapproved review must never create a payment obligation here.
         batch = self._row(
@@ -298,17 +394,28 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
         )
         if batch is None:
             return request, None, False
-        connection.execute(
+        amount_cents = _order_amount_cents(request, private)
+        inserted = connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-              (request_id,user_id,requester_user_id)
-              VALUES (:request,:owner,:requester)
+              (request_id,user_id,requester_user_id,amount_cents,stripe_mode)
+              VALUES (:request,:owner,:requester,:amount,:stripe_mode)
               ON CONFLICT (request_id) DO NOTHING"""),
             {
                 "request": request["request_id"],
                 "owner": user_id,
                 "requester": request["recipient_user_id"],
+                "amount": amount_cents,
+                "stripe_mode": configured_stripe_mode(),
             },
         )
+        if inserted.rowcount == 1:
+            _record_new_owner_payout(
+                connection,
+                request_id=str(request["request_id"]),
+                owner_user_id=user_id,
+                amount_cents=amount_cents,
+                quoted_request=request.get("quoted_amount_cents") is not None,
+            )
         order = self._row(
             connection,
             "SELECT * FROM drive_request_payment_orders WHERE request_id=:request",
@@ -353,10 +460,13 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 return {"status": "not_required", "amountCents": 0, "currency": "usd"}
             order = self._row(
                 connection,
-                """SELECT * FROM drive_request_payment_orders
-                   WHERE request_id=:request AND requester_user_id=:requester""",
+                """SELECT o.*,EXISTS(SELECT 1 FROM drive_request_owner_payouts p
+                     WHERE p.request_id=o.request_id) AS payout_enrolled
+                   FROM drive_request_payment_orders o
+                   WHERE o.request_id=:request AND o.requester_user_id=:requester""",
                 {"request": request["request_id"], "requester": requester_user_id},
             )
+            payout_enrolled = bool(order and order.get("payout_enrolled"))
             request_expired = (
                 request["status"]
                 in {
@@ -370,6 +480,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             )
             missing_dates = False
             approved = False
+            private: dict[str, Any] | None = None
             if not request_expired:
                 from hushh_mcp.services.drive_sharing_store import DriveSharingStore
 
@@ -396,7 +507,10 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                     or order["stripe_checkout_expires_at"] <= datetime.now(UTC)
                 )
             )
-            if order is None:
+            wrong_mode = bool(order and order.get("stripe_mode") != configured_stripe_mode())
+            if wrong_mode and order["status"] not in {"paid", "refunded"}:
+                status = "expired"
+            elif order is None:
                 status = "expired" if request_expired else "preparing"
             elif order["status"] not in {"paid", "refunded"} and (
                 request_expired or checkout_expired
@@ -406,11 +520,27 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 status = "preparing"
             else:
                 status = order["status"]
+            setup = {}
+            if private is not None and (
+                order is None or order["status"] not in {"paid", "refunded"}
+            ):
+                setup = DriveSharingStore(db=self.db)._request_setup(connection, request, private)
+            elif (
+                order is None
+                and request.get("quoted_amount_cents") is None
+                and request.get("preparation_error_code")
+                in {"owner_price_required", "owner_payout_required", "payout_unavailable"}
+            ):
+                # Expiry does not invent a charge for a request that never had a price.
+                setup = {"ownerPriceRequired": True}
             return {
                 "status": status,
-                "amountCents": 1000,
-                "currency": "usd",
-                "paymentLinkExpired": checkout_expired and not request_expired,
+                "amountCents": None
+                if setup.get("ownerPriceRequired")
+                else _quoted_amount_cents(request, order, private),
+                "currency": order["currency"] if order is not None else "usd",
+                "paymentLinkExpired": (checkout_expired and not request_expired) or wrong_mode,
+                "stripeMode": order.get("stripe_mode") if order else configured_stripe_mode(),
                 "checkoutExpiresAt": (
                     order["stripe_checkout_expires_at"].isoformat()
                     if order
@@ -427,6 +557,11 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                     )
                     and order["status"] == "paid"
                 ),
+                # Internal preflight only; get_payment strips these before
+                # the requester API response. The owner is not disclosed.
+                "_payout_enrolled": payout_enrolled,
+                "_payout_owner_user_id": request["user_id"] if payout_enrolled else None,
+                **setup,
             }
 
         return await self._transaction(operation)
@@ -450,11 +585,11 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                     text("""SELECT r.request_id,r.user_id,r.recipient_user_id
                   FROM drive_request_payment_orders o
                   JOIN drive_share_requests r ON r.request_id=o.request_id
-                  WHERE o.status='paid' AND o.reconciliation_required=FALSE
+                  WHERE o.status='paid' AND o.reconciliation_required=FALSE AND o.stripe_mode=:stripe_mode
                     AND r.payment_required=TRUE
                     AND r.status IN ('pending','approved','partial')
                   ORDER BY o.updated_at,o.request_id LIMIT :limit"""),
-                    {"limit": limit},
+                    {"limit": limit, "stripe_mode": configured_stripe_mode()},
                 )
                 .mappings()
                 .all()
@@ -489,11 +624,13 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                     request is None
                     or order is None
                     or order["status"] != "paid"
+                    or order.get("stripe_mode") != configured_stripe_mode()
                     or order["reconciliation_required"]
                 ):
                     continue
                 private = sharing._open_request(request)
                 purpose = private.get("purpose", {})
+                # Trusted creation and an owner's Allow both seal trusted_auto.
                 authorized = (
                     private.get("trusted_auto") is True
                     or request["status"] in {"approved", "partial"}

@@ -25,12 +25,14 @@
     "scripts/ci/web-check.sh",
     "docs/reference/operations/ci.md",
     "docs/reference/quality/frontend-ui-architecture-map.md",
-    "docs/reference/architecture/route-contracts.md"
+    "docs/reference/architecture/route-contracts.md",
+    "docs/reference/architecture/ui-contract-contributor-guide.md"
   ],
   "required_commands": [
     "cd hushh-webapp && npm run verify:docs",
     "cd hushh-webapp && npm run typecheck",
-    "cd hushh-webapp && npm run verify:routes"
+    "cd hushh-webapp && npm run verify:routes",
+    "cd hushh-webapp && npm run ui:doctor"
   ],
   "verification_bundles": [
     {

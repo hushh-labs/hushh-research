@@ -15,7 +15,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-
 DEFAULT_PROFILE = Path(__file__).resolve().parents[2] / "config/runtime-capacity.json"
 POOL_KEYS = (
     "DB_POOL_MAX_SIZE",
@@ -207,6 +206,10 @@ def service_budget(
             key=lambda rev: (rev.get("metadata") or {}).get("creationTimestamp", ""),
         )
         referenced.add(rollback["metadata"]["name"])
+    if settings.get("count_retained_revisions"):
+        # Deferred UAT retirement allows several old generations to drain at
+        # once. Until they are deleted, reserve each one's full connection cap.
+        referenced.update(by_name)
     return [
         revision_connections(by_name[name], service, settings, database_connection_name)
         for name in sorted(referenced)

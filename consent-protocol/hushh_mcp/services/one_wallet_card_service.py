@@ -44,6 +44,7 @@ Every statement is parameterised — bandit forbids f-string SQL — and no
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import json
@@ -176,6 +177,11 @@ _PREFERRED_CONTACT_CHOICES: Final = ("email", "phone", "linkedin", "website")
 _MAX_SKILLS: Final = 12
 _MAX_SKILL_LENGTH: Final = 40
 _MAX_AVATAR_URL_LENGTH: Final = 300
+# Mirrors the 300 KB cap `POST /account/avatar` applies to an uploaded photo.
+_MAX_AVATAR_DATA_BYTES: Final = 300 * 1024
+_DATA_IMAGE_URL_PATTERN: Final = re.compile(
+    r"^data:image/(?:png|jpe?g|webp);base64,(?P<payload>[A-Za-z0-9+/]+={0,2})$"
+)
 
 # Same shapes the route model enforces, restated here because the service is
 # also reachable from background work and from tests without the route.
@@ -201,17 +207,22 @@ _MAX_REPORTED_KEY_LENGTH: Final = 40
 # SQL — parameterised only (bandit forbids f-string SQL)
 # ---------------------------------------------------------------------------
 
+# The visitor headshot is read live from the account identity (custom upload
+# first, then the sign-in provider photo) so it never goes stale and a card
+# created before the photo existed still shows it.
 _SELECT_CARD_BY_OWNER: Final = """
-    SELECT *
-    FROM one_wallet_cards
-    WHERE user_id = :user_id
+    SELECT c.*, COALESCE(i.custom_photo_url, i.photo_url) AS identity_photo_url
+    FROM one_wallet_cards c
+    LEFT JOIN actor_identity_cache i ON i.user_id = c.user_id
+    WHERE c.user_id = :user_id
     LIMIT 1
 """
 
 _SELECT_CARD_BY_SHARE_HASH: Final = """
-    SELECT *
-    FROM one_wallet_cards
-    WHERE share_token_hash = :share_token_hash
+    SELECT c.*, COALESCE(i.custom_photo_url, i.photo_url) AS identity_photo_url
+    FROM one_wallet_cards c
+    LEFT JOIN actor_identity_cache i ON i.user_id = c.user_id
+    WHERE c.share_token_hash = :share_token_hash
     LIMIT 1
 """
 
@@ -459,6 +470,7 @@ class WalletCardRecord:
     display_name: str = field(repr=False, default="")
     headline: str = field(repr=False, default="")
     avatar_url: str = field(repr=False, default="")
+    identity_photo_url: str = field(repr=False, default="")
     expires_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -484,6 +496,7 @@ class WalletCardRecord:
             display_name=_text(row.get("display_name")),
             headline=_text(row.get("headline")),
             avatar_url=_text(row.get("avatar_url")),
+            identity_photo_url=_text(row.get("identity_photo_url")),
             expires_at=_as_datetime(row.get("expires_at")),
             created_at=_as_datetime(row.get("created_at")),
             updated_at=_as_datetime(row.get("updated_at")),
@@ -827,23 +840,52 @@ _PROJECTION_KEYS: Final[tuple[tuple[str, str], ...]] = (
 )
 
 
+def _data_image_url(value: str) -> str:
+    """The value when it is a small, well-formed PNG/JPEG/WebP data URL, else ``""``.
+
+    Custom profile photos are stored this way (see ``POST /account/avatar``).
+    ``<img>`` never executes a data URL, and the shape, base64 and size are all
+    checked, so nothing but a bounded image can reach a visitor.
+    """
+
+    match = _DATA_IMAGE_URL_PATTERN.match(value)
+    if not match:
+        return ""
+    try:
+        decoded = base64.b64decode(match.group("payload"), validate=True)
+    except (ValueError, TypeError):
+        return ""
+    return value if 0 < len(decoded) <= _MAX_AVATAR_DATA_BYTES else ""
+
+
 def _shareable_avatar_url(record: WalletCardRecord) -> str:
     """The headshot, when it is safe to hand to an anonymous visitor.
 
-    Two guards, both fail-closed. The URL must survive the same link
-    validation an owner-supplied link does, so a ``javascript:`` value that
-    somehow reached the column can never be rendered. And it is withheld
-    entirely if it contains the owner's ``user_id`` — object-storage paths
-    routinely embed the uid, and the visitor plane must not leak one.
+    The live account photo wins over the stored snapshot. Guards, all
+    fail-closed: a data URL must be a bounded PNG/JPEG/WebP; any other URL must
+    survive the same link validation an owner-supplied link does, so a
+    ``javascript:`` value can never be rendered, and it is withheld entirely if
+    it contains the owner's ``user_id`` — object-storage paths routinely embed
+    the uid, and the visitor plane must not leak one.
     """
 
-    if not record.avatar_url:
-        return ""
-    try:
-        url = _validated_https_url("avatar_url", _normalise_text(record.avatar_url))
-    except OneWalletCardError:
-        return ""
-    return "" if record.user_id and record.user_id in url else url
+    for candidate in (record.identity_photo_url, record.avatar_url):
+        text = candidate.strip()
+        if not text:
+            continue
+        if text.startswith("data:"):
+            url = _data_image_url(text)
+        else:
+            text = _normalise_text(text)
+            try:
+                url = _validated_https_url("avatar_url", text)
+            except OneWalletCardError:
+                continue
+            if record.user_id and record.user_id in url:
+                continue
+        if url:
+            return url
+    return ""
 
 
 def build_public_projection(card: WalletCardRecord | Mapping[str, Any]) -> PublicCardProjection:

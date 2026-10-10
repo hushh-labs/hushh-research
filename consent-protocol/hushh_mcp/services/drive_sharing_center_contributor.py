@@ -11,6 +11,7 @@ from sqlalchemy import text
 from hushh_mcp.services.drive_live_preferences import LIVE_BACKGROUND_DISCLOSURE
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
 from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
+from hushh_mcp.services.stripe_mode import configured_stripe_mode
 
 REQUEST_SOURCE = "drive_document_share_request"
 QUERY_REQUEST_SOURCE = "drive_live_query_request"
@@ -50,14 +51,22 @@ WITH participants AS (
     {payment_reconciliation_required} AS payment_reconciliation_required,
     {payment_link_expired} AS payment_link_expired,
     {checkout_expires_at} AS checkout_expires_at,
-    drive_share_requests.access_stop_requested_at IS NOT NULL AS access_stopped
+    drive_share_requests.access_stop_requested_at IS NOT NULL AS access_stopped,
+    {owner_decision_ready} AS owner_decision_ready,
+    {payment_required} AS payment_required,
+    {owner_allowed} AS owner_allowed,
+    {quoted_amount_cents} AS quoted_amount_cents,
+    {quote_version} AS quote_version,
+    {owner_payout_account_ready} AS owner_payout_account_ready,
+    {owner_price_ready} AS owner_price_ready
   FROM drive_share_requests
   {identity_joins}
   WHERE drive_share_requests.user_id=:user
     OR drive_share_requests.recipient_user_id=:user
   UNION ALL
   SELECT request_id,revocation_revision,created_at,'share','incoming',NULL::text,'management_only',
-    NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE
+    NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE,
+    FALSE,FALSE,FALSE,NULL::integer,NULL::integer,NULL::boolean,FALSE
   FROM drive_share_management_contexts
   WHERE user_id=:user AND private_request_erased_at IS NOT NULL{queries}
 ), classified AS (
@@ -119,7 +128,8 @@ _QUERIES = """
         AND decided_at < now() - interval '300 seconds' THEN 'expired'
       WHEN status='running' THEN 'pending'
       ELSE status END,
-    NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE
+    NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE,
+    FALSE,FALSE,FALSE,NULL::integer,NULL::integer,NULL::boolean,FALSE
   FROM drive_live_query_requests WHERE user_id=:user OR requester_user_id=:user"""
 
 _OWNER_SEARCH_STATE = """(
@@ -137,7 +147,10 @@ _TRUSTED_AUTHORITY_READY = """EXISTS (
     AND c.verified_policy_hash=:live_policy_hash
     AND (pref.user_id IS NULL OR (pref.background_enabled=TRUE
       AND pref.disclosure_version=:background_disclosure))
-    AND EXISTS (
+    AND {recipient_authority}
+)"""
+
+_TRUSTED_RECIPIENT = """EXISTS (
       SELECT 1 FROM connections conn
       JOIN connection_origins origin ON origin.connection_id=conn.id
         AND origin.status='active'
@@ -155,8 +168,49 @@ _TRUSTED_AUTHORITY_READY = """EXISTS (
             AND member.user_id=drive_share_requests.recipient_user_id
             AND member.status='active'
         )
-    )
-)"""
+    )"""
+
+_ACTIVE_CONNECTION = """EXISTS (
+    SELECT 1 FROM connections conn
+    WHERE conn.status='active'
+      AND ((conn.user_a_id=drive_share_requests.user_id
+            AND conn.user_b_id=drive_share_requests.recipient_user_id)
+        OR (conn.user_b_id=drive_share_requests.user_id
+            AND conn.user_a_id=drive_share_requests.recipient_user_id))
+  )"""
+
+# The owner's Allow is per-request authority over any active connection. The
+# timestamp is a plaintext hint; the sealed request marker remains authority.
+# A disconnect clears the timestamp, which ends the Allow for good.
+_OWNER_ALLOWED_RECIPIENT = (
+    "(drive_share_requests.owner_allowed_at IS NOT NULL AND " + _ACTIVE_CONNECTION + ")"
+)
+
+# Allow/Deny is offered only for a fresh requester-driven request that no
+# automatic, manual or paid flow has claimed, from someone outside the owner's
+# Trusted circle, while the pair is connected and the owner's Drive is live. A
+# current Trusted member keeps the Trusted path. The Allow route rechecks the
+# complete state, including the sealed request.
+_OWNER_DECISION_READY = """((drive_share_requests.preparation_error_code IS NULL
+  OR drive_share_requests.preparation_error_code IN
+    ('owner_price_required','owner_payout_required','payout_unavailable'))
+  AND drive_share_requests.owner_allowed_at IS NULL
+  AND drive_share_requests.bulk_search_started_at IS NULL
+  AND drive_share_requests.preparation_next_at<drive_share_requests.expires_at
+  AND {no_payment_order}
+  AND {active_connection}
+  AND NOT {trusted_recipient}
+  AND EXISTS (
+    SELECT 1 FROM user_external_connector_connections c
+    WHERE c.user_id=drive_share_requests.user_id AND c.connector_id='google_drive'
+      AND c.status='connected' AND c.validation_state='verified'
+      AND c.verified_policy_hash=:live_policy_hash
+  ))"""
+
+_NO_PAYMENT_ORDER = """NOT EXISTS (
+    SELECT 1 FROM drive_request_payment_orders pay
+    WHERE pay.request_id=drive_share_requests.request_id
+  )"""
 
 _TRUSTED_BATCH_SEEN = """EXISTS (
   SELECT 1 FROM drive_bulk_shares b
@@ -215,6 +269,25 @@ _IDENTITY_JOINS = """LEFT JOIN actor_identity_cache owner_identity
     ON recipient_identity.user_id=drive_share_requests.recipient_user_id"""
 
 
+def _trusted_authority_ready(owner_allowed: bool) -> str:
+    recipient = (
+        "(" + _TRUSTED_RECIPIENT + " OR " + _OWNER_ALLOWED_RECIPIENT + ")"
+        if owner_allowed
+        else _TRUSTED_RECIPIENT
+    )
+    return _TRUSTED_AUTHORITY_READY.replace("{recipient_authority}", recipient)
+
+
+def _owner_decision_ready(payments: bool) -> str:
+    return (
+        _OWNER_DECISION_READY.replace(
+            "{no_payment_order}", _NO_PAYMENT_ORDER if payments else "TRUE"
+        )
+        .replace("{active_connection}", _ACTIVE_CONNECTION)
+        .replace("{trusted_recipient}", _TRUSTED_RECIPIENT)
+    )
+
+
 def _projection(
     queries: bool,
     owner_search: bool,
@@ -222,6 +295,9 @@ def _projection(
     background: bool,
     payments: bool,
     identity_cache: bool,
+    owner_allowed: bool,
+    pricing: bool = False,
+    payout_projection: bool = False,
 ) -> str:
     projection = _PROJECTION.replace("{queries}", _QUERIES if queries else "")
     projection = projection.replace("{identity_joins}", _IDENTITY_JOINS if identity_cache else "")
@@ -231,11 +307,15 @@ def _projection(
     )
     for name, expression in {
         "owner_search_state": _OWNER_SEARCH_STATE if owner_search else "'unavailable'::text",
-        "trusted_authority_ready": _TRUSTED_AUTHORITY_READY if background else "FALSE",
+        "trusted_authority_ready": _trusted_authority_ready(owner_allowed)
+        if background
+        else "FALSE",
         "trusted_batch_seen": _TRUSTED_BATCH_SEEN if bulk else "FALSE",
         "trusted_work_active": _TRUSTED_WORK_ACTIVE if bulk and owner_search else "FALSE",
         "trusted_recovery_needed": _TRUSTED_RECOVERY_NEEDED if bulk else "FALSE",
-        "payment_status": """(SELECT pay.status FROM drive_request_payment_orders pay
+        "payment_status": """(SELECT CASE WHEN pay.stripe_mode<>:stripe_mode
+          AND pay.status IN ('awaiting_payment','checkout_open') THEN 'expired' ELSE pay.status END
+          FROM drive_request_payment_orders pay
           WHERE pay.request_id=drive_share_requests.request_id)"""
         if payments
         else "NULL::text",
@@ -269,6 +349,58 @@ def _projection(
             AND drive_share_requests.recipient_user_id=:user)"""
         if payments
         else "NULL::timestamptz",
+        # Without migration 291 no request can be allowed, so none is offered.
+        "owner_decision_ready": _owner_decision_ready(payments) if owner_allowed else "FALSE",
+        "owner_price_ready": "("
+        + _ACTIVE_CONNECTION
+        + " AND "
+        + _TRUSTED_RECIPIENT
+        + " AND "
+        + _trusted_authority_ready(False)
+        + " AND "
+        + _NO_PAYMENT_ORDER
+        + " AND drive_share_requests.payment_required=TRUE"
+        + " AND drive_share_requests.owner_allowed_at IS NULL"
+        + " AND (drive_share_requests.quoted_amount_cents IS NULL"
+        + " OR drive_share_requests.preparation_error_code IS NULL)"
+        + " AND drive_share_requests.bulk_search_started_at IS NULL"
+        + " AND drive_share_requests.preparation_lease_id IS NULL"
+        + " AND drive_share_requests.preparation_attempts=0"
+        + " AND (drive_share_requests.preparation_error_code='owner_price_required'"
+        + " OR drive_share_requests.preparation_error_code IS NULL))"
+        if payments and pricing and owner_allowed and background
+        else "FALSE",
+        "payment_required": "drive_share_requests.payment_required" if payments else "FALSE",
+        "owner_allowed": "drive_share_requests.owner_allowed_at IS NOT NULL"
+        if owner_allowed
+        else "FALSE",
+        "quoted_amount_cents": "drive_share_requests.quoted_amount_cents"
+        if pricing
+        else "NULL::integer",
+        "quote_version": "drive_share_requests.quote_version" if pricing else "NULL::integer",
+        "owner_payout_account_ready": """CASE WHEN
+          drive_share_requests.payment_required=TRUE
+          AND NOT EXISTS (SELECT 1 FROM drive_request_payment_orders pay
+            WHERE pay.request_id=drive_share_requests.request_id
+              AND pay.status IN ('paid','refunded'))
+          AND ((drive_share_requests.status IN ('pending','preparing','review_ready')
+            AND drive_share_requests.expires_at>clock_timestamp()
+            AND drive_share_requests.preparation_error_code IN
+              ('owner_price_required','owner_payout_required','payout_unavailable'))
+            OR (drive_share_requests.user_id=:user
+              AND drive_share_requests.quoted_amount_cents IS NOT NULL
+              AND ((drive_share_requests.status IN
+                ('pending','preparing','review_ready','approved','partial')
+                AND drive_share_requests.expires_at>clock_timestamp())
+                OR EXISTS (SELECT 1 FROM drive_request_owner_payouts p
+                  WHERE p.request_id=drive_share_requests.request_id
+                    AND p.status='awaiting_account'))))
+          THEN EXISTS (SELECT 1 FROM stripe_owner_payout_accounts account
+            WHERE account.user_id=drive_share_requests.user_id
+              AND account.account_ready=TRUE AND account.stripe_mode=:stripe_mode)
+          ELSE NULL END"""
+        if payments and pricing and payout_projection
+        else "NULL::boolean",
     }.items():
         projection = projection.replace("{" + name + "}", expression)
     return projection
@@ -291,6 +423,23 @@ def entry(row: Any) -> dict[str, Any]:
             "outgoing_requests",
             "active_grants",
         }
+    )
+    setup_waiting = bool(
+        request_open
+        and row.get("payment_status") not in {"paid", "refunded", "expired"}
+        and preparation_code
+        in {"owner_price_required", "owner_payout_required", "payout_unavailable"}
+    )
+    owner_price_required = setup_waiting and row.get("quoted_amount_cents") is None
+    payout_setup_required = request_open and row.get("owner_payout_account_ready") is False
+    setup_description = (
+        ("Link payouts" if row["direction"] == "incoming" else "Waiting for owner setup")
+        if payout_setup_required
+        else ("Set price" if row["direction"] == "incoming" else "Waiting for price")
+        if owner_price_required
+        else "Payments unavailable"
+        if setup_waiting and preparation_code == "payout_unavailable"
+        else None
     )
     owner_payment_waiting = (
         request_open
@@ -333,6 +482,14 @@ def entry(row: Any) -> dict[str, Any]:
         if automatic_progressing
         else None
     )
+    # Allow/Deny belongs only to the owner's own open request task.
+    owner_decision_available = bool(
+        row["direction"] == "incoming"
+        and row["bucket"] == "incoming_requests"
+        and row["state"] == "pending"
+        and not row.get("access_stopped")
+        and row.get("owner_decision_ready") is True
+    )
     return {
         "id": row["id"],
         "request_id": str(row["request_id"]),
@@ -346,7 +503,9 @@ def entry(row: Any) -> dict[str, Any]:
         "action": "DOCUMENT_SHARE_REVIEW",
         "scope": None,
         "scope_description": (
-            "Enable background Drive access"
+            setup_description
+            if setup_description
+            else "Enable background Drive access"
             if row["bucket"] == "incoming_requests"
             and preparation_code == "background_preparation_required"
             else "Waiting for requester payment"
@@ -374,8 +533,45 @@ def entry(row: Any) -> dict[str, Any]:
             and row["bucket"] == "incoming_requests"
             and not row.get("access_stopped")
             and not automatic_progressing
-            and not owner_payment_blocked,
+            and (not owner_payment_blocked or payout_setup_required or setup_waiting),
+            "owner_decision_available": owner_decision_available,
+            "owner_price_available": bool(
+                row["direction"] == "incoming"
+                and row["bucket"] == "incoming_requests"
+                and row["state"] == "pending"
+                and not row.get("access_stopped")
+                and row.get("owner_price_ready") is True
+                and row.get("owner_payout_account_ready") is True
+            ),
+            "owner_allowed": row.get("owner_allowed") is True,
+            **(
+                {"payment_required": row.get("payment_required") is True}
+                if row["direction"] == "incoming"
+                else {}
+            ),
             **({"payment_waiting_for_requester": True} if owner_payment_waiting else {}),
+            **(
+                {"ownerPayoutAccountReady": row["owner_payout_account_ready"] is True}
+                if row.get("owner_payout_account_ready") is not None
+                else {}
+            ),
+            **(
+                {
+                    "ownerPriceRequired": owner_price_required,
+                    "paymentsReady": preparation_code != "payout_unavailable",
+                }
+                if setup_waiting
+                else {}
+            ),
+            **(
+                {
+                    "quotedAmountCents": row["quoted_amount_cents"],
+                    "quoteVersion": row["quote_version"],
+                    "paymentRequired": True,
+                }
+                if row["direction"] == "outgoing" and row.get("quoted_amount_cents") is not None
+                else {}
+            ),
             **(
                 {
                     "paymentStatus": row["payment_status"],
@@ -480,6 +676,43 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
         )
 
     @staticmethod
+    def _owner_allowed_installed(connection) -> bool:
+        return bool(
+            connection.execute(
+                text("""SELECT EXISTS (
+                  SELECT 1 FROM pg_attribute
+                  WHERE attrelid=to_regclass('drive_share_requests')
+                    AND attname='owner_allowed_at' AND NOT attisdropped
+                )""")
+            ).scalar_one()
+        )
+
+    @staticmethod
+    def _pricing_installed(connection) -> bool:
+        return bool(
+            connection.execute(
+                text("""SELECT EXISTS (SELECT 1 FROM pg_attribute
+                  WHERE attrelid=to_regclass('drive_share_requests')
+                    AND attname='quoted_amount_cents' AND NOT attisdropped)
+                  AND EXISTS (SELECT 1 FROM pg_attribute
+                  WHERE attrelid=to_regclass('drive_share_requests')
+                    AND attname='quote_version' AND NOT attisdropped)""")
+            ).scalar_one()
+        )
+
+    @staticmethod
+    def _payout_projection_installed(connection) -> bool:
+        return bool(
+            connection.execute(
+                text("""SELECT to_regclass('drive_request_owner_payouts') IS NOT NULL
+                  AND to_regclass('stripe_owner_payout_accounts') IS NOT NULL
+                  AND EXISTS (SELECT 1 FROM pg_attribute
+                    WHERE attrelid=to_regclass('stripe_owner_payout_accounts')
+                      AND attname='account_ready' AND NOT attisdropped)""")
+            ).scalar_one()
+        )
+
+    @staticmethod
     def _identity_cache_installed(connection) -> bool:
         # Test fixtures and rolling deployments can predate the optional
         # identity cache. Keep the metadata projection available with its
@@ -494,6 +727,7 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
     def _params(user_id: str, *, query: str = "", bucket: str = "") -> dict[str, Any]:
         return {
             "user": user_id,
+            "stripe_mode": configured_stripe_mode(),
             "query": query,
             "bucket": bucket,
             "live_policy_hash": LIVE_POLICY_HASH,
@@ -531,6 +765,9 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                         self._background_installed(connection),
                         self._payments_installed(connection),
                         self._identity_cache_installed(connection),
+                        self._owner_allowed_installed(connection),
+                        self._pricing_installed(connection),
+                        self._payout_projection_installed(connection),
                     )  # nosec B608
                     + "SELECT bucket,count(*) AS total FROM filtered GROUP BY bucket"
                 ),
@@ -566,6 +803,9 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                             self._background_installed(connection),
                             self._payments_installed(connection),
                             self._identity_cache_installed(connection),
+                            self._owner_allowed_installed(connection),
+                            self._pricing_installed(connection),
+                            self._payout_projection_installed(connection),
                         )  # nosec B608
                         + """
                         SELECT totals.total,page.* FROM (SELECT count(*) AS total FROM filtered) totals
@@ -616,6 +856,9 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                         self._background_installed(connection),
                         self._payments_installed(connection),
                         self._identity_cache_installed(connection),
+                        self._owner_allowed_installed(connection),
+                        self._pricing_installed(connection),
+                        self._payout_projection_installed(connection),
                     )  # nosec B608
                     + """
                     , ranked AS (

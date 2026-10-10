@@ -14,6 +14,7 @@ import select
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from tests.services.test_drive_document_selection import (  # noqa: F401
     connector_postgres_url,
@@ -27,6 +28,7 @@ from tests.services.test_drive_sharing_store import MIGRATIONS, request, sharing
 
 PROJECTION = MIGRATIONS / "246_drive_feed_projection.sql"
 STREAM_PROJECTION = MIGRATIONS / "288_drive_request_feed_stream.sql"
+PAYMENT = MIGRATIONS / "262_drive_request_payments.sql"
 
 
 def run_projection_migration(db, times=2):
@@ -85,8 +87,7 @@ async def test_owner_access_stop_wakes_both_participants_once_without_private_da
     created = await request(sharing)
     with feed.db.engine.connect() as listener:
         raw = listener.connection.driver_connection
-        with raw.cursor() as cursor:
-            cursor.execute("LISTEN one_user_state_changed")
+        listener.exec_driver_sql("LISTEN one_user_state_changed")
         listener.commit()
 
         with feed.db.engine.begin() as writer:
@@ -248,3 +249,58 @@ async def test_replay_backfills_recent_events_exactly_once(feed, sharing):
     assert [row["event_type"] for row in feed_rows(feed.db, "recipient")] == [
         "document_share_request_sent"
     ]
+
+
+@pytest.mark.asyncio
+async def test_payment_replay_preserves_newer_populated_feed_event_constraint(feed, sharing):
+    await request(sharing)
+
+    def snapshot():
+        with feed.db.engine.connect() as connection:
+            constraint = connection.execute(
+                text("""SELECT oid, pg_get_constraintdef(oid)
+                     FROM pg_constraint
+                     WHERE conrelid='drive_share_events'::regclass
+                       AND conname='drive_share_events_event_type_check'""")
+            ).one()
+            events = connection.execute(
+                text("SELECT event_id,event_type FROM drive_share_events ORDER BY event_id")
+            ).all()
+        return constraint, events
+
+    before = snapshot()
+    assert {row.event_type for row in before[1]} == {
+        "document_share_request",
+        "document_share_request_sent",
+    }
+    # Negative control: the old replay constraint rejects this populated
+    # schema. The savepoint rolls back the DDL and preserves the original OID.
+    with feed.db.engine.connect() as connection:
+        with pytest.raises(IntegrityError) as caught, connection.begin_nested():
+            connection.exec_driver_sql(
+                "ALTER TABLE drive_share_events DROP CONSTRAINT drive_share_events_event_type_check"
+            )
+            connection.exec_driver_sql("""ALTER TABLE drive_share_events
+                ADD CONSTRAINT drive_share_events_event_type_check CHECK (event_type IN (
+                  'document_share_request','document_share_review_ready','document_share_decided',
+                  'document_share_outcome','document_share_revoked','document_share_revocation_outcome',
+                  'document_share_payment_ready','document_share_payment_confirmed',
+                  'document_share_payment_refunded'))""")
+        assert caught.value.orig.pgcode == "23514"
+        assert caught.value.orig.diag.constraint_name == "drive_share_events_event_type_check"
+    assert snapshot() == before
+    feed_before = {user: feed_rows(feed.db, user) for user in ("owner", "recipient")}
+    for replay in range(2):
+        with feed.db.engine.connect() as reader, feed.db.engine.connect() as connection:
+            if replay:
+                # The no-op replay must also work while a live Feed reader
+                # holds the table: rewriting this needs ACCESS EXCLUSIVE.
+                reader.exec_driver_sql("LOCK TABLE drive_share_events IN ACCESS SHARE MODE")
+            with connection.connection.driver_connection.cursor() as cursor:
+                cursor.execute("SET lock_timeout = '250ms'")
+                cursor.execute(PAYMENT.read_text())
+                cursor.execute(STREAM_PROJECTION.read_text())
+            connection.commit()
+        # OID equality proves the newer constraint was not dropped/recreated.
+        assert snapshot() == before
+        assert {user: feed_rows(feed.db, user) for user in ("owner", "recipient")} == feed_before

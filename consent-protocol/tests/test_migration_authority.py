@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -208,6 +210,64 @@ async def test_checksum_drift_fails_before_sql_execution(tmp_path: Path):
             mode=MigrationMode.LEDGER,
         )
     assert "SELECT 'changed'" not in conn.executed_sql
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("history", ["applied", "baselined"])
+async def test_attachment_replay_repair_preserves_historical_ledger_checksums(history):
+    entries = build_manifest_entries(
+        Path(__file__).resolve().parents[1] / "db/migrations",
+        ("295_direct_message_attachments.sql",),
+    )
+    historical = replace(
+        entries[0],
+        checksum_sha256="f76a5e6e71d1979dbcd71d2e3c5ad390c1aa9f018742946bee2dcea3831d4edc",
+    )
+    through = 294 if history == "applied" else 295
+    conn = FakeConnection()
+    conn.rows[f"baseline:{through}"] = {
+        "migration_id": f"baseline:{through}",
+        "checksum_sha256": manifest_checksum(())
+        if history == "applied"
+        else manifest_checksum((historical,)),
+        "status": "baseline",
+        "baseline_through": through,
+    }
+    if history == "applied":
+        conn.rows["295"] = {
+            "migration_id": "295",
+            "filename": historical.filename,
+            "checksum_sha256": historical.checksum_sha256,
+            "status": "applied",
+        }
+    original_rows = {key: dict(value) for key, value in conn.rows.items()}
+    assert await apply_manifest_entries(conn, entries, mode=MigrationMode.LEDGER) == ()
+    assert await apply_manifest_entries(conn, entries, mode=MigrationMode.OBSERVE) == ()
+    assert conn.rows == original_rows
+    assert entries[0].sql not in conn.executed_sql
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("drift", ["metadata", "body", "both"])
+async def test_attachment_replay_rejects_unknown_or_forged_source_before_execution(drift):
+    entry = build_manifest_entries(
+        Path(__file__).resolve().parents[1] / "db/migrations",
+        ("295_direct_message_attachments.sql",),
+    )[0]
+    sql = entry.sql if drift == "metadata" else entry.sql.replace("USING (false)", "USING (true)")
+    checksum = (
+        "0" * 64
+        if drift == "metadata"
+        else hashlib.sha256(sql.encode("utf-8")).hexdigest()
+        if drift == "both"
+        else entry.checksum_sha256
+    )
+    changed = replace(entry, sql=sql, checksum_sha256=checksum)
+    conn = FakeConnection()
+    with pytest.raises(MigrationAuthorityError, match="replay source checksum changed"):
+        await apply_manifest_entries(conn, (changed,), mode=MigrationMode.REPLAY)
+    assert conn.executed_sql == []
+    assert conn.locked is False
 
 
 @pytest.mark.asyncio

@@ -8,7 +8,7 @@ from typing import Any
 from starlette.concurrency import run_in_threadpool
 
 from api.utils.firebase_admin import get_firebase_auth_app
-from db.db_client import get_db
+from db.connection import get_pool
 from hushh_mcp.runtime_settings import (
     one_business_directory_enabled,
     one_business_local_rehearsal_enabled,
@@ -24,20 +24,16 @@ class BusinessSuggestionUnavailable(RuntimeError):
     """Current verified identity could not be established; never use cached identity."""
 
 
-def _setup_resolved(user_id: str) -> bool:
+async def _setup_resolved(user_id: str) -> bool:
     # Read canonical setup state without creating a placeholder or changing login metadata.
-    rows = (
-        get_db()
-        .table("vault_keys")
-        .select("setup_completed,vault_status")
-        .eq("user_id", user_id)
-        .limit(1)
-        .execute()
-        .data
-    )
-    return bool(
-        rows and rows[0].get("setup_completed") is True and rows[0].get("vault_status") == "active"
-    )
+    # Fresh admission must not queue behind the synchronous Location projection.
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT setup_completed, vault_status FROM vault_keys WHERE user_id = $1 LIMIT 1",
+            user_id,
+        )
+    return bool(row and row["setup_completed"] is True and row["vault_status"] == "active")
 
 
 def _lookup_identity(user_id: str):
@@ -73,7 +69,7 @@ async def get_business_suggestion(user_id: str, *, local_loopback: bool = False)
         raise BusinessSuggestionUnavailable()
     result["contract_version"] = "b2b-profile-suggestion.v2"
     try:
-        resolved = await asyncio.wait_for(run_in_threadpool(_setup_resolved, user_id), 5)
+        resolved = await asyncio.wait_for(_setup_resolved(user_id), 5)
     except Exception:
         raise BusinessSuggestionUnavailable() from None
     if not resolved:

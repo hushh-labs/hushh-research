@@ -2264,6 +2264,29 @@ class ConnectionsService:
             user_b_id=user_b_id,
         )
 
+    def _end_drive_owner_allows(self, *, user_a_id: str, user_b_id: str) -> None:
+        """End each owner Allow on a document request between the pair.
+
+        An Allow lets a request from outside the owner's Trusted circle run
+        automatic Drive search and sharing while the two stay connected. Like
+        revoked scope grants and named Circles, it never comes back with a
+        reconnection, so it ends in this disconnect transaction.
+        """
+
+        connection = getattr(self, "_transaction_connection", None)
+        if connection is None:
+            # Only the lightweight unit doubles; see the Circle cleanup above.
+            return
+        from hushh_mcp.services.drive_owner_allowed import (
+            end_owner_allows_for_disconnected_pair,
+        )
+
+        end_owner_allows_for_disconnected_pair(
+            connection,
+            user_a_id=user_a_id,
+            user_b_id=user_b_id,
+        )
+
     def _revoke_pair_capabilities(
         self,
         *,
@@ -4244,6 +4267,10 @@ class ConnectionsService:
             )
             if conn:
                 self._end_one_location_circle_memberships(
+                    user_a_id=str(user_a or ""),
+                    user_b_id=str(user_b or ""),
+                )
+                self._end_drive_owner_allows(
                     user_a_id=str(user_a or ""),
                     user_b_id=str(user_b or ""),
                 )

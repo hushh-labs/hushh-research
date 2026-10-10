@@ -20,7 +20,7 @@ export type AgentPkmPreparationInput = {
   vaultOwnerToken: string;
   ingestionId?: string;
   chunkIndex?: number;
-  memoryProfile?: "general" | "kyc_identity_v1";
+  memoryProfile?: "general" | "kyc_identity_v1" | "business_directory_v1";
   /** Existing details the merge agent may extend or correct (explicit saves). */
   reconciliationCandidates?: readonly PkmReconciliationCandidate[];
   signal?: AbortSignal;
@@ -203,16 +203,19 @@ async function refusePreparationResponse(
   response: Response,
   params: Pick<AgentPkmPreparationInput, "ingestionId" | "chunkIndex">,
 ): Promise<never> {
+  let profileMismatch = false;
   let errorCode = `http_${response.status}`;
   try {
     const payload = (await response.json()) as {
       detail?:
-        | { type?: unknown; code?: unknown }
-        | Array<{ type?: unknown; code?: unknown }>;
+        | { type?: unknown; code?: unknown; loc?: unknown }
+        | Array<{ type?: unknown; code?: unknown; loc?: unknown }>;
     };
     const detail = Array.isArray(payload?.detail)
       ? payload.detail[0]
       : payload?.detail;
+    profileMismatch = response.status === 422 && detail?.type === "literal_error" &&
+      Array.isArray(detail.loc) && detail.loc.at(-1) === "memory_profile";
     if (detail && typeof detail === "object") {
       const candidate = detail.code || detail.type;
       if (typeof candidate === "string" && /^[A-Za-z0-9_]{1,96}$/.test(candidate)) {
@@ -228,6 +231,11 @@ async function refusePreparationResponse(
     status: response.status,
     error_code: errorCode,
   });
+  if (profileMismatch) {
+    const error = new Error("Review is unavailable until the backend update finishes.");
+    error.name = "PkmBackendContractMismatch";
+    throw error;
+  }
   throw new Error(
     response.status === 404
       ? "Your private agent needs an update before preparing Memory. Nothing was saved."

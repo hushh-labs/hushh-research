@@ -308,9 +308,16 @@ for (const [width, count] of [[320, 10], [375, 10], [390, 10], [430, 10], [1440,
         await expect(stack).toHaveAttribute("data-expanded", "true");
         // Exercise a saved payment record independently of the system cards.
         const last = stack.locator("li[data-gesture-card^=card_]").last().getByRole("button").first();
+        const maskedNumber = (await last.locator('[data-slot="wallet-card-number"] > [aria-hidden="true"]').allTextContents()).join(" ");
+        // Keep the details consistent with the face across network groupings,
+        // while independently requiring only the final four digits to appear.
+        expect(maskedNumber).toMatch(/^(?:•+ )+•?\d{4}$/);
         await last.click();
         await expect(page.getByTestId("wallet-selected-card")).toBeVisible();
-        await expect(page.getByRole("button", { name: "Show card details", exact: true })).toBeVisible();
+        const details = page.getByRole("region", { name: "Saved card details", exact: true });
+        await expect(details).toBeVisible();
+        await expect(details.getByText(maskedNumber, { exact: true })).toBeVisible();
+        await expect(details.getByText("Hidden", { exact: true })).toBeVisible();
         expect(await page.evaluate(() => window.__walletEvents ?? [])).toEqual([]);
         await page.getByRole("button", { name: "All cards", exact: true }).click();
       }
@@ -553,7 +560,8 @@ test("Add saves typed card details, keeps optional fields empty, and preserves i
   const form = page.getByTestId("secure-card-add-form");
   await form.getByLabel("Card number", { exact: true }).fill("5555 5555 5555 4444");
   await form.getByLabel("Name on card", { exact: true }).fill("SAMIRA ALEXANDRA RIVERA-WASHINGTON");
-  await form.getByLabel("Card network (optional)", { exact: true }).selectOption("mastercard");
+  await form.getByLabel("Card network (optional)", { exact: true }).click();
+  await page.getByRole("option", { name: "Mastercard", exact: true }).click();
   await form.getByLabel("Expiry (MM/YY)", { exact: true }).fill("09/32");
   await form.getByLabel("CVV", { exact: true }).fill("321");
   await form.getByRole("button", { name: "Save card", exact: true }).click();
@@ -643,6 +651,74 @@ for (const width of [320, 390, 1440]) {
   });
 }
 
+for (const width of [390, 1440]) {
+  test(`Wallet card actions: tab highlight stays centered during form presses and tab switches at ${width}px`, async ({ page }) => {
+    const errors = await open(page, width, "light", { cards: 3 }, { height: 844, shell: true });
+    await mount(page);
+    const alignment = () => page.evaluate(() => {
+      const selected = document.querySelector('[role="tab"][aria-selected="true"]')!.getBoundingClientRect();
+      const indicator = document.querySelector('[data-testid="top-shell-tab-indicator"]')!.getBoundingClientRect();
+      return Math.abs(selected.x + selected.width / 2 - indicator.x - indicator.width / 2);
+    });
+    for (const name of ["Add", "Sharing", "Cards", "Add", "Sharing", "Add"]) {
+      await page.getByRole("tab", { name, exact: true }).click();
+      await expect(page.getByRole("tab", { name, exact: true })).toHaveAttribute("aria-selected", "true");
+      await expect.poll(alignment).toBeLessThan(2);
+      if (name === "Add") {
+        for (const label of ["Show", "Hide", "Show", "Hide"]) {
+          const button = page.getByRole("button", { name: `${label} CVV and PIN`, exact: true });
+          await button.evaluate(el => {
+            const root = el.closest<HTMLElement>('[data-app-scroll-root="true"]')!;
+            root.scrollTop += el.getBoundingClientRect().top - root.getBoundingClientRect().top - root.clientHeight / 2;
+          });
+          const box = await button.boundingBox();
+          if (!box) throw new Error("PIN visibility control missing");
+          await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+          await page.mouse.down();
+          expect(await alignment()).toBeLessThan(2);
+          await page.mouse.up();
+          await expect(page.getByRole("button", { name: `${label === "Show" ? "Hide" : "Show"} CVV and PIN`, exact: true })).toBeVisible();
+          await expect.poll(alignment).toBeLessThan(2);
+          expect(await page.locator('[data-swipe-views-root="true"]').evaluate(el => el.scrollLeft)).toBe(0);
+        }
+      }
+    }
+    await page.screenshot({ path: test.info().outputPath("wallet-add-stable-tabs.png") });
+    expect(errors).toEqual([]);
+  });
+
+  test(`Wallet card actions: saved card rows align at ${width}px`, async ({ page }) => {
+    await open(page, width, "light", { cards: 3 }, { height: 844, shell: true });
+    await mount(page);
+    await page.getByRole("button", { name: "Everyday", exact: true }).click();
+    const details = page.getByRole("region", { name: "Saved card details" });
+    await expect(details.getByRole("button", { name: "Copy card number" })).toBeVisible();
+    await expect(details.getByText("Hidden", { exact: true })).toBeVisible();
+    const remove = details.getByRole("button", { name: "Remove card", exact: true });
+    await remove.evaluate(el => {
+      const root = el.closest<HTMLElement>('[data-app-scroll-root="true"]')!;
+      root.scrollTop += el.getBoundingClientRect().top - root.getBoundingClientRect().top - root.clientHeight / 2;
+    });
+    await expect(remove).toBeVisible();
+    expect(await details.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await expect.poll(() => details.evaluate(el => {
+      const box = el.getBoundingClientRect();
+      return box.left >= 0 && box.right <= innerWidth;
+    })).toBe(true);
+    expect(await page.locator('[data-swipe-views-root="true"]').evaluate(el => el.scrollLeft)).toBe(0);
+    await expect.poll(() => page.getByTestId("wallet-card-browser").evaluate(el => {
+      const box = el.getBoundingClientRect();
+      const tabs = document.querySelector('[role="tablist"]')!.getBoundingClientRect();
+      return Math.max(Math.abs(box.left - tabs.left), Math.abs(box.right - tabs.right));
+    })).toBeLessThan(1);
+    await page.screenshot({ path: test.info().outputPath("wallet-saved-card-actions.png") });
+    await remove.click();
+    await expect(page.getByTestId("one-wallet-remove-confirm")).toBeVisible();
+    await page.getByTestId("one-wallet-remove-cancel").click();
+    await expect(details).toBeVisible();
+  });
+}
+
 for (const width of [320, 820, 1440]) {
   test(`Wallet Mail-style panels align with tabs at ${width}px`, async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
@@ -708,5 +784,5 @@ test("Wallet sharp onboarding and stacked detail links", async ({ page }) => {
   await expect.poll(() => page.locator('[data-stack-details]').evaluateAll(nodes => nodes.every(node => getComputedStyle(node).visibility !== "hidden"))).toBe(true);
   await page.getByRole("tab", { name: "Sharing", exact: true }).click();
   await expect(page.getByTestId("wallet-sharing-content").locator('figure [data-agent-card="profile"]')).toBeVisible();
-  await expect(page.getByText("Illustrative card · Your saved details stay private")).toBeVisible();
+  await expect(page.getByTestId("wallet-sharing-content").locator("figure")).toBeInViewport();
 });

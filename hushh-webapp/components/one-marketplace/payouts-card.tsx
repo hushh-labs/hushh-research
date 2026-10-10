@@ -52,7 +52,7 @@ export function PayoutsCard({ token }: { token?: string }) {
             Payouts
           </h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            {ready ? "Your earnings are paid to your bank." : "Set up payouts to get paid for your packets."}
+            {ready ? "Ready to receive packet earnings after delivery." : "Set up payouts to receive packet earnings."}
           </p>
         </div>
         {ready ? null : (
@@ -72,7 +72,7 @@ export function PayoutsCard({ token }: { token?: string }) {
             <dd className="mt-0.5 font-semibold tabular-nums">{usd(e.due)}</dd>
           </div>
           <div>
-            <dt className="text-muted-foreground">Paid out</dt>
+            <dt className="text-muted-foreground">Sent to Stripe</dt>
             <dd className="mt-0.5 font-semibold tabular-nums">{usd(e.paidOut)}</dd>
           </div>
         </dl>

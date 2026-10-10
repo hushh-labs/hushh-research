@@ -87,6 +87,19 @@ def test_every_family_present_with_minimum_count(cases):
         assert counts[family] >= minimum, f"{family}: {counts[family]} < {minimum}"
 
 
+def test_negated_send_and_read_only_calendar_cases_exclude_mutating_tools(cases):
+    by_id = {case.id: case for case in cases}
+    for case_id in ("email.negated_send", "email.quoted_send_instruction"):
+        assert by_id[case_id].expected == ("no_tool",)
+    for case_id in ("calendar.read_only_no_cancel", "calendar.read_only_no_reschedule"):
+        assert by_id[case_id].expected
+        assert not set(by_id[case_id].expected) & {
+            "propose_calendar_event",
+            "propose_calendar_reschedule",
+            "propose_calendar_cancellation",
+        }
+
+
 def test_consent_family_carries_the_original_thirteen_verbatim(cases):
     prompts = [case.prompt for case in cases if case.family == "consent"]
     assert prompts[:13] == ORIGINAL_CONSENT_PROMPTS

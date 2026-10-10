@@ -101,6 +101,9 @@ export function resolveTopShellRouteProfile(
   routeKey: string,
 ): TopShellRouteProfile {
   const { pathname, normalizedRouteKey } = splitRouteKey(routeKey);
+  if (pathname === ROUTES.ONE_MESSAGES) {
+    return { id: "hidden", model: { mode: "hidden", profileId: "hidden", contentOffsetMode: "normal" }, metrics: HIDDEN_METRICS };
+  }
   const tabs = resolveTopShellTabSet(normalizedRouteKey);
   const mode = resolveAppRouteLayoutMode(pathname);
   const navigation: TopShellNavigationConfig = {

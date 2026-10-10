@@ -1,3 +1,5 @@
+import pytest
+
 from api.utils.fcm_messages import build_push_message
 
 
@@ -52,6 +54,7 @@ class _MessagingStub:
             content_available=None,
             category=None,
             thread_id=None,
+            mutable_content=None,
         ):
             self.alert = alert
             self.sound = sound
@@ -59,6 +62,7 @@ class _MessagingStub:
             self.content_available = content_available
             self.category = category
             self.thread_id = thread_id
+            self.mutable_content = mutable_content
 
     class APNSPayload:
         def __init__(self, aps=None, custom_data=None, **kwargs):
@@ -92,9 +96,10 @@ class _MessagingStub:
             self.vibrate_timings_millis = vibrate_timings_millis
 
     class AndroidConfig:
-        def __init__(self, priority=None, notification=None):
+        def __init__(self, priority=None, notification=None, ttl=None):
             self.priority = priority
             self.notification = notification
+            self.ttl = ttl
 
     class Message:
         def __init__(
@@ -602,3 +607,75 @@ def test_real_firebase_encoder_keeps_presentation_and_apns_data_top_level():
             assert "custom_data" not in payload
         else:
             assert platform not in encoded
+
+
+def test_chat_transport_supports_legacy_android_and_mutable_ios(monkeypatch):
+    monkeypatch.setattr("api.utils.fcm_messages.time.time", lambda: 1000)
+    import hashlib
+
+    from firebase_admin import messaging
+    from firebase_admin.messaging import _MessagingService
+
+    delivery_target = "synthetic-device-id"
+    for kind in ("direct_message", "location_circle_message"):
+        data = {
+            "type": kind,
+            "message_id": "fixture-event",
+            "conversation_id": "fixture-thread",
+            "recipient_key_id": "fixture-key",
+        }
+
+        def wire(platform, payload):
+            return _MessagingService.encode_message(
+                build_push_message(
+                    messaging,
+                    token=delivery_target,
+                    platform=platform,
+                    data=payload,
+                    title="New message",
+                    body="Open chat",
+                    request_url="/one/feed",
+                    notification_tag="fixture-event",
+                    show_alert=True,
+                )
+            )
+
+        assert "notification" not in wire("android", data)
+        assert wire("android", data)["android"]["priority"] == "high"
+        assert wire("android", data)["android"]["ttl"] == "86400s"
+        web = wire("web", data)
+        assert "notification" not in web
+        assert "notification" not in web["webpush"]
+        assert "fcm_options" not in web["webpush"]
+        assert web["webpush"]["headers"]["TTL"] == "86400"
+        legacy = {key: value for key, value in data.items() if key != "recipient_key_id"}
+        assert "notification" in wire("android", legacy)
+        assert wire("android", legacy)["android"]["ttl"] == "86400s"
+        ios = wire("ios", data)["apns"]
+        assert ios["payload"]["aps"]["mutable-content"] == 1
+        assert ios["payload"]["aps"]["thread-id"] == "fixture-thread"
+        assert "badge" not in ios["payload"]["aps"]
+        assert ios["headers"]["apns-collapse-id"] == hashlib.sha256(b"fixture-event").hexdigest()
+
+
+def test_chat_avatar_raster_budget_and_untrusted_url_rejection(monkeypatch):
+    import base64
+    import io
+
+    import requests
+    from PIL import Image
+
+    from hushh_mcp.services.chat_push_delivery import thumbnail
+
+    monkeypatch.setattr(
+        requests,
+        "get",
+        lambda *args, **kwargs: pytest.fail("Untrusted avatar caused a network request"),
+    )
+    assert thumbnail("https://example.test/avatar.jpg") == ""
+    assert thumbnail("http://169.254.169.254/latest/meta-data") == ""
+    source = io.BytesIO()
+    Image.new("RGB", (64, 64), color="blue").save(source, format="PNG")
+    result = thumbnail("data:image/png;base64," + base64.b64encode(source.getvalue()).decode())
+    assert result.startswith("data:image/jpeg;base64,")
+    assert len(result) <= 1023

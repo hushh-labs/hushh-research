@@ -286,6 +286,24 @@ Each automatic write carries an `owner_auto_save_policy` receipt that records
 the enabled policy version rather than claiming that the owner reviewed that
 individual memory.
 
+### Business directory review
+
+Business suggestions use `memory_profile: "business_directory_v1"` on the existing
+proposal endpoint. The source is a JSON object containing only listing values,
+bounded to 4,000 characters. Trust instructions and disclaimers are authored agent
+policy, not selectable source facts. All four preparation agents receive the profile.
+
+The model chooses the business destination and merge relationship. A rejection-only
+validator requires one exact record under `businesses.entities.<id>`, with all supplied
+fields intact and no invented fields or personal-identity destination. A split or
+invalid proposal is not offered for saving; it is never silently clipped or retargeted.
+The owner selects individual fields before the existing encrypted PKM writer commits
+them. This creates no second profile store and does not verify business ownership.
+
+Deploy the matching backend contract before enabling the frontend request. Existing
+stored records and previously approved encrypted retries are not rewritten by this
+change; general and KYC preparation retain their existing behavior.
+
 ### Explicit saves from chat
 
 When the owner asks One to save something ("save this to my memory"), One calls

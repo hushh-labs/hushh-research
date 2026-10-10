@@ -77,7 +77,10 @@ def pod_connector_roster() -> list[Any]:
     """One's connector tools in an owner-cloud agent; nothing anywhere else."""
     if not owner_cloud_agent():
         return []
-    from hushh_mcp.agents.email.mailbox_tools import propose_gmail_mailbox_change
+    from hushh_mcp.agents.email.mailbox_tools import (
+        propose_gmail_mailbox_change,
+        propose_gmail_todo,
+    )
     from hushh_mcp.one_adk.drive_tools import discover_google_drive_tools, read_google_drive
     from hushh_mcp.one_adk.drive_write_tools import (
         comment_on_drive_file,
@@ -99,6 +102,7 @@ def pod_connector_roster() -> list[Any]:
         propose_drive_file_share,
         propose_drive_file_trash,
         propose_gmail_mailbox_change,
+        propose_gmail_todo,
         search_my_contacts,
     ]
 

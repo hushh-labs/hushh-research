@@ -292,9 +292,9 @@ function cardTitle(params: {
   const label = titleize(lastKey);
   const value = params.value;
 
-  // A `name` inside a list item names that item (a bank, an account, a
-  // milestone), not the person: "Your name is Plaid Checking" is not a memory.
-  const insideListItem = params.pathSegments.some((segment) => typeof segment === "number");
+  // A `name` inside a list or typed entity names that record (a business,
+  // bank, account), not the person whose private Memory contains it.
+  const insideListItem = params.pathSegments.some((segment) => typeof segment === "number" || segment === "entities");
   if (!insideListItem && /\b(full_?name|display_?name|name)\b/.test(path)) return `Your name is ${value}`;
   if (/\b(roll|student_?id|roll_?no)\b/.test(path)) return `Roll number: ${value}`;
   if (/\b(iit|college|university|school|institution|institute)\b/.test(path)) {

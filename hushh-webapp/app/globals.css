@@ -717,7 +717,7 @@ textarea {
    * so from ~576px up it sat 96 to 192px narrower than the navigation under it.
    * The inset is symmetric and clears a landscape notch on either side.
    * Held by e2e/bottom-chrome-width.layout.spec.ts. */
-  --app-bottom-shell-max-width: 48rem;
+  --app-bottom-shell-max-width: 760px;
   --app-bottom-shell-inline-inset: max(
     1rem,
     env(safe-area-inset-left, 0px),
@@ -3541,7 +3541,6 @@ body:has([data-location-hub], [data-wallet-hub]) [data-app-shell-top-spacer="tru
     --top-bar-h: 64px;
     --top-systembar-row-gap: 0px;
     --top-fade-active: 22px;
-    --app-bottom-shell-max-width: 40rem;
   }
 }
 
@@ -6072,10 +6071,52 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 /* The retained Agent Bar owns the material in both modes. Chat projects its
  * existing form into that bar, not another glass pill or another text box. */
 [data-agent-dock-surface="text"] {
+  /* The fixed composer can overlap the last message while the keyboard is
+   * present. Give that overlap an iOS material so the transcript recedes
+   * behind the writing surface instead of reading through it. */
+  --agent-composer-material: color-mix(
+    in oklab,
+    var(--background) 72%,
+    transparent
+  );
+  --agent-composer-rim: color-mix(
+    in oklab,
+    var(--foreground) 10%,
+    transparent
+  );
   display: block;
   min-width: 0;
   overflow: visible;
   border-radius: 1.5rem;
+  border-color: var(--agent-composer-rim) !important;
+  background: var(--agent-composer-material) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--background) 72%, white),
+    0 10px 30px -8px color-mix(in oklab, var(--foreground) 15%, transparent),
+    0 1px 3px color-mix(in oklab, var(--foreground) 8%, transparent) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(28px) saturate(180%);
+}
+
+.dark [data-agent-dock-surface="text"] {
+  --agent-composer-material: color-mix(
+    in oklab,
+    var(--background) 76%,
+    transparent
+  );
+  --agent-composer-rim: color-mix(
+    in oklab,
+    var(--foreground) 16%,
+    transparent
+  );
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  [data-agent-dock-surface="text"] {
+    background: var(--background) !important;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 [data-agent-dock-surface="voice"] {
   /* Same resting frame as the one-line composer: only content changes on
@@ -6128,6 +6169,12 @@ html.kb-open [data-agent-dock-chat] [data-bottom-shell-navigation-slot] {
   visibility: hidden;
   pointer-events: none;
 }
+/* Inbox search hides its inactive message bar like other search pages.
+ * Active private-agent voice and command controls stay usable. */
+html.kb-open [data-messages-dock]:not([data-command-active="true"]):not(:has([data-command-active="true"])):is(:not(:has([data-agent-dock-composer]:not([hidden]))), :has([data-direct-message-inbox-composer="true"])) [data-bottom-shell-agent-slot] {
+  visibility: hidden;
+  pointer-events: none;
+}
 html.kb-open [data-agent-dock-chat] [data-bottom-shell-motion-stack] {
   transform: none !important;
 }
@@ -6135,7 +6182,7 @@ html.kb-open [data-agent-dock-chat] [data-bottom-shell-motion-stack] {
  * stays at the authored resting position; translating it would feed a second
  * keyboard offset back into the next native projection. */
 html:not(.kb-resizes) [data-agent-dock-chat]:not([data-native-agent-dock]) [data-bottom-shell-agent-slot] {
-  translate: 0 calc(max(0px, var(--kb-height, 0px) - var(--app-bottom-shell-height, 0px) + 0.5rem) * -1);
+  translate: 0 calc(max(0px, var(--kb-height, 0px) - var(--app-bottom-shell-keyboard-reservation, var(--app-bottom-shell-height, 0px)) + 0.5rem) * -1);
   transition: translate var(--kb-motion-duration) var(--kb-motion-curve);
 }
 html.kb-open.kb-resizes [data-agent-dock-chat] {
@@ -6299,6 +6346,39 @@ html.kb-open.kb-resizes [data-agent-dock-chat] [data-bottom-shell-navigation-slo
   box-shadow:
     0 10px 30px -18px rgba(0, 0, 0, 0.28),
     0 0 0 3px color-mix(in oklab, var(--app-accent) 18%, transparent) !important;
+}
+
+/* The canonical chat composer is embedded in the shared dock rather than the
+   route tree. The embedded reset above keeps voice chrome plain, but must not
+   cancel the text composer's material while it overlaps the transcript. */
+[data-agent-dock-embedded][data-agent-dock-surface="text"].agent-chat-composer-surface {
+  border-color: var(--agent-composer-rim) !important;
+  background: var(--agent-composer-material) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--background) 72%, white),
+    0 10px 30px -8px color-mix(in oklab, var(--foreground) 15%, transparent),
+    0 1px 3px color-mix(in oklab, var(--foreground) 8%, transparent) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(28px) saturate(180%);
+}
+
+[data-agent-dock-embedded][data-agent-dock-surface="text"].agent-chat-composer-surface:focus-within {
+  border-color: color-mix(in oklab, var(--app-accent) 55%, transparent) !important;
+  background: var(--agent-composer-material) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--background) 72%, white),
+    0 10px 30px -8px color-mix(in oklab, var(--foreground) 15%, transparent),
+    0 1px 3px color-mix(in oklab, var(--foreground) 8%, transparent),
+    0 0 0 3px color-mix(in oklab, var(--app-accent) 18%, transparent) !important;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  [data-agent-dock-embedded][data-agent-dock-surface="text"].agent-chat-composer-surface,
+  [data-agent-dock-embedded][data-agent-dock-surface="text"].agent-chat-composer-surface:focus-within {
+    background: var(--background) !important;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
 /* Copy / like / dislike on a settled answer. With a fine pointer on a wide
@@ -7117,6 +7197,86 @@ html[data-accent="gold"].dark {
   --app-accent-hero-from: #8a5a24;
   --app-accent-hero-mid: #d4a574;
   --app-accent-hero-to: #fff8ea;
+}
+
+/* Chat keeps the same shared navbar as every other route, but its accent is
+   always iOS blue. The bottom shell is outside the Chat page's token scope. */
+html:has([data-direct-message-page]) {
+  --chat-ios-accent: #007aff;
+  --chat-glass: rgba(255, 255, 255, 0.68);
+  --chat-glass-edge: rgba(255, 255, 255, 0.65);
+  --chat-text: #1c1c1e;
+  --chat-muted: #8e8e93;
+  --chat-sender-1: #006cc4;
+  --chat-sender-2: #208048;
+  --chat-sender-3: #8e44ad;
+  --chat-sender-4: #007f8f;
+  --chat-sender-5: #bd4053;
+  --chat-sender-6: #4f5dc8;
+  --app-accent: #007aff;
+  --app-accent-deep: #007aff;
+  --app-accent-bright: #007aff;
+  --app-accent-hover: #0066d6;
+  --app-accent-fg: #ffffff;
+  --app-accent-tint: rgba(0, 122, 255, 0.1);
+  --app-accent-surface: #e6f0ff;
+  --app-accent-surface-strong: #d8eaff;
+  --app-accent-border: rgba(0, 122, 255, 0.32);
+  --app-accent-ring: rgba(0, 122, 255, 0.35);
+  --app-accent-hero-from: #005fc7;
+  --app-accent-hero-mid: #007aff;
+  --app-accent-hero-to: #e6f0ff;
+  --accent: #007aff;
+}
+
+html.dark:has([data-direct-message-page]) {
+  --chat-ios-accent: #0a84ff;
+  --chat-glass: rgba(30, 30, 36, 0.62);
+  --chat-glass-edge: rgba(255, 255, 255, 0.14);
+  --chat-text: #f5f5f7;
+  --chat-muted: #9a9aa2;
+  --chat-sender-1: #64b5ff;
+  --chat-sender-2: #67d694;
+  --chat-sender-3: #c89bff;
+  --chat-sender-4: #5bd6d9;
+  --chat-sender-5: #ff8a9a;
+  --chat-sender-6: #a3a7ff;
+  --app-accent: #0a84ff;
+  --app-accent-deep: #0a84ff;
+  --app-accent-bright: #0a84ff;
+  --app-accent-hover: #409cff;
+  --app-accent-fg: #ffffff;
+  --app-accent-tint: rgba(10, 132, 255, 0.15);
+  --app-accent-surface: rgba(10, 132, 255, 0.15);
+  --app-accent-surface-strong: rgba(10, 132, 255, 0.22);
+  --app-accent-border: rgba(10, 132, 255, 0.35);
+  --app-accent-ring: rgba(10, 132, 255, 0.4);
+  --app-accent-hero-from: #005aa9;
+  --app-accent-hero-mid: #0a84ff;
+  --app-accent-hero-to: #1b1b20;
+  --accent: #0a84ff;
+}
+
+html:has([data-direct-message-page]) [data-app-bottom-shell] {
+  --app-accent: var(--chat-ios-accent);
+  --app-accent-deep: var(--chat-ios-accent);
+  --app-accent-bright: var(--chat-ios-accent);
+  --app-accent-tint: rgba(0, 122, 255, 0.1);
+  --app-accent-surface: #e6f0ff;
+  --app-accent-border: rgba(0, 122, 255, 0.32);
+  --app-accent-fg: #ffffff;
+  --accent: var(--chat-ios-accent);
+}
+
+html.dark:has([data-direct-message-page]) [data-app-bottom-shell] {
+  --app-accent: var(--chat-ios-accent);
+  --app-accent-deep: var(--chat-ios-accent);
+  --app-accent-bright: var(--chat-ios-accent);
+  --app-accent-tint: rgba(10, 132, 255, 0.15);
+  --app-accent-surface: rgba(10, 132, 255, 0.15);
+  --app-accent-border: rgba(10, 132, 255, 0.35);
+  --app-accent-fg: #ffffff;
+  --accent: var(--chat-ios-accent);
 }
 
 @layer utilities {
@@ -8869,4 +9029,13 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
     :is(input, textarea)::placeholder {
     font-size: 13px !important;
   }
+}
+
+/* Referral artwork has an approved fixed light identity, independent of the
+   account's accent preference. Components consume the canonical token family. */
+.referral-dashboard,
+[data-referral-introduction="true"] {
+  --app-accent: #007aff;
+  --referral-medal-deep: #b8894d;
+  --referral-medal-light: #d4a574;
 }

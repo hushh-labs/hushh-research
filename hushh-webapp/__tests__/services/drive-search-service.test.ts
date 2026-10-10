@@ -3,7 +3,7 @@ const api = vi.hoisted(() => ({ fetch: vi.fn() }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: {
   apiFetch: api.fetch, getAuthHeaders: (token: string) => ({ Authorization: `Bearer ${token}` }),
 } }));
-import { DriveSearchService } from "@/lib/services/drive-search-service";
+import { DriveSearchService, isDriveSearchSelectionReady } from "@/lib/services/drive-search-service";
 const jobId = "11111111-1111-4111-8111-111111111111";
 const status = { jobId, status: "running", revision: 1, matched: 1, pagesScanned: 1,
   incompleteSearch: false, canStop: true, createdAt: "2026-09-27T00:00:00Z",
@@ -13,6 +13,37 @@ const page = { jobId, revision: 1, matched: 1, nextCursor: "opaque+/=",
     modifiedTime: null, openUrl: "https://docs.google.com/document/d/file-one/edit" }] };
 beforeEach(() => { vi.resetAllMocks(); });
 describe("owner Drive search API boundary", () => {
+  it("preserves finalized top-N coverage and rejects partial or inconsistent selection claims", async () => {
+    const coverage = { corpora: ["user", "member_shared_drives"], fileKind: "document",
+      requestedPeriod: null, dateBasis: "title_date_then_created_or_modified", contentPeriodVerified: false,
+      providerRowsScanned: 250, excludedByDateCount: 0, deduplicatedCount: 0,
+      unavailableShortcutCount: 0, providerPagesExhausted: false, shareabilityVerified: true,
+      requestedResultLimit: 100, resultOrder: "modifiedTime desc", selectionFinalized: true,
+      candidateCount: 125, candidateCountScope: "retained_pool", candidatePoolPruned: true };
+    const complete = { ...status, status: "completed", matched: 100, coverage };
+    api.fetch.mockResolvedValueOnce(Response.json(complete));
+    const parsed = await DriveSearchService.get("owner", jobId, () => undefined);
+    expect(parsed.coverage).toEqual(coverage);
+    expect(isDriveSearchSelectionReady(parsed)).toBe(true);
+    for (const value of [
+      { ...complete, status: "running" },
+      { ...complete, incompleteSearch: true },
+      { ...complete, matched: 101 },
+      { ...complete, coverage: { ...coverage, requestedResultLimit: undefined } },
+      { ...complete, coverage: { ...coverage, requestedResultLimit: 1001 } },
+      { ...complete, coverage: { ...coverage, resultOrder: "name asc" } },
+      { ...complete, coverage: { ...coverage, selectionFinalized: "true" } },
+      { ...complete, coverage: { ...coverage, selectionFinalized: false } },
+      { ...complete, coverage: { ...coverage, candidateCount: 99 } },
+      { ...complete, coverage: { ...coverage, candidatePoolPruned: false } },
+    ]) {
+      api.fetch.mockResolvedValueOnce(Response.json(value));
+      await expect(DriveSearchService.get("owner", jobId, () => undefined)).rejects.toMatchObject({ code: "invalid_response" });
+    }
+    api.fetch.mockResolvedValueOnce(Response.json({ ...status, matched: 0,
+      coverage: { ...coverage, selectionFinalized: false } }));
+    expect(isDriveSearchSelectionReady(await DriveSearchService.get("owner", jobId, () => undefined))).toBe(false);
+  });
   it("preserves search scope and metadata-date coverage without claiming content verification", async () => {
     const coverage = { corpora: ["user", "member_shared_drives"], fileKind: "document",
       requestedPeriod: { start: "2026-06-28", end: "2026-09-28", timezone: "Asia/Kolkata" },

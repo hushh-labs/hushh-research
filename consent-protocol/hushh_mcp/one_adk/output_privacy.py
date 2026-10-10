@@ -68,7 +68,14 @@ def safe_exception_event(exc: Exception) -> RunErrorEvent:
     )
 
 
-_PRIVATE_STATE_KEYS = frozenset({"temp:hussh:mcp_approval"})
+_PRIVATE_STATE_KEYS = frozenset(
+    {
+        "temp:hussh:mcp_approval",
+        "hussh:mail_read_offer",
+        "hussh:calendar_event_read_offer",
+        "hussh:calendar_list_read_offer",
+    }
+)
 
 
 def _public_state(value: Any) -> Any:

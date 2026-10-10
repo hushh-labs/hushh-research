@@ -440,3 +440,64 @@ async def test_a_failed_narration_leaves_the_visible_result_and_the_count(monkey
     assert HOSTILE_BODY in shown["answer"], "the read still succeeded"
     # Nothing was spoken, so the model keeps its sentence rather than going quiet.
     assert fake.tool_responses[0]["response"]["spoken_facts"] != []
+
+
+@pytest.mark.parametrize("finish", ["new_input", "narration_timeout", "read_timeout"])
+async def test_partial_read_narration_stops_without_repeating_or_exposing_content(
+    monkeypatch, finish
+):
+    from hushh_mcp.one_voice import session as relay
+    from hushh_mcp.services import voice_narration
+    from tests.one_voice.test_relay_mail_input_pump import read_session
+
+    class SpokenRead(_ReadResult):
+        def narratable_digest(self):
+            return self.answer
+
+    started, stopped = asyncio.Event(), asyncio.Event()
+
+    async def read(_ctx, _args):
+        return SpokenRead(status="ok", answer=HOSTILE_BODY, sources=["mail:1"])
+
+    async def narrate(_text, **_kwargs):
+        try:
+            yield _FakeNarration(b"first audio")
+            started.set()
+            await asyncio.Event().wait()
+            yield _FakeNarration(b"late audio")
+        finally:
+            stopped.set()
+
+    monkeypatch.setenv("ONE_VOICE_MAIL_NARRATION_ENABLED", "true")
+    monkeypatch.setattr(voice_narration, "narrate_digest_stream", narrate)
+    if finish == "narration_timeout":
+        monkeypatch.setattr(relay, "READ_NARRATION_TIMEOUT_SECONDS", 0.02)
+    elif finish == "read_timeout":
+        monkeypatch.setitem(relay._READ_TIMEOUT_SECONDS, "read_mail", 0.02)
+    session, live = read_session(monkeypatch, read)
+    task = asyncio.create_task(
+        session._dispatch_tool_call({"id": "read-1", "name": "read_mail", "args": {}})
+    )
+    await asyncio.wait_for(started.wait(), timeout=1)
+    if finish == "new_input":
+        session._observe_mail_input(LiveEvent(kind="activity_start"))
+    await asyncio.wait_for(task, timeout=1)
+    assert stopped.is_set()
+    assert session._active_read is None
+    assert len(session.transport.frames("audio")) == 1
+    assert len(live.tool_responses) == 1
+    assert HOSTILE_BODY not in repr(live.tool_responses)
+    assert live.tool_responses[0]["response"]["spoken_facts"] == []
+    if finish == "new_input":
+        assert (
+            session.transport.frames("tool.result")[-1]["result_public"]["status"] == "superseded"
+        )
+        interrupted = session.transport.frames("turn")[-1]
+        assert interrupted["state"] == "interrupted"
+        assert interrupted["turn_id"] == session.transport.frames("audio")[0]["turn_id"]
+        await session._handle_live_event(LiveEvent(kind="audio", audio_b64="bGF0ZQ=="))
+        assert len(session.transport.frames("audio")) == 1, "old Live audio is fenced too"
+    else:
+        # Failed speech does not erase the already successful result card.
+        assert len(session.transport.frames("tool.result")) == 1
+        assert session.transport.frames("tool.result")[0]["result_public"]["status"] == "ok"

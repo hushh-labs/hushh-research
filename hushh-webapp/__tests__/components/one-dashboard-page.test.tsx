@@ -128,7 +128,7 @@ describe("OneDashboardPage", () => {
     expect(screen.queryByText(/Good (morning|afternoon|evening), /)).toBeNull();
     expect(screen.queryByText("Your private agent")).toBeNull();
     expect(screen.getByTestId("one-agents-section")).toBeTruthy();
-    expect(screen.getByTestId("one-agents-list")).toBeTruthy();
+    expect(screen.getByTestId("one-agents-grid")).toBeTruthy();
     expect(container.textContent).not.toContain("Finish setup");
     expect(screen.getByRole("heading", { name: "Agents (10)" })).toBeTruthy();
 
@@ -139,7 +139,7 @@ describe("OneDashboardPage", () => {
     expect(financeLink.getAttribute("href")).toBe(
       financeSetupFromOne,
     );
-    const expectedAppIcons = [
+    const rosterOrder = [
       "finance",
       "wallet",
       "location",
@@ -148,12 +148,19 @@ describe("OneDashboardPage", () => {
       "calendar",
       "pkm",
       "consent",
+      "messages",
     ] as const;
-    for (const id of expectedAppIcons) {
+    const grid = screen.getByTestId("one-agents-grid");
+    expect(
+      Array.from(grid.querySelectorAll('[data-testid^="one-agent-tile-"]')).map(
+        (tile) => tile.getAttribute("data-testid")?.replace("one-agent-tile-", ""),
+      ),
+    ).toEqual(rosterOrder);
+    for (const id of rosterOrder) {
       const icon = screen.getAllByTestId(`one-agent-icon-${id}`)[0];
-      expect(icon).toBeTruthy();
-      expect(icon).toHaveAttribute("data-agent-icon-kind", "image");
-      expect(icon.querySelectorAll("img")).toHaveLength(2);
+      expect(icon).toHaveAttribute("data-agent-icon-kind", "custom");
+      expect(icon).toHaveClass("h-[68px]", "w-[68px]");
+      expect(icon.querySelectorAll("svg")).toHaveLength(1);
     }
     const financeIcon = screen.getAllByTestId("one-agent-icon-finance")[0];
     // Greyscale-until-onboarded is reverted for now: icons stay full color
@@ -162,9 +169,7 @@ describe("OneDashboardPage", () => {
     // palette-color coverage below with an all-completed fixture.
     //
     // An unfinished workspace keeps its recognizable full-color artwork.
-    expect(financeIcon.querySelector("img")).toHaveAttribute(
-      "src", "/agents-icon-set/finance-light.webp",
-    );
+    expect(financeIcon.querySelector("svg")).toBeTruthy();
     expect(financeIcon.className).not.toContain("grayscale");
     expect(financeIcon.querySelector(".backdrop-blur-\\[8px\\]")).toBeNull();
     expect(screen.getByRole("link", { name: "Open Files" })).toHaveAttribute(
@@ -196,6 +201,9 @@ describe("OneDashboardPage", () => {
       screen.getByRole("link", { name: "Open Location" }).getAttribute("href"),
     ).toBe(ROUTES.ONE_LOCATION);
     expect(screen.queryByRole("link", { name: "Open CRM" })).toBeNull();
+    expect(
+      screen.getByRole("link", { name: "Open Messages" }).getAttribute("href"),
+    ).toBe(ROUTES.ONE_MESSAGES);
 
     // The roster shows a concise, numeric action KPI rather than generic
     // progress words such as Ready, Open, or Explore.
@@ -242,9 +250,7 @@ describe("OneDashboardPage", () => {
 
     // Completed setup keeps the same capability artwork as unfinished setup.
     const financeIcon = screen.getAllByTestId("one-agent-icon-finance")[0];
-    expect(financeIcon.querySelector("img")).toHaveAttribute(
-      "src", "/agents-icon-set/finance-light.webp",
-    );
+    expect(financeIcon.querySelector("svg")).toBeTruthy();
     const rosterPaletteOrder = [
       "finance",
       "wallet",
@@ -254,11 +260,12 @@ describe("OneDashboardPage", () => {
       "calendar",
       "pkm",
       "consent",
+      "messages",
     ] as const;
     const iconSources = rosterPaletteOrder.map((id) =>
       screen
         .getAllByTestId(`one-agent-icon-${id}`)[0]
-        .querySelector("img")?.getAttribute("src"),
+        .querySelector("svg")?.innerHTML,
     );
     expect(iconSources.every(Boolean)).toBe(true);
     expect(new Set(iconSources).size).toBe(
@@ -275,20 +282,23 @@ describe("OneDashboardPage", () => {
     );
   });
 
-  it("renders the complete roster as a list first and keeps the grid available", () => {
+  it("defaults to the complete three-column grid and keeps the list available", () => {
     const { container } = render(
       <OneDashboardPage displayName="Kushal Trivedi" />,
     );
 
-    expect(screen.getByTestId("one-agents-list")).toBeTruthy();
-    expect(screen.getByTestId("one-agent-list-row-finance")).toBeTruthy();
+    expect(screen.getByTestId("one-agents-grid")).toBeTruthy();
+    expect(screen.getByTestId("one-agent-tile-messages")).toBeTruthy();
     expect(
       screen.getByRole("link", { name: "Open Finance" }).getAttribute("href"),
     ).toBe(financeSetupFromOne);
     expect(screen.getByLabelText("Show agent grid view")).toHaveAttribute(
       "aria-pressed",
-      "false",
+      "true",
     );
+    fireEvent.click(screen.getByLabelText("Show agent list view"));
+    expect(screen.getByTestId("one-agents-list")).toBeTruthy();
+    expect(screen.getByTestId("one-agent-list-row-messages")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Show agent grid view"));
     expect(screen.getByTestId("one-agents-grid")).toBeTruthy();
     expect(screen.getByTestId("one-agent-tile-finance")).toBeTruthy();

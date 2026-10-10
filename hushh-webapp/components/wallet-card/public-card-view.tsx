@@ -34,6 +34,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  pickWalletAvatarUrl,
+  WALLET_AVATAR_READ_LIMIT,
+} from "@/lib/services/wallet-card-avatar";
 
 /** Mirrors the server-side `preferred_contact` closed set. */
 export type WalletCardPreferredContact =
@@ -76,10 +80,10 @@ const MAX_LENGTHS = {
   phone: 32,
   url: 300,
   preferredContact: 16,
-  avatarUrl: 2048,
   timestamp: 64,
 } as const;
 
+const MAX_HTTPS_AVATAR_LENGTH = 2048;
 const MAX_SKILLS = 12;
 const VCARD_LINE_LIMIT = 75;
 
@@ -249,12 +253,13 @@ export function normalizePublicWalletCard(
     // A portfolio identical to the website would render the same link twice.
     portfolio: portfolioRaw && portfolioRaw !== website ? portfolioRaw : null,
     preferredContact: pickPreferredContact(source),
-    avatarUrl: safeHttpsUrl(
+    avatarUrl: pickWalletAvatarUrl(
       pickString(
         source,
         ["avatarUrl", "avatar_url", "photoUrl", "photo_url"],
-        MAX_LENGTHS.avatarUrl,
+        WALLET_AVATAR_READ_LIMIT,
       ),
+      (value) => (value && value.length <= MAX_HTTPS_AVATAR_LENGTH ? safeHttpsUrl(value) : null),
     ),
     updatedAt: pickString(
       source,

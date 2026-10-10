@@ -1,4 +1,8 @@
-"""Stripe-hosted Checkout for a fixed $10 Drive request, with DB-bound settlement."""
+"""Stripe-hosted Checkout for one Drive request at its order's fixed price.
+
+Settlement is bound to the database order: the Checkout amount comes from the
+order row, and a paid event must match that order's amount and currency.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +18,12 @@ from sqlalchemy import text
 from hushh_mcp.runtime_settings import get_app_runtime_settings
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
+from hushh_mcp.services.drive_owner_allowed import (
+    MAX_OWNER_PRICE_CENTS,
+    MIN_OWNER_PRICE_CENTS,
+    automatic_recipient_current,
+    valid_owner_price_cents,
+)
 from hushh_mcp.services.drive_request_payment_store import (
     DriveRequestPaymentStore,
     _payer_ref,
@@ -23,6 +33,11 @@ from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.drive_sharing_store import DriveSharingStore
 from hushh_mcp.services.drive_work_wake import wake_drive_work
 from hushh_mcp.services.google_drive_adapter import DriveReadError
+from hushh_mcp.services.stripe_mode import (
+    configured_stripe_mode,
+    stripe_environment,
+    stripe_key_mode,
+)
 
 # Stripe requires at least 30 minutes; keep a minute of transport/clock slack.
 CHECKOUT_HOLD_SECONDS = 31 * 60
@@ -44,14 +59,13 @@ def _config() -> tuple[str, str, str]:
         and runtime_environment != deploy_environment
     ):
         raise DriveSharingError("payment_unavailable")
-    expected_prefix = (
-        "sk_live_" if "production" in {runtime_environment, deploy_environment} else "sk_test_"
-    )
+    try:
+        stripe_key_mode(key)
+    except ValueError:
+        raise DriveSharingError("payment_unavailable") from None
     parsed = urlsplit(origin)
     if (
-        not key.startswith(expected_prefix)
-        or len(key) < 24
-        or not webhook_secret.startswith("whsec_")
+        not webhook_secret.startswith("whsec_")
         or len(webhook_secret) < 20
         or parsed.scheme != "https"
         or not parsed.hostname
@@ -88,7 +102,8 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
         return result
 
     async def get_payment(self, *, requester_user_id: str, request_id: str) -> dict:
-        return await self.payment_state(requester_user_id=requester_user_id, request_id=request_id)
+        state = await self.payment_state(requester_user_id=requester_user_id, request_id=request_id)
+        return {key: value for key, value in state.items() if not key.startswith("_payout_")}
 
     async def reconcile_refunds(self, *, max_orders: int = 4) -> dict:
         from hushh_mcp.services.drive_request_payment_refunds import reconcile_refunds
@@ -99,7 +114,11 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
     def _current_checkout_authority(
         self, connection, *, request_id: str, requester_user_id: str
     ) -> dict:
-        """Recheck the same Trusted/background boundary under graph and request locks."""
+        """Recheck the same automatic/background boundary under graph and request locks.
+
+        Automatic means current Trusted membership, or this request's sealed
+        owner Allow while the pair is still connected.
+        """
         participant = self._row(
             connection,
             """SELECT user_id,recipient_user_id FROM drive_share_requests
@@ -135,13 +154,18 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 request["status"] == "pending"
                 and request["preparation_error_code"] != "manual_search_active"
                 and connector_feature_enabled("google_drive_chat_reads", owner)
-                and sharing._trusted_recipient_current(
-                    connection, owner, participants["recipient_user_id"]
+                and automatic_recipient_current(
+                    connection,
+                    owner,
+                    participants["recipient_user_id"],
+                    private,
+                    request_id=request_id,
                 )
             )
         else:
-            # Non-trusted requests retain owner consent. Payment is available
-            # only after that consent has queued an immutable grant batch.
+            # Without the automatic marker (no Trusted creation, no owner
+            # Allow), requests retain per-batch owner consent. Payment is
+            # available only after that consent has queued an immutable batch.
             # Progressive requests intentionally remain pending so later
             # batches can still be reviewed and paid by the same order.
             trusted_valid = connector_feature_enabled("google_drive_chat_reads", owner) and (
@@ -166,6 +190,27 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
         if state["status"] not in {"awaiting_payment", "checkout_open"}:
             raise DriveSharingError("payment_not_ready")
 
+        # A newly enrolled owner-paid order must have a live US Connect
+        # destination before charging the requester. Existing orders without
+        # a ledger remain on their original Hushh-merchant terms.
+        payout_enrolled = state.get("_payout_enrolled") is True
+        verified_account_id = None
+        if payout_enrolled:
+            from hushh_mcp.services.drive_request_owner_payout_service import payout_enabled
+            from hushh_mcp.services.pkm_payout_service import PkmPayoutService
+
+            if not payout_enabled() or not state.get("_payout_owner_user_id"):
+                raise DriveSharingError("payment_unavailable")
+            try:
+                account = await PkmPayoutService().refresh_account(
+                    user_id=state["_payout_owner_user_id"]
+                )
+            except Exception:
+                raise DriveSharingError("payment_unavailable") from None
+            if not account or not account["readiness"]["ready"]:
+                raise DriveSharingError("payment_not_ready")
+            verified_account_id = account["stripe_account_id"]
+
         def reserve(connection):
             self._current_checkout_authority(
                 connection, request_id=request_id, requester_user_id=requester_user_id
@@ -181,6 +226,7 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             )
             if (
                 order is None
+                or order.get("stripe_mode") != configured_stripe_mode()
                 or order["request_status"] not in {"pending", "approved", "partial"}
                 or order["request_expires_at"] <= datetime.now(UTC)
             ):
@@ -193,6 +239,37 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 raise DriveSharingError("payment_checkout_expired")
             if order["status"] not in {"awaiting_payment", "checkout_open"}:
                 raise DriveSharingError("payment_not_ready")
+            if payout_enrolled:
+                # Keep the verified destination on the ownerless earning row.
+                # The live owner mapping is removed during account erasure.
+                current_account = self._row(
+                    connection,
+                    """SELECT stripe_account_id,details_submitted,payouts_enabled
+                       FROM stripe_owner_payout_accounts WHERE user_id=:owner AND stripe_mode=:stripe_mode FOR SHARE""",
+                    {
+                        "owner": state["_payout_owner_user_id"],
+                        "stripe_mode": configured_stripe_mode(),
+                    },
+                )
+                if (
+                    current_account is None
+                    or current_account["stripe_account_id"] != verified_account_id
+                    or not current_account["details_submitted"]
+                    or not current_account["payouts_enabled"]
+                ):
+                    raise DriveSharingError("payment_not_ready")
+                bound = self._row(
+                    connection,
+                    """UPDATE drive_request_owner_payouts
+                       SET destination_account_id=COALESCE(destination_account_id,:account),
+                           updated_at=clock_timestamp()
+                       WHERE request_id=:request AND status='awaiting_delivery'
+                         AND (destination_account_id IS NULL OR destination_account_id=:account)
+                       RETURNING destination_account_id""",
+                    {"request": request_id, "account": verified_account_id},
+                )
+                if bound is None:
+                    raise DriveSharingError("payment_unavailable")
             now = datetime.now(UTC)
             reserved_expiry = order.get("stripe_checkout_expires_at")
             if (
@@ -204,6 +281,10 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             if order["stripe_checkout_url"] and reserved_expiry is not None:
                 return order
             if order["stripe_checkout_session_id"]:
+                raise DriveSharingError("payment_unavailable")
+            # The stored order amount is the Checkout price. An amount outside
+            # the whole-dollar price range never reaches the provider.
+            if not valid_owner_price_cents(order["amount_cents"]) or order["currency"] != "usd":
                 raise DriveSharingError("payment_unavailable")
             # Reserve the exact Stripe payload before provider I/O. Replays
             # must use the same expiration with the same idempotency key.
@@ -243,8 +324,8 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 line_items=[
                     {
                         "price_data": {
-                            "currency": "usd",
-                            "unit_amount": 1000,
+                            "currency": order["currency"],
+                            "unit_amount": order["amount_cents"],
                             "product_data": {"name": "Document request"},
                         },
                         "quantity": 1,
@@ -254,6 +335,7 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 expires_at=checkout_expires_at,
                 metadata={
                     "payment_kind": "drive_request",
+                    "hussh_environment": stripe_environment(),
                     "request_id": request_id,
                     "payer_ref": _payer_ref(request_id, requester_user_id),
                     "checkout_attempt_id": str(order["checkout_attempt_id"]),
@@ -261,10 +343,14 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 payment_intent_data={
                     "metadata": {
                         "payment_kind": "drive_request",
+                        "hussh_environment": stripe_environment(),
                         "request_id": request_id,
                         "payer_ref": _payer_ref(request_id, requester_user_id),
                         "checkout_attempt_id": str(order["checkout_attempt_id"]),
-                    }
+                    },
+                    **(
+                        {"transfer_group": f"drive-request-{request_id}"} if payout_enrolled else {}
+                    ),
                 },
                 success_url=_checkout_return_url(origin, request_id, "success"),
                 cancel_url=_checkout_return_url(origin, request_id, "cancel"),
@@ -301,9 +387,9 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
         if (
             session.get("mode") != "payment"
             or session.get("client_reference_id") != request_id
-            or session.get("amount_total") != 1000
-            or session.get("currency") != "usd"
-            or session.get("livemode") != key.startswith("sk_live_")
+            or session.get("amount_total") != order["amount_cents"]
+            or session.get("currency") != order["currency"]
+            or session.get("livemode") is not key.startswith("sk_live_")
             or session_metadata.get("payer_ref") != _payer_ref(request_id, requester_user_id)
             or session_metadata.get("payment_kind") != "drive_request"
             or session_metadata.get("request_id") != request_id
@@ -398,20 +484,31 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
             raise DriveSharingError("payment_invalid_event")
         if metadata.get("payment_kind") != "drive_request":
             return
+        environment = metadata.get("hussh_environment")
+        if environment is not None and not isinstance(environment, str):
+            raise DriveSharingError("payment_invalid_event")
+        if environment not in {None, stripe_environment()}:
+            if environment in {"uat", "production", "dev", "local"}:
+                return
+            raise DriveSharingError("payment_invalid_event")
         try:
             request_id = _request_id(metadata.get("request_id"))
         except DriveSharingError:
             raise DriveSharingError("payment_invalid_event") from None
         expired_event = event_type == "checkout.session.expired"
+        # Amount shape only: the locked order or obligation amount below is
+        # the settlement authority, and the session must match it exactly.
+        amount_total = session.get("amount_total")
         if (
             session.get("object") != "checkout.session"
             or not isinstance(session.get("id"), str)
             or session.get("client_reference_id") != request_id
             or session.get("mode") != "payment"
             or (not expired_event and session.get("payment_status") != "paid")
-            or session.get("amount_total") != 1000
+            or type(amount_total) is not int
+            or not MIN_OWNER_PRICE_CENTS <= amount_total <= MAX_OWNER_PRICE_CENTS
             or session.get("currency") != "usd"
-            or session.get("livemode") != key.startswith("sk_live_")
+            or session.get("livemode") is not key.startswith("sk_live_")
             or (not expired_event and not isinstance(session.get("payment_intent"), str))
             or not isinstance(event.get("id"), str)
         ):
@@ -463,6 +560,8 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 {"request": request_id},
             )
             binding = order if request is not None else obligation
+            if binding is not None and binding.get("stripe_mode") != configured_stripe_mode():
+                raise DriveSharingError("payment_invalid_event")
             # Stripe can deliver expiration for an older Checkout session after
             # the requester has already opened a replacement. It is a valid,
             # signed event, but must not invalidate the newer attempt.

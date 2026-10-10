@@ -104,6 +104,21 @@ subagents:
       If ambiguous, choose document_coverage.
       "latest", "newest", "last" or "most recent" file: sort="recent". "My
       recent files" with nothing else: sort="recent" and no terms.
+      When transaction_search=true, preserve an explicit file count in
+      result_limit (integer 1 to 1000) and sort="recent": "latest 100
+      documents" means file_kind=document, terms=[], result_limit=100;
+      "last 4 standup notes" means terms=["standup"], file_kind=document,
+      result_limit=4. Standup, stand-up and stand up are one subject; "notes"
+      is a format, so do not add it as another required topic term.
+      This limit is the total selected file set, never a provider page size.
+      Preserve createdTime for explicitly newest-created files and
+      modifiedTime for latest-updated or unspecified recency. Do not turn
+      "last 3 days", a year, report number, date range, or title digits into a
+      file count. For "all documents", an absent file count, or
+      non-transaction searches, leave result_limit=null. Never silently
+      clamp or omit an unsupported requested count: return that count so
+      validation can reject it. Keep file counts and recency
+      words out of terms. Respect any supplied coverage period independently.
       shared_with_me=true only when the owner asks for files others shared
       with them.
       Use nouns specific to the requested records, such as "statement" and an

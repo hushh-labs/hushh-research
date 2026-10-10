@@ -86,11 +86,10 @@ export const WALLET_CARD_OWNER_COPY = {
   resumeSharing: "Resume sharing",
   rotateAccess: "Rotate QR access",
   removeProfile: "Remove Wallet profile",
-  updatesAutomatically:
-    "Your shared profile updates automatically. You never need to add the pass again after changing what you share.",
+  updatesAutomatically: "Updates automatically.",
   statusActive: "Sharing is on",
   statusPaused: "Sharing is paused",
-  statusPausedDetail: "A scan shows nothing until you resume.",
+  statusPausedDetail: "Hidden until you resume.",
   lastUpdatedLabel: "Last updated",
   scanCountLabel: "Scans",
   lastScannedLabel: "Last scan",

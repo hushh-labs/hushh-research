@@ -33,7 +33,7 @@ import {
   AppPageContentRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
-import { FlowActionGroup } from "@/components/app-ui/flow-actions";
+import { WalletSavedCardDetails } from "./wallet-saved-card-details";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import {
@@ -295,7 +295,10 @@ export function WalletWorkspace() {
   const cards = useMemo(() => ownedSnapshot?.cards ?? [], [ownedSnapshot]);
   const cardholderNames = ownedSnapshot?.cardholderNames ?? {};
   const [busyCardId, setBusyCardId] = useState<string | null>(null);
-  const [removeTarget, setRemoveTarget] = useState<WalletCardSummary | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<{
+    card: WalletCardSummary;
+    context: NonNullable<ReturnType<typeof vaultContext>>;
+  } | null>(null);
   const [unlockOpen, setUnlockOpen] = useState(false);
   // A chat offer ("Add Amex Gold to Wallet") hands over the nickname in memory
   // (lib/pkm/reserved-offer.ts); the owner enters the card here, as always.
@@ -449,6 +452,9 @@ export function WalletWorkspace() {
   // from the latest render when it settles, never from the tap that began it.
   const vaultContextRef = useRef(vaultContext);
   vaultContextRef.current = vaultContext;
+  useEffect(() => {
+    setRemoveTarget(null);
+  }, [renderedOwnerId, vaultKey]);
 
   const refresh = useCallback(
     async (options?: { quiet?: boolean }) => {
@@ -525,6 +531,78 @@ export function WalletWorkspace() {
 
   const focusedCardId = focusedCardIdOf(view);
   const focusedCard = cards.find((card) => card.cardId === selectedDeckCardId) ?? cards[0] ?? null;
+  const cardActionScopeRef = useRef({
+    ownerId: renderedOwnerId,
+    vaultKey,
+    tab: activeTab,
+    cardId: focusedCard?.cardId,
+    focusedId: focusedCardId,
+    revision: 0,
+  });
+  const previousScope = cardActionScopeRef.current;
+  if (previousScope.ownerId !== renderedOwnerId || previousScope.vaultKey !== vaultKey ||
+      previousScope.tab !== activeTab || previousScope.cardId !== focusedCard?.cardId ||
+      previousScope.focusedId !== focusedCardId) {
+    cardActionScopeRef.current = {
+      ownerId: renderedOwnerId, vaultKey, tab: activeTab, cardId: focusedCard?.cardId,
+      focusedId: focusedCardId,
+      revision: previousScope.revision + 1,
+    };
+  }
+  useEffect(() => {
+    const invalidateCopy = () => {
+      if (document.visibilityState === "hidden") cardActionScopeRef.current.revision += 1;
+    };
+    document.addEventListener("visibilitychange", invalidateCopy);
+    return () => {
+      cardActionScopeRef.current.revision += 1;
+      document.removeEventListener("visibilitychange", invalidateCopy);
+    };
+  }, []);
+
+  const copyCardNumber = async (cardId: string): Promise<boolean> => {
+    const context = vaultContextRef.current();
+    const revision = cardActionScopeRef.current.revision;
+    const isCurrent = () => {
+      const current = vaultContextRef.current();
+      const scope = cardActionScopeRef.current;
+      return context && current?.userId === context.userId && current.vaultKey === context.vaultKey &&
+        current.vaultOwnerToken === context.vaultOwnerToken && scope.revision === revision &&
+        scope.tab === "cards" && scope.focusedId === cardId && scope.cardId === cardId &&
+        document.visibilityState !== "hidden";
+    };
+    if (!context || !isCurrent()) return false;
+    const clipboard = navigator.clipboard;
+    if (!clipboard?.writeText && !clipboard?.write) throw new Error("Card copy unavailable");
+    // Read secrets only for this explicit action; never put the PAN in UI state or DOM.
+    const readNumber = async () => {
+      const saved = await WalletService.getCard({ ...context, cardId });
+      if (!isCurrent() || !saved?.secrets.pan) throw new Error("Card copy unavailable");
+      return saved.secrets.pan;
+    };
+    try {
+      if (clipboard.write && typeof ClipboardItem === "function") {
+        // Start the write inside the click gesture. WebKit accepts the locally
+        // decrypted value through the item's promise after that gesture ends.
+        const data = readNumber().then(pan => new Blob([pan], { type: "text/plain" }));
+        void data.catch(() => {}); // A denied write may never consume the item.
+        await clipboard.write([new ClipboardItem({ "text/plain": data })]);
+      } else {
+        const pan = await readNumber();
+        if (!isCurrent()) return false;
+        await clipboard.writeText(pan);
+      }
+      return Boolean(isCurrent());
+    } catch (error) {
+      if (!isCurrent()) return false;
+      throw error;
+    }
+  };
+
+  const requestRemove = (card: WalletCardSummary) => {
+    const context = vaultContextRef.current();
+    if (context && !busyCardId) setRemoveTarget({ card, context });
+  };
   const selectCard = (cardId: string) => {
     setSelectedDeckCardId(cardId);
     dispatch({ type: "unfocus" });
@@ -533,35 +611,7 @@ export function WalletWorkspace() {
     setSearchOpen(false);
   };
 
-  const revealCard = async (cardId: string) => {
-    const context = vaultContext();
-    if (!context) {
-      dispatch({ type: "vault_unavailable" });
-      return;
-    }
-    dispatch({ type: "focus", cardId });
-    setBusyCardId(cardId);
-    try {
-      const full = await WalletService.getCard({ ...context, cardId });
-      if (full && activeOwnerIdRef.current === context.userId && vaultContextRef.current()?.vaultKey === context.vaultKey) {
-        dispatch({
-          type: "revealed",
-          cardId,
-          summary: full.summary,
-          secrets: full.secrets,
-          vaultUnlocked: vaultContextRef.current() !== null,
-        });
-      }
-    } catch {
-      morphyToast.error("This card could not be opened.");
-    } finally {
-      setBusyCardId(null);
-    }
-  };
-
-  const removeCard = async (cardId: string) => {
-    const context = vaultContext();
-    if (!context) return;
+  const removeCard = async (cardId: string, context: NonNullable<ReturnType<typeof vaultContext>>) => {
     setBusyCardId(cardId);
     try {
       try {
@@ -609,7 +659,10 @@ export function WalletWorkspace() {
     const target = removeTarget;
     setRemoveTarget(null);
     if (!target) return;
-    void morphyToast.promise(removeCard(target.cardId), {
+    const current = vaultContextRef.current();
+    if (current?.userId !== target.context.userId || current.vaultKey !== target.context.vaultKey ||
+        current.vaultOwnerToken !== target.context.vaultOwnerToken) return;
+    void morphyToast.promise(removeCard(target.card.cardId, target.context), {
       loading: "Removing card…",
       success: "Card removed.",
       error: "The card could not be removed.",
@@ -653,31 +706,15 @@ export function WalletWorkspace() {
       className="motion-step-enter [animation-delay:var(--motion-duration-sm)]"
       data-testid="one-wallet-card-actions"
     >
-      <FlowActionGroup
-        stacked
-        primary={
-          <Button
-            size="standard"
-            isLoading={busyCardId === focusedCard.cardId}
-            onClick={() => void revealCard(focusedCard.cardId)}
-            data-testid={`one-wallet-reveal-${focusedCard.last4}`}
-          >
-            Show card details
-          </Button>
-        }
-        tertiary={
-          <Button
-            variant="ghost"
-            size="compact"
-            disabled={busyCardId === focusedCard.cardId}
-            className="text-[color:var(--app-destructive)] hover:bg-[color:color-mix(in_srgb,var(--app-destructive)_10%,transparent)]"
-            onClick={() => setRemoveTarget(focusedCard)}
-            data-testid="one-wallet-remove"
-          >
-            Remove card
-          </Button>
-        }
+      <WalletSavedCardDetails
+        key={focusedCard.cardId}
+        card={focusedCard}
+        name={cardholderNames[focusedCard.cardId]}
+        onCopyCardNumber={() => copyCardNumber(focusedCard.cardId)}
+        onRemove={() => requestRemove(focusedCard)}
+        disabled={Boolean(busyCardId)}
       />
+
     </div>
   ) : null}
 
@@ -695,7 +732,7 @@ export function WalletWorkspace() {
   );
 
   const removeTitle = removeTarget
-    ? removeTarget.nickname || `${cardNetworkLabel(removeTarget.brand)} ending ${removeTarget.last4}`
+    ? removeTarget.card.nickname || `${cardNetworkLabel(removeTarget.card.brand)} ending ${removeTarget.card.last4}`
     : "";
 
   return (
@@ -848,7 +885,7 @@ export function WalletWorkspace() {
               onAdd={() => { dispatch({ type: "unfocus" }); dispatch({ type: "open_add" }); }}
               details={cardDetails}
               active={activeTab === "cards"}
-              onRemove={setRemoveTarget}
+              onRemove={requestRemove}
               busyCardId={removingCardId}
               disabled={Boolean(busyCardId)}
             />

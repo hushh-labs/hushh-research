@@ -1,6 +1,7 @@
 /**
- * Press contract: a press is FLAT (colour or opacity plus the ripple), never a
- * scale, spring, or bounce, and the ripple is on by default everywhere a
+ * Press contract: a press is FLAT (colour or opacity plus the ripple), except
+ * the Chat composer Send button's specified 0.92 press scale. Springs and
+ * bounce remain disallowed, and the ripple is on by default everywhere a
  * person taps, agent chat included.
  *
  * Founder report (2026-09-28): the sign-in buttons ("Create your One", Apple,
@@ -61,7 +62,7 @@ function findBounceClasses(source: string): string[] {
 }
 
 /** Any CSS `:active` rule, or the press utility, that sets a transform. */
-function findActiveTransforms(css: string): string[] {
+function findActiveTransforms(css: string, allow?: (selector: string, body: string) => boolean): string[] {
   const hits: string[] = [];
   const rule = /([^{}]+)\{([^{}]*)\}/g;
   for (const match of css.matchAll(rule)) {
@@ -69,11 +70,21 @@ function findActiveTransforms(css: string): string[] {
     const body = match[2];
     const isPressRule =
       /:active\b/.test(selector) || /\.press-scale\b/.test(selector);
-    if (isPressRule && /\btransform\s*:(?!\s*none\b)/.test(body)) {
+    if (isPressRule && /\btransform\s*:(?!\s*none\b)/.test(body) && !allow?.(selector, body)) {
       hits.push(selector);
     }
   }
   return hits;
+}
+
+const SEND_SCALE_EXCEPTIONS = new Map([
+  ["components/direct-messages/direct-messages-page.module.css", ".sendButton:active"],
+  ["components/connect/circles/circle-chat-lane.module.css", '.composer :global([data-conversation-composer] button[type="submit"]:active)'],
+]);
+
+function isSpecifiedSendScale(file: string, selector: string, body: string): boolean {
+  const transforms = [...body.matchAll(/\btransform\s*:\s*([^;]+)\s*;?/g)].map((match) => match[1]?.trim());
+  return SEND_SCALE_EXCEPTIONS.get(file) === selector && transforms.length === 1 && transforms[0] === "scale(.92)";
 }
 
 function listSourceFiles(dir: string): string[] {
@@ -169,6 +180,9 @@ describe("scanners (negative controls)", () => {
         ".a:active { opacity: 0.8; }\n.press-scale { transform: none; }",
       ),
     ).toEqual([]);
+    expect(isSpecifiedSendScale("components/direct-messages/direct-messages-page.module.css", ".sendButton:active", "transform: scale(.92); ")).toBe(true);
+    expect(isSpecifiedSendScale("components/direct-messages/direct-messages-page.module.css", ".sendButton:active", "transform: scale(.97); ")).toBe(false);
+    expect(isSpecifiedSendScale("components/direct-messages/direct-messages-page.module.css", ".other:active", "transform: scale(.92); ")).toBe(false);
   });
 });
 
@@ -183,12 +197,13 @@ describe("no bounce", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("keeps every :active rule and the press utility transform-free", () => {
+  it("keeps active transforms out except the two Chat Send buttons at 0.92", () => {
     const offenders = ["app", "components", "lib"]
       .flatMap(listSourceFiles)
       .filter((file) => file.endsWith(".css"))
       .flatMap((file) =>
-        findActiveTransforms(read(file)).map((sel) => `${file}: ${sel}`),
+        findActiveTransforms(read(file), (selector, body) => isSpecifiedSendScale(file, selector, body))
+          .map((sel) => `${file}: ${sel}`),
       );
     expect(offenders).toEqual([]);
   });

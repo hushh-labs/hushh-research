@@ -166,4 +166,28 @@ export class OnboardingLocalService {
       return false;
     }
   }
+  /** Device/account-scoped welcome only; never grants setup, consent, or referral credit. */
+  static async hasSeenReferralIntroduction(ownerId: string): Promise<boolean> {
+    const key = `referral_introduction_seen_v1:${ownerId}`;
+    if (getLocalItem(key) === "true") return true;
+    try {
+      const { value } = await Preferences.get({ key });
+      if (value === "true") setLocalItem(key, "true");
+      return value === "true";
+    } catch {
+      return false;
+    }
+  }
+
+  static async markReferralIntroductionSeen(ownerId: string): Promise<void> {
+    const key = `referral_introduction_seen_v1:${ownerId}`;
+    setLocalItem(key, "true");
+    try {
+      await Preferences.set({ key, value: "true" });
+    } catch {
+      // This cosmetic preference retains the browser fallback on native failure.
+    }
+  }
+
+
 }

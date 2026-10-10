@@ -408,39 +408,60 @@ function useBottomSheetDragDismiss({
       const velocity = (event.clientY - drag.lastY) / elapsed
       const duration = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 150
       surface.style.transition = `transform ${duration}ms cubic-bezier(0.32,0.72,0,1)`
+      const settle = () => {
+        surface.style.transform = "translate3d(0, 0, 0)"
+        schedule(() => {
+          surface.style.transform = ""
+          surface.style.transition = ""
+          surface.style.willChange = ""
+          // Preserve the settled open state rather than replaying the entry animation.
+          surface.style.animation = "none"
+        }, duration)
+      }
 
       const cancelled = event.type === "pointercancel" || event.type === "lostpointercapture"
       cancelSettlement()
       const generation = generationRef.current
-      const schedule = (callback: () => void) => {
+      const schedule = (callback: () => void, delay = duration) => {
         settlementRef.current = window.setTimeout(() => {
           settlementRef.current = null
           if (generationRef.current === generation) callback()
-        }, duration)
+        }, delay)
       }
       if (!cancelled && (distance > 96 || velocity > 0.5)) {
         // Keep the direct transform until Radix begins its close lifecycle.
         // Clearing it first lets the completed entry animation flash back in.
         surface.style.transform = "translate3d(0, 100%, 0)"
-        schedule(() => onOpenChange(false))
+        schedule(() => {
+          onOpenChange(false)
+          // A controlled owner can refuse close while a decision is in flight.
+          // A newer gesture or lifecycle invalidates this recovery callback.
+          schedule(() => {
+            if (surface.isConnected && surface.getAttribute("data-state") === "open" && !dragRef.current) settle()
+          }, Math.max(duration, 100))
+        })
         return
       }
 
-      surface.style.transform = "translate3d(0, 0, 0)"
-      schedule(() => {
-        surface.style.transform = ""
-        surface.style.transition = ""
-        surface.style.willChange = ""
-        // Preserve the settled open state rather than replaying the entry animation.
-        surface.style.animation = "none"
-      })
+      settle()
     },
     [enabled, onOpenChange, cancelSettlement],
   )
 
+  // A nested sheet portals out of this one's DOM, yet React still bubbles its
+  // pointer events up through this sheet's handlers. A drag belongs only to the
+  // sheet whose own DOM it started in, so dragging an inner sheet never moves
+  // or dismisses the sheet underneath it.
+  const ownsPointer = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) =>
+      event.target instanceof Node &&
+      !!sheetContentRef.current?.contains(event.target),
+    [],
+  )
+
   const onHandlePointerDown = React.useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
-      if (!enabled || !open || event.button !== 0) return
+      if (!enabled || !open || event.button !== 0 || !ownsPointer(event)) return
       const interrupted = settlementRef.current !== null
       cancelSettlement()
       dragRef.current = {
@@ -452,7 +473,7 @@ function useBottomSheetDragDismiss({
         interrupted,
       }
     },
-    [enabled, open, cancelSettlement],
+    [enabled, open, cancelSettlement, ownsPointer],
   )
 
   const onHandlePointerMove = React.useCallback(
@@ -484,7 +505,7 @@ function useBottomSheetDragDismiss({
 
   const onContentPointerDown = React.useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
-      if (!enabled || !open || event.button !== 0 || dragRef.current?.engaged) return
+      if (!enabled || !open || event.button !== 0 || dragRef.current?.engaged || !ownsPointer(event)) return
       cancelSettlement()
       dragRef.current = {
         pointerId: event.pointerId,
@@ -495,7 +516,7 @@ function useBottomSheetDragDismiss({
         engaged: false,
       }
     },
-    [enabled, open, cancelSettlement],
+    [enabled, open, cancelSettlement, ownsPointer],
   )
 
   const onContentPointerMove = React.useCallback(

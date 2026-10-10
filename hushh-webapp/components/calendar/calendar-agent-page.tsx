@@ -7,12 +7,13 @@ import { ownerContentIsPrivate } from '@/lib/services/private-agent-specialist-c
 import { connectGoogleConnector, connectRefusalMessage } from '@/lib/one/google-native-connect';
 import { requestGoogleConnectorPhoneHandoff } from '@/lib/one/google-connector-intent';
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { CheckCircle2, Loader2 } from "@/components/icons";
 import { toast } from "sonner";
 
 import { AskOneButton } from "@/components/agent/ask-one-button";
+import { Button } from "@/components/ui/button";
 import {
   AppPageContentRegion,
   AppPageShell,
@@ -112,6 +113,8 @@ function CalendarConnectIcon({
 
 type CalendarAgentPageProps = {
   journeyVariant?: "workspace" | "onboarding";
+  /** Only the setup adapter can authorize the first unfinished setup illustration. */
+  showOnboardingIllustration?: boolean;
   onConnectionStateChange?: (connected: boolean) => void;
   onFinishSetup?: () => void;
   onSkipSetup?: () => void;
@@ -128,6 +131,7 @@ type CalendarAgentPageProps = {
  */
 export function CalendarAgentPage({
   journeyVariant = "workspace",
+  showOnboardingIllustration = false,
   onConnectionStateChange,
   onFinishSetup,
   onSkipSetup,
@@ -139,6 +143,10 @@ export function CalendarAgentPage({
   const { vaultKey, vaultOwnerToken } = useVault();
   const { confirmTransition, transitionDialog } = useGoogleConnectorTransitionReview(user?.uid, snapshotVaultSessionEpoch());
   const renderedOwnerId = user?.uid ?? null;
+  const latestUserRef = useRef(user);
+  useEffect(() => {
+    latestUserRef.current = user;
+  }, [user]);
   const activeOwnerIdRef = useRef<string | null>(renderedOwnerId);
   activeOwnerIdRef.current = renderedOwnerId;
   useEffect(() => {
@@ -149,7 +157,25 @@ export function CalendarAgentPage({
       }
     };
   }, [renderedOwnerId]);
-  const [status, setStatus] = useState<GoogleCalendarStatus | null>(null);
+  const identity = useMemo(() => Symbol(`calendar-page-${Boolean(renderedOwnerId)}`), [renderedOwnerId]);
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
+  const statusRequestRef = useRef(0);
+  const [statusSnapshot, setStatusSnapshot] = useState<{
+    identity: symbol; value: GoogleCalendarStatus | null;
+  }>({ identity, value: null });
+  const status = statusSnapshot.identity === identity ? statusSnapshot.value : null;
+  // A verified connect/disconnect supersedes any earlier status request.
+  const setStatus = (value: GoogleCalendarStatus | ((current: GoogleCalendarStatus | null) => GoogleCalendarStatus)) => {
+    statusRequestRef.current += 1;
+    setStatusSnapshot((current) => ({
+      identity,
+      value: typeof value === "function"
+        ? value(current.identity === identity ? current.value : null) : value,
+    }));
+  };
+  const [connectedPresentationIdentity, setConnectedPresentationIdentity] =
+    useState<symbol | null>(null);
   const [busy, setBusy] = useState(false);
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
   // Google's opener policy can sever the popup's WindowProxy, so
@@ -164,27 +190,47 @@ export function CalendarAgentPage({
     return () => lifetime.abort();
   }, []);
 
+  useEffect(() => {
+    setBusy(false);
+    setPopupWaiting(false);
+    setDisconnectConfirmOpen(false);
+    return () => {
+      statusRequestRef.current += 1;
+      popupCancelRef.current?.abort();
+    };
+  }, [identity]);
+
   const refresh = useCallback(async () => {
-    if (!user || connectionPending) return null;
-    const operationOwnerId = user.uid;
-    const next = await GoogleCalendarService.status(
-      await user.getIdToken(),
-      operationOwnerId,
-    );
-    if (activeOwnerIdRef.current !== operationOwnerId) return null;
-    setStatus(next);
-    return next;
-  }, [connectionPending, user]);
+    const currentUser = latestUserRef.current;
+    if (!currentUser || connectionPending) return null;
+    if (currentUser.uid !== renderedOwnerId) return null;
+    const operationOwnerId = currentUser.uid;
+    const request = ++statusRequestRef.current;
+    const isCurrent = () => identityRef.current === identity &&
+      statusRequestRef.current === request && activeOwnerIdRef.current === operationOwnerId;
+    try {
+      const idToken = await currentUser.getIdToken();
+      if (!isCurrent()) return null;
+      const next = await GoogleCalendarService.status(idToken, operationOwnerId);
+      if (!isCurrent()) return null;
+      setStatusSnapshot({ identity, value: next });
+      return next;
+    } catch (error) {
+      if (!isCurrent()) return null;
+      throw error;
+    }
+  }, [connectionPending, renderedOwnerId, identity]);
 
   useEffect(() => {
     void refresh().catch((error) => {
+      if (identityRef.current !== identity) return;
       toast.error(
         error instanceof Error
           ? error.message
           : "Unable to load Calendar connection.",
       );
     });
-  }, [refresh]);
+  }, [refresh, identity]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -196,6 +242,12 @@ export function CalendarAgentPage({
 
   const connected =
     status?.connected === true && status.status !== "needs_reauth";
+
+  // A deliberate disconnect uses the compact reconnect surface for the rest
+  // of this owner's visit; this presentation latch never writes setup state.
+  useEffect(() => {
+    if (connected) setConnectedPresentationIdentity(identity);
+  }, [connected, identity]);
 
   useEffect(() => {
     onConnectionStateChange?.(connected);
@@ -210,6 +262,9 @@ export function CalendarAgentPage({
       status: "connected",
       access_level: accessLevel ?? current?.access_level ?? null,
       scope_csv: current?.scope_csv ?? "",
+      // The web callback succeeded only after the requested list scope was
+      // verified. An immediate status read can still return the old grant.
+      calendar_list_access: true,
     }));
     morphyToast.success("Google Calendar connected.");
   };
@@ -222,7 +277,7 @@ export function CalendarAgentPage({
     expired: boolean;
   }) => {
     const currentStatus = await refresh().catch(() => null);
-    if (activeOwnerIdRef.current !== input.operationOwnerId) return;
+    if (identityRef.current !== identity || activeOwnerIdRef.current !== input.operationOwnerId) return;
     if (
       currentStatus?.connected &&
       (input.accessLevel !== "manage" ||
@@ -252,6 +307,7 @@ export function CalendarAgentPage({
   const connect = async (accessLevel: "read" | "manage" = "read") => {
     if (!user) return;
     const operationOwnerId = user.uid;
+    statusRequestRef.current += 1;
     const native = Capacitor.isNativePlatform();
     // Open the consent window inside this click, before any await, so the
     // browser keeps the gesture. A refused popup falls back to a new tab.
@@ -290,7 +346,7 @@ export function CalendarAgentPage({
         clearCalendarSetupOAuthReturn();
       }
       const idToken = await user.getIdToken();
-      if (activeOwnerIdRef.current !== operationOwnerId) {
+      if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) {
         popup?.close();
         return;
       }
@@ -299,12 +355,12 @@ export function CalendarAgentPage({
           idToken,
           accessLevel,
         });
-        if (activeOwnerIdRef.current !== operationOwnerId) return;
+        if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
         const nativeResult = await HushhAuth.connectCalendar({
           serverClientId: start.server_client_id,
           accessLevel: start.access_level,
         });
-        if (activeOwnerIdRef.current !== operationOwnerId) return;
+        if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
         const completed = await GoogleCalendarService.completeNativeConnect({
           idToken,
           userId: operationOwnerId,
@@ -312,7 +368,7 @@ export function CalendarAgentPage({
           serverAuthCode: nativeResult.serverAuthCode,
           state: start.state,
         });
-        if (activeOwnerIdRef.current !== operationOwnerId) return;
+        if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
         if (
           !completed.connected ||
           (accessLevel === "manage" && completed.access_level !== "manage")
@@ -335,7 +391,7 @@ export function CalendarAgentPage({
         userId: operationOwnerId,
         accessLevel: accessLevel,
       });
-      if (activeOwnerIdRef.current !== operationOwnerId) {
+      if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) {
         popup?.close();
         return;
       }
@@ -393,7 +449,7 @@ export function CalendarAgentPage({
       const callbackSettlement = consumeStoredGoogleOAuthPopupSettlement(
         attempt.attemptId,
       );
-      if (activeOwnerIdRef.current !== operationOwnerId) return;
+      if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
       const settled = settlement;
       if (finished === "settled" && settled) {
         if (settled.outcome === "succeeded") applyVerifiedSuccess(accessLevel);
@@ -407,9 +463,9 @@ export function CalendarAgentPage({
           expired: finished === "expired",
         });
       }
-      if (activeOwnerIdRef.current === operationOwnerId) setBusy(false);
+      if (identityRef.current === identity && activeOwnerIdRef.current === operationOwnerId) setBusy(false);
     } catch (error) {
-      if (activeOwnerIdRef.current !== operationOwnerId) return;
+      if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
       const result =
         error && typeof error === "object" && "code" in error &&
         error.code === "USER_CANCELLED"
@@ -428,11 +484,12 @@ export function CalendarAgentPage({
   const disconnect = async () => {
     if (!user) return;
     const operationOwnerId = user.uid;
+    statusRequestRef.current += 1;
     setBusy(true);
     const operation = user
       .getIdToken()
       .then((idToken) => {
-        if (activeOwnerIdRef.current !== operationOwnerId) {
+        if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) {
           throw new Error("Calendar account changed.");
         }
         return GoogleCalendarService.disconnect(idToken, operationOwnerId);
@@ -445,16 +502,16 @@ export function CalendarAgentPage({
     });
     try {
       const next = await operation;
-      if (activeOwnerIdRef.current !== operationOwnerId) return;
+      if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
       trackEvent("one_calendar_action", { route_id: "one_calendar", action: "disconnected", result: "success" });
       setStatus(next);
       setDisconnectConfirmOpen(false);
     } catch (error) {
-      if (activeOwnerIdRef.current !== operationOwnerId) return;
+      if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
       trackEvent("one_calendar_action", { route_id: "one_calendar", action: "disconnected", result: "error" });
       throw error;
     } finally {
-      if (activeOwnerIdRef.current === operationOwnerId) setBusy(false);
+      if (identityRef.current === identity && activeOwnerIdRef.current === operationOwnerId) setBusy(false);
     }
   };
 
@@ -483,9 +540,13 @@ export function CalendarAgentPage({
   const needsReauth = status?.status === "needs_reauth";
   const checkingConnection =
     connectionPending || loading || (!status && !user);
-  // Every not-connected resting state (first connect and a lapsed Google
-  // authorization) shares one hero and one action.
-  const showConnectHero = !connected && !checkingConnection;
+  const showConnectHero =
+    journeyVariant === "onboarding" &&
+    showOnboardingIllustration &&
+    connectedPresentationIdentity !== identity &&
+    status?.status === "disconnected" &&
+    !connected &&
+    !checkingConnection;
 
   const popupWaitingNotice = popupWaiting ? (
     <div className="flex flex-col items-center gap-2 pt-3 text-center">
@@ -573,33 +634,75 @@ export function CalendarAgentPage({
                 <div className="pt-2 space-y-4 flex flex-col items-center w-full">
                   {/* Connection Status & Permission */}
                   <div className="flex flex-col items-center gap-1.5 text-center px-2">
-                    <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                      <CheckCircle2 className="size-4 shrink-0" aria-hidden />
+                    <div
+                      className={`inline-flex items-center gap-1.5 text-xs font-semibold ${
+                        connected
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-muted-foreground"
+                      }`}
+                    >
+                      {connected ? (
+                        <CheckCircle2 className="size-4 shrink-0" aria-hidden />
+                      ) : null}
                       <span>{connectionLabel}</span>
                     </div>
-                    <p className="text-xs text-muted-foreground max-w-sm leading-normal">
-                      {permissionLabel}
-                    </p>
+                    {connected ? (
+                      <p className="text-xs text-muted-foreground max-w-sm leading-normal">
+                        {permissionLabel}
+                      </p>
+                    ) : null}
                   </div>
 
                   {/* Actions */}
                   <div className="flex flex-col items-center gap-2.5 w-full pt-1">
-                    <AskOneButton
-                      disabled={busy}
-                      showIcon={false}
-                      onClick={() => openChat("Summarize my calendar events and help me plan meetings")}
-                      className="w-full rounded-full"
-                    >
-                      Try Calendar Agent with One
-                    </AskOneButton>
-                    <button
-                      type="button"
-                      className="text-xs font-medium text-muted-foreground transition-colors hover:text-destructive focus-visible:outline-none"
-                      disabled={busy}
-                      onClick={() => setDisconnectConfirmOpen(true)}
-                    >
-                      Disconnect Calendar
-                    </button>
+                    {connected && status?.calendar_list_access === false && !Capacitor.isNativePlatform() ? (
+                      <button
+                        type="button"
+                        className="min-h-11 text-sm font-medium text-[color:var(--app-tint)] underline-offset-4 hover:underline"
+                        disabled={busy}
+                        onClick={() => void connect("read")}
+                      >
+                        Allow One to find subscribed calendars
+                      </button>
+                    ) : null}
+                    {connected ? (
+                      <>
+                        <AskOneButton
+                          disabled={busy}
+                          showIcon={false}
+                          onClick={() => openChat("Summarize my calendar events and help me plan meetings")}
+                          className="w-full rounded-full"
+                        >
+                          Try Calendar Agent with One
+                        </AskOneButton>
+                        <button
+                          type="button"
+                          className="text-xs font-medium text-muted-foreground transition-colors hover:text-destructive focus-visible:outline-none"
+                          disabled={busy}
+                          onClick={() => setDisconnectConfirmOpen(true)}
+                        >
+                          Disconnect Calendar
+                        </button>
+                      </>
+                    ) : (
+                      <Button
+                        type="button"
+                        size="prominent"
+                        className="w-full rounded-full bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
+                        disabled={busy}
+                        onClick={() => void connect("read")}
+                        data-voice-control-id="open_calendar_connector"
+                        data-voice-action-id={
+                          journeyVariant === "onboarding"
+                            ? "setup.connect_calendar"
+                            : undefined
+                        }
+                        data-voice-label="Connect Calendar"
+                        data-voice-purpose="starts Google Calendar authorization from this Calendar agent."
+                      >
+                        {needsReauth ? "Reconnect Calendar" : "Connect Calendar"}
+                      </Button>
+                    )}
                   </div>
                 </div>
               )}

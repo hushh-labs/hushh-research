@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { ImageIcon, Loader2, X } from "@/components/icons";
+import { Download, FileText, ImageIcon, Loader2, X } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
@@ -109,29 +109,75 @@ export function ChatImage({ session, message, type, visible, layoutBlocked, scro
       </> : <><Loader2 aria-hidden="true" className="size-5 animate-spin motion-reduce:animate-none" /><span role="status" className="text-xs">Loading image…</span></>}
     </div>}
     {url && visible && inForeground ? <Dialog modal open={expanded} onOpenChange={setExpanded}>
-      <DialogContent className="sm:max-w-3xl" srDescription="Image shared in this circle">
-        <DialogTitle className="text-base">Shared image</DialogTitle>
+      <DialogContent showCloseButton={false} className="sm:max-w-3xl" srDescription="Image shared in this circle">
+        <div className="flex min-w-0 items-center justify-between gap-3">
+          <DialogTitle className="text-base">Shared image</DialogTitle>
+          <ShellActionSurface className="size-11 shrink-0" aria-label="Close" onClick={() => setExpanded(false)}><X aria-hidden="true" className="size-5" /></ShellActionSurface>
+        </div>
         <img src={url} alt="Image shared in circle" className="max-h-[70dvh] max-w-full object-contain" />
       </DialogContent>
     </Dialog> : null}
   </div>;
 }
 
-export function ImageAttachmentPreview({ file, disabled, onRemove }: { file: File; disabled: boolean; onRemove: () => void }) {
-  const [url, setUrl] = useState<string | null>(null);
+export function ImageAttachmentPreview({ file, disabled, onRemove, onValidity }: { file: File; disabled: boolean; onRemove: () => void; onValidity: (file: File, valid: boolean) => void }) {
+  const [preview, setPreview] = useState<{ file: File; url: string } | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     const allocated = URL.createObjectURL(file);
-    setUrl(allocated); setFailed(false);
+    setPreview({ file, url: allocated }); setFailed(false);
     return () => URL.revokeObjectURL(allocated);
   }, [file]);
   /* eslint-disable @next/next/no-img-element */
   return <div aria-label="Attached image preview" className="flex min-w-0 items-center gap-3 pb-3">
     <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-muted">
-      {url && !failed ? <img src={url} alt="Image ready to send" className="h-full w-full object-cover" onError={() => setFailed(true)} /> : <ImageIcon className="size-5 text-muted-foreground" aria-hidden="true" />}
+      {preview?.file === file && !failed ? <img src={preview.url} alt="Image ready to send" className="h-full w-full object-cover" onLoad={() => onValidity(file, true)} onError={() => { setFailed(true); onValidity(file, false); }} /> : <ImageIcon className="size-5 text-muted-foreground" aria-hidden="true" />}
     </div>
     <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{file.name}</p>
       <p className="mt-0.5 text-xs text-muted-foreground">{failed ? "Choose another image" : "Image ready to send"}</p></div>
     <ShellActionSurface className="size-11" aria-label="Remove attached image" disabled={disabled} onClick={onRemove}><X className="size-4" /></ShellActionSurface>
+  </div>;
+}
+
+export function FileAttachmentPreview({ file, disabled, onRemove }: { file: File; disabled: boolean; onRemove: () => void }) {
+  return <div aria-label="Attached file preview" className="flex min-w-0 items-center gap-3 pb-3">
+    <div className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-muted"><FileText aria-hidden="true" className="size-6" /></div>
+    <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{file.name}</p><p className="text-xs text-muted-foreground">{file.type.startsWith("video/") ? "Video" : "Document"} ready to send</p></div>
+    <ShellActionSurface className="size-11" aria-label="Remove attached file" disabled={disabled} onClick={onRemove}><X className="size-4" /></ShellActionSurface>
+  </div>;
+}
+
+/** Decrypt only on an explicit open/download; revoke the URL when the view closes. */
+export function ChatSharedFile({ session, message, type, name, onError }: {
+  session: CircleChatSession; message: ChatMessage; type: string; name: string; onError: (error: unknown) => void;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+  useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
+  const open = async () => {
+    if (loading) return;
+    setLoading(true); setError(false);
+    try {
+      const blob = await CircleChatService.image(session, message, type);
+      const nextUrl = URL.createObjectURL(blob);
+      setUrl(nextUrl);
+      if (!type.startsWith("video/")) {
+        const link = document.createElement("a");
+        link.href = nextUrl;
+        link.download = name;
+        link.click();
+      }
+    } catch (caught) { setError(true); onError(caught); }
+    finally { setLoading(false); }
+  };
+  return <div className="max-w-full rounded-xl bg-muted/70 p-3">
+    <div className="flex min-w-0 items-center gap-2"><FileText aria-hidden="true" className="size-5 shrink-0" /><span className="min-w-0 flex-1 truncate text-sm">{name}</span></div>
+    {type.startsWith("video/") && url ? <video controls preload="metadata" src={url} className="mt-2 max-h-64 w-full rounded-lg" /> : null}
+    <button type="button" onClick={() => void open()} disabled={loading} className="mt-2 flex min-h-10 items-center gap-1 text-sm font-semibold text-[color:var(--chat-accent,var(--app-accent))]">
+      {loading ? <Loader2 aria-hidden="true" className="size-4 animate-spin" /> : <Download aria-hidden="true" className="size-4" />}
+      {type.startsWith("video/") ? url ? "Reload video" : "Open video" : "Download document"}
+    </button>
+    {error ? <p role="alert" className="text-xs">File couldn’t load. Try again.</p> : null}
   </div>;
 }

@@ -162,7 +162,7 @@ function describeGuard(guardId: string): string {
   }
 }
 
-function toWiring(executionTarget: KaiActionExecutionTarget): InvestorKaiActionWiring {
+function toWiring(actionId: string, executionTarget: KaiActionExecutionTarget): InvestorKaiActionWiring {
   if (executionTarget.status === "unwired") {
     return {
       status: "unwired",
@@ -199,7 +199,11 @@ function toWiring(executionTarget: KaiActionExecutionTarget): InvestorKaiActionW
   }
 
   if (executionTarget.path === "voice_tool") {
-    const serverTool = liveTools.tools.find((tool) => tool.gateway_action_id === executionTarget.target);
+    const serverTool = liveTools.tools.find(
+      (tool) =>
+        tool.gateway_action_id === actionId &&
+        (tool.name === executionTarget.target || tool.gateway_action_id === executionTarget.target)
+    );
     if (serverTool) return {
       status: "wired",
       handler: "oneVoiceRuntime",
@@ -280,7 +284,7 @@ function toRegistryAction(action: KaiActionDefinition): InvestorKaiActionDefinit
       level: action.risk_level,
       executionPolicy: action.execution_policy,
     },
-    wiring: toWiring(action.execution_target),
+    wiring: toWiring(action.action_id, action.execution_target),
     workflow: action.workflow,
     controlIds: action.control_ids,
     stateExposure: action.state_exposure,

@@ -57,6 +57,7 @@ import { ownerStyleRequestField, type OwnerStyleSettings } from "@/lib/agent/own
 import { ownerAiRunErrorMessage } from "@/lib/agent/owner-ai-turn-errors";
 import { ownerPodTurnErrorMessage, refusalCode } from "@/lib/agent/owner-pod-turn-errors";
 import { wakingChatTransport } from "@/lib/agent/one-chat-transport";
+import type { ReceiptCanonicalIndex } from "@/lib/profile/gmail-receipt-memory-index";
 
 export type AgentChatMessage = {
   id: string;
@@ -707,6 +708,16 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Reading your calendar events.",
     activity: "Reading your Calendar",
   },
+  calendar_calendars: {
+    label: "Google Calendar",
+    message: "Finding your calendars.",
+    activity: "Reading your calendars",
+  },
+  calendar_event_detail: {
+    label: "Google Calendar",
+    message: "Reading the event details.",
+    activity: "Reading an event",
+  },
   calendar_availability: {
     label: "Google Calendar",
     message: "Checking your availability.",
@@ -746,6 +757,11 @@ const SERVER_TOOL_PRESENTATION: Record<
     label: "Gmail",
     message: "Preparing a mailbox change for your confirmation.",
     activity: "Preparing a mailbox change",
+  },
+  propose_gmail_todo: {
+    label: "Gmail",
+    message: "Preparing email follow-ups for your confirmation.",
+    activity: "Preparing follow-ups",
   },
   propose_drive_share: {
     label: "Google Drive",
@@ -1130,6 +1146,12 @@ export async function streamAgentChat(input: {
   /** One saved Drive result, checked against the current owner and live Drive before use. */
   driveSearchSelection?: { jobId: string; position: number };
   pendingEmailDraft?: PendingEmailDraftContext | null;
+  /**
+   * The owner's saved receipt index, decrypted on this device. It rides beside
+   * the turn only for the Email receipts read; the server validates it against
+   * a closed schema and keeps it for this one turn, never as conversation state.
+   */
+  receiptMemory?: ReceiptCanonicalIndex | null;
   screenContext?: Record<string, unknown> | null;
   /** The specialist tab this turn came from; steers One's first choice, grants nothing. */
   specialistFocus?: "email" | "location" | "information" | "finance";
@@ -1384,6 +1406,7 @@ export async function streamAgentChat(input: {
               gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
               ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
               ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}),
+              ...(input.receiptMemory ? { receiptMemory: input.receiptMemory } : {}),
               screenContext: input.screenContext,
             },
             resume: [{ interruptId, status, payload }],
@@ -1837,6 +1860,7 @@ export async function streamAgentChat(input: {
                     gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
                     ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
                     ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}),
+                    ...(input.receiptMemory ? { receiptMemory: input.receiptMemory } : {}),
                     screenContext: input.screenContext,
                     ...(approval ? { mcpApproval: {
                       directiveId: approval.directiveId, connectorId: approval.connectorId,
@@ -1938,6 +1962,7 @@ export async function streamAgentChat(input: {
         gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
         ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
         ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}),
+        ...(input.receiptMemory ? { receiptMemory: input.receiptMemory } : {}),
         screenContext: input.screenContext,
         ...(input.consentContinuation ? { consentContinuation: input.consentContinuation } : {}),
         ...(input.feedAttention ? { feedAttention: { itemId: input.feedAttention.itemId } } : {}),

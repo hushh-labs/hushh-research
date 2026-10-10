@@ -45,6 +45,7 @@ describe("observability route map", () => {
     expect(resolveRouteId("/")).toBe("chat");
     expect(resolveRouteId("/one")).toBe("one_dashboard");
     expect(resolveRouteId("/one/messages")).toBe("one_messages");
+    expect(resolveRouteId("/one/todos")).toBe("one_todos");
     expect(resolveRouteId("/welcome")).toBe("one_dashboard");
     expect(resolveRouteId("/one/gmail")).toBe("gmail");
     expect(resolveRouteId("/one/email")).toBe("email_agent");
@@ -160,6 +161,17 @@ describe("observability route map", () => {
     );
 
     expect(unknownRoutes).toEqual([]);
+  });
+
+  it.each([
+    ["/one/profile/payouts", "profile_payouts"],
+    ["/one/profile/request-pricing", "profile_request_pricing"],
+  ])("maps %s without retaining return or navigation parameters", (route, routeId) => {
+    expect(resolveRouteId(route)).toBe(routeId);
+    expect(resolveRouteId(`${route}/`)).toBe(routeId);
+    expect(resolveRouteId(`${route}/index.html`)).toBe(routeId);
+    expect(resolveRouteId(`${route}?documentPayouts=done&from=%2Fone%2Ffeed#details`)).toBe(routeId);
+    expect(resolveRouteId(`${route}/unknown`)).toBe("unknown");
   });
 
   it("normalizes known API endpoint templates", () => {

@@ -180,6 +180,10 @@ describe("IntroStep voice contract", () => {
     expect(screen.getByText("Your agents. Yours to own.")).toBeInTheDocument();
     expect(screen.getByText("Your personal team of AI agents.")).toBeInTheDocument();
     expect(screen.getByText("You choose what to share.")).toBeInTheDocument();
+    // The handshake mark sits beside the sentence, inside the same note.
+    expect(
+      screen.getByText("You choose what to share.").parentElement?.querySelector("img"),
+    ).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Sign in", exact: true })).not.toBeInTheDocument();
     expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "1");
     fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
@@ -188,8 +192,14 @@ describe("IntroStep voice contract", () => {
     expect(screen.getByRole("heading", { name: "Your people, closer." })).toBeInTheDocument();
     expect(document.querySelector("[data-hushh-mark]")).not.toBeNull();
     expect(
-      screen.getByRole("button", { name: "Screen 4: Get started" }),
+      screen.getByRole("button", { name: "Screen 3: Get started" }),
     ).toBeDisabled();
+    // Welcome has no dash: the three previews are the whole progress bar.
+    expect(screen.getAllByRole("button", { name: /^Screen \d/ })).toHaveLength(3);
+    expect(screen.getByRole("button", { name: "Screen 1: Circles" })).toHaveAttribute(
+      "aria-current",
+      "step",
+    );
     fireEvent.click(screen.getByRole("button", { name: "Previous screen" }));
     expect(screen.getByRole("heading", { name: "One", exact: true })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));

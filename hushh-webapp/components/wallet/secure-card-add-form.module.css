@@ -1,7 +1,16 @@
 .form {
+  --type-card-title-size: 18px;
+  --type-card-title-line: 24px;
+  --type-form-label-size: 13px;
+  --type-input-value-size: 12px;
+  --type-helper-text-size: 12px;
+  --type-button-label-size: 14px;
+  container-type: inline-size;
+  container-name: wallet-form;
   display: flex;
   flex-direction: column;
-  gap: var(--app-form-section-gap);
+  gap: 16px;
+  font-family: var(--font-app-body);
   width: 100%;
   min-width: 0;
   padding: 20px;
@@ -12,21 +21,25 @@
 }
 .compact { max-width: 28rem; }
 .heading { display: flex; flex-direction: column; gap: var(--app-form-field-gap); }
-.heading p { font-size: 14px; line-height: 1.5; color: var(--muted-foreground); }
+.heading h2 { font-family: var(--font-app-display); font-size: 18px; line-height: 1.35; }
+.heading p { font-size: 12px; line-height: 1.5; color: var(--muted-foreground); }
 .fields { display: flex; flex-direction: column; gap: var(--app-form-section-gap); border: 0; padding: 0; margin: 0; min-width: 0; }
 .field { display: flex; flex-direction: column; min-width: 0; gap: var(--app-form-field-gap); }
-.field label { font-size: 13px; line-height: 20px; }
-.field input,.field select { border-radius: var(--app-input-radius); min-height: 44px; font-size: 16px; }
+.field label { display: flex; align-items: center; gap: 8px; font-family: var(--font-app-body); font-size: 13px; font-weight: 500; line-height: 20px; }
+.fieldIcon { width: 18px; height: 18px; flex-shrink: 0; }
+.field input { border-radius: var(--app-input-radius); min-height: 44px; font-family: var(--font-app-body); font-size: 12px; }
+.selectTrigger { width: 100%; min-width: 0; min-height: 44px; font-family: var(--font-app-body); font-size: 12px; }
+.selectMenu { max-height: min(280px, var(--radix-select-content-available-height)); max-width: calc(100vw - 32px); font-family: var(--font-app-body); }
+.selectMenu [data-slot="select-item"] { font-family: inherit; font-size: 12px; min-height: 36px; }
+.form > fieldset > p { font-size: 12px; line-height: 1.5; }
 .number input { font-variant-numeric: tabular-nums; letter-spacing: .06em; }
 .row { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--app-form-section-gap); }
 .secretLabel { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .reveal { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 44px; margin-block: -12px; padding-inline: 8px; font-size: 12px; color: var(--muted-foreground); }
 .reveal:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; border-radius: var(--app-input-radius); }
 .reveal svg { width: 14px; height: 14px; }
-.select { position: relative; }
-.chevron { pointer-events: none; position: absolute; right: 14px; top: 50%; width: 16px; height: 16px; transform: translateY(-50%); color: var(--muted-foreground); }
 .errors { display: flex; flex-direction: column; gap: var(--app-form-field-gap); font-size: 14px; color: var(--destructive); }
-@media (min-width: 480px) { .row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container wallet-form (min-width: 460px) { .row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (min-width: 640px) { .form { padding: 28px; } }
 
 /* Retained for the standalone scanner; Add Card no longer mounts it. */
@@ -35,3 +48,11 @@
 .scanActions button { padding-inline: 8px; }
 .scanHint,.scanProgress { font-size: 13px; line-height: 1.5; color: var(--muted-foreground); }
 .scanProgress { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+
+
+.form > :last-child button { font-family: var(--font-app-body); font-size: 14px; }
+
+.field input[id$='-pin']::placeholder { font-size: 11px; }
+
+.field input { background-color: var(--app-card-surface-default-solid); }

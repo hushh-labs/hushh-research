@@ -28,8 +28,8 @@ pytestmark = pytest.mark.skipif(find_pg_bin() is None, reason="local PostgreSQL 
 
 MIGRATION = Path(__file__).resolve().parents[1] / "db/migrations/parked/955_one_hosting_choice.sql"
 CONTINUITY = MIGRATION.with_name("958_one_shared_legacy_continuity.sql")
-RELEASE_CHOICE = MIGRATION.parent.parent / "297_one_shared_hosting_choice.sql"
-RELEASE_DOWN = MIGRATION.parent.parent / "rollback/297_one_shared_hosting_choice.rollback.sql"
+RELEASE_CHOICE = MIGRATION.parent.parent / "301_one_shared_hosting_choice.sql"
+RELEASE_DOWN = MIGRATION.parent.parent / "rollback/301_one_shared_hosting_choice.rollback.sql"
 
 #: The minimum neighbours 955 reads; columns match migrations 029, 900, 906 and 909.
 _SCHEMA = """
@@ -283,8 +283,8 @@ async def test_release_only_first_run_observes_absent_pods_and_records_shared(pg
 
 
 def test_canonical_reader_and_continuity_sequence_preserves_placements_and_replay(pg):
-    foundation = MIGRATION.parent.parent / "299_one_placement_reader_foundation.sql"
-    continuity = MIGRATION.parent.parent / "300_one_legacy_shared_continuity.sql"
+    foundation = MIGRATION.parent.parent / "303_one_placement_reader_foundation.sql"
+    continuity = MIGRATION.parent.parent / "304_one_legacy_shared_continuity.sql"
     for uid in ("legacy", "assigned", "pending", "explicit", "unfinished"):
         _person(pg, uid, json.dumps(["connections"]))
     pg.execute("UPDATE vault_keys SET setup_completed=TRUE WHERE user_id <> 'unfinished'")

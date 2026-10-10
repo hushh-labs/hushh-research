@@ -789,6 +789,17 @@
       "primary_access_path": "Transactional direct-message outbox and shared Circle/direct device delivery workers; source eligibility is rechecked before FCM acceptance."
     },
     {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "circle_chat_reactions",
+        "circle_chat_membership_events"
+      ],
+      "id": "circle_chat_interaction_metadata",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Authenticated Circle chat member reactions and membership event history, rendered as reaction counts and system pills for current members."
+    },
+    {
       "data_class": "personal_encrypted",
       "exact_tables": [
         "circle_chat_messages",
@@ -907,12 +918,13 @@
     {
       "data_class": "personal_encrypted",
       "exact_tables": [
-        "messages"
+        "messages",
+        "direct_message_attachments"
       ],
       "id": "direct_message_encrypted_content",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Participant-scoped conversation history, latest-message inbox projection, unread/read-receipt updates, sender-only edit and global delete actions, same-conversation replies, and transactionally committed recipient doorbells from the Direct Messages service."
+      "primary_access_path": "Participant-scoped conversation history and attachment reads, latest-message inbox projection, unread/read-receipt updates, sender-only edit and global delete actions, same-conversation replies, and transactionally committed recipient doorbells from the Direct Messages service."
     },
     {
       "data_class": "personal_metadata",
@@ -1089,7 +1101,7 @@
       "id": "drive_request_payment_authority",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "One $10 USD Stripe Checkout order is created only after a new eligible Trusted Circle Drive request has a nonempty frozen shareable batch. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority."
+      "primary_access_path": "One USD Stripe Checkout order is created only after an eligible Drive request, from the owner's Trusted circle or explicitly allowed by the owner, has a nonempty frozen shareable batch. New requests lock the owner's effective whole-dollar quote from 100 to 50000 cents at creation; legacy requests retain their original price rule. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority."
     },
     {
       "data_class": "reference",
@@ -1551,13 +1563,15 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
+        "personal_agent_registry",
         "byoc_setup_jobs",
-        "pod_lifecycle_events"
+        "pod_lifecycle_events",
+        "personal_agent_deletion_tombstones"
       ],
       "id": "personal_agent_provisioning",
       "lifecycle_status": "parked_flag_off_with_live_environment_drift",
       "owner": "backend-runtime-governance",
-      "primary_access_path": "Feature-flagged personal-agent reservation, BYOC setup (Google Cloud and Connect Azure; an Azure job's project_id holds its resource group ARM id), provider provisioning, lifecycle replay, and the parked provider-deprovision intent design"
+      "primary_access_path": "Feature-flagged personal-agent reservation, BYOC setup, provider provisioning, lifecycle replay, and the parked provider-deprovision intent design"
     },
     {
       "data_class": "personal_metadata",
@@ -1640,12 +1654,13 @@
     {
       "data_class": "personal_metadata",
       "exact_tables": [
-        "pkm_owner_payout_accounts"
+        "pkm_owner_payout_accounts",
+        "stripe_owner_payout_accounts"
       ],
       "id": "pkm_owner_payout_accounts",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "One marketplace Owner tab payouts: a packet owner onboards to a Stripe Connect Express account; the work drain marks delivered orders' earnings due and transfers them (amount minus platform fee) once Stripe enables payouts."
+      "primary_access_path": "Profile Payouts and marketplace owner payouts use stripe_owner_payout_accounts keyed by owner and Stripe test/live mode. Stripe-hosted Express onboarding collects bank and identity details. The legacy pkm_owner_payout_accounts mapping remains for rolling compatibility and is adopted only after provider verification under the current mode key."
     },
     {
       "data_class": "workflow_state",
@@ -1773,7 +1788,7 @@
       "id": "stripe_connect_bank_payout_status",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "A separately signed connected-account Stripe webhook deduplicates events, verifies the latest provider state and updates aggregate bank-deposit status. The authenticated owner reads recent deposits through their current connected-account mapping."
+      "primary_access_path": "A separately signed connected-account Stripe webhook deduplicates events, verifies current provider state and updates aggregate bank-deposit status. Bank creation, update and deletion events also refresh readiness. Authenticated owners read recent deposits through the current owner-plus-mode connected-account mapping."
     },
     {
       "data_class": "personal_metadata",
@@ -1869,7 +1884,7 @@
       "id": "vault_key_material",
       "lifecycle_status": "current",
       "owner": "vault-pkm-governance",
-      "primary_access_path": "vault setup, unlock-status, wrapper selection, and account deletion services; owner-authenticated pre-vault Shared choice through HostingChoiceRepo"
+      "primary_access_path": "vault setup, unlock-status, wrapper selection, and account deletion services"
     },
     {
       "data_class": "personal_metadata",
@@ -2890,6 +2905,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "calendar.read",
           "consent.chat.turn",
           "location.chat.turn",
           "route.one_agents",
@@ -2942,7 +2958,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "calendar.read"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.calendar"
       }
@@ -4293,9 +4311,12 @@
           "route.profile",
           "route.profile_access_panel",
           "route.profile_connected_systems",
+          "route.profile_my_data",
+          "route.profile_payouts",
           "route.profile_pkm_agent_lab",
           "route.profile_privacy",
           "route.profile_referrals_panel",
+          "route.profile_request_pricing",
           "route.profile_security_panel",
           "route.profile_support_panel",
           "route.ria_settings_compat"
@@ -4400,9 +4421,12 @@
           "route.profile",
           "route.profile_access_panel",
           "route.profile_connected_systems",
+          "route.profile_my_data",
+          "route.profile_payouts",
           "route.profile_pkm_agent_lab",
           "route.profile_privacy",
           "route.profile_referrals_panel",
+          "route.profile_request_pricing",
           "route.profile_security_panel",
           "route.profile_support_panel",
           "route.ria_settings_compat"
@@ -4442,9 +4466,12 @@
           "route.profile",
           "route.profile_access_panel",
           "route.profile_connected_systems",
+          "route.profile_my_data",
+          "route.profile_payouts",
           "route.profile_pkm_agent_lab",
           "route.profile_privacy",
           "route.profile_referrals_panel",
+          "route.profile_request_pricing",
           "route.profile_security_panel",
           "route.profile_support_panel",
           "route.ria_settings_compat"
@@ -4740,7 +4767,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.profile_my_data"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.my.data"
       }
@@ -4776,9 +4805,36 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.profile_my_data"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.my.data.domain"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/profile/payouts/page.tsx",
+      "pathname": "/one/profile/payouts",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.profile_payouts"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.payouts"
       }
     },
     {
@@ -5044,8 +5100,8 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
-        "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "policy": "none",
+        "refresh_trigger": "none",
         "resource_classes": [
           "unknown"
         ]
@@ -5055,14 +5111,12 @@
       "native_surface_id": "native-route-profile",
       "page_file": "app/one/profile/referrals/page.tsx",
       "pathname": "/one/profile/referrals",
-      "route_mode": "standard",
+      "route_mode": "redirect",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [
-          "route.profile_referrals_panel"
-        ],
+        "action_ids": [],
         "delegate_agent_ids": [],
-        "playbook_id": "route.profile.support"
+        "playbook_id": "route.profile.referrals.redirect"
       }
     },
     {
@@ -5086,6 +5140,31 @@
         "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.regulatory_compat"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/profile/request-pricing/page.tsx",
+      "pathname": "/one/profile/request-pricing",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.profile_request_pricing"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.request.pricing"
       }
     },
     {
@@ -5305,6 +5384,47 @@
         "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.puppy"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [
+        {
+          "backend_endpoint_family": "/api/one/referrals/*",
+          "native_transport": "Direct backend via ApiService.apiFetch; authenticated owner-scoped reads.",
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "service_file": "lib/services/referral-service.ts",
+          "service_methods": [
+            "getSummary",
+            "getPoints",
+            "getChallenge",
+            "getMilestones",
+            "getEngagement",
+            "getLeaderboard",
+            "getCircleLeaderboard",
+            "getCircleSelection"
+          ]
+        }
+      ],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/referrals/page.tsx",
+      "pathname": "/one/referrals",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.referrals"
       }
     },
     {
@@ -5688,6 +5808,30 @@
         ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.setup.ria"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "secure-resource",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "pkm_projection",
+          "calendar_events"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/todos/page.tsx",
+      "pathname": "/one/todos",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.todos"
       }
     },
     {
@@ -6433,28 +6577,28 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "eec9a448fd685fcc615e4e7c5e87274b2f8f7d591111575b7d21394ce57edeb3",
-    "action_gateway": "9025cd57078eefa9380831b35ef63dba4f06180fe065d028f1b14443bd601dfa",
-    "agent_registry": "39fccd758b05033a07ce46f89e7a36fa006f51e284836264ed72e66ff658428d",
-    "cache_manifest": "df8bcd02aa12938a199ba389dccabd3ba0b5173beea69ae5b3e1b640462a8f70",
-    "data_plane": "589972f1c0b202b27e377a73ce41212440c6a9f32b9d5a0df3eabbb20ebf8652",
+    "action_gateway": "b8fe3d27551c6a45d8f90f393ec62258a2b0965a423e1753f294d3039ad06c64",
+    "agent_registry": "88d912d87e1df894453587a0824d62bb53adf3463f94e8f699bfa55f9ed6dac6",
+    "cache_manifest": "41d7d48e3655c6363237f10548ff5d892a1325999a3c5bf2c98fa16886584891",
+    "data_plane": "6658d8b925cfcfe05a558ebb85a6f386cd57a70c00dbeea8b2b3246a922a4c99",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "db1a56bfbe51b3672a418f3bdfe707f0c4b61d8ba706c7adcfea7e91b81ab336",
-    "route_index": "44eece85a1e813aecfafe2bb3d4e1891fb7e530a80d2159a187dd946cf7776e9",
-    "route_layout": "83c291de5d5dee26a9ffd8baaf8286d841085d8593acd94b92e481e370d87f21",
-    "surface_map": "ef844a3bb5c0530e0172bece6adf14c0b973d5be849b26c4d6e7aabb1c9cae7f",
+    "route_index": "e95777ccd2b8d3ec96680feae19becf7e2491b0b9d7418664df68990c7f3ad2c",
+    "route_layout": "25a26781740d61abc9b0604651b0bc6dca5e71bcb79257127b6f17802d86958c",
+    "surface_map": "b6273fe9df80436663083d6b2f2ae810222f68c69441f6bde600fd8a42500b3b",
     "topology_contract": "58ba11f84a774c8b3daa916d2985f8ec81e04413aa050c9fff4785be3b246df0",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 229,
+    "actions": 233,
     "agents": 21,
     "aliases": 4,
     "decision_required": 2,
     "in_process_specialists": 7,
     "one_specialist_tools": 6,
-    "physical_routes": 151,
+    "physical_routes": 155,
     "semantic_routes": 17,
-    "table_families": 104
+    "table_families": 105
   }
 }

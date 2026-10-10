@@ -135,6 +135,9 @@ describe("Wallet Profile owner isolation", () => {
     });
     render(<WalletCardWorkspace embedded />);
     await screen.findByText("/c/original");
+    // The remote event belongs to the mounted manage-stage subscription.
+    // Rendering the original link can settle before that effect installs it.
+    await waitFor(() => expect(mocks.changed).toBeTypeOf("function"));
     await act(async () => { mocks.changed?.(); });
     expect(await screen.findByText("/c/rotated")).toBeVisible();
     expect(screen.queryByText("/c/original")).toBeNull();

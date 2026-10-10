@@ -80,6 +80,7 @@ import {
   isDocumentShareEntry,
   isDocumentShareSelection,
 } from "@/lib/consent/document-share-consent";
+import { formatDocumentRequestPrice, isValidDocumentRequestPriceCents } from "@/lib/consent/document-request-price";
 import {
   driveQueryRequestId,
   driveSharingSelectionId,
@@ -438,6 +439,10 @@ export function formatLifecycleEventLabel(event: ConsentTrailEvent) {
 }
 
 function entrySummary(entry: ConsentCenterEntry) {
+  if (isDocumentShareEntry(entry) && entry.metadata?.direction === "outgoing" &&
+      isValidDocumentRequestPriceCents(entry.metadata.quotedAmountCents)) {
+    return `Quote locked at ${formatDocumentRequestPrice(entry.metadata.quotedAmountCents)}`;
+  }
   if (entry.consent_trails && entry.consent_trails.length > 0) {
     const trailCount = entry.trail_count || entry.consent_trails.length;
     const eventCount =

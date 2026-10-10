@@ -371,6 +371,13 @@ export async function syncOneLocationContactSignals({
       unknownContactCount += 1;
       continue;
     }
+    if (contact.normalizationIncomplete) {
+      // Preserve positive matches above, but never invite a mixed-number
+      // contact whose national number could not be checked. This is identity
+      // recovery, not lookup-cap overflow, so its retry remains truthful.
+      uncheckedReadableContactCount += 1;
+      continue;
+    }
     // A partially covered multi-number contact cannot truthfully be called
     // unmatched even when every selected number completed.
     if (!coverageComplete) {

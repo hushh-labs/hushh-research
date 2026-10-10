@@ -49,7 +49,10 @@ export function assertBusinessMemoryTarget(
   current: Record<string, unknown>, card: AgentPkmPreviewCard, origin: BusinessMemoryOrigin,
 ) {
   const incomingEntity = businessMemoryEntity(card);
-  if (!card.merge_decision?.target_entity_path && (!card.target_entity_scope || !card.target_entity_id))
+  const mode = String(card.merge_decision?.merge_mode || card.merge_mode || "");
+  // A create has no prior target: its identity is the model-authored payload.
+  // Updates must still name an explicit existing target.
+  if (!card.merge_decision?.target_entity_path && mode !== "create_entity")
     throw new Error("Business identity needs a fresh review.");
   const path = String(card.merge_decision?.target_entity_path || incomingEntity.path.join("."));
   if (!path || !origin.businessUid) throw new Error("Business identity needs a fresh review.");
@@ -75,4 +78,8 @@ export function assertBusinessMemoryTarget(
   if (!prior || typeof prior !== "object" || Array.isArray(prior) ||
     (prior as Record<string, unknown>).business_uid !== origin.businessUid)
     throw new Error("This would combine different or unidentified businesses. Nothing was changed.");
+  // A create replaces the whole existing entity. A narrowed consent selection
+  // must not erase fields the owner previously saved (also checked on retries).
+  if (String(card.merge_decision?.merge_mode || "create_entity").trim().toLowerCase() === "create_entity")
+    throw new Error("This business already exists. Review an update instead of replacing its saved details.");
 }

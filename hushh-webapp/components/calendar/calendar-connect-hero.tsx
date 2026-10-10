@@ -14,10 +14,8 @@ type CalendarConnectHeroProps = {
 };
 
 /**
- * Resting state of the Calendar screen while nothing is connected: first
- * connect and a lapsed Google authorization share this one hero and one
- * action. Presentational only; the owner-bound connect flow stays with the
- * page that renders it.
+ * The illustration for the first unfinished Calendar setup. Presentational
+ * only; the owner-bound connect flow stays with the page that renders it.
  */
 export function CalendarConnectHero({
   journeyVariant,

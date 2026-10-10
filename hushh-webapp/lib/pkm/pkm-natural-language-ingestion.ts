@@ -51,7 +51,7 @@ export type PkmNaturalLanguageIngestionResult = {
 };
 
 export type PkmNaturalLanguageWritePolicy = "reviewable" | "auto_save_only";
-export type PkmNaturalLanguageMemoryProfile = "general" | "kyc_identity_v1";
+export type PkmNaturalLanguageMemoryProfile = "general" | "kyc_identity_v1" | "business_directory_v1";
 
 export type PkmNaturalLanguagePreparationResult = {
   preview: AgentPkmPreviewResponse;
@@ -324,8 +324,8 @@ export async function prepareNaturalLanguagePkm(params: {
   // KYC imports are intentionally one constrained extraction call. Splitting
   // an export first loses cross-field context and reintroduces model fan-out.
   const sectionGranularity = params.granularity === "section" && !params.sourceSelection &&
-    params.memoryProfile !== "kyc_identity_v1";
-  let queue: PkmSourceChunk[] = params.memoryProfile === "kyc_identity_v1"
+    params.memoryProfile !== "kyc_identity_v1" && params.memoryProfile !== "business_directory_v1";
+  let queue: PkmSourceChunk[] = ["kyc_identity_v1", "business_directory_v1"].includes(params.memoryProfile || "general")
     ? [{ blocks: [{ start: 0, end: message.length, protectedContext: true }] }]
     : params.sourceSelection
       ? planPkmSourceSelection(message, params.sourceSelection.range, params.sourceSelection.context)
@@ -407,7 +407,7 @@ export async function prepareNaturalLanguagePkm(params: {
     }
     await params.beforeEffect?.();
     const chunk = sourceChunkText(message, sourceChunk);
-    if (params.memoryProfile !== "kyc_identity_v1" && chunk.length > PKM_PROPOSAL_CHARS) {
+    if (params.memoryProfile !== "kyc_identity_v1" && chunk.length > (params.memoryProfile === "business_directory_v1" ? 4000 : PKM_PROPOSAL_CHARS)) {
       return { sourceChunk, chunk, index, oversized: true };
     }
     try {
@@ -426,9 +426,10 @@ export async function prepareNaturalLanguagePkm(params: {
       });
       await params.beforeEffect?.();
       return { sourceChunk, chunk, index, preview };
-    } catch {
+    } catch (error) {
       // A canceled session is not a failed source block and must not retry.
       await params.beforeEffect?.();
+      if (error instanceof Error && error.name === "PkmBackendContractMismatch") throw error;
       return {
         sourceChunk,
         chunk,
@@ -460,6 +461,7 @@ export async function prepareNaturalLanguagePkm(params: {
       // Narrow one block into smaller proposals. Returns false when it cannot be
       // narrowed within the bounded proposal budget.
       const narrow = (sourceChunk: PkmSourceChunk, offset: number): boolean => {
+        if (params.memoryProfile === "business_directory_v1") return false;
         const retryChunks = splitPkmSourceChunk(message, sourceChunk);
         const deferredWaveItems = results.length - offset - 1;
         if (!retryChunks || queue.length - wave.length + replacement.length + retryChunks.length + deferredWaveItems > MAX_PROPOSAL_CHUNKS) {
@@ -518,7 +520,11 @@ export async function prepareNaturalLanguagePkm(params: {
           !isSuccessfulEmptyPreview(preview) &&
           chunk.length > 96
         );
-        if (params.memoryProfile !== "kyc_identity_v1" && incomplete) {
+        if (params.memoryProfile === "business_directory_v1" && incomplete) {
+          unresolved(sourceChunk, "cannot_split_context");
+          continue;
+        }
+        if (params.memoryProfile !== "kyc_identity_v1" && params.memoryProfile !== "business_directory_v1" && incomplete) {
           if (preparationTimedOut || preparationController.signal.aborted) {
             unresolved(sourceChunk, "preparation_timeout");
             continue;

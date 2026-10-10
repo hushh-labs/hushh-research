@@ -13,18 +13,43 @@ const MAX_FRAME_REMAINDER = 16_384;
 const MAX_RECONNECT_DELAY_MS = 30_000;
 const PERMANENT_STATUSES = new Set([400, 403, 404, 410]);
 
-/** One stream per open Feed. The frame is a doorbell, never request state. */
-export function useDocumentFeedStream(user: Pick<User, "uid" | "getIdToken"> | null): void {
+type FeedUser = Pick<User, "uid" | "getIdToken">;
+type SharedStream = { subscribers: number; user: FeedUser; stop: () => void };
+const sharedStreams = new Map<string, SharedStream>();
+
+/** Feed and Profile share one authenticated stream; frames are invalidation hints. */
+export function useDocumentFeedStream(user: FeedUser | null): void {
   useEffect(() => {
     if (!user || typeof window === "undefined") return;
+    let shared = sharedStreams.get(user.uid);
+    if (!shared) {
+      shared = { subscribers: 0, user, stop: () => {} };
+      sharedStreams.set(user.uid, shared);
+      shared.stop = startDocumentFeedStream(shared);
+    }
+    shared.user = user;
+    shared.subscribers += 1;
+    return () => {
+      shared.subscribers -= 1;
+      if (shared.subscribers === 0) {
+        shared.stop();
+        sharedStreams.delete(user.uid);
+      }
+    };
+  }, [user]);
+}
+
+function startDocumentFeedStream(shared: SharedStream): () => void {
+    const uid = shared.user.uid;
 
     let stopped = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let attempts = 0;
     let forceTokenRefresh = false;
     const controller = new AbortController();
+    let activeReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
     const refresh = (requestId?: string) => {
-      CacheSyncService.onConsentMutated(user.uid);
+      CacheSyncService.onConsentMutated(uid);
       // All Feed surfaces listen to this one signal and perform a forced
       // authenticated reread. Consent Center also repairs its current view.
       dispatchConsentStateChanged({
@@ -36,11 +61,12 @@ export function useDocumentFeedStream(user: Pick<User, "uid" | "getIdToken"> | n
 
     const connect = async () => {
       let connectedAt: number | null = null;
+      let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
       try {
-        const idToken = await user.getIdToken(forceTokenRefresh);
+        const idToken = await shared.user.getIdToken(forceTokenRefresh);
         if (stopped) return;
         const response = await ApiService.apiFetchStream(
-          `/api/consent/document-feed/${encodeURIComponent(user.uid)}`,
+          `/api/consent/document-feed/${encodeURIComponent(uid)}`,
           {
             method: "GET",
             headers: { Authorization: `Bearer ${idToken}` },
@@ -48,6 +74,10 @@ export function useDocumentFeedStream(user: Pick<User, "uid" | "getIdToken"> | n
             cache: "no-store",
           },
         );
+        if (stopped) {
+          await response.body?.cancel().catch(() => {});
+          return;
+        }
         if (!response.ok || !response.body) {
           if (response.status === 401) {
             // A token can expire between opening Feed and the handshake.
@@ -62,12 +92,13 @@ export function useDocumentFeedStream(user: Pick<User, "uid" | "getIdToken"> | n
         }
         connectedAt = Date.now();
         forceTokenRefresh = false;
-        const reader = response.body.getReader();
+        reader = response.body.getReader();
+        activeReader = reader;
         const decoder = new TextDecoder();
         let remainder = "";
         while (!stopped) {
           const { done, value } = await reader.read();
-          if (done) break;
+          if (stopped || done) break;
           const parsed = parseSSEBlocks(decoder.decode(value, { stream: true }), remainder);
           remainder = parsed.remainder;
           if (remainder.length > MAX_FRAME_REMAINDER) {
@@ -92,6 +123,12 @@ export function useDocumentFeedStream(user: Pick<User, "uid" | "getIdToken"> | n
         throw new Error("document_feed_stream_closed");
       } catch {
         if (stopped || controller.signal.aborted) return;
+      } finally {
+        if (reader) {
+          await reader.cancel().catch(() => {});
+          reader.releaseLock();
+          if (activeReader === reader) activeReader = null;
+        }
       }
       if (connectedAt !== null && Date.now() - connectedAt >= MAX_RECONNECT_DELAY_MS) {
         attempts = 0;
@@ -106,7 +143,7 @@ export function useDocumentFeedStream(user: Pick<User, "uid" | "getIdToken"> | n
     return () => {
       stopped = true;
       controller.abort();
+      void activeReader?.cancel().catch(() => {});
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [user]);
 }

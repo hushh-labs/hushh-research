@@ -76,6 +76,32 @@ describe("buildMarketplaceContactLookups with an injected source", () => {
     expect(result.lookups).toHaveLength(2);
   });
 
+  it.each(["google", "web", "ios"] as const)(
+    "checks international %s contacts without requiring another phone verification or guessing the locale",
+    async (sourcePlatform) => {
+      const result = await buildMarketplaceContactLookups({
+        resolveAccountPhoneNumber: async () => null,
+        source: async () => ({ ...googleResult, sourcePlatform, defaultRegion: "US" }),
+      });
+      expect(result.region).toBeNull();
+      expect(result.lookups).toHaveLength(2);
+      expect(result.uncheckableContactCount).toBe(1);
+      expect(result.contacts[0]?.lookupIds).toEqual([]);
+      expect(result.contacts[1]?.lookupIds).toHaveLength(1);
+    },
+  );
+
+  it("uses Android's SIM region without a hydrated account phone", async () => {
+    const result = await buildMarketplaceContactLookups({
+      resolveAccountPhoneNumber: async () => null,
+      source: async () => ({ ...googleResult, sourcePlatform: "android", defaultRegion: "IN" }),
+    });
+    expect(result.region).toBe("IN");
+    expect(result.lookups).toHaveLength(2);
+    expect(result.uncheckableContactCount).toBe(0);
+    expect(result.contacts[0]?.lookupIds).toEqual(result.contacts[1]?.lookupIds);
+  });
+
   it("still hashes on this side, never trusting the source for a digest", async () => {
     const source = vi.fn(async () => googleResult);
     const result = await buildMarketplaceContactLookups({

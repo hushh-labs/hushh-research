@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => {
     auth: { user: user as typeof user | null },
     platform: { value: "web", native: false },
     initializeFCM: vi.fn(),
+    appStateListener: null as null | ((state: { isActive: boolean }) => void),
     prepareFCMListeners: vi.fn(),
     getState: vi.fn(),
     getVaultOwnerToken: vi.fn(),
@@ -48,6 +49,11 @@ vi.mock("@capacitor/core", async (importOriginal) => {
   };
 });
 
+vi.mock("@capacitor/app", () => ({ App: { addListener: async (_event: string, listener: (state: { isActive: boolean }) => void) => {
+  mocks.appStateListener = listener;
+  return { remove: async () => {} };
+} } }));
+
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: mocks.auth.user }),
 }));
@@ -65,6 +71,8 @@ vi.mock("@/lib/notifications", () => ({
   clearDeliveredConsentNotifications: vi.fn(),
   FCM_MESSAGE_EVENT: "fcm-message",
 }));
+
+vi.mock("@/lib/notifications/preview-keys", () => ({ activeNotificationKeyId: () => "current-owner-key" }));
 
 vi.mock("@/lib/one-location/service", () => ({
   OneLocationService: { getState: mocks.getState },
@@ -754,4 +762,30 @@ describe("connection-request Feed-first foreground policy", () => {
 
     expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledWith("arrived");
   });
+  it("does not acknowledge or invalidate chat pushes for a previous preview owner", async () => {
+    await renderProvider();
+    for (const type of ["direct_message", "location_circle_message"]) {
+      const detail = { notification: { data: { type, recipient_key_id: "previous-owner-key", conversation_id: "fixture", circle_id: "11111111-2222-3333-4444-555555555555" } }, accepted: false };
+      act(() => window.dispatchEvent(new CustomEvent("fcm-message", { detail })));
+      expect(detail.accepted).toBe(false);
+    }
+    expect(mocks.dispatchDirectMessagesUpdated).not.toHaveBeenCalled();
+    expect(mocks.dispatchFeedStateChanged).not.toHaveBeenCalled();
+    const detail = { notification: { data: { type: "direct_message", recipient_key_id: "current-owner-key", conversation_id: "fixture" } }, accepted: false };
+    act(() => window.dispatchEvent(new CustomEvent("fcm-message", { detail })));
+    expect(detail.accepted).toBe(true);
+    expect(mocks.dispatchDirectMessagesUpdated).toHaveBeenCalledOnce();
+  });
+
+  it("revalidates native permission after Settings resume without prompting", async () => {
+    mocks.platform.native = true;
+    mocks.platform.value = "ios";
+    mocks.initializeFCM.mockResolvedValueOnce({ status: "push_blocked" }).mockResolvedValue({ status: "push_active" });
+    await renderProvider();
+    await vi.waitFor(() => expect(mocks.appStateListener).toBeTypeOf("function"));
+    act(() => mocks.appStateListener?.({ isActive: true }));
+    await vi.waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalledTimes(2));
+    expect(mocks.initializeFCM.mock.calls[1][2]).toEqual({ requestPermission: false });
+  });
+
 });

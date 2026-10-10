@@ -1,8 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import ts from 'typescript';
+import { ts, createUiSourceIndex } from './ui-source-index.mjs';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
+import { syncReviewReceipt } from './ui-review-receipts.mjs';
 
 // Existing specialised owners only. New calls, files or aliases fail the ratchet.
 const reviewedHistoryOwners = new Map([
@@ -14,6 +15,8 @@ const reviewedHistoryOwners = new Map([
 ]);
 
 export function historyBypasses(source, file = 'screen.tsx') {
+  // A call/alias needs one of these tokens. Escaped identifiers still use AST.
+  if (!/\b(?:back|go)\b|\\[ux]/.test(source)) return [];
   const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
   const calls = [];
   const owners = new Set(['router', 'history', 'window.history', 'globalThis.history']);
@@ -49,16 +52,6 @@ export function validateHistoryBypasses(sources) {
     if (calls.length > (reviewedHistoryOwners.get(file) ?? 0)) throw new Error(`Back hierarchy bypass in ${file}: ${calls.join(', ')}`);
   }
 }
-async function sourceFiles(dir) {
-  const results = [];
-  for (const entry of await fs.readdir(dir, {withFileTypes:true})) {
-    if (entry.name === '__tests__') continue;
-    const file = path.join(dir, entry.name);
-    if (entry.isDirectory()) results.push(...await sourceFiles(file));
-    else if (/\.[jt]sx?$/.test(file)) results.push(file);
-  }
-  return results;
-}
 export function backSourceRevision(sources, entries) {
   const hash = createHash('sha256');
   for (const [file, source] of [...sources].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
@@ -70,17 +63,28 @@ export function backSourceRevision(sources, entries) {
   hash.update(JSON.stringify(authored));
   return hash.digest('hex');
 }
-export async function verifyBackNavigation(root, stamp = false) {
+export async function verifyBackNavigation(root, stamp = false, index = createUiSourceIndex(root)) {
   const contractPath = path.join(root, 'lib/navigation/app-route-layout.contract.json');
   const entries = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  const byRoute = new Map();
+  const byPath = new Map();
+  for (const entry of entries) {
+    if (byRoute.has(entry.route)) throw new Error(`Duplicate authored Back route: ${entry.route}`);
+    byRoute.set(entry.route, entry);
+    const pathname = entry.route.split('?')[0];
+    if (!byPath.has(pathname)) byPath.set(pathname, entry);
+  }
   const sources = new Map();
   for (const dir of ['app','components','lib']) {
-    for (const file of await sourceFiles(path.join(root, dir))) sources.set(path.relative(root, file).split(path.sep).join('/'), await fs.readFile(file, 'utf8'));
+    for (const file of index.files) {
+      if (!file.startsWith(path.join(root, dir) + path.sep) || file.split(path.sep).includes('__tests__') || !/\.[jt]sx?$/.test(file)) continue;
+      sources.set(path.relative(root, file).split(path.sep).join('/'), index.read(file));
+    }
   }
   for (const file of sources.keys()) {
     if (!/\/page\.[jt]sx?$/.test(file) || !file.startsWith('app/')) continue;
     const route = '/' + file.slice(4).replace(/(^|\/)page\.[jt]sx?$/, '').split('/').filter(part => !part.startsWith('(')).join('/');
-    const entry = entries.find(entry => entry.route.split('?')[0] === route);
+    const entry = byPath.get(route);
     if (!entry?.backVerification?.cases?.length) throw new Error(`New route needs authored Back verification: ${file}`);
   }
   const location = sources.get('components/one-location/redesign/location-redesign-hub.tsx');
@@ -92,22 +96,33 @@ export async function verifyBackNavigation(root, stamp = false) {
   }
   visit(ast);
   if (!actions.length) throw new Error('Location action authority changed; review Back coverage extraction');
-  const cases = entries.find(entry => entry.route === '/one/location')?.backVerification?.cases ?? [];
+  const cases = byRoute.get('/one/location')?.backVerification?.cases ?? [];
+  const scenarios = new Set(cases.map(item => {
+    const query = new URL(item.href, 'https://app.test').searchParams;
+    return JSON.stringify([query.get('action'), query.get('view')]);
+  }));
   for (const action of actions) {
     for (const view of ['now', 'people', 'links']) {
-      if (!cases.some(item => { const query = new URL(item.href, 'https://app.test').searchParams; return query.get('action') === action && query.get('view') === view; })) throw new Error(`Location Back scenario missing: action=${action}&view=${view}`);
+      if (!scenarios.has(JSON.stringify([action, view]))) throw new Error(`Location Back scenario missing: action=${action}&view=${view}`);
     }
   }
   validateHistoryBypasses(sources);
   const revision = backSourceRevision(sources, entries);
-  const rootContract = entries.find(entry => entry.route === '/')?.backVerification;
-  if (!rootContract) throw new Error('The application root must own the reviewed Back source revision');
+  const rootContract = byRoute.get('/')?.backVerification;
+  if (!rootContract) throw new Error('The application root must own Back verification');
   if (stamp) {
-    rootContract.sourceRevision = revision;
-    await fs.writeFile(contractPath, JSON.stringify(entries, null, 2) + '\n');
-  } else if (rootContract.sourceRevision !== revision) {
-    throw new Error('Back source changed: review parent/query/nested-state cases, then run npm run build:back-contracts and commit the owning route contracts.');
+    let migrated = false;
+    for (const entry of entries) {
+      if (Object.hasOwn(entry.backVerification || {}, 'sourceRevision')) {
+        delete entry.backVerification.sourceRevision;
+        migrated = true;
+      }
+    }
+    if (migrated) await fs.writeFile(contractPath, JSON.stringify(entries, null, 2) + '\n');
+  } else if (entries.some(entry => Object.hasOwn(entry.backVerification || {}, 'sourceRevision'))) {
+    throw new Error('Back source review is stale: migrate legacy source stamps with npm run build:ui-contracts.');
   }
+  await syncReviewReceipt(root, 'back', revision, { route_count: entries.length, source_module_count: sources.size }, !stamp, [...sources.keys()]);
   console.log(`Back contracts cover ${entries.length} routes, ${cases.length} Location scenarios; new history bypasses rejected.`);
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await verifyBackNavigation(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..'), process.argv.includes('--stamp-reviewed-source'));

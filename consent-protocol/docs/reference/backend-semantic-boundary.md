@@ -423,6 +423,66 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
   passes, browser/iOS/Android receipt readers remain demoted rollback code rather
   than a parallel production authority.
 
+### Declared: Email receipts read from saved receipt memory
+
+- Owning agent: `agent_email_read_planner`. From the owner's current request alone
+  it decides that the question is about their own receipts, invoices, bills or
+  purchases (`read_receipts`) and not a search of their mail, and it chooses the
+  window, status, identifier kind, merchant and "show more". No phrase table,
+  regular expression or keyword list on the device, in the route or in host code
+  selects the operation. One's runtime Mail instruction only states which tool
+  to call; the planner's authored instruction owns the distinction between "show
+  my receipts" and "find emails mentioning receipts".
+- Manifest path: `consent-protocol/hushh_mcp/agents/email/agent.yaml`.
+- Structured output: `MailReadPlan` in
+  `consent-protocol/hushh_mcp/services/email_delegated_read.py`. `operation:
+  "read_receipts"` plus flat `receipt_since`, `receipt_until`, `receipt_statuses`,
+  `receipt_identifier_kinds`, `receipt_merchant`, `receipt_window_label` and
+  `receipt_more` (no nested objects, which Vertex rejected for `MailItemGist`).
+- Validator: `consent-protocol/hushh_mcp/services/receipt_memory_read.py`. Dates
+  must be real `YYYY-MM-DD` calendar dates with `since` not after `until`;
+  statuses and identifier kinds must be members of the closed sets; a malformed
+  plan is refused as `invalid_argument`, never repaired, widened or turned into
+  an inbox search. The read builds no Gmail reader, so a receipts plan cannot
+  reach `search_inbox`, and `read_receipts` is admitted only for typed chat (One
+  Live Voice refuses it). The interpreter stage is deliberately not run: every
+  amount, date, status and identifier in the answer is copied from the owner's
+  saved index and formatted by code, and a model re-writing one of them is the
+  failure this avoids. That skip is recorded, not silent
+  (`one_voice.mail.latency stage=interpret status=skipped`, `coverage.source =
+  receipt_memory`). Only the planner's own fields choose the window and filters;
+  code filters, sorts newest first, pages by ten, and omits any value the index
+  does not hold. A missing, malformed, empty, or older-than-seven-days index is
+  "not ready" with the exact sentence `Your receipt memory is not ready yet. Sync
+  and save your receipts in Mail.` and the generated `route.profile_receipts`
+  action; it is never reported as an empty mailbox. A "show more" continues a
+  server-held position (`hussh:receipt_cursor`: filters and an offset, never a
+  receipt) that expires after thirty minutes and is void after a new save.
+- Authority and storage: the index is derived on the owner's device from the same
+  canonical rows Mail > Receipts renders (`buildRecentReceiptRows`), never from
+  the retired `kai_gmail_receipts` table. It is saved only by the owner-confirmed
+  `gmail_receipt_memory_save_button` writer into the private
+  `shopping.receipts_memory._canonical_index` branch (leading underscore: never a
+  shareable path, Memory card or prompt-packet fact) and holds only an opaque
+  reference, merchant, amount and currency, category, lifecycle status,
+  transaction date, typed order/invoice/receipt/PNR identifiers, one grounded
+  short detail and a generated-at time. No subject, preview, body, sender
+  address, provider id, signed source handle or link is stored. The server never
+  holds the vault key: the device sends the decrypted index beside a typed turn
+  as `forwardedProps.receiptMemory`; the route validates it against a closed
+  schema, holds it only as an expiring request secret for that turn, and shows it
+  to no model.
+- Live eval before production promotion: the planner's operation choice is
+  measured only by mocked contract tests. On an owner mailbox with a saved
+  receipt memory, run requests such as "show my receipts", "receipts from the
+  last 2 months", "recent invoices", "what purchases did I make", "show overdue
+  bills" and "show more" and confirm `read_receipts` with the right window and
+  filters every time; run "find emails mentioning receipts", "emails from Amazon
+  about my order" and "what does the Supabase invoice email say" and confirm
+  `search_inbox` or `read_message`, never `read_receipts`. Include a missing,
+  stale and truncated memory, a locked vault, and a second page. Until then the
+  Email Mail-read kill switch (`GMAIL_CHAT_READS`) remains the rollback.
+
 
 ### Declared: typed-chat message reactions
 

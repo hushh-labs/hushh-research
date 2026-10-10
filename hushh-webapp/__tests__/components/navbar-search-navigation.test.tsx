@@ -112,6 +112,7 @@ describe("Search navigation through the shared shell", () => {
   afterEach(() => window.removeEventListener(INTERNAL_APP_NAVIGATION_REQUEST_EVENT, commitNavigation));
 
   it("selects Search immediately while its URL commit is pending", () => {
+    window.history.replaceState({}, "", ROUTES.ONE_MESSAGES);
     window.removeEventListener(INTERNAL_APP_NAVIGATION_REQUEST_EVENT, commitNavigation);
     let intentId = "";
     const deferNavigation = (event: Event) => {
@@ -138,7 +139,7 @@ describe("Search navigation through the shared shell", () => {
     }
   });
 
-  it.each([ROUTES.HOME, ROUTES.ONE_HOME, ROUTES.CONNECT, ROUTES.ONE_FEED])(
+  it.each([ROUTES.HOME, ROUTES.ONE_MESSAGES, ROUTES.ONE_HOME, ROUTES.CONNECT, ROUTES.ONE_FEED])(
     "opens Search on the first click from %s and selects only Search",
     async (pathname) => {
       window.history.replaceState({}, "", pathname);
@@ -185,7 +186,7 @@ describe("Search navigation through the shared shell", () => {
     expect(window.location.search).toBe("");
   });
 
-  it.each([ROUTES.HOME, ROUTES.ONE_HOME, ROUTES.CONNECT, ROUTES.ONE_FEED])(
+  it.each([ROUTES.HOME, ROUTES.ONE_MESSAGES, ROUTES.ONE_HOME, ROUTES.CONNECT, ROUTES.ONE_FEED])(
     "closes Search when navigating to %s without a stale return navigation",
     async (href) => {
       render(<Shell />);
@@ -229,15 +230,20 @@ describe("Search navigation through the shared shell", () => {
     expect(requests).toHaveLength(3);
   });
 
-  it("closes Search before handing a typed prompt to Chat", async () => {
-    render(<Shell />);
-    fireEvent.click(screen.getByRole("radio", { name: "Search" }));
-    const input = await screen.findByRole("combobox");
-    fireEvent.change(input, { target: { value: "Help me plan tomorrow" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(window.location.search).toBe("");
-    expect(window.location.pathname).toBe(ROUTES.HOME);
-    expect(mocks.createHandoff).toHaveBeenCalledWith({ reason: "user_requested", transcript: "Help me plan tomorrow" });
-  });
+  it.each([ROUTES.HOME, ROUTES.ONE_HOME, ROUTES.ONE_MESSAGES])(
+    "closes Search on %s before handing a typed prompt to Chat",
+    async (pathname) => {
+      window.history.replaceState({}, "", pathname);
+      render(<Shell />);
+      fireEvent.click(screen.getByRole("radio", { name: "Search" }));
+      const input = await screen.findByRole("combobox");
+      fireEvent.change(input, { target: { value: "Help me plan tomorrow" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(window.location.search).toBe("");
+      expect(window.location.pathname).toBe(ROUTES.HOME);
+      expect(mocks.createHandoff).toHaveBeenCalledWith({ reason: "user_requested", transcript: "Help me plan tomorrow" });
+      expect(requests.at(-1)).toMatchObject({ href: ROUTES.HOME, source: "programmatic" });
+    },
+  );
 });

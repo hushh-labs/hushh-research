@@ -136,6 +136,20 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).not.toContain("Writing in expanded composer");
   });
 
+  it("keeps the embedded text composer translucent when it overlaps the transcript", () => {
+    const styles = read("app/globals.css");
+
+    // The chat form is portalled into the shared dock. Its embedded reset is
+    // deliberately transparent for voice, but text needs iOS material so the
+    // message behind the keyboard-time composer does not show through.
+    expect(styles).toContain(
+      '[data-agent-dock-embedded][data-agent-dock-surface="text"].agent-chat-composer-surface',
+    );
+    expect(styles).toContain("background: var(--agent-composer-material) !important;");
+    expect(styles).toContain("backdrop-filter: blur(28px) saturate(180%);");
+    expect(styles).toContain("prefers-reduced-transparency: reduce");
+  });
+
   it("captures a large paste as an editable in-memory text attachment", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
 

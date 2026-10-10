@@ -1,4 +1,5 @@
 "use client";
+import { activeNotificationKeyId } from "@/lib/notifications/preview-keys";
 import { dispatchCircleChatChanged } from "@/lib/circle-chat/events";
 
 /**
@@ -682,6 +683,7 @@ export function ConsentNotificationProvider({
   const [isRetryingPushRegistration, setIsRetryingPushRegistration] =
     useState(false);
   const { user } = useAuth();
+  const requestPushPermissionRef = useRef(false);
   const lastAuthenticatedUidRef = useRef<string | null>(null);
   // Track which message identities have already been ingested this session.
   const ingestedMessageIdsRef = useRef(new Set<string>());
@@ -1110,6 +1112,7 @@ export function ConsentNotificationProvider({
   const retryPushRegistration = useCallback(() => {
     if (!user) return;
     clearPersistedDeliveryState(user.uid);
+    requestPushPermissionRef.current = true;
     setIsRetryingPushRegistration(true);
     setFcmInitGeneration((current) => current + 1);
   }, [user]);
@@ -1155,6 +1158,8 @@ export function ConsentNotificationProvider({
     lastAuthenticatedUidRef.current = user.uid;
     reviewedIdsRef.current = new Set<string>();
 
+    const requestPermission = requestPushPermissionRef.current;
+    requestPushPermissionRef.current = false;
     const run = async () => {
       const shouldRestoreFromSession = fcmInitGeneration === 0;
       if (shouldRestoreFromSession) {
@@ -1176,8 +1181,9 @@ export function ConsentNotificationProvider({
 
       try {
         const idToken = await user.getIdToken();
+        if (cancelled) return;
         const result = await initializeFCM(user.uid, idToken, {
-          requestPermission: fcmInitGeneration > 0,
+          requestPermission,
         });
         if (cancelled) return;
 
@@ -1215,6 +1221,22 @@ export function ConsentNotificationProvider({
       cancelled = true;
     };
   }, [fcmInitGeneration, user]);
+
+  useEffect(() => {
+    if (!user || !Capacitor.isNativePlatform()) return;
+    let disposed = false;
+    let handle: { remove: () => Promise<void> } | undefined;
+    const refresh = () => {
+      if (!disposed) setFcmInitGeneration((value) => value + 1);
+    };
+    void import("@capacitor/app").then(async ({ App }) => {
+      const listener = await App.addListener("appStateChange", ({ isActive }) => { if (isActive) refresh(); });
+      if (disposed) await listener.remove(); else handle = listener;
+    }).catch(() => { /* The web visibility bridge remains available. */ });
+    const visible = () => { if (document.visibilityState === "visible") refresh(); };
+    document.addEventListener("visibilitychange", visible);
+    return () => { disposed = true; void handle?.remove(); document.removeEventListener("visibilitychange", visible); };
+  }, [user]);
 
   useEffect(() => {
     if (!user || Capacitor.isNativePlatform()) return;
@@ -1661,6 +1683,9 @@ export function ConsentNotificationProvider({
       // A reviewed Drive-sharing push stays unacknowledged on purpose: the
       // web worker then shows the normal system notification (with its sound)
       // even while One is open. The Consent Center still refreshes below.
+      if (["direct_message", "location_circle_message"].includes(msgType ?? "")) {
+        if (!user?.uid || data.recipient_key_id && data.recipient_key_id !== activeNotificationKeyId(user?.uid) || data.user_id && data.user_id !== user.uid) return;
+      }
       if (user?.uid && !documentShareRequestId) detail.accepted = true;
 
       // Suppress only identifiable replays. A bare grant/request id is the
@@ -1698,7 +1723,8 @@ export function ConsentNotificationProvider({
       // mounted consumers repair from their authenticated resources.
       if ((msgType === "location_circle_message" || msgType === "location_circle_chat_read" || msgType === "location_circle_chat_receipts") && user?.uid) {
         const circleId = String(data.circle_id || "").trim();
-        if (data.user_id === user.uid && /^[0-9a-f-]{36}$/i.test(circleId)) {
+        const forOwner = data.user_id === user.uid || (typeof data.recipient_key_id === "string" && data.recipient_key_id === activeNotificationKeyId(user?.uid));
+        if (forOwner && /^[0-9a-f-]{36}$/i.test(circleId)) {
           dispatchCircleChatChanged(user.uid, circleId);
           if (msgType === "location_circle_chat_read") CacheSyncService.onFeedExternalReadChanged(user.uid);
           if (msgType !== "location_circle_chat_receipts") dispatchFeedStateChanged(msgType === "location_circle_chat_read" ? "action" : "arrived");

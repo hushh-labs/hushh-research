@@ -2403,8 +2403,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/calendar/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "calendar.read"
+      ],
       "api_dependencies": [
         {
           "service_file": "lib/services/google-calendar-service.ts",
@@ -4720,7 +4722,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.messages",
-          "purpose": "Read and send private one-to-one messages with accepted connections.",
+          "purpose": "Read and send private messages with accepted connections and circles you belong to.",
           "screen": "app",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -4735,10 +4737,10 @@
             "callback_error": "Keep the message screen open and explain that the update could not be verified.",
             "route_mismatch": "Use only the verified private message route and its generated controls."
           },
-          "completion_boundary": "A send completes only after the server accepts the message for the active connection.",
+          "completion_boundary": "A send completes only after the server accepts the message for the selected connection or circle.",
           "next_route": null,
           "return_policy": "stay",
-          "out_of_scope_behavior": "Do not infer a connection or reveal another person's message history."
+          "out_of_scope_behavior": "Do not infer a connection or circle membership or reveal another person's message history."
         }
       },
       "native": {
@@ -5123,9 +5125,12 @@
         "route.profile",
         "route.profile_access_panel",
         "route.profile_connected_systems",
+        "route.profile_my_data",
+        "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
         "route.profile_referrals_panel",
+        "route.profile_request_pricing",
         "route.profile_security_panel",
         "route.profile_support_panel"
       ],
@@ -6242,6 +6247,61 @@
       }
     },
     {
+      "route": "/one/profile/payouts",
+      "page_file": "app/one/profile/payouts/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.payouts",
+          "purpose": "Help the person use payouts through its generated controls.",
+          "screen": "profile_payouts",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/profile/pkm",
       "page_file": "app/one/profile/pkm/page.tsx",
       "physical_page_exists": true,
@@ -6891,29 +6951,21 @@
       "page_file": "app/one/profile/referrals/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader",
-          "SurfaceStack"
-        ],
+        "mode": "redirect",
+        "exemption_reason": "Compatibility-only redirect; Referrals is now a dedicated dashboard at /one/referrals.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
         "interaction_layer_policy": {
           "allowed_families": []
         },
         "voice_playbook": {
-          "playbook_id": "route.profile.support",
-          "purpose": "Help the person understand and use the support screen through its generated controls.",
-          "screen": "profile_referrals_panel",
-          "entry_cue": "You can say “Open Support Panel” to use the primary control on this screen.",
-          "proactivity": "on_entry",
-          "primary_action_id": "route.profile_referrals_panel",
-          "happy_path_action_ids": [
-            "route.profile_referrals_panel"
-          ],
+          "playbook_id": "route.profile.referrals.redirect",
+          "purpose": "Send the person to the dedicated Referrals dashboard.",
+          "screen": "profile_referrals_redirect",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
@@ -6923,9 +6975,9 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
-          "next_route": "/one/profile/referrals",
-          "return_policy": "stay",
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": "/one/referrals",
+          "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
@@ -7001,6 +7053,61 @@
           "loaded"
         ]
       },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/request-pricing",
+      "page_file": "app/one/profile/request-pricing/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.request.pricing",
+          "purpose": "Help the person use request pricing through its generated controls.",
+          "screen": "profile_request_pricing",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -7595,6 +7702,75 @@
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
       "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/referrals",
+      "page_file": "app/one/referrals/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": null,
+        "shell_verification_file": "components/referrals/referral-dashboard-page.tsx",
+        "shell_verification_includes": [
+          "NativeTestBeacon"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.referrals",
+          "purpose": "Welcome the person to referrals with a replayable, device/account-scoped introduction, then help them read their referral link, points, ranking, and reward progress through the dashboard's own controls. Continuing or skipping the introduction never grants setup completion or referral credit.",
+          "screen": "one_referrals",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": true,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [
+        {
+          "service_file": "lib/services/referral-service.ts",
+          "service_methods": [
+            "getSummary",
+            "getPoints",
+            "getChallenge",
+            "getMilestones",
+            "getEngagement",
+            "getLeaderboard",
+            "getCircleLeaderboard",
+            "getCircleSelection"
+          ],
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "backend_endpoint_family": "/api/one/referrals/*",
+          "native_transport": "Direct backend via ApiService.apiFetch; authenticated owner-scoped reads."
+        }
+      ],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
     },
@@ -8555,6 +8731,61 @@
         "setup.finish_ria",
         "setup.skip_ria"
       ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/todos",
+      "page_file": "app/one/todos/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/todos/todo-list-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceCard"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.todos",
+          "purpose": "Review private to-do items and the safe, read-only Calendar agenda. Calendar changes remain in the Calendar agent and owner-added items remain encrypted in the private agent.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Owner-added items are saved only after the owner confirms them; calendar items remain read-only projections of Calendar.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -10241,5 +10472,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "16376b00784f8fd76278e68274f375c6c8a3324343da958ee5165613e22ee848"
+  "content_sha256": "a4780dd3e09bd56efc1adc2f1bc6a526a480bdb27f3aae6185c065f239ef07c2"
 }

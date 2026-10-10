@@ -15,6 +15,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import text
 
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
+from hushh_mcp.services.stripe_mode import configured_stripe_mode
 
 MAX_NOTIFICATION_ATTEMPTS = 3
 NOTIFICATION_LEASE_SECONDS = 90
@@ -55,13 +56,17 @@ class DriveShareNotificationStore(ExternalConnectorLifecycleStore):
                     AND r.payment_required=TRUE AND r.status IN ('pending','approved','partial')
                     AND r.expires_at>clock_timestamp()
                     AND r.access_stop_requested_at IS NULL
-                    AND o.status='checkout_open'
+                    AND o.status='checkout_open' AND o.stripe_mode=:stripe_mode
                     AND o.stripe_checkout_session_id IS NOT NULL
                     AND o.stripe_checkout_url IS NOT NULL
                     AND o.stripe_checkout_expires_at>clock_timestamp()
                     AND o.reconciliation_required=FALSE
                 )"""),
-                    {"request": request_id, "user": user_id},
+                    {
+                        "request": request_id,
+                        "user": user_id,
+                        "stripe_mode": configured_stripe_mode(),
+                    },
                 ).scalar_one()
             )
 

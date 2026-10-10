@@ -1,5 +1,6 @@
 "use client";
 
+import { useDocumentFeedStream } from "@/lib/feed/use-document-feed-stream";
 import {
   Suspense,
   useCallback,
@@ -29,6 +30,7 @@ import {
   InboxRowIcon,
   LocationAgentIcon,
   MarketplaceAgentIcon,
+  MemoryAgentIcon,
   PhoneRowIcon,
   PreferencesProfileIcon,
   InviteFriendsProfileIcon,
@@ -50,6 +52,7 @@ import {
   ProfilePaneInviteIcon,
   ProfilePaneSecurityIcon,
   ProfilePaneSignOutIcon,
+  ProfilePaneWalletIcon,
 } from "@/components/profile/profile-pane-icons";
 import {
   ProfileInnerPeopleIcon,
@@ -62,6 +65,8 @@ import {
   ProfileSecondaryVisibilityIcon,
 } from "@/components/profile/profile-secondary-icons";
 import {
+  ProfileAccountBankIcon,
+  ProfileAccountPriceIcon,
   ProfileAccountDeleteIcon,
   ProfileAccountMailIcon,
   ProfileAccountNameIcon,
@@ -98,6 +103,8 @@ import {
   PkmDomainDetailPanel,
 } from "@/components/profile/pkm-data-manager";
 import { SharedWithYouGroup } from "@/components/profile/shared-with-you-group";
+import { DocumentBankPayoutStatusCard, DocumentPayoutAccountCard } from "@/components/consent/document-payout-account";
+import { DocumentRequestPricingCard } from "@/components/consent/document-request-pricing-card";
 import { SecretsListGroup } from "@/components/secrets/secrets-list-group";
 import {
   ProfileStackNavigator,
@@ -172,6 +179,7 @@ import { WALLET_CARD_COPY } from "@/components/wallet-card/wallet-card-copy";
 import { isWalletCardEntryEnabled } from "@/components/wallet-card/wallet-card-entry";
 import {
   buildCanonicalProfileRouteFromLegacyQuery,
+  buildLegacyDocumentPayoutReturnRoute,
   buildProfileRoute,
   resolveProfileRouteState,
   type ProfileDetail,
@@ -509,6 +517,8 @@ function profileRouteRequiresUnlockedVault(
 ): boolean {
   if (
     panel === "my-data" ||
+    panel === "payouts" ||
+    panel === "request-pricing" ||
     panel === "connected-systems" ||
     panel === "connectors" ||
     panel === "gmail"
@@ -710,6 +720,7 @@ function ProfilePageContent({
     string | null
   >(null);
   const vaultUnlockCompletingRef = useRef(false);
+  const vaultCreationCompletingRef = useRef(false);
   const supportMessageRef = useRef<HTMLTextAreaElement | null>(null);
   const supportSuccessHeadingRef = useRef<HTMLHeadingElement | null>(null);
 
@@ -717,7 +728,8 @@ function ProfilePageContent({
     () =>
       isPanePresentation
         ? null
-        : buildCanonicalProfileRouteFromLegacyQuery(pathname, searchParams),
+        : buildLegacyDocumentPayoutReturnRoute(pathname, searchParams) ??
+          buildCanonicalProfileRouteFromLegacyQuery(pathname, searchParams),
     [isPanePresentation, pathname, searchParams],
   );
   const profileRouteState = useMemo(
@@ -749,6 +761,8 @@ function ProfilePageContent({
   const supportRouteKind = supportComposeKind ?? supportQueryKind;
   const sendingSupportMessage = supportComposerState.status === "sending";
   const supportPresentation = SUPPORT_INTENT_PRESENTATION[supportKind];
+  useDocumentFeedStream(activePanel === "payouts" && !authLoading ? user : null);
+
   const effectiveReplyEmail = user?.emailVerified ? user.email?.trim() || "" : "";
   const supportReplyLine = effectiveReplyEmail
     ? `Replies go to ${effectiveReplyEmail}`
@@ -1821,11 +1835,12 @@ function ProfilePageContent({
   function openVaultBackedPanel(
     panel: Extract<
       ProfilePanel,
-      "my-data" | "connected-systems" | "connectors" | "gmail" | "security"
+      "my-data" | "payouts" | "request-pricing" | "connected-systems" | "connectors" | "gmail" | "security"
     >,
     detail: ProfileDetail | null = null,
   ) {
     if (vaultAccess.needsVaultCreation && panel !== "security") {
+      setPendingProfileTarget({ panel, detail, mode: "push" });
       setShowVaultCreation(true);
       return;
     }
@@ -2126,6 +2141,15 @@ function ProfilePageContent({
     }
   };
 
+  const handleVaultCreationOpenChange = (open: boolean) => {
+    setShowVaultCreation(open);
+    if (open) {
+      vaultCreationCompletingRef.current = false;
+    } else if (!vaultCreationCompletingRef.current) {
+      setPendingProfileTarget(null);
+    }
+  };
+
   const unlockDialogTitle =
     vaultUnlockReason === "delete_account"
       ? "Unlock to delete"
@@ -2194,11 +2218,28 @@ function ProfilePageContent({
   const profileVoiceSurfaceMetadata = useMemo(() => {
     const profileHomeControls = [
       {
+        id: "profile_payouts",
+        label: "Payouts",
+        purpose: "opens payout setup, linked bank details, and transaction history.",
+        actionId: "route.profile_payouts",
+        role: "card",
+        voiceAliases: ["payouts", "link my bank", "document earnings"],
+      },
+      {
+        id: "profile_request_pricing",
+        label: "Request pricing",
+        purpose: "opens the default price for document requests.",
+        actionId: "route.profile_request_pricing",
+        role: "card",
+        voiceAliases: ["request pricing", "Drive price", "document price"],
+      },
+      {
         id: "profile_my_data",
         label: "Memory",
-        purpose: "opens your saved details and sharing controls.",
+        purpose: "opens saved details and sharing.",
+        actionId: "route.profile_my_data",
         role: "card",
-        voiceAliases: ["personal knowledge model", "my saved details", "pkm"],
+        voiceAliases: ["my data", "saved details"],
       },
       {
         id: "profile_preferences",
@@ -2329,7 +2370,7 @@ function ProfilePageContent({
     const controls =
       activePanel === "preferences"
         ? preferenceControls
-        : activePanel === "hosting" || activePanel === "software-updates"
+        : activePanel === "hosting" || activePanel === "software-updates" || activePanel === "payouts" || activePanel === "request-pricing"
           ? []
           : profileHomeControls;
     const activeControl =
@@ -2340,6 +2381,10 @@ function ProfilePageContent({
       ? [
           activePanel === "account"
             ? PROFILE_LABELS.account
+            : activePanel === "payouts"
+              ? "Payouts"
+              : activePanel === "request-pricing"
+                ? "Request pricing"
             : activePanel === "my-data"
               ? "Memory"
               : activePanel === "connected-systems"
@@ -2358,6 +2403,8 @@ function ProfilePageContent({
           PROFILE_LABELS.preferences,
           "Hosting",
           "Software updates",
+          "Payouts",
+          "Request pricing",
           "Memory",
           "Access & sharing",
           ...(localCrmEnabled ? ["Connected Systems"] : []),
@@ -2369,7 +2416,9 @@ function ProfilePageContent({
           ...(canShowPkmAgentLab ? [PROFILE_LABELS.developerTools] : []),
         ];
     const availableActions =
-      activePanel === "gmail"
+      activePanel === "payouts" || activePanel === "request-pricing"
+        ? []
+        : activePanel === "gmail"
         ? [
             gmailPresentation.isConnected
               ? "Sync Mail receipts"
@@ -2415,10 +2464,16 @@ function ProfilePageContent({
 
     return {
       surfaceDefinition: {
-        screenId: activePanel ? `profile_${activePanel}` : "profile_home",
+        screenId: activePanel === "request-pricing"
+          ? "profile_request_pricing"
+          : activePanel ? `profile_${activePanel}` : "profile_home",
         title: activePanel
           ? activePanel === "account"
             ? PROFILE_LABELS.account
+            : activePanel === "payouts"
+              ? "Payouts"
+              : activePanel === "request-pricing"
+                ? "Request pricing"
             : activePanel === "my-data"
               ? "Memory"
               : activePanel === "connected-systems"
@@ -2436,7 +2491,7 @@ function ProfilePageContent({
                           : PROFILE_LABELS.support
           : "Profile",
         purpose:
-          "This surface manages account details, appearance, help, and vault privacy.",
+          "This surface manages account details, payouts, request pricing, appearance, help, and vault privacy.",
         sections: [
           {
             id: "account",
@@ -2718,7 +2773,10 @@ function ProfilePageContent({
     if (!profileRouteRequiresUnlockedVault(activePanel, activeDetail)) {
       return;
     }
-    if (activePanel) {
+    // Stripe returns to Payouts with a short callback marker. Keep that route
+    // while the owner unlocks so an expired Connect link can be refreshed.
+    const documentPayoutReturn = searchParams.get("documentPayouts");
+    if (activePanel && documentPayoutReturn !== "refresh" && documentPayoutReturn !== "done") {
       setPendingProfileTarget({
         panel: activePanel,
         detail: activeDetail ?? null,
@@ -3265,7 +3323,7 @@ function ProfilePageContent({
   };
 
   const myDataContent = (
-    <div className="space-y-4 sm:space-y-5">
+    <div className={cn("space-y-4 sm:space-y-5", isPanePresentation && "profile-account-content", isPanePresentation && accountStyles.paneAccountContent, isPanePresentation && accountStyles.managedContent)}>
       <PkmDataManagerPanel
         signedIn={Boolean(user)}
         loading={profileManagerLoading}
@@ -4026,6 +4084,27 @@ function ProfilePageContent({
         ),
       });
     }
+  } else if (!routeBlockedByVault && activePanel === "payouts") {
+    profileStackEntries.push({
+      key: "panel:payouts",
+      title: "Payouts",
+      content: (
+        <div className={cn("space-y-4", isPanePresentation && "profile-account-content", isPanePresentation && accountStyles.paneAccountContent, isPanePresentation && accountStyles.managedContent)}>
+          <DocumentPayoutAccountCard handleReturn />
+          <DocumentBankPayoutStatusCard refreshOnFeedChange />
+        </div>
+      ),
+    });
+  } else if (!routeBlockedByVault && activePanel === "request-pricing") {
+    profileStackEntries.push({
+      key: "panel:request-pricing",
+      title: "Request pricing",
+      content: (
+        <div className={cn(isPanePresentation && "profile-account-content", isPanePresentation && accountStyles.paneAccountContent, isPanePresentation && accountStyles.managedContent)}>
+          <DocumentRequestPricingCard />
+        </div>
+      ),
+    });
   } else if (!routeBlockedByVault && activePanel === "my-data") {
     profileStackEntries.push({
       key: "panel:my-data",
@@ -4347,6 +4426,39 @@ function ProfilePageContent({
                 onClick={openAccountPanel}
               />
               <SettingsRow
+                icon={ProfileAccountBankIcon}
+                iconTone="capability"
+                title="Payouts"
+                chevron
+                voiceControlId="profile_payouts"
+                voiceActionId="route.profile_payouts"
+                voiceLabel="Payouts"
+                voicePurpose="Opens bank setup and transaction history."
+                onClick={() => openVaultBackedPanel("payouts")}
+              />
+              <SettingsRow
+                icon={ProfileAccountPriceIcon}
+                iconTone="capability"
+                title="Request pricing"
+                chevron
+                voiceControlId="profile_request_pricing"
+                voiceActionId="route.profile_request_pricing"
+                voiceLabel="Request pricing"
+                voicePurpose="Opens your default document request price."
+                onClick={() => openVaultBackedPanel("request-pricing")}
+              />
+              <SettingsRow
+                icon={isPanePresentation ? ProfilePaneWalletIcon : MemoryAgentIcon}
+                iconTone="capability"
+                title="Memory"
+                chevron
+                voiceControlId="profile_my_data"
+                voiceActionId="route.profile_my_data"
+                voiceLabel="Memory"
+                voicePurpose="Opens saved details and sharing."
+                onClick={() => openVaultBackedPanel("my-data")}
+              />
+              <SettingsRow
                 icon={isPanePresentation ? ProfilePaneAppearanceIcon : PreferencesProfileIcon}
                 iconTone="capability"
                 title={PROFILE_LABELS.preferences}
@@ -4389,12 +4501,7 @@ function ProfilePageContent({
                 voiceActionId="route.profile_referrals_panel"
                 voiceLabel={PROFILE_LABELS.referrals}
                 voicePurpose="Opens your referral link and referral status."
-                onClick={() =>
-                  updateProfileView(
-                    { panel: "referrals", detail: null },
-                    "push",
-                  )
-                }
+                onClick={() => router.push(ROUTES.ONE_REFERRALS)}
               />
               <SettingsRow
                 icon={isPanePresentation ? ProfilePaneHelpIcon : SupportProfileIcon}
@@ -4536,19 +4643,33 @@ function ProfilePageContent({
         <VaultUnlockDialog
           user={user}
           open={showVaultCreation}
-          onOpenChange={setShowVaultCreation}
+          onOpenChange={handleVaultCreationOpenChange}
           title="Create your vault"
           description="Set up a passphrase to secure your saved details."
           onSuccess={() => {
+            vaultCreationCompletingRef.current = true;
             setShowVaultCreation(false);
             setHasVault(true);
             VaultService.setVaultCheckCache(user.uid, true);
             const returnTo = vaultReturnToRef.current;
             if (returnTo) {
               vaultReturnToRef.current = null;
+              setPendingProfileTarget(null);
               router.replace(returnTo);
+            } else if (pendingProfileTarget) {
+              updateProfileView(
+                {
+                  panel: pendingProfileTarget.panel,
+                  detail: pendingProfileTarget.detail,
+                },
+                pendingProfileTarget.mode,
+              );
+              setPendingProfileTarget(null);
             }
             toast.success("Vault created and unlocked.");
+            setTimeout(() => {
+              vaultCreationCompletingRef.current = false;
+            }, 0);
           }}
         />
       )}

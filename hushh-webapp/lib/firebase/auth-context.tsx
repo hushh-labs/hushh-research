@@ -946,7 +946,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           ownsExpectedSession = stillOwnsExpectedSession();
           if (!ownsExpectedSession) return;
 
-          const cleanupTasks: Promise<unknown>[] = [AuthService.signOut()];
+          const cleanupTasks: Promise<unknown>[] = [AuthService.signOut(currentUid)];
           // The httpOnly session cookie exists only on the web/Next.js origin.
           // Native static builds authenticate directly against the backend, where
           // `/api/auth/session` is intentionally not a route.

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, Lock, Wallet } from "@/components/icons";
+import { Lock, Wallet } from "@/components/icons";
 import { SuccessRowIcon, WalletAgentIcon } from "@/components/icons/agents";
 import { toast } from "sonner";
 
@@ -680,7 +680,6 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
                 headline={draft.headline || card?.headline || ""}
                 organisation={draft.organisation}
                 locationLabel={draft.locationLabel}
-                avatarUrl={avatarUrl}
                 shareUrl={shareLink?.shareUrl ?? null}
               />
             </div>
@@ -716,9 +715,8 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
             {WALLET_CARD_OWNER_COPY.updatesAutomatically}
           </RowDescription>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {previewOrigin === "setup" ? (
-              <>
+          {previewOrigin === "setup" ? (
+            <div className="flex flex-wrap items-center gap-2">
                 {applePassSupported ? (
                   <Button
                     type="button"
@@ -749,20 +747,8 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
                 >
                   Not now
                 </Button>
-              </>
-            ) : (
-              <Button
-                type="button"
-                size="sm"
-                variant="none"
-                effect="fade"
-                onClick={closeLocalStage}
-              >
-                <ArrowLeft className="mr-2 h-4 w-4" aria-hidden />
-                Back
-              </Button>
-            )}
-          </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

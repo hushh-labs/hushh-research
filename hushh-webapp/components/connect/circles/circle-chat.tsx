@@ -1,20 +1,29 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { InputGroup, InputGroupTextarea } from "@/components/ui/input-group";
+import { ConversationComposer } from "@/components/app-ui/conversation-composer";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { MessageCircle, ImageIcon, Send, Loader2, BellOff, Bell, ArrowDown } from "@/components/icons";
-import { CircleChatService, type CircleChatSession, type CircleChatState, type CircleChatReceipt } from "@/lib/services/circle-chat-service";
+import { MessageCircle, ImageIcon, BellOff, Bell, ArrowDown, Mic } from "@/components/icons";
+import { CircleChatService, type CircleChatSession, type CircleChatState, type CircleChatReceipt, type CircleMembershipEvent, type CircleChatPage } from "@/lib/services/circle-chat-service";
 import { ApiError, apiErrorCode } from "@/lib/services/api-client";
-import { MAX_CHAT_IMAGE_BYTES, MAX_CHAT_TEXT, type ChatMessage, type SealedChatMessage } from "@/lib/circle-chat/crypto";
+import { MAX_CHAT_IMAGE_BYTES, MAX_CHAT_TEXT, validateChatAttachmentBytes, type ChatMessage, type SealedChatMessage } from "@/lib/circle-chat/crypto";
 import { CircleChatMessage, type OpenChatMessage as OpenMessage } from "./circle-chat-message";
-import { ImageAttachmentPreview } from "./circle-chat-media";
+import { FileAttachmentPreview, ImageAttachmentPreview } from "./circle-chat-media";
 import { CIRCLE_CHAT_CHANGED, dispatchCircleChatChanged } from "@/lib/circle-chat/events";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { circleStateChangeClosesDetail, subscribeToOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
+import { chatReadIsBlocked, subscribeChatLayerChanges } from "@/lib/interaction/chat-read-visibility";
+import { useVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { AgentDockPortal } from "@/components/agent/agent-dock";
+import laneStyles from "./circle-chat-lane.module.css";
+import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";
+import { CircleMembershipEventPill } from "./circle-chat-system-event";
+import { requestAgentConversationAfterRoute } from "@/lib/agent/agent-voice-settings";
+import { ROUTES } from "@/lib/navigation/routes";
 
 const unavailable = (error: unknown) => error instanceof ApiError &&
   ([401, 403, 423].includes(error.status) || apiErrorCode(error) === "CIRCLE_CHAT_UNAVAILABLE");
@@ -33,10 +42,12 @@ function cadence(signal: AbortSignal, earliest: number): Promise<void> {
   });
 }
 
-export function CircleChat({ session, circleName, initialOpen = false, onOpenIntentConsumed, active: paneActive = true, collapsible = true, readingBlocked = false }: {
+export function CircleChat({ session, circleName, initialOpen = false, onOpenIntentConsumed, active: paneActive = true, collapsible = true, readingBlocked = false, chatLane = false, chatLaneTheme = "light" }: {
   session: CircleChatSession; circleName: string; initialOpen?: boolean; onOpenIntentConsumed?: () => void;
   active?: boolean; collapsible?: boolean;
   readingBlocked?: boolean;
+  chatLane?: boolean;
+  chatLaneTheme?: "light" | "dark";
 }) {
   const [open, setOpen] = useState(initialOpen);
   const [started, setStarted] = useState(initialOpen);
@@ -62,7 +73,10 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
           const next = await CircleChatService.wait(session, cursor, abort.signal);
           if (!active || abort.signal.aborted || !foreground()) break;
           if (next.latestSequence !== cursor || next.changed) {
-            dispatchCircleChatChanged(session.userId, session.circleId);
+            dispatchCircleChatChanged(session.userId, session.circleId, {
+              reactionsChanged: next.reactionsChanged,
+              membershipChanged: next.membershipChanged,
+            });
             if (next.photoChanged) CacheSyncService.onOneLocationStateMutated(session.userId, ["circles"], {
               notificationType: "location_circle_photo_updated", circleId: session.circleId,
             });
@@ -139,39 +153,55 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
       document.removeEventListener("visibilitychange", refresh); };
   }, [session, revision]);
 
-  return <section data-one-chat-surface aria-label={`${circleName} chat`} className="overflow-hidden rounded-[var(--app-card-radius-standard)] border border-border bg-card">
-    <div className={`flex min-w-0 items-center justify-between gap-2 px-3 py-3 sm:px-5 ${open ? "border-b border-border/60" : ""}`}>
+  return <><section data-one-chat-surface data-circle-chat-lane={chatLane || undefined} aria-label={`${circleName} chat`} className={chatLane
+    ? "flex h-full min-h-0 flex-col overflow-visible bg-transparent"
+    : "overflow-clip rounded-[var(--app-card-radius-standard)] border border-border bg-card"}>
+    {!chatLane ? <div className={`flex min-w-0 items-center justify-between gap-2 px-3 py-2 sm:px-5 ${open ? "border-b border-border/60" : ""}`}>
       {collapsible ? <Button variant="ghost" className="min-h-11" onClick={() => { setOpen(!open); setStarted(true); }} disabled={revoked || !state} aria-expanded={open}>
         <MessageCircle aria-hidden="true" className="size-4" /> Circle chat
         {state && state.unreadCount > 0 ? <span aria-label={`${state.unreadCount} unread messages`} className="rounded-full bg-primary px-2 text-primary-foreground">{state.unreadCount}</span> : null}
-      </Button> : <div className="flex min-w-0 items-center gap-2 text-sm font-semibold"><MessageCircle className="size-5 shrink-0" aria-hidden="true" />Circle chat
+      </Button> : <div className="flex min-w-0 items-center gap-2 text-sm font-semibold"><MessageCircle className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /><span className="text-muted-foreground">Circle chat</span>
         {state && state.unreadCount > 0 ? <span aria-label={`${state.unreadCount} unread messages`} className="rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">{state.unreadCount}</span> : null}</div>}
-      {open && state ? <ShellActionSurface variant="pill" className="min-h-11 text-sm" aria-label={state.muted ? "Unmute notifications" : "Mute notifications"} disabled={muting} onClick={async () => {
+      {open && state ? <ShellActionSurface variant="icon" className="size-11 shrink-0 text-sm" aria-label={state.muted ? "Unmute notifications" : "Mute notifications"} disabled={muting} onClick={async () => {
         setMuting(true);
         try { const next = await CircleChatService.mute(session, !state.muted); setState((old) => old ? { ...old, muted: next.muted } : old); }
         catch (err) { setError(errorText(err)); } finally { setMuting(false); }
-      }}>{state.muted ? <Bell className="size-4" aria-hidden="true" /> : <BellOff className="size-4" aria-hidden="true" />}<span>{state.muted ? "Unmute" : "Mute"}</span></ShellActionSurface> : null}
-    </div>
+      }}>{state.muted ? <Bell className="size-4" aria-hidden="true" /> : <BellOff className="size-4" aria-hidden="true" />}<span className="sr-only">{state.muted ? "Unmute" : "Mute"}</span></ShellActionSurface> : null}
+    </div> : null}
     {!state && !error && !revoked ? <p role="status" className="p-4 text-sm text-muted-foreground">Connecting chat…</p> : null}
     {revoked ? <p role="alert" className="p-4 text-sm">You no longer have access to this circle chat.</p> : null}
     {error && !revoked ? <div role="alert" className="p-4 text-sm">{error} <Button variant="ghost" size="sm" onClick={() => setRevision((n) => n + 1)}>Reconnect</Button></div> : null}
-    {started && state && !revoked ? <div hidden={!open || !paneActive}><CircleChatThread session={session} visible={open && paneActive} readingBlocked={readingBlocked}
+    {started && state && !revoked ? <div hidden={!open || !paneActive} className={chatLane ? "min-h-0 flex-1" : undefined}><CircleChatThread session={session} visible={open && paneActive} readingBlocked={readingBlocked} chatLane={chatLane} chatLaneTheme={chatLaneTheme}
       onRead={(sequence) => { acknowledgedRead.current = Math.max(acknowledgedRead.current, sequence); setState((old) => old && old.latestSequence <= sequence ? { ...old, unreadCount: 0 } : old); }}
       onRevoked={() => { setRevoked(true); setState(null); setOpen(false); }} /></div> : null}
-  </section>;
+  </section>
+    {open && paneActive && !chatLane ? <div aria-hidden="true" className="h-[var(--kb-height,0px)]" /> : null}
+  </>;
 }
 
-function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked }: {
+function ChatLaneMicAction() {
+  const router = useRouter();
+  return <ShellActionSurface className="size-11" aria-label="Talk to One" onClick={() => {
+    requestAgentConversationAfterRoute(ROUTES.HOME);
+    router.push(ROUTES.HOME);
+  }}><Mic aria-hidden="true" className="size-5" /></ShellActionSurface>;
+}
+
+function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked, chatLane, chatLaneTheme }: {
   session: CircleChatSession; visible: boolean; onRead: (sequence: number) => void; onRevoked: () => void;
-  readingBlocked: boolean;
+  readingBlocked: boolean; chatLane: boolean; chatLaneTheme: "light" | "dark";
 }) {
+  const blockingLayer = useVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions;
   const [messages, setMessages] = useState<OpenMessage[]>([]);
+  const [membershipEvents, setMembershipEvents] = useState<CircleMembershipEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasOlder, setHasOlder] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [text, setText] = useState("");
+  const [pickerDismissSignal, setPickerDismissSignal] = useState(0);
   const [file, setFile] = useState<File | null>(null);
+  const [validFile, setValidFile] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
   const [pending, setPending] = useState<SealedChatMessage | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -200,12 +230,7 @@ function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked 
   const onReadRef = useRef(onRead); onReadRef.current = onRead;
   const onRevokedRef = useRef(onRevoked); onRevokedRef.current = onRevoked;
   const fileInput = useRef<HTMLInputElement>(null);
-  const editor = useRef<HTMLTextAreaElement>(null);
-  useLayoutEffect(() => {
-    if (!editor.current || !visible) return;
-    editor.current.style.height = "auto";
-    editor.current.style.height = `${Math.min(128, Math.max(44, editor.current.scrollHeight))}px`;
-  }, [text, visible]);
+  const composerEditor = useRef<HTMLTextAreaElement>(null);
 
   const fail = useCallback((err: unknown) => {
     if (!active.current) return;
@@ -222,8 +247,8 @@ function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked 
       return { ...message, content: null, failed: true };
     }
   })), [session]);
-  const append = useCallback((items: OpenMessage[], receipts: CircleChatReceipt[] = []) => {
-    if (!active.current || (!items.length && !receipts.length)) return;
+  const append = useCallback((items: OpenMessage[], receipts: CircleChatReceipt[] = [], reactionUpdates: CircleChatPage["reactionUpdates"] = []) => {
+    if (!active.current || (!items.length && !receipts.length && !reactionUpdates?.length)) return;
     const existing = new Map(messagesRef.current.map((item) => [item.id, item]));
     for (const item of items) {
       const previous = existing.get(item.id);
@@ -233,10 +258,16 @@ function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked 
     }
     const merged = [...existing.values()].sort((a, b) => a.sequence - b.sequence);
     const byId = new Map(receipts.map((receipt) => [receipt.id, receipt]));
+    const reactionsById = new Map(reactionUpdates?.map((update) => [update.id, update.reactions]));
     for (let i = 0; i < merged.length; i++) {
       const item = merged[i]!;
       const receipt = byId.get(item.id);
-      if (receipt && item.senderUserId === session.userId) merged[i] = { ...item, receipt };
+      const reactions = reactionsById.get(item.id);
+      if (receipt && item.senderUserId === session.userId || reactions !== undefined) merged[i] = {
+        ...item,
+        ...(receipt && item.senderUserId === session.userId ? { receipt } : {}),
+        ...(reactions !== undefined ? { reactions } : {}),
+      };
     }
     if (merged.length > 300) setHasOlder(true);
     messagesRef.current = merged.slice(-300);
@@ -245,14 +276,19 @@ function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked 
       if (active.current && transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
     });
   }, [session.userId]);
+  const mergeMembershipEvents = useCallback((incoming: CircleMembershipEvent[] | undefined) => {
+    if (!incoming?.length) return;
+    setMembershipEvents((previous) => [...new Map([...previous, ...incoming].map((event) => [event.id, event])).values()]
+      .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt) || left.id.localeCompare(right.id))
+      .slice(-200));
+  }, []);
 
   useEffect(() => {
     active.current = true;
     const abort = new AbortController();
     let nextRefreshAt = 0;
     const refresh = async () => {
-      if (!active.current || !visibleRef.current || !foreground()
-          || !atBottomRef.current && messagesRef.current.length >= 300) return;
+      if (!active.current || !visibleRef.current || !foreground()) return;
       if (running.current) { refreshPending.current = true; return; }
       running.current = true;
       setRefreshing(true);
@@ -269,15 +305,20 @@ function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked 
         let page = await CircleChatService.messages(session, incremental ? { after: last.current, ...receiptRange() } : {}, abort.signal);
         if (!active.current) return;
         if (!last.current) setHasOlder(page.hasMore);
-        append(await decrypt(page.items), page.receipts);
-        if (active.current && page.items.length) last.current = Math.max(last.current, ...page.items.map((item) => item.sequence));
+        mergeMembershipEvents(page.events);
+        // Keep the older scroll window stable while still reconciling live
+        // reactions and receipts for the messages visible in that window.
+        const holdOlderWindow = !atBottomRef.current && messagesRef.current.length >= 300;
+        append(holdOlderWindow ? [] : await decrypt(page.items), page.receipts, page.reactionUpdates);
+        if (!holdOlderWindow && active.current && page.items.length) last.current = Math.max(last.current, ...page.items.map((item) => item.sequence));
         // Repair a reconnect gap in bounded pages, without skipping any sequence.
-        for (let i = 0; incremental && page.hasMore && last.current && i < 4 && active.current; i++) {
+        for (let i = 0; !holdOlderWindow && incremental && page.hasMore && last.current && i < 4 && active.current; i++) {
           page = await CircleChatService.messages(session, { after: last.current, ...receiptRange() }, abort.signal);
-          append(await decrypt(page.items), page.receipts);
+          mergeMembershipEvents(page.events);
+          append(await decrypt(page.items), page.receipts, page.reactionUpdates);
           if (active.current && page.items.length) last.current = Math.max(last.current, ...page.items.map((item) => item.sequence));
         }
-        if (incremental && page.hasMore) refreshPending.current = true;
+        if (!holdOlderWindow && incremental && page.hasMore) refreshPending.current = true;
         if (active.current) { setLoading(false); if (!sendLock.current) setError(null); setReadRevision((n) => n + 1); }
         } while (refreshPending.current && active.current && visibleRef.current && foreground()
                  && (atBottomRef.current || messagesRef.current.length < 300));
@@ -286,7 +327,9 @@ function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked 
     };
     const event = (value: Event) => {
       const detail = (value as CustomEvent<{ userId: string; circleId: string }>).detail;
-      if (detail?.userId === session.userId && detail.circleId === session.circleId) void refresh();
+      if (detail?.userId === session.userId && detail.circleId === session.circleId) {
+        void refresh();
+      }
     };
     void refresh();
     const timer = window.setInterval(() => void refresh(), 5000);
@@ -296,7 +339,7 @@ function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked 
     return () => { active.current = false; abort.abort(); clearInterval(timer); removeLifecycle();
       window.removeEventListener(CIRCLE_CHAT_CHANGED, event); window.removeEventListener("online", refresh);
       document.removeEventListener("visibilitychange", refresh); };
-  }, [session, append, decrypt, fail]);
+  }, [session, append, decrypt, fail, mergeMembershipEvents]);
 
   useEffect(() => {
     if (visible) window.dispatchEvent(new CustomEvent(CIRCLE_CHAT_CHANGED,
@@ -315,12 +358,12 @@ function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked 
       atBottomRef.current = entry.isIntersecting;
       setAtBottom(entry.isIntersecting);
       if (entry.isIntersecting) setReadRevision((n) => n + 1);
-    }, { root: transcript.current, threshold: 1 });
+    }, { root: transcript.current, threshold: 0 });
     observer.observe(bottom.current);
     const viewportObserver = new IntersectionObserver(([entry]) => {
       bottomInViewport.current = Boolean(entry?.isIntersecting);
       if (entry?.isIntersecting) setReadRevision((n) => n + 1);
-    }, { threshold: 1 });
+    }, { threshold: 0 });
     viewportObserver.observe(bottom.current);
     return () => { resize.disconnect(); observer.disconnect(); viewportObserver.disconnect(); };
   }, []);
@@ -334,7 +377,7 @@ function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked 
       const element = transcript.current;
       if (reading.current || !visibleRef.current || !active.current || !element || element.scrollHeight - element.scrollTop - element.clientHeight > 8
           || !atBottomRef.current || !bottomInViewport.current || !document.hasFocus() || !foreground() || sequence <= readThrough.current
-          || readingBlocked || viewers.size > 0) return;
+          || readingBlocked || viewers.size > 0 || chatReadIsBlocked(element)) return;
       reading.current = true;
       try { await CircleChatService.read(session, sequence); if (active.current) { readThrough.current = Math.max(readThrough.current, sequence); onReadRef.current(sequence); } }
       catch (err) { fail(err); }
@@ -346,11 +389,12 @@ function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked 
     void read();
     window.addEventListener("focus", read); document.addEventListener("visibilitychange", read);
     const removeLifecycle = appInteractionCoordinator.subscribeLifecycle(() => { void read(); });
-    return () => { removeLifecycle(); window.removeEventListener("focus", read); document.removeEventListener("visibilitychange", read); };
-  }, [session, readRevision, messages, fail, visible, readingBlocked, viewers]);
+    const removeLayers = subscribeChatLayerChanges(() => { void read(); });
+    return () => { removeLifecycle(); removeLayers(); window.removeEventListener("focus", read); document.removeEventListener("visibilitychange", read); };
+  }, [session, readRevision, messages, fail, visible, readingBlocked, viewers, blockingLayer]);
 
   const send = async () => {
-    if (sendLock.current || !active.current || loading || (!pending && !text.trim() && !file)) return;
+    if (sendLock.current || !active.current || loading || (!pending && file && validFile !== file) || (!pending && !text.trim() && !file)) return;
     sendLock.current = true; setSending(true); setError(null);
     try {
       const sealed = pending ?? await CircleChatService.prepare(session, text, file);
@@ -358,8 +402,10 @@ function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked 
       setPending(sealed);
       const sent = await CircleChatService.send(session, sealed);
       if (!active.current) return;
+      atBottomRef.current = true;
+      setAtBottom(true);
       append(await decrypt([sent]));
-      setPending(null); setText(""); setFile(null);
+      setPending(null); setText(""); setFile(null); setPickerDismissSignal((value) => value + 1);
       if (fileInput.current) fileInput.current.value = "";
     } catch (err) {
       fail(err);
@@ -368,8 +414,11 @@ function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked 
           || err instanceof ApiError && [413, 422].includes(err.status)) setPending(null);
     } finally { sendLock.current = false; if (active.current) setSending(false); }
   };
-  return <div className={file ? "[--chat-preview-height:5rem]" : "[--chat-preview-height:0px]"}>
-    <div ref={transcript} tabIndex={0} aria-label="Circle messages" className="h-[min(36rem,max(10rem,calc(50dvh-var(--kb-height,0px)-var(--chat-preview-height))))] overflow-y-auto overscroll-contain bg-muted/30 px-3 py-4 sm:h-[min(36rem,max(10rem,calc(48dvh-var(--kb-height,0px)-var(--chat-preview-height))))] sm:px-5 sm:py-5">
+  return <div className={`${file ? "[--chat-preview-height:5rem]" : "[--chat-preview-height:0px]"} ${chatLane ? "flex h-full min-h-0 flex-col" : ""}`}>
+    <div ref={transcript} tabIndex={0} aria-label="Circle messages" style={chatLane ? { height: "auto", minHeight: 0, flex: "1 1 0", paddingBottom: "10rem" } : undefined}
+      className={chatLane
+        ? "overflow-y-auto overscroll-contain bg-transparent px-3 py-4 sm:px-6 sm:py-5"
+        : "h-[min(36rem,max(10rem,calc(50dvh-var(--kb-height,0px)-var(--chat-preview-height))))] overflow-y-auto overscroll-contain bg-muted/30 px-3 py-4 sm:h-[min(36rem,max(10rem,calc(48dvh-var(--kb-height,0px)-var(--chat-preview-height))))] sm:px-5 sm:py-5"}>
       {hasOlder ? <Button variant="ghost" size="sm" className="min-h-11" disabled={loadingOlder || refreshing} onClick={async () => {
         if (!messages.length || loadingOlder || running.current) return;
         running.current = true;
@@ -377,6 +426,7 @@ function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked 
         const height = transcript.current?.scrollHeight ?? 0;
         try {
           const page = await CircleChatService.messages(session, { before: messages[0]!.sequence });
+          mergeMembershipEvents(page.events);
           const older = await decrypt(page.items);
           const receipts = new Map(page.receipts?.map((receipt) => [receipt.id, receipt]));
           for (const item of older) {
@@ -397,37 +447,56 @@ function CircleChatThread({ session, visible, onRead, onRevoked, readingBlocked 
           }
         }
       }}>Load earlier messages</Button> : null}
-      {loading ? <p role="status" className="text-sm text-muted-foreground">Loading messages…</p> : !messages.length ? <p className="py-8 text-center text-sm text-muted-foreground">Start the conversation. Say hello or share an image.</p> : null}
-      <ol ref={messageList} className="space-y-4">{messages.map((message, index) => <CircleChatMessage key={message.id}
-        message={message} previous={messages[index - 1]} session={session} visible={visible} layoutBlocked={readingBlocked} scrollRoot={transcript}
-        onViewerChange={viewerChanged} onMediaError={(error) => { if (unavailable(error)) fail(error); }} />)}</ol>
+      {loading ? <p role="status" className="text-sm text-muted-foreground">Loading messages…</p> : !messages.length && !membershipEvents.length ? <p className="py-8 text-center text-sm text-muted-foreground">Start the conversation. Say hello or share a file.</p> : null}
+      <div role="log" aria-label="Circle message history" aria-live={atBottom && visible ? "polite" : "off"} aria-relevant="additions" aria-busy={loading || loadingOlder}><ol ref={messageList}>{[
+        ...messages.map((message, index) => ({ kind: "message" as const, id: message.id, createdAt: message.createdAt, message, previous: messages[index - 1] })),
+        ...membershipEvents.map((event) => ({ kind: "event" as const, id: event.id, createdAt: event.createdAt, event })),
+      ].sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt) || left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id))
+        .map((item) => item.kind === "event" ? <CircleMembershipEventPill key={`event:${item.id}`} event={item.event} /> : <CircleChatMessage key={`message:${item.id}`}
+          message={item.message} previous={item.previous} session={session} visible={visible} layoutBlocked={readingBlocked} scrollRoot={transcript}
+          onViewerChange={viewerChanged} onMediaError={(error) => { if (unavailable(error)) fail(error); }} />)}</ol></div>
       <div ref={bottom} className="h-1" />
     </div>
-    <div className="space-y-2 border-t border-border/60 p-3 sm:px-5 sm:py-4">
-    {!atBottom && messages.length ? <Button variant="ghost" size="sm" className="min-h-11" onClick={() => {
+    <AgentDockPortal enabled={chatLane} visible={visible}>
+    <div className={chatLane ? laneStyles.composer : "relative space-y-2 border-t border-border/60 p-3 sm:px-5 sm:py-4"} data-theme={chatLane ? chatLaneTheme : undefined} data-circle-chat-composer>
+    {!atBottom && messages.length ? <Button variant="ghost" size="sm" className="absolute bottom-full left-1/2 -translate-x-1/2 z-10 mb-3 min-h-11 rounded-full border border-border bg-card shadow-sm" onClick={() => {
       atBottomRef.current = true;
       if (transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
       window.dispatchEvent(new CustomEvent(CIRCLE_CHAT_CHANGED, { detail: { userId: session.userId, circleId: session.circleId } }));
     }}><ArrowDown className="size-4" aria-hidden="true" />Go to latest messages</Button> : null}
     {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-    {file ? <ImageAttachmentPreview file={file} disabled={sending || Boolean(pending)} onRemove={() => { setFile(null); if (fileInput.current) fileInput.current.value = ""; }} /> : null}
-    <form className="flex min-w-0 items-end gap-2" onSubmit={(event) => { event.preventDefault(); void send(); }}>
-      <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" aria-label="Attach image" disabled={sending || Boolean(pending)} onChange={(event) => {
+    {file ? file.type.startsWith("image/") ? <ImageAttachmentPreview key={`${file.name}:${file.lastModified}`} file={file} disabled={sending || Boolean(pending)} onValidity={(previewFile, valid) => { if (previewFile === file) setValidFile(valid ? previewFile : null); }} onRemove={() => { setFile(null); setValidFile(null); if (fileInput.current) fileInput.current.value = ""; }} />
+      : <FileAttachmentPreview file={file} disabled={sending || Boolean(pending)} onRemove={() => { setFile(null); setValidFile(null); if (fileInput.current) fileInput.current.value = ""; }} /> : null}
+      <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" className="hidden" tabIndex={-1} aria-label="Attach photo, video, or document" disabled={sending || Boolean(pending)} onChange={async (event) => {
         const next = event.target.files?.[0];
         if (!next) return;
-        if (!next.size || next.size > MAX_CHAT_IMAGE_BYTES || !["image/jpeg", "image/png", "image/webp"].includes(next.type)) { setError("Choose a JPEG, PNG, or WebP image up to 5 MB."); event.target.value = ""; return; }
-        setFile(next); setError(null);
+        if (!next.size || next.size > MAX_CHAT_IMAGE_BYTES) { setError("Choose a file up to 5 MB."); event.target.value = ""; return; }
+        setValidFile(null); setError(null);
+        try {
+          const kind = validateChatAttachmentBytes(new Uint8Array(await next.arrayBuffer()), next.type);
+          if (event.target.files?.[0] !== next) return;
+          setFile(next);
+          if (kind !== "photo") setValidFile(next);
+        } catch (caught) {
+          setError(errorText(caught)); event.target.value = "";
+        }
       }} />
-      <ShellActionSurface className="size-11" aria-label="Choose image" disabled={sending || Boolean(pending)} onClick={() => fileInput.current?.click()}><ImageIcon className="size-5" /></ShellActionSurface>
-      <InputGroup className="min-h-11 min-w-0 flex-1 bg-background shadow-none">
-      <InputGroupTextarea ref={editor} aria-label="Message" placeholder="Message…" value={text} maxLength={MAX_CHAT_TEXT} className="min-h-11 max-h-32 min-w-0 overflow-y-auto px-3 py-2.5 text-base leading-6 md:text-base" rows={1} disabled={sending || Boolean(pending)} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => {
-        if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229 && window.matchMedia("(pointer: fine)").matches) { event.preventDefault(); void send(); }
-      }} />
-      </InputGroup>
-      <ShellActionSurface type="submit" rippleEffect="fill" className="size-11 border-0 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] shadow-none hover:bg-[color:var(--app-accent-hover)] hover:text-[color:var(--app-accent-fg)]" aria-label={pending ? "Retry message" : "Send message"} disabled={sending || loading || (!text.trim() && !file && !pending)}>{sending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}</ShellActionSurface>
-    </form>
+    <ConversationComposer value={text} onChange={setText} onSend={() => void send()} maxLength={MAX_CHAT_TEXT} visible={visible} editorRef={chatLane ? composerEditor : undefined}
+      busy={sending} locked={Boolean(pending)} sendLabel={pending ? "Retry message" : "Send message"}
+      sendDisabled={loading || (!pending && Boolean(file) && validFile !== file) || (!text.trim() && !file && !pending)}
+      showSend={!chatLane || Boolean(text.trim() || file || pending || sending)}
+      trailingAction={chatLane ? <DirectMessageEmojiPicker disabled={sending || Boolean(pending)} dismissSignal={pickerDismissSignal} onEmojiSelect={(emoji) => {
+        const editor = composerEditor.current;
+        const start = editor?.selectionStart ?? text.length;
+        const end = editor?.selectionEnd ?? start;
+        setText((current) => `${current.slice(0, start)}${emoji}${current.slice(end)}`);
+        requestAnimationFrame(() => { editor?.focus(); editor?.setSelectionRange(start + emoji.length, start + emoji.length); });
+      }} /> : undefined}
+      emptyAction={chatLane ? <ChatLaneMicAction /> : undefined}
+      leadingAction={<ShellActionSurface className="size-11" aria-label="Attach photo, video, or document" disabled={sending || Boolean(pending)} onClick={() => fileInput.current?.click()}><ImageIcon aria-hidden="true" className="size-5" /></ShellActionSurface>} />
     {pending && !sending ? <p className="text-xs text-muted-foreground">Delivery is unconfirmed. Retry sends the same message safely.</p> : null}
     <p className="text-center text-[11px] leading-4 text-muted-foreground">Only circle members can read these messages.</p>
     </div>
+    </AgentDockPortal>
   </div>;
 }

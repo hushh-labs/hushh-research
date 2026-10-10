@@ -109,6 +109,17 @@ describe("useReferralStream", () => {
     expect(result.current.connected).toBe(false);
   });
 
+  it("cancels an open response body on navigation even if transport ignores abort", async () => {
+    const cancel = vi.fn();
+    vi.spyOn(ApiService, "apiFetchStream").mockResolvedValue(new Response(
+      new ReadableStream<Uint8Array>({ cancel }),
+    ));
+    const { result, unmount } = renderHook(() => useReferralStream(fakeUser, vi.fn()));
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    unmount();
+    await waitFor(() => expect(cancel).toHaveBeenCalledTimes(1));
+  });
+
   it("opens nothing when nobody is signed in", async () => {
     const spy = vi.spyOn(ApiService, "apiFetchStream");
     renderHook(() => useReferralStream(null, vi.fn()));

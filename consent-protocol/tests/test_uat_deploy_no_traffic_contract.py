@@ -135,6 +135,115 @@ def test_uat_drive_secret_wiring_is_explicit_and_default_off() -> None:
     assert "GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET" not in workflow
 
 
+def test_stripe_secret_bindings_survive_payment_rollout_switch_off() -> None:
+    """Existing paid-required requests still need Checkout and signed webhooks."""
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    for lane in ("dev", "production"):
+        workflow = _read(f".github/workflows/deploy-{lane}.yml")
+        assert "_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY" in workflow
+        assert "_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET" in workflow
+        assert "_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET=STRIPE_CONNECT_WEBHOOK_SECRET" in workflow
+        assert "_STRIPE_SECRET_KEY_SECRET=${{" not in workflow
+        assert "_STRIPE_WEBHOOK_SECRET_SECRET=${{" not in workflow
+        assert "_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET=${{" not in workflow
+
+    uat = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+    steps = uat["jobs"]["deploy"]["steps"]
+    backend = next(step for step in steps if step.get("id") == "deploy-backend")
+    worker = next(step for step in steps if step.get("id") == "deploy-drive-worker")
+    mode_variable = "${{ vars.STRIPE_UAT_MODE || 'test' }}"
+    assert backend["env"]["STRIPE_UAT_MODE"] == mode_variable
+    assert worker["env"]["STRIPE_UAT_MODE"] == mode_variable
+    assert "source deploy/drive/uat_stripe_bindings.sh" in backend["run"]
+    for runtime_name, selector_name in (
+        ("STRIPE_SECRET_KEY", "STRIPE_UAT_KEY_SECRET"),
+        ("STRIPE_WEBHOOK_SECRET", "STRIPE_UAT_WEBHOOK_SECRET"),
+        ("STRIPE_CONNECT_WEBHOOK_SECRET", "STRIPE_UAT_CONNECT_SECRET"),
+    ):
+        assert f"_{runtime_name}_SECRET=${{{selector_name}}}" in backend["run"]
+
+    worker_script = _read("deploy/drive/deploy_worker_service.sh")
+    assert "source deploy/drive/uat_stripe_bindings.sh" in worker_script
+    assert "STRIPE_SECRET_KEY=${STRIPE_UAT_KEY_SECRET}:latest" in worker_script
+    assert "STRIPE_WEBHOOK_SECRET=${STRIPE_UAT_WEBHOOK_SECRET}:latest" in worker_script
+    selector = str(REPO_ROOT / "deploy/drive/uat_stripe_bindings.sh")
+    # Selecting mode never depends on either new-order rollout switch: existing
+    # money must retain its exact provider family even when enrollment stops.
+    for mode in ("test", "live"):
+        family = "STRIPE" if mode == "test" else "STRIPE_LIVE"
+        expected = [
+            mode,
+            f"{family}_SECRET_KEY",
+            f"{family}_WEBHOOK_SECRET",
+            f"{family}_CONNECT_WEBHOOK_SECRET",
+        ]
+        for payments in ("false", "true"):
+            for payouts in ("false", "true"):
+                selected = subprocess.run(  # noqa: S603 - fixed shell and repository script; enum-only inputs
+                    [
+                        "/bin/bash",
+                        "-c",
+                        'source "$1"; printf "%s\\n" "$STRIPE_UAT_MODE" '
+                        '"$STRIPE_UAT_KEY_SECRET" "$STRIPE_UAT_WEBHOOK_SECRET" '
+                        '"$STRIPE_UAT_CONNECT_SECRET"',
+                        "stripe-bindings-test",
+                        selector,
+                    ],
+                    env={
+                        "STRIPE_UAT_MODE": mode,
+                        "DRIVE_REQUEST_PAYMENTS_UAT_ENABLED": payments,
+                        "DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED": payouts,
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                assert selected.stdout.splitlines() == expected
+
+    backend_deploy = _backend_deploy()
+    secret_mounts = _read("scripts/deploy/scope-commerce-secrets.sh")
+    # The build binds optional existing secrets, but refuses an enabled
+    # new-request rollout unless both names resolve in the deploy project.
+    assert (
+        '"${_DRIVE_REQUEST_PAYMENTS_ENABLED}" == "true" || "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED}" == "true"'
+        in backend_deploy
+    )
+    assert (
+        'for required_secret in "${_STRIPE_SECRET_KEY_SECRET}" "${_STRIPE_WEBHOOK_SECRET_SECRET}"; do'
+        in backend_deploy
+    )
+    for name in ("STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_CONNECT_WEBHOOK_SECRET"):
+        assert f'append_optional_secret "${{_{name}_SECRET}}" "{name}"' in secret_mounts
+    assert "/scope-commerce-secrets.sh" in backend_deploy
+    assert "append_payment_provider_secrets" in backend_deploy
+    assert '"${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED}" == "true"' in backend_deploy
+    assert 'gcloud secrets describe "${_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET}"' in backend_deploy
+    assert '_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET: ""' in backend_build
+
+
+def test_document_owner_payouts_require_explicit_uat_api_and_worker_switches() -> None:
+    """A UAT payout rollout must reach both runtimes and cannot silently reach production."""
+    uat = _read(".github/workflows/deploy-uat.yml")
+    production = _read(".github/workflows/deploy-production.yml")
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    uat_worker = _read("deploy/drive/deploy_worker_service.sh")
+    production_worker = _read("deploy/drive/deploy_worker_service_prod.sh")
+
+    flag = "DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED"
+    uat_variable = "${{ vars.DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED || 'false' }}"
+    assert f"_{flag}={uat_variable}" in uat
+    assert f"DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED: {uat_variable}" in uat
+    assert f'_{flag}: "false"' in backend_build
+    backend_deploy = _backend_deploy()
+    for name in (flag, "STRIPE_MODE"):
+        assert f'append_optional_env "{name}" "${{_{name}}}"' in backend_deploy
+    assert f"owner_payouts_enabled=${{_{flag}}}" in backend_build
+    assert f"{flag}=${{DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED:-false}}" in uat_worker
+    assert '"${DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED:-false}" == "true"' in uat_worker
+    assert f"_{flag}=" not in production
+    assert f"{flag}=false" in production_worker
+
+
 def test_uat_runtime_capacity_is_bounded_and_revision_safe() -> None:
     workflow = _read(".github/workflows/deploy-uat.yml")
     backend_build = _read("deploy/backend.cloudbuild.yaml")
@@ -323,6 +432,17 @@ def test_command_deploys_do_not_restore_live_or_model_pack_dependencies() -> Non
         assert "AGENT_ONE_ADK_LOCATION" not in source
     assert all("HUSSH_GEMINI_TEXT_MODEL" in source for source in sources[:3])
     assert "resolve_fleet_model_name" in sources[3]
+
+
+def test_calendar_voice_details_are_enabled_only_for_uat_rollout() -> None:
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    uat_workflow = _read(".github/workflows/deploy-uat.yml")
+    production_workflow = _read(".github/workflows/deploy-production.yml")
+
+    assert '_ONE_VOICE_CALENDAR_NARRATION_ENABLED: "false"' in backend_build
+    assert "ONE_VOICE_CALENDAR_NARRATION_ENABLED" in backend_build
+    assert "_ONE_VOICE_CALENDAR_NARRATION_ENABLED=true" in uat_workflow
+    assert "_ONE_VOICE_CALENDAR_NARRATION_ENABLED=true" not in production_workflow
 
 
 def test_one_voice_live_env_contract_is_explicit_and_enabled_in_production() -> None:

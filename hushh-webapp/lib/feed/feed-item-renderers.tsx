@@ -1,4 +1,4 @@
-import type { LucideIcon } from "@/components/icons";
+import type { ComponentType } from "react";
 import {
   AlertTriangle,
   Bot,
@@ -15,6 +15,7 @@ import {
   ScanSearch,
   Users,
 } from "@/components/icons";
+import { CalendarAgentIcon } from "@/components/icons/agents";
 
 import {
   consentInformationLabel,
@@ -22,6 +23,10 @@ import {
   reasonMidSentence,
 } from "@/lib/consent/consent-owner-copy";
 import { documentShareNotificationSelection } from "@/lib/consent/document-share-consent";
+import {
+  documentPayoutNetEarnings,
+  isOwnerDocumentPayoutStatus,
+} from "@/lib/consent/document-payout-status";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { formatLocationDurationLabel } from "@/lib/one-location/duration-copy";
 import { buildOneLocationWorkflowHref } from "@/lib/one-location/notifications";
@@ -36,7 +41,7 @@ import type { FeedItem, FeedSourceDomain } from "@/lib/services/feed-service";
 import { getAnalysisHistoryRunRouteId } from "@/lib/kai/analysis-route-intent";
 
 export type FeedItemPresentation = {
-  icon: LucideIcon;
+  icon: ComponentType<{ className?: string; color?: string }>;
   domainLabel: string;
   label: string;
   description: string;
@@ -47,7 +52,7 @@ export type FeedItemPresentation = {
   } | null;
 };
 
-const DOMAIN_ICON: Record<FeedSourceDomain, LucideIcon> = {
+const DOMAIN_ICON: Record<FeedSourceDomain, FeedItemPresentation["icon"]> = {
   consent: ShieldCheck,
   location: MapPin,
   kai: TrendingUp,
@@ -195,7 +200,7 @@ function driveFeedLine(
     case "document_share_payment_confirmed":
       return "Payment confirmed for your document request";
     case "document_share_payment_refunded":
-      return "Payment refunded for your document request";
+      return documentRefundLine(metadata);
     case "document_share_decided":
       if (sharedWithMe) {
         return status === "declined"
@@ -240,6 +245,41 @@ function driveFeedLine(
   }
 }
 
+function documentRefundLine(metadata: Record<string, unknown>): string {
+  const refunded = metadata.current_refund_amount_cents;
+  const paid = metadata.current_payment_amount_cents;
+  if (!Number.isSafeInteger(refunded) || (refunded as number) <= 0 ||
+      !Number.isSafeInteger(paid) || (paid as number) < (refunded as number)) {
+    return "Payment refunded for your document request";
+  }
+  const amount = documentPayoutNetEarnings(refunded as number);
+  return refunded === paid
+    ? "Payment refunded for your document request"
+    : `Refunded ${amount} for undelivered files`;
+}
+
+function ownerDocumentPayoutFeedLine(metadata: Record<string, unknown>): string | null {
+  const status = metadata.owner_payout_status;
+  const setupNeeded = metadata.owner_payout_account_ready === false;
+  if (!isOwnerDocumentPayoutStatus(status)) return setupNeeded ? "Set up US payouts" : null;
+  const label = status === "transferred"
+    ? "Sent to Stripe"
+    : status === "manual_review" || status === "reversal_due" || status === "reversal_unknown"
+      ? "Payout needs review"
+      : status === "reversed"
+        ? "Transfer reversed"
+        : status === "void"
+          ? "No payout due"
+          : status === "awaiting_account" || (setupNeeded && status === "awaiting_delivery")
+            ? "Payout pending setup"
+            : "Payout pending";
+  const cents = metadata.owner_earning_cents;
+  const net = Number.isSafeInteger(cents) && (cents as number) >= 0 && (cents as number) <= 50_000
+    ? documentPayoutNetEarnings(cents as number)
+    : null;
+  return net === null ? label : `${label} · Net ${net}`;
+}
+
 function paymentInstructionLine(metadata: Record<string, unknown>): string {
   const requestStatus = metadataString(metadata, "current_request_status").toLowerCase();
   const paymentStatus = metadataString(metadata, "current_payment_status").toLowerCase();
@@ -262,6 +302,7 @@ function paymentInstructionLine(metadata: Record<string, unknown>): string {
   // The actionable above history owns Checkout. An unavailable status cannot
   // resurrect a Pay instruction from an old immutable Feed event.
   if (paymentStatus === "unavailable") return "Check document request";
+  if (metadata.current_owner_payout_account_ready === false) return "Waiting for owner payout setup";
   return "Payment due for your document request";
 }
 
@@ -386,7 +427,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
   const outcome = Object.prototype.hasOwnProperty.call(AGENT_OUTCOME_COPY, item.event_type)
     ? AGENT_OUTCOME_COPY[item.event_type] : undefined;
   if (outcome) {
-    const family = item.event_type.startsWith("calendar_") ? { icon: CalendarDays, domainLabel: "Calendar" }
+    const family = item.event_type.startsWith("calendar_") ? { icon: CalendarAgentIcon, domainLabel: "Calendar" }
       : item.event_type.startsWith("mail_") ? { icon: Mail, domainLabel: "Mail" }
         : item.event_type.startsWith("drive_") ? { icon: FileText, domainLabel: "Google Drive" }
           : { icon, domainLabel };
@@ -1160,7 +1201,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       };
     case "calendar_connected":
       return {
-        icon: CalendarDays,
+        icon: CalendarAgentIcon,
         domainLabel: "Calendar",
         label: "Calendar connected",
         description: "Your calendar is ready in One.",
@@ -1168,7 +1209,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       };
     case "calendar_reconnect_required":
       return {
-        icon: CalendarDays,
+        icon: CalendarAgentIcon,
         domainLabel: "Calendar",
         label: "Calendar needs reconnection",
         description: "Reconnect Calendar to keep using it in One.",
@@ -1176,7 +1217,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       };
     case "calendar_disconnected":
       return {
-        icon: CalendarDays,
+        icon: CalendarAgentIcon,
         domainLabel: "Calendar",
         label: "Calendar disconnected",
         description: "One no longer has access to your calendar.",
@@ -1186,7 +1227,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     case "calendar_event_rescheduled":
     case "calendar_event_canceled":
       return {
-        icon: CalendarDays,
+        icon: CalendarAgentIcon,
         domainLabel: "Calendar",
         label:
           item.event_type === "calendar_event_created"
@@ -1359,12 +1400,15 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         domainLabel: "Google Drive",
         label: hasWho ? who : "Google Drive",
         person: counterpartPerson(item.metadata, who),
-        description: driveFeedLine(
-          item.event_type,
-          sharedWithMe,
-          metadataString(item.metadata, "user_facing_status"),
-          item.metadata,
-        ),
+        description: [
+          driveFeedLine(
+            item.event_type,
+            sharedWithMe,
+            metadataString(item.metadata, "user_facing_status"),
+            item.metadata,
+          ),
+          ownerDocumentPayoutFeedLine(item.metadata),
+        ].filter(Boolean).join(" · "),
         href: item.event_type === "document_share_payment_ready" ||
           item.event_type === "document_share_payment_confirmed" ||
           item.event_type === "document_share_payment_refunded"

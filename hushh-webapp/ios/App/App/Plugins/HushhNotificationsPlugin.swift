@@ -1,5 +1,7 @@
 import Foundation
 import Capacitor
+import UserNotifications
+import FirebaseMessaging
 
 /**
  * HushhNotificationsPlugin - Push token registration (Capacitor 8)
@@ -19,8 +21,12 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "HushhNotificationsPlugin"
     public let jsName = "HushhNotifications"
     public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "deletePushToken", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "registerPushToken", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "unregisterPushToken", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "unregisterPushToken", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "prepareNotificationKey", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "clearNotificationKey", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "clearChatNotifications", returnType: CAPPluginReturnPromise)
     ]
 
     private let TAG = "HushhNotifications"
@@ -39,6 +45,13 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
         config.timeoutIntervalForResource = 30
         return URLSession(configuration: config)
     }()
+
+    @objc func deletePushToken(_ call: CAPPluginCall) {
+        Messaging.messaging().deleteToken { error in
+            if error != nil { call.reject("Push token deletion failed") }
+            else { call.resolve() }
+        }
+    }
 
     @objc func registerPushToken(_ call: CAPPluginCall) {
         guard let userId = call.getString("userId"),
@@ -62,11 +75,14 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(idToken)", forHTTPHeaderField: "Authorization")
 
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "user_id": userId,
             "token": token,
             "platform": platform
         ]
+        body["device_id"] = call.getString("deviceId")
+        body["preview_key_id"] = call.getString("previewKeyId")
+        body["preview_public_key"] = call.getString("previewPublicKey")
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
         urlSession.dataTask(with: request) { [weak self] data, response, error in
@@ -116,6 +132,7 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
         request.setValue("Bearer \(idToken)", forHTTPHeaderField: "Authorization")
 
         var body: [String: Any] = ["user_id": userId]
+        body["device_id"] = call.getString("deviceId")
         if let platform = platform, !platform.isEmpty {
             body["platform"] = platform
         }
@@ -144,5 +161,40 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
 
             call.resolve(["success": true])
         }.resume()
+    }
+
+    @objc func prepareNotificationKey(_ call: CAPPluginCall) {
+        guard let user = call.getString("userId"), let device = call.getString("deviceId") else { call.reject("Notification identity required"); return }
+        do { call.resolve(try ChatPreviewKeys.prepare(userId: user, deviceId: device)) }
+        catch { call.reject("Notification keys unavailable") }
+    }
+
+    @objc func clearChatNotifications(_ call: CAPPluginCall) {
+        guard let thread = call.getString("threadId"), let key = call.getString("keyId") else { call.reject("Notification identity required"); return }
+        let sequence = call.getDouble("sequence")
+        let before = call.getDouble("before")
+        let messageId = call.getString("messageId")
+        UNUserNotificationCenter.current().getDeliveredNotifications { notifications in
+            guard ChatPreviewKeys.matches(keyId: key) else { call.resolve(); return }
+            let ids = notifications.filter { notification in
+                let info = notification.request.content.userInfo
+                guard (info["recipient_key_id"] as? String) == key,
+                      ((info["conversation_id"] as? String) ?? (info["circle_id"] as? String)) == thread else { return false }
+                if let messageId = messageId, info["message_id"] as? String == messageId { return true }
+                if let sequence = sequence, let raw = info["chat_sequence"] as? String, let number = Double(raw) { return number <= sequence }
+                if let before = before, let raw = info["chat_sent_at"] as? String, let number = Double(raw) { return number <= before }
+                return false
+            }.map { $0.request.identifier }
+            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ids)
+            call.resolve()
+        }
+    }
+
+    @objc func clearNotificationKey(_ call: CAPPluginCall) {
+        guard let user = call.getString("userId") else { call.reject("Notification identity required"); return }
+        do {
+            _ = try ChatPreviewKeys.clear(userId: user)
+            call.resolve()
+        } catch { call.reject("Notification cleanup unavailable") }
     }
 }

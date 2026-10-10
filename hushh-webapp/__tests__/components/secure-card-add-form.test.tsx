@@ -59,7 +59,8 @@ describe("Secure manual card entry", () => {
     const save = vi.fn().mockRejectedValueOnce(new Error("private card request details")).mockResolvedValue(undefined);
     render(<SecureCardAddForm onSubmit={save} initialNickname="Offer label" />);
     fillRequired();
-    fireEvent.change(screen.getByLabelText("Card network (optional)"), { target: { value: "mastercard" } });
+    fireEvent.keyDown(screen.getByLabelText("Card network (optional)"), { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("option", { name: "Mastercard", exact: true }));
     submit();
     await waitFor(() => expect(notify.error).toHaveBeenCalledWith("Your card could not be saved. Please try again."));
     expect(save).toHaveBeenCalledWith(expect.objectContaining({ brand: "mastercard", nickname: "Offer label" }));
@@ -67,6 +68,20 @@ describe("Secure manual card entry", () => {
     expect(screen.getByLabelText("Card number")).toHaveValue("4242424242424242");
     submit();
     await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+  });
+
+  it("uses the Profile dropdown for region selection and allows clearing it", async () => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    render(<SecureCardAddForm onSubmit={save} />);
+    const region = screen.getByRole("combobox", { name: "Issuing region (optional)" });
+    fireEvent.keyDown(region, { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("option", { name: "India", exact: true }));
+    expect(region).toHaveTextContent("India");
+    fireEvent.keyDown(region, { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("option", { name: "Select region…", exact: true }));
+    fillRequired();
+    submit();
+    await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ issuingRegion: undefined })));
   });
 
   it("masks CVV/PIN and blocks submission when the containing tab becomes inactive", () => {
@@ -78,6 +93,8 @@ describe("Secure manual card entry", () => {
     view.rerender(<SecureCardAddForm active={false} onSubmit={save} />);
     expect(screen.getByLabelText("CVV")).toHaveAttribute("type", "password");
     expect(screen.getByLabelText("Card number")).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Card network (optional)" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Issuing region (optional)" })).toBeDisabled();
     submit();
     expect(save).not.toHaveBeenCalled();
   });

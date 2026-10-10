@@ -111,11 +111,12 @@ for _pair in "${_drive_secret_pairs[@]}"; do
     sharing_key) _DRIVE_SHARING_KEY_V1_SECRET="${_value}" ;;
     stripe_secret) _STRIPE_SECRET_KEY_SECRET="${_value}" ;;
     stripe_webhook) _STRIPE_WEBHOOK_SECRET_SECRET="${_value}" ;;
+    stripe_connect) _STRIPE_CONNECT_WEBHOOK_SECRET_SECRET="${_value}" ;;
     *) echo "Drive secret settings carry an unknown key." >&2; exit 1 ;;
   esac
 done
-if [[ "${#_drive_secret_pairs[@]}" -ne 8 ]]; then
-  echo "Drive secret settings must contain eight keys." >&2; exit 1
+if [[ "${#_drive_secret_pairs[@]}" -ne 9 ]]; then
+  echo "Drive secret settings must contain nine keys." >&2; exit 1
 fi
 for _required in _GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET _GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET _GOOGLE_DRIVE_PICKER_API_KEY_SECRET _EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET _DRIVE_DOCUMENT_KEY_V1_SECRET _DRIVE_SHARING_KEY_V1_SECRET _STRIPE_SECRET_KEY_SECRET _STRIPE_WEBHOOK_SECRET_SECRET; do
   if ! declare -p "${_required}" >/dev/null 2>&1; then
@@ -135,13 +136,19 @@ for _pair in "${_drive_work_pairs[@]}"; do
     service_account) _DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL="${_value}" ;;
     audience) _DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE="${_value}" ;;
     payments_enabled) _DRIVE_REQUEST_PAYMENTS_ENABLED="${_value}" ;;
+    owner_payouts_enabled) _DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED="${_value}" ;;
+    stripe_mode) _STRIPE_MODE="${_value}" ;;
     *) echo "Drive work-drain settings carry an unknown key." >&2; exit 1 ;;
   esac
 done
-if [[ "${#_drive_work_pairs[@]}" -ne 5 ]] ||
+if [[ "${#_drive_work_pairs[@]}" -ne 7 ]] ||
   [[ "${_DRIVE_WORK_DRAIN_ENABLED:-}" != "true" && "${_DRIVE_WORK_DRAIN_ENABLED:-}" != "false" ]] ||
+  [[ "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED:-}" != "true" && "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED:-}" != "false" ]] ||
   [[ "${_DRIVE_REQUEST_PAYMENTS_ENABLED:-}" != "true" && "${_DRIVE_REQUEST_PAYMENTS_ENABLED:-}" != "false" ]]; then
-  echo "Drive work-drain settings require five keys and explicit rollout booleans." >&2; exit 1
+  echo "Drive work-drain settings require seven keys and explicit rollout booleans." >&2; exit 1
+fi
+if [[ -n "${_STRIPE_MODE}" && "${_STRIPE_MODE}" != "test" && "${_STRIPE_MODE}" != "live" ]]; then
+  echo "Stripe mode must be test or live." >&2; exit 1
 fi
 for _required in _DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID _DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL _DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE; do
   if ! declare -p "${_required}" >/dev/null 2>&1; then
@@ -227,13 +234,19 @@ append_optional_secret "${_DRIVE_DOCUMENT_KEY_V1_SECRET}" "DRIVE_DOCUMENT_KEY_V1
 append_optional_secret "${_DRIVE_SHARING_KEY_V1_SECRET}" "DRIVE_SHARING_KEY_V1"
 # Disabling new paid requests must not strand existing Checkout/refund work.
 # Bind configured secrets in either mode; enabled rollout requires both.
-if [[ "${_DRIVE_REQUEST_PAYMENTS_ENABLED}" == "true" ]]; then
+if [[ "${_DRIVE_REQUEST_PAYMENTS_ENABLED}" == "true" || "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED}" == "true" ]]; then
   for required_secret in "${_STRIPE_SECRET_KEY_SECRET}" "${_STRIPE_WEBHOOK_SECRET_SECRET}"; do
     if [[ -z "${required_secret}" ]] || ! gcloud secrets describe "${required_secret}" --project="$PROJECT_ID" >/dev/null 2>&1; then
       echo "Enabled Drive request payments require both Stripe secrets." >&2
       exit 1
     fi
   done
+fi
+if [[ "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED}" == "true" ]]; then
+  if [[ -z "${_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET}" ]] || ! gcloud secrets describe "${_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET}" --project="$PROJECT_ID" >/dev/null 2>&1; then
+    echo "Document owner payouts require the Stripe Connect webhook secret." >&2
+    exit 1
+  fi
 fi
 source "$(dirname "${BASH_SOURCE[0]}")/scope-commerce-secrets.sh"
 append_payment_provider_secrets
@@ -390,6 +403,8 @@ append_optional_env "ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL" "${_ACCOUNT
 append_optional_env "ONE_EMAIL_ADDRESS" "${_ONE_EMAIL_ADDRESS}"
 append_optional_env "ONE_EMAIL_DELEGATED_USER" "${_ONE_EMAIL_DELEGATED_USER}"
 append_optional_env "DRIVE_WORK_DRAIN_ENABLED" "${_DRIVE_WORK_DRAIN_ENABLED}"
+append_optional_env "DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED" "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED}"
+append_optional_env "STRIPE_MODE" "${_STRIPE_MODE}"
 append_optional_env "DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID" "${_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID}"
 append_optional_env "DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL" "${_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL}"
 append_optional_env "DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE" "${_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE}"

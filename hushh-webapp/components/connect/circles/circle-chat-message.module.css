@@ -1,0 +1,43 @@
+.item { min-width: 0; margin-top: 16px; }
+.grouped { margin-top: 6px; }
+.row { display: flex; align-items: flex-end; gap: 8px; min-width: 0; }
+.own { justify-content: flex-end; }
+.avatar { width: 32px; flex: none; align-self: flex-start; }
+.stack { display: flex; flex-direction: column; align-items: flex-start; max-width: min(76%, 36rem); min-width: 0; }
+.own .stack { align-items: flex-end; }
+.bubbleWrap { position: relative; max-width: 100%; }
+.bubble { max-width: 100%; min-width: 0; border-radius: 18px; padding: 9px 13px 7px; font-size: 15px; line-height: 1.48; overflow-wrap: anywhere; }
+.incoming { border-bottom-left-radius: 5px; border: 1px solid var(--border); background: var(--card); color: var(--foreground); }
+.outgoing { border-bottom-right-radius: 5px; background: var(--app-accent-tint); color: var(--foreground); }
+.sender { margin-bottom: 3px; font-size: 12px; line-height: 16px; font-weight: 700; color: var(--app-accent-deep); }
+:global([data-circle-chat-lane]) .incoming { border: 0; background: var(--chat-incoming, var(--card)); color: var(--chat-text, var(--foreground)); }
+:global([data-circle-chat-lane]) .outgoing { background: var(--chat-accent, var(--app-accent)); color: #fff; }
+:global([data-circle-chat-lane]) .sender0 { color: var(--chat-sender-1, var(--app-accent)); }
+:global([data-circle-chat-lane]) .sender1 { color: var(--chat-sender-2, var(--app-success)); }
+:global([data-circle-chat-lane]) .sender2 { color: var(--chat-sender-3, var(--app-purple)); }
+:global([data-circle-chat-lane]) .sender3 { color: var(--chat-sender-4, var(--app-indigo)); }
+:global([data-circle-chat-lane]) .sender4 { color: var(--chat-sender-5, var(--app-destructive)); }
+:global([data-circle-chat-lane]) .sender5 { color: var(--chat-sender-6, var(--app-indigo)); }
+.text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.caption { margin-top: 8px; }
+.failed { margin: 0; font-size: 13px; }
+.meta { display: flex; align-items: center; justify-content: flex-end; gap: 3px; margin-top: 3px; font-size: 11px; line-height: 15px; color: var(--chat-muted, var(--muted-foreground)); }
+.outgoing .meta { color: var(--muted-foreground); }
+:global([data-circle-chat-lane]) .outgoing .meta { color: rgba(255,255,255,.75); }
+.meta span { display: inline-flex; }
+:global([data-circle-chat-lane]) .outgoing .seen { color: #fff; }
+.reactionControl { position: absolute; right: -16px; top: -13px; z-index: 5; }
+.addReaction { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--chat-line, var(--border)); background: var(--chat-surface, var(--card)); color: var(--chat-muted, var(--muted-foreground)); box-shadow: 0 2px 9px rgba(0,0,0,.1); font-size: 20px; line-height: 1; opacity: 0; transition: opacity 150ms ease; }
+.bubbleWrap:hover .addReaction, .bubbleWrap:focus-within .addReaction { opacity: 1; }
+.addReaction:active { opacity: .8; }
+.picker { position: absolute; bottom: 34px; right: 0; display: flex; gap: 1px; padding: 5px; border: 1px solid var(--chat-line, var(--border)); border-radius: 999px; background: var(--chat-glass, var(--card)); box-shadow: 0 8px 22px rgba(0,0,0,.13); backdrop-filter: blur(22px) saturate(180%); animation: pickerIn 150ms ease both; }
+.picker button { display: grid; place-items: center; width: 36px; height: 36px; flex: none; border-radius: 50%; font-size: 19px; }
+.picker button:hover, .picker button:focus-visible { background: var(--chat-incoming, var(--muted)); }
+.pills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.pill { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; padding: 1px 7px; border: 1px solid var(--chat-line, var(--border)); border-radius: 999px; background: var(--chat-surface, var(--card)); color: var(--chat-text, var(--foreground)); font-size: 11px; }
+.mine { border-color: var(--chat-accent, var(--app-accent)); box-shadow: 0 0 0 1px var(--chat-accent, var(--app-accent)); }
+.reactionError { margin-top: 3px; font-size: 11px; color: var(--destructive); }
+@media (hover: none) { .addReaction { opacity: 1; } }
+@media (max-width: 959px) { .stack { max-width: min(84%, 36rem); } }
+@media (prefers-reduced-motion: reduce) { .addReaction, .picker { animation: none; transition: none; } }
+@keyframes pickerIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }

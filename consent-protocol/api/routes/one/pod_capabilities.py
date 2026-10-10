@@ -9,7 +9,8 @@ from deployment topology the hub already renders, or from what the platform sets
   Cloud project); everywhere else it is recall from the sealed commit log;
 * **voice** needs a Vertex model, so a pod with no Vertex project says so here and
   refuses before accepting a connection, rather than failing after it;
-* **Files background organization** needs Google Cloud Storage and its worker;
+* **Files background organization** needs the configured owner-cloud storage,
+  authenticated worker and model; Azure uses Blob storage and a managed-identity queue;
 * **Gmail push** alerts are delivered through Google Pub/Sub only;
 * **web search** is Google Search grounding, which only a Gemini model has, so a pod
   whose own model is the person's Azure OpenAI deployment, or whose owner sealed an

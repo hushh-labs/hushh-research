@@ -318,6 +318,12 @@ const ROUTE_OVERRIDES = {
     allowedPathnames: ["/one/setup", "/"],
     allowedRouteIds: ["/one/setup", "/"],
   },
+  // Calendar setup mounts the feature body directly, whose existing beacon
+  // belongs to the shared Calendar workspace rather than the setup adapter.
+  "/one/setup/calendar": {
+    allowedPathnames: ["/one/setup/calendar"],
+    allowedRouteIds: ["/one/calendar"],
+  },
   "/one/setup/location": {
     path: "/one/setup/location",
     allowedPathnames: ["/one/location"],
@@ -633,7 +639,6 @@ const REDIRECT_EXPECTATIONS = {
 const ROUTE_HEALTH_EXPECTATIONS = {
   "/one/puppy": { heading: "Puppy One" },
   "/one/setup/gmail": { heading: "Your mail, made useful." },
-  "/one/setup/calendar": { heading: "Stay ahead of your schedule." },
   "/one/setup/email": { heading: "Replies, ready when you are." },
 };
 

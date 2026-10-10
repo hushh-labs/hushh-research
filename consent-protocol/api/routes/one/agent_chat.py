@@ -128,6 +128,7 @@ from hushh_mcp.one_adk.pending_email_draft import (
 )
 from hushh_mcp.one_adk.queued_input import QueuedInputError
 from hushh_mcp.one_adk.queued_input import registry as queued_input_registry
+from hushh_mcp.one_adk.receipt_memory_turn import STATE_RECEIPT_MEMORY, admit_receipt_memory
 from hushh_mcp.one_adk.request_secrets import (
     consume_request_secret,
     resolve_request_secret,
@@ -451,6 +452,9 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     # The person's unsent draft card, so a follow-up can revise it. Only an
     # unlocked owner turn keeps it; it never becomes conversation state.
     pending_email_draft = admit_pending_email_draft(forwarded)
+    # The owner's saved receipt index, decrypted on their device for this turn.
+    # Only an unlocked owner turn keeps it; it never becomes conversation state.
+    receipt_memory = admit_receipt_memory(forwarded)
     # The owner's Settings style choices, sent apart from the memory packet.
     # Closed schema: anything outside it refuses the turn instead of clipping.
     try:
@@ -464,6 +468,8 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         turn_location = ""
         consume_request_secret(pending_email_draft)
         pending_email_draft = ""
+        consume_request_secret(receipt_memory)
+        receipt_memory = ""
     owner_display_name = await _owner_display_name_for_turn(user_id) if token and user_id else ""
     return {
         STATE_EXECUTION_SURFACE: "typed_chat",
@@ -505,6 +511,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         **consent_continuation,
         **feed_attention,
         STATE_PENDING_EMAIL_DRAFT: pending_email_draft,
+        STATE_RECEIPT_MEMORY: receipt_memory,
     }
 
 

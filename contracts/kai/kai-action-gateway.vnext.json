@@ -4,6 +4,7 @@
   "source_contracts": [
     "hushh-webapp/app/getting-started/page.voice-action-contract.json",
     "hushh-webapp/app/login/page.voice-action-contract.json",
+    "hushh-webapp/app/one/calendar/page.voice-action-contract.json",
     "hushh-webapp/app/one/connect/page.voice-action-contract.json",
     "hushh-webapp/app/one/files/page.voice-action-contract.json",
     "hushh-webapp/app/one/gmail/page.voice-action-contract.json",
@@ -67,10 +68,7 @@
         },
         "speaker_persona": "one"
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -95,10 +93,45 @@
         },
         "speaker_persona": "one"
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
+      "search": {},
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_calendar",
+      "surface_title": "Calendar",
+      "docs_references": [
+        "docs/reference/one/one-calendar-knowledge-graph.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "contract_file": "hushh-webapp/app/one/calendar/page.voice-action-contract.json",
+      "defaults": {
+        "speaker_persona": "one",
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ],
+          "routes": [
+            "/one/calendar",
+            "/one"
+          ],
+          "screens": [
+            "one_calendar",
+            "one_agents"
+          ],
+          "hidden_navigable": true,
+          "navigation_prerequisites": [
+            "Open /one/calendar only when the owner asks to see the Calendar page."
+          ]
+        }
       },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -124,10 +157,7 @@
           "auth_signed_in"
         ]
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -157,10 +187,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -184,10 +211,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -210,10 +234,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -244,8 +265,6 @@
         }
       },
       "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699,
         "subview_action_boost": {
           "": [
             "location.pause_updates",
@@ -326,10 +345,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -353,10 +369,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -385,10 +398,7 @@
           "auth_signed_in"
         ]
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -414,10 +424,7 @@
           "auth_signed_in"
         ]
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -443,10 +450,7 @@
           "auth_signed_in"
         ]
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -472,10 +476,7 @@
           "auth_signed_in"
         ]
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -501,10 +502,7 @@
           "auth_signed_in"
         ]
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -529,10 +527,7 @@
           "auth_signed_in"
         ]
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -561,10 +556,7 @@
           "auth_signed_in"
         ]
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -592,10 +584,7 @@
           "auth_signed_in"
         ]
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -626,10 +615,7 @@
           "review_only": true
         }
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -655,10 +641,7 @@
           "auth_signed_in"
         ]
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -688,10 +671,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -717,10 +697,7 @@
         },
         "speaker_persona": "one"
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -746,10 +723,7 @@
           "auth_signed_in"
         ]
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -778,10 +752,7 @@
           "auth_signed_in"
         ]
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -804,10 +775,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -830,10 +798,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -856,10 +821,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -882,10 +844,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -912,9 +871,7 @@
         "query_defaults": {
           "source": "kai",
           "category": "top-picks"
-        },
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
+        }
       },
       "orchestration": {
         "instruction_id": null,
@@ -938,10 +895,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -964,10 +918,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -990,10 +941,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -1016,10 +964,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -1056,10 +1001,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -1095,10 +1037,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -1122,10 +1061,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -1157,10 +1093,7 @@
           "navigation_prerequisites": []
         }
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -1185,8 +1118,6 @@
         }
       },
       "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699,
         "legacy_control_exemptions": {
           "add_holding": "Existing control outside the current Search action catalog; retained as explicit legacy coverage debt.",
           "analysis_retry_save": "Existing control outside the current Search action catalog; retained as explicit legacy coverage debt.",
@@ -1240,10 +1171,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -1266,10 +1194,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -1292,10 +1217,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -1318,10 +1240,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -1350,10 +1269,7 @@
           "auth_signed_in"
         ]
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -1376,10 +1292,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -1402,10 +1315,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -1428,10 +1338,7 @@
           ]
         }
       },
-      "search": {
-        "source_revision": "11d9265436f8707be8d71cdffde030b14e6c78cf62a7df908965d1946a530275",
-        "source_module_count": 1699
-      },
+      "search": {},
       "orchestration": {
         "instruction_id": null,
         "context_policy": null,
@@ -2370,6 +2277,121 @@
             "type": "action",
             "action_id": "onboarding.back_to_intro",
             "label": "Back to welcome",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "calendar.read",
+      "surface_id": "one_calendar",
+      "label": "Read Calendar",
+      "aliases": [
+        "what is on my calendar",
+        "show my calendar events",
+        "find a calendar event",
+        "when am i free"
+      ],
+      "search_keywords": [
+        "calendar events",
+        "calendar list",
+        "event details",
+        "busy times",
+        "free openings"
+      ],
+      "meaning": "Reads the owner's connected Google Calendar through One Live Voice. The read can list calendars, find events in a bounded time window, open a previously shown event, inspect busy periods, or find openings. Event text is displayed privately on screen; the operational voice model receives only counts and status. No event is created or changed.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/calendar",
+          "/one"
+        ],
+        "screens": [
+          "one_calendar",
+          "one_agents"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Open /one/calendar only when the owner asks to see the Calendar page."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "read_calendar"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "calendar_connection_state",
+        "vault_ready"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-calendar-knowledge-graph.md",
+        "docs/reference/one/one-voice-runtime-architecture.md",
+        "consent-protocol/hushh_mcp/one_voice/tools/calendar.py",
+        "consent-protocol/hushh_mcp/services/google_calendar_service.py"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/calendar"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.calendar.read",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "calendar.read",
+            "label": "Read Calendar",
             "failure_behavior": "stop"
           }
         ],
@@ -13271,6 +13293,332 @@
             "action_id": "route.profile",
             "label": "Open Profile",
             "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.profile_my_data",
+      "surface_id": "profile_account",
+      "label": "Open Memory",
+      "aliases": [
+        "open my saved details",
+        "my saved details"
+      ],
+      "search_keywords": [
+        "memory",
+        "saved details",
+        "sharing"
+      ],
+      "meaning": "Opens saved details and sharing in Profile.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/my-data"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_my_data"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/my-data"
+      },
+      "control_ids": [
+        "profile_my_data"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/one/profile/my-data/page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/my-data"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_my_data",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_my_data",
+            "label": "Open Memory",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/profile/my-data",
+              "screen": "profile_account"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.profile_request_pricing",
+      "surface_id": "profile_account",
+      "label": "Open Request pricing",
+      "aliases": [
+        "set my Drive price",
+        "document price",
+        "request pricing"
+      ],
+      "search_keywords": [
+        "set my Drive price",
+        "document price",
+        "request pricing"
+      ],
+      "meaning": "Opens the default price for document requests.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/request-pricing"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_request_pricing"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/request-pricing"
+      },
+      "control_ids": [
+        "profile_request_pricing"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/one/profile/request-pricing/page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/request-pricing"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_request_pricing",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_request_pricing",
+            "label": "Open Request pricing",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/profile/request-pricing",
+              "screen": "profile_account"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.profile_payouts",
+      "surface_id": "profile_account",
+      "label": "Open Payouts",
+      "aliases": [
+        "link my bank",
+        "set up payouts",
+        "document earnings"
+      ],
+      "search_keywords": [
+        "link my bank",
+        "set up payouts",
+        "document earnings"
+      ],
+      "meaning": "Opens payout setup and transaction history.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/payouts"
+        ],
+        "screens": [
+          "profile_account",
+          "profile_payouts"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/payouts"
+      },
+      "control_ids": [
+        "profile_payouts"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/one/profile/payouts/page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/payouts"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_payouts",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_payouts",
+            "label": "Open Payouts",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/profile/payouts",
+              "screen": "profile_account"
+            }
           }
         ],
         "progress_contract": {
