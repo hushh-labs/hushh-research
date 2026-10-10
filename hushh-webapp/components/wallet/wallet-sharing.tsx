@@ -16,7 +16,6 @@ import { WALLET_DEMO_CARDS, WalletDemoCardFace } from "./wallet-demo-cards";
 import type { WalletDemoProfile } from "./wallet-demo-cards";
 import { CONSENT_ACTION_COMPLETE_EVENT, CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { loadWalletSharing, walletSharingKind } from "@/lib/services/wallet-sharing-service";
-import { WalletCardService } from "@/lib/services/wallet-card-service";
 import type { ConsentCenterEntry } from "@/lib/services/consent-center-service";
 
 function expiryLabel(value: ConsentCenterEntry["expires_at"]): string {
@@ -28,9 +27,9 @@ function expiryLabel(value: ConsentCenterEntry["expires_at"]): string {
 
 type SharingState = { owner: string; requests: ConsentCenterEntry[]; grants: ConsentCenterEntry[]; incompleteRequests?: boolean; error: boolean };
 
-export function WalletSharing({ cardDetails = false }: { cardDetails?: boolean } = {}) {
+export function WalletSharing({ cardDetails = false, profile, active = true }: { cardDetails?: boolean; profile?: WalletDemoProfile | null; active?: boolean } = {}) {
   const { user } = useAuth();
-  const { vaultKey, getVaultOwnerToken } = useVault();
+  const { vaultKey } = useVault();
   const actions = useConsentActions({ userId: user?.uid });
   const [selection, setSelection] = useState<{ entry: ConsentCenterEntry; active: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -39,43 +38,16 @@ export function WalletSharing({ cardDetails = false }: { cardDetails?: boolean }
   const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [duration, setDuration] = useState(24);
   const [state, setState] = useState<SharingState | null>(null);
-  const [demoProfile, setDemoProfile] = useState<WalletDemoProfile | null>(null);
   const [revision, setRevision] = useState(0);
-  const getVaultOwnerTokenRef = useRef(getVaultOwnerToken);
-  getVaultOwnerTokenRef.current = getVaultOwnerToken;
 
   const reviewTrigger = useRef<HTMLButtonElement | null>(null);
   const owner = user?.uid;
   const current = state?.owner === owner ? state : null;
 
   useEffect(() => {
-    if (cardDetails || !user?.uid) { setDemoProfile(null); return; }
-    let cancelled = false;
-    const load = async () => {
-      const fallbackName = user.displayName?.trim() || null;
-      const token = getVaultOwnerTokenRef.current?.();
-      if (!token) {
-        if (!cancelled) setDemoProfile({ displayName: fallbackName, shareUrl: null });
-        return;
-      }
-      try {
-        const cardState = await WalletCardService.getCard({ userId: user.uid, vaultOwnerToken: token });
-        if (cancelled) return;
-        const payloadName = cardState.card?.cardPayload.full_name?.trim() || null;
-        setDemoProfile({ displayName: payloadName || cardState.card?.displayName?.trim() || fallbackName, shareUrl: cardState.shareUrl });
-      } catch {
-        if (!cancelled) setDemoProfile({ displayName: fallbackName, shareUrl: null });
-      }
-    };
-    void load();
-    const timer = window.setInterval(load, 15_000);
-    return () => { cancelled = true; window.clearInterval(timer); };
-  }, [user?.uid, user?.displayName, vaultKey, cardDetails]);
-
-  useEffect(() => {
     if (!user) return;
     let cancelled = false;
-    setState(null);
+    // Keep this owner's confirmed rows in place while refreshing in the background.
     setSelection(null);
     setConfirmRevoke(false);
     const deadline = window.setTimeout(() => {
@@ -91,6 +63,10 @@ export function WalletSharing({ cardDetails = false }: { cardDetails?: boolean }
     });
     return () => { cancelled = true; window.clearTimeout(deadline); };
   }, [user, revision]);
+
+  useEffect(() => {
+    if (!active) { setSelection(null); setConfirmRevoke(false); }
+  }, [active]);
 
   useEffect(() => {
     const refresh = () => setRevision((value) => value + 1);
@@ -168,12 +144,12 @@ export function WalletSharing({ cardDetails = false }: { cardDetails?: boolean }
     </section>
   );
 
-  return <div className={`${styles.content} motion-step-enter mx-auto w-full max-w-[820px] space-y-6 py-4`} data-testid="wallet-sharing-content">
+  return <div className={`${styles.content} mx-auto w-full max-w-[820px] space-y-6 py-4`} data-testid="wallet-sharing-content">
     {cardDetails ? <p className="text-xs text-muted-foreground">These recipients have Wallet-wide access, including this card.</p> : <section className={styles.hero}>
       <h2 className="ui-text-section-title">Your cards.<br />Your control.</h2>
       <p>You choose who can access your Wallet information.</p>
       <figure className={styles.heroCard}>
-        <WalletDemoCardFace summary={WALLET_DEMO_CARDS[0]!} profile={demoProfile} />
+        <WalletDemoCardFace summary={WALLET_DEMO_CARDS[0]!} profile={profile?.ownerId === owner ? profile : null} />
       </figure>
     </section>}
     {!current ? <p role="status" className="text-sm text-muted-foreground">Loading shared access…</p> : current.error ? <div role="alert" className="space-y-3 rounded-2xl border border-border p-5"><p className="text-sm">Couldn&apos;t load shared access.</p><Button variant="secondary" size="compact" onClick={() => setRevision(value => value + 1)}>Try again</Button></div> : renderGroup(cardDetails ? "Wallet access" : "Shared with", current.grants, true)}
