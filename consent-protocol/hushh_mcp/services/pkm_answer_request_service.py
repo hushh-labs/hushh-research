@@ -227,7 +227,10 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
             try:
                 proposed = list(
                     await self._resolver.propose_scopes(
-                        question=request["question"], candidate_scopes=handles
+                        question=request["question"],
+                        candidate_scopes=handles,
+                        candidate_labels=labels,
+                        user_id=request["owner_user_id"],
                     )
                 )
             except Exception as error:  # noqa: BLE001 - a model failure is a skip, not a guess

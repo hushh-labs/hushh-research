@@ -28,6 +28,7 @@ from uuid import UUID
 from fastapi import APIRouter, Body, Depends, HTTPException, Response
 
 from api.middleware import require_firebase_auth, require_firebase_auth_read_only
+from hushh_mcp.services.answer_scope_resolver import AnswerScopeResolver
 from hushh_mcp.services.pkm_answer_payment_service import (
     AnswerPaymentError,
     PkmAnswerPaymentService,
@@ -84,7 +85,10 @@ def _http(error: Exception) -> HTTPException:
 
 
 def _requests() -> PkmAnswerRequestService:
-    return PkmAnswerRequestService()
+    # The real semantic stage. Without it every request would record
+    # resolution_mode='skipped' and the owner would hand-pick every scope,
+    # which is the honest fallback but not the product.
+    return PkmAnswerRequestService(resolver=AnswerScopeResolver())
 
 
 def _payments() -> PkmAnswerPaymentService:

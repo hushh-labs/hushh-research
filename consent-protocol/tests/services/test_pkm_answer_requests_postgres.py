@@ -144,7 +144,9 @@ class StubResolver:
         self.scopes = scopes
         self.fail = fail
 
-    async def propose_scopes(self, *, question, candidate_scopes):
+    async def propose_scopes(
+        self, *, question, candidate_scopes, candidate_labels=None, user_id="", consent_token=""
+    ):
         if self.fail:
             raise RuntimeError("model unavailable")
         return self.scopes

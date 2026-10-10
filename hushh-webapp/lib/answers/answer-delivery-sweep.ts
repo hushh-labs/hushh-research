@@ -18,15 +18,24 @@
  * are costed in docs/reference/architecture/living-memory-freshness-adr.md and
  * none of them is implemented. Do not describe this as the 24/7 feature.
  *
+ * SCOPE ISOLATION. Each approved scope is resolved individually through
+ * `buildConsentExportForScope`, which walks the domain manifest to the exact
+ * approved paths. Reading the whole domain and filtering afterwards would make
+ * one approved field expose every sibling field beside it, so the domain is
+ * never read as a unit here. `projectApprovedAnswer` then drops anything that
+ * was not approved and applies the requested period.
+ *
  * Trust boundary: the server is a blind relay. Everything below runs on the
  * owner's device, and only ciphertext is posted back.
  */
 
 import { AnswerRequestService, type AnswerableWork } from "@/lib/services/answer-request-service";
 import { encryptSliceForRecipient } from "@/lib/one-marketplace/encryption";
-import { buildMemoryDocument } from "@/lib/pkm/memory-document";
-import { buildPkmMemorySnapshot } from "@/lib/pkm/pkm-memory-cards";
-import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
+import { buildConsentExportForScope } from "@/lib/consent/export-builder";
+import {
+  projectApprovedAnswer,
+  type ScopeProjection,
+} from "@/lib/answers/answer-projection";
 
 export interface AnswerSweepParams {
   userId: string;
@@ -42,89 +51,77 @@ export interface AnswerSweepResult {
   skipped: number;
 }
 
-/** The domain part of an `attr.<domain>[.<path>]` scope. */
-function scopeDomain(scope: string): string {
-  const parts = String(scope || "").split(".");
-  return parts.length >= 2 ? (parts[1] ?? "") : "";
+export interface AnswerPayload {
+  version: 1;
+  question: string;
+  period: { start: string; end: string } | null;
+  approvedScopes: string[];
+  /** Approved projections only, keyed by scope. */
+  answer: Record<string, unknown>;
+  sourceRevisions: Record<string, number | null>;
+  excludedByPeriod: number;
+  /** Scopes that yielded nothing, so a partial answer cannot read as complete. */
+  unavailableScopes: string[];
+  builtAt: string;
 }
 
 /**
- * Build the answer payload for one question from the approved scopes only.
+ * Build one question's answer from exactly its approved scopes.
  *
- * Scope isolation is enforced here by construction: the only domains read are
- * those derived from `approvedScopes`, so a domain the owner did not approve
- * is never decrypted, never rendered, and cannot reach the envelope.
- *
- * The document is built for the `agent` audience, which applies the stricter
- * packet exclusion plus the reserved-branch `send_to_model` rule, so
- * label-only and never branches are withheld even if a scope somehow named
- * one.
+ * Exported for the scope-isolation regression: it must be provable that an
+ * approved field cannot surface a sibling in the same domain.
  */
-async function buildAnswerPayload(
+export async function buildAnswerPayload(
   work: AnswerableWork,
-  params: AnswerSweepParams,
-): Promise<{ payload: Record<string, unknown>; hasContent: boolean }> {
-  const domains = [...new Set(work.approvedScopes.map(scopeDomain).filter(Boolean))];
+  params: Pick<AnswerSweepParams, "userId" | "vaultKey" | "vaultOwnerToken">,
+): Promise<{ payload: AnswerPayload; hasContent: boolean }> {
+  const projections: ScopeProjection[] = [];
+  const unavailableScopes: string[] = [];
 
-  const sources: { domain: string; contentRevision: number | null; unavailableReason?: string }[] =
-    [];
-  const fullBlob: Record<string, unknown> = {};
-
-  for (const domain of domains) {
+  for (const scope of work.approvedScopes) {
     try {
-      const snapshot = await PkmDomainResourceService.getStaleFirst({
+      const built = await buildConsentExportForScope({
         userId: params.userId,
-        domain,
+        scope,
         vaultKey: params.vaultKey,
         vaultOwnerToken: params.vaultOwnerToken,
       });
-      if (!snapshot?.data) {
-        sources.push({ domain, contentRevision: null, unavailableReason: "no data" });
-        continue;
-      }
-      fullBlob[domain] = snapshot.data;
-      sources.push({ domain, contentRevision: snapshot.key.contentRevision });
+      projections.push({
+        scope,
+        payload: built.payload,
+        contentRevision: built.sourceContentRevision ?? null,
+      });
     } catch {
-      // An unreadable domain is reported, never silently dropped: a partial
-      // answer that reads complete is the failure mode this guards against.
-      sources.push({ domain, contentRevision: null, unavailableReason: "could not be read" });
+      // A scope that cannot be exported is named, never silently omitted: a
+      // partial answer that reads complete is the failure mode to avoid.
+      unavailableScopes.push(scope);
     }
   }
 
-  // `metadata: null` keeps the snapshot to exactly the domains read above;
-  // the discovery index could otherwise name a domain that was not approved.
-  const snapshot = buildPkmMemorySnapshot({ metadata: null, fullBlob });
-  const document = buildMemoryDocument({
-    snapshot,
-    sources,
-    audience: "agent",
-    builtAt: new Date().toISOString(),
-  });
+  const period =
+    work.periodStart && work.periodEnd
+      ? { start: work.periodStart, end: work.periodEnd }
+      : null;
 
-  const revisions = Object.fromEntries(
-    document.freshness.map((entry) => [entry.domain, entry.contentRevision]),
-  );
+  const projected = projectApprovedAnswer({
+    approvedScopes: work.approvedScopes,
+    projections,
+    period,
+  });
 
   return {
     payload: {
       version: 1,
       question: work.question,
-      period:
-        work.periodStart && work.periodEnd
-          ? { start: work.periodStart, end: work.periodEnd }
-          : null,
-      approvedScopes: work.approvedScopes,
-      // The answer material, scoped to exactly what was approved and paid for.
-      memory: document.markdown,
-      // Honest freshness travels with the answer: the requester can see which
-      // revision each section came from and whether any of it was unreadable.
-      sourceRevisions: revisions,
-      complete: document.complete,
+      period,
+      approvedScopes: [...work.approvedScopes],
+      answer: projected.byScope,
+      sourceRevisions: projected.sourceRevisions,
+      excludedByPeriod: projected.excludedByPeriod,
+      unavailableScopes,
+      builtAt: new Date().toISOString(),
     },
-    // An answer with no readable section is an empty answer, which refunds.
-    hasContent: document.freshness.some(
-      (entry) => entry.status === "current" && entry.cardCount > 0,
-    ),
+    hasContent: projected.hasContent,
   };
 }
 
@@ -132,7 +129,7 @@ async function buildAnswerPayload(
  * Deliver every paid, approved, undelivered answer this owner owes.
  *
  * Each request is independent: one failure never blocks the rest, because a
- * single unreadable domain should not strand another person's paid answer.
+ * single unreadable scope should not strand another person's paid answer.
  */
 export async function runAnswerDeliverySweep(
   params: AnswerSweepParams,
@@ -158,7 +155,7 @@ export async function runAnswerDeliverySweep(
       });
       await AnswerRequestService.deliver(params.firebaseIdToken, work.requestId, {
         envelope,
-        sourceRevisions: payload.sourceRevisions as Record<string, unknown>,
+        sourceRevisions: payload.sourceRevisions,
         hasContent,
       });
       if (hasContent) result.delivered += 1;
