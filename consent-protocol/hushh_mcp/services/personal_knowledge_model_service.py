@@ -2814,7 +2814,11 @@ class PersonalKnowledgeModelService:
                     "next_content_revision": next_version,
                     "segments": normalized_segments,
                     "manifest": fingerprint_manifest(manifest_row),
-                    **({"wallet_card_access_source": wallet_source} if wallet_source is not None else {}),
+                    **(
+                        {"wallet_card_access_source": wallet_source}
+                        if wallet_source is not None
+                        else {}
+                    ),
                     "paths": path_rows,
                     "scopes": scope_rows,
                     "summary": discovery_summary,

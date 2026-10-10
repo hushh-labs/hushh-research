@@ -245,10 +245,18 @@ class AccountService:
             "marketplace_recipient_keys": text(
                 "DELETE FROM marketplace_recipient_keys WHERE user_id = :user_id"
             ),
-            "wallet_card_access_audit": text("DELETE FROM wallet_card_access_audit WHERE actor_user_id = :user_id"),
-            "wallet_card_access_grants": text("DELETE FROM wallet_card_access_grants WHERE owner_user_id = :user_id OR recipient_user_id = :user_id"),
-            "wallet_card_share_requests": text("DELETE FROM wallet_card_share_requests WHERE owner_user_id = :user_id"),
-            "wallet_card_registrations": text("DELETE FROM wallet_card_registrations WHERE owner_user_id = :user_id"),
+            "wallet_card_access_audit": text(
+                "DELETE FROM wallet_card_access_audit WHERE actor_user_id = :user_id"
+            ),
+            "wallet_card_access_grants": text(
+                "DELETE FROM wallet_card_access_grants WHERE owner_user_id = :user_id OR recipient_user_id = :user_id"
+            ),
+            "wallet_card_share_requests": text(
+                "DELETE FROM wallet_card_share_requests WHERE owner_user_id = :user_id"
+            ),
+            "wallet_card_registrations": text(
+                "DELETE FROM wallet_card_registrations WHERE owner_user_id = :user_id"
+            ),
             "pkm_packets": text("DELETE FROM pkm_packets WHERE owner_user_id = :user_id"),
             # A paid, undelivered packet is money owed back to the buyer: move it
             # to refund_pending (the reconcile refunds it, then removes the row)

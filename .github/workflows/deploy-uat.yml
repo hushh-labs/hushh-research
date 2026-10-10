@@ -809,6 +809,11 @@ jobs:
               --release-environment uat \
               --migration-mode "${{ vars.UAT_MIGRATION_MODE || 'replay' }}"
           )
+          # Reconcile the fixed Drive connector after migrations while the
+          # attested UAT database connection is available. This also migrates
+          # the previously reviewed Hushh web return to the Hussh alias.
+          "${{ env.PROTOCOL_PYTHON }}" consent-protocol/scripts/ops/reconcile_google_drive_uat_connector.py --activate
+          "${{ env.PROTOCOL_PYTHON }}" consent-protocol/scripts/ops/reconcile_google_drive_uat_connector.py
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/db_migration_release_guard.py \
             --release-environment uat \
             --contract-file consent-protocol/db/contracts/uat_integrated_schema.json \
