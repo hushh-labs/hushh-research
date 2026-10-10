@@ -37,10 +37,16 @@ CASES = (
     ("summarize", "Summarize Read Me", "read", "Read Me"),
     ("content_question", "What does the product document recommend?", "read", None),
     ("topic", "Find documents explaining product decisions", "find", None),
+    ("transaction_latest_100", "Latest 100 documents", "find", None, 100),
+    ("transaction_words_100", "Most recent one hundred documents", "find", None, 100),
+    ("transaction_standup_4", "Last 4 standup notes", "find", None, 4),
+    ("transaction_days", "Standup notes from the last 3 days", "find", None, None),
+    ("transaction_all", "All bank statements", "find", None, None),
+    ("transaction_title_number", "Find the file named Budget 100", "find", "Budget 100", None),
 )
 
 
-async def evaluate(reps: int, planner_only: bool) -> int:
+async def evaluate(reps: int, planner_only: bool, case_ids: list[str] | None = None) -> int:
     from hushh_mcp.one_adk import agent_tree
     from hushh_mcp.one_adk.external_read_boundary import STATE_EXECUTION_SURFACE
     from hushh_mcp.services.drive_suggestion_service import interpret_live_search, plan_live_search
@@ -92,9 +98,12 @@ async def evaluate(reps: int, planner_only: bool) -> int:
                         return request
             raise ValueError("missing_delegation_argument")
 
+    cases = [case for case in CASES if case_ids is None or case[0] in case_ids]
     failures = 0
     completed = 0
-    for case_id, prompt, mode, title in CASES:
+    for case in cases:
+        case_id, prompt, mode, title = case[:4]
+        transaction_search = len(case) == 5
         for repetition in range(reps):
             start = time.perf_counter()
             try:
@@ -107,6 +116,7 @@ async def evaluate(reps: int, planner_only: bool) -> int:
                             "previous_answer": "",
                             "current_time_utc": datetime(2026, 9, 27, tzinfo=UTC).isoformat(),
                             "user_timezone": "Asia/Kolkata",
+                            "transaction_search": transaction_search,
                         }
                     ),
                     user_id="drive-search-eval",
@@ -119,6 +129,16 @@ async def evaluate(reps: int, planner_only: bool) -> int:
                 # A topic request must not invent a literal filename.
                 if case_id == "topic":
                     passed = passed and plan.exact_title is None
+                if transaction_search:
+                    passed = passed and plan.result_limit == case[4]
+                    if case[4] is not None:
+                        passed = passed and plan.sort == "recent"
+                    if case_id in {"transaction_latest_100", "transaction_words_100"}:
+                        passed = passed and plan.file_kind == "document" and not plan.terms
+                    if case_id == "transaction_standup_4":
+                        passed = passed and plan.terms == ["standup"]
+                else:
+                    passed = passed and plan.result_limit is None
                 failures += int(not passed)
                 completed += 1
                 print(
@@ -128,6 +148,7 @@ async def evaluate(reps: int, planner_only: bool) -> int:
                             "rep": repetition + 1,
                             "passed": passed,
                             "mode": plan.mode,
+                            "result_limit": plan.result_limit,
                             "duration_ms": round((time.perf_counter() - start) * 1000),
                         }
                     ),
@@ -145,7 +166,7 @@ async def evaluate(reps: int, planner_only: bool) -> int:
                             and str(error).startswith("wrong_delegation:")
                             else "incomplete",
                             "completed": completed,
-                            "expected": len(CASES) * reps,
+                            "expected": len(cases) * reps,
                         }
                     ),
                     flush=True,
@@ -159,6 +180,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reps", type=int, default=3, choices=range(1, 11))
     parser.add_argument("--planner-only", action="store_true")
+    parser.add_argument("--case", action="append", choices=[case[0] for case in CASES])
     args = parser.parse_args()
     if os.getenv("DRIVE_SEARCH_EVAL_LIVE") != "1":
         parser.error("Set DRIVE_SEARCH_EVAL_LIVE=1 for this bounded real-model evaluation")
@@ -168,7 +190,7 @@ def main() -> int:
     os.environ["TESTING"] = "1"
     os.environ.setdefault("APP_SIGNING_KEY", "synthetic-planner-eval-key-no-authority-0000")
     os.environ.setdefault("VAULT_DATA_KEY", "00" * 32)
-    return asyncio.run(evaluate(args.reps, args.planner_only))
+    return asyncio.run(evaluate(args.reps, args.planner_only, args.case))
 
 
 if __name__ == "__main__":

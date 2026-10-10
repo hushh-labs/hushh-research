@@ -532,7 +532,7 @@ jobs:
         run: |
           set -euo pipefail
           set -o pipefail
-          # CODE_SIGN_ENTITLEMENTS override swaps aps-environment development ->
+          # App-only HUSSH_APP_ENTITLEMENTS override swaps aps-environment development ->
           # production for the released binary without editing the committed
           # pbxproj. A store binary must use production APNs regardless of which
           # backend/Firebase config it talks to, so the shared Firebase project
@@ -550,7 +550,7 @@ jobs:
             -authenticationKeyIssuerID "${ASC_ISSUER_ID}" \
             -skipMacroValidation \
             -skipPackagePluginValidation \
-            CODE_SIGN_ENTITLEMENTS="${IOS_RELEASE_ENTITLEMENTS}" \
+            HUSSH_APP_ENTITLEMENTS="${IOS_RELEASE_ENTITLEMENTS}" \
             CURRENT_PROJECT_VERSION="${{ steps.build_number.outputs.next_build }}" \
             archive 2>&1 | tee "${RUNNER_TEMP}/xcodebuild-archive.log"
 

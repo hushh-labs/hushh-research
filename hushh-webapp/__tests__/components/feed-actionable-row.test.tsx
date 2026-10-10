@@ -183,7 +183,56 @@ describe("FeedActionableRow", () => {
     expect(approve.querySelector(".hidden.sm\\:inline")).toHaveTextContent(
       "Approve 4 hours more",
     );
-    expect(deny.querySelector(".sm\\:hidden")).toHaveTextContent("Decline");
+    // "Deny" is already phone-sized; it is never relabelled "Decline".
+    expect(deny.querySelector(".sm\\:hidden")).toBeNull();
+    expect(deny).toHaveTextContent(/^Deny$/);
+  });
+
+  it("paints a resting Deny red and Allow green, with Allow trailing", () => {
+    render(
+      <FeedActionableRow
+        item={actionable({
+          // Listed Allow first on purpose: the success answer still trails.
+          actions: [
+            { key: "allow", label: "Allow", tone: "success", run: vi.fn() },
+            {
+              key: "deny",
+              label: "Deny",
+              tone: "danger",
+              confirm: true,
+              run: vi.fn(),
+            },
+          ],
+        })}
+      />,
+    );
+
+    const deny = screen.getByRole("button", {
+      name: "Deny (tap again to confirm)",
+    });
+    const allow = screen.getByRole("button", { name: "Allow" });
+    expect(
+      deny.compareDocumentPosition(allow) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // Green fill with the role's dark label, not the accent primary.
+    expect(allow).toHaveClass(
+      "bg-[color:var(--app-success)]",
+      "text-[color:var(--app-success-fg)]",
+    );
+    expect(allow).not.toHaveClass("bg-[color:var(--app-accent)]");
+    // Red before anyone taps it: legible red on its own light wash.
+    expect(deny).toHaveClass(
+      "bg-[color:var(--app-destructive-tint)]",
+      "text-[color:var(--app-destructive-deep)]",
+    );
+    expect(deny).not.toHaveClass("bg-[color:var(--app-neutral-fill)]");
+
+    fireEvent.click(deny);
+
+    const armed = screen.getByRole("button", { name: "Confirm Deny" });
+    expect(armed).toHaveTextContent("Sure?");
+    expect(armed).toHaveClass("bg-[color:var(--app-destructive)]");
+    expect(armed).not.toHaveClass("bg-[color:var(--app-destructive-tint)]");
   });
 
   it("keeps an until-stopped approval explicit on mobile", () => {

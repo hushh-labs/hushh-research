@@ -18,6 +18,7 @@ from sqlalchemy import text
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
+from hushh_mcp.services.drive_owner_allowed import automatic_recipient_current
 from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
@@ -32,6 +33,28 @@ def _identity(value: str) -> str:
         return str(UUID(value))
     except (ValueError, TypeError, AttributeError):
         raise DriveReadError("invalid_argument") from None
+
+
+def _bounded_selection(checkpoint):
+    limit = checkpoint.get("request_result_limit")
+    if limit is None:
+        return None
+    field = checkpoint.get("request_order_field")
+    if (
+        type(limit) is not int
+        or not 1 <= limit <= 1000
+        or field not in {"createdTime", "modifiedTime"}
+    ):
+        raise DriveReadError("invalid_argument")
+    return limit, field
+
+
+def _selection_ready(row, checkpoint):
+    return _bounded_selection(checkpoint) is None or (
+        row["status"] == "completed"
+        and not row["incomplete_search"]
+        and checkpoint.get("request_results_finalized") is True
+    )
 
 
 def view(row: dict) -> dict:
@@ -124,7 +147,8 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     "workLimitReached", False
                 ),
                 "providerPagesExhausted": row["status"] == "completed"
-                and not row["incomplete_search"],
+                and not row["incomplete_search"]
+                and not checkpoint.get("request_rank_pruned", False),
             }
         if checkpoint.get("request_origin_id"):
             # This owner-only bit lets an old completed request search be
@@ -133,6 +157,24 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             result.setdefault("coverage", {})["shareabilityVerified"] = (
                 checkpoint.get("request_shareability_version") == 1
             )
+        selection = _bounded_selection(checkpoint)
+        if selection is not None:
+            ready = _selection_ready(row, checkpoint)
+            result.setdefault("coverage", {}).update(
+                requestedResultLimit=selection[0],
+                resultOrder=f"{selection[1]} desc",
+                selectionFinalized=ready,
+                candidateCount=checkpoint.get("request_candidate_count", row["matched"]),
+                candidateCountScope="retained_pool"
+                if checkpoint.get("request_candidate_pool_pruned")
+                else "all_unique_matches",
+                candidatePoolPruned=bool(checkpoint.get("request_candidate_pool_pruned")),
+            )
+            if not ready:
+                # Candidate positions may change when all corpora are ranked.
+                # They must not look reviewable or payable before finalization.
+                result["matched"] = 0
+                result["unshareableCount"] = 0
         return result
 
     def _owned(self, connection, user_id, identity, *, locked=False):
@@ -159,6 +201,7 @@ class DriveOwnerSearchStore(DriveLivePreferences):
     async def create(self, *, user_id, client_request_id, request, checkpoint, confirmed):
         if confirmed is not True:
             raise DriveReadError("confirmation_required")
+        _bounded_selection(checkpoint)
         client = _identity(client_request_id)
         digest = self.search_cipher.digest("owner-search-request", [user_id, request])
         identity = str(uuid4())
@@ -507,6 +550,14 @@ class DriveOwnerSearchStore(DriveLivePreferences):
             row = self._owned(connection, user_id, identity)
             if row["connection_generation"] != current["connection_generation"]:
                 raise DriveReadError("connection_changed")
+            if not _selection_ready(row, self._checkpoint(row)):
+                return {
+                    "jobId": identity,
+                    "revision": row["revision"],
+                    "files": [],
+                    "matched": 0,
+                    "nextCursor": None,
+                }
             rows = list(
                 connection.execute(
                     text(
@@ -563,6 +614,8 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                 raise DriveReadError("search_not_found")
             if row["connection_generation"] != current["connection_generation"]:
                 raise DriveReadError("connection_changed")
+            if not _selection_ready(row, self._checkpoint(row)):
+                raise DriveReadError("search_not_found")
             result = self._row(
                 connection,
                 "SELECT metadata_envelope FROM drive_owner_search_results "
@@ -730,10 +783,14 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     if str(error) == "background_preparation_required":
                         raise
                     raise DriveReadError("search_superseded") from error
-                from hushh_mcp.services.drive_sharing_store import DriveSharingStore
-
-                if not DriveSharingStore._trusted_recipient_current(
-                    connection, job["user_id"], request["recipient_user_id"]
+                # Current Trusted membership, or this request's sealed owner
+                # Allow while the pair is still connected.
+                if not automatic_recipient_current(
+                    connection,
+                    job["user_id"],
+                    request["recipient_user_id"],
+                    private,
+                    request_id=origin,
                 ):
                     raise DriveReadError("search_superseded")
         now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
@@ -751,6 +808,66 @@ class DriveOwnerSearchStore(DriveLivePreferences):
     async def require_current(self, job):
         await self._transaction(lambda connection: self._current(connection, job))
 
+    def _retain_latest_candidates(self, connection, job, selection):
+        """Keep the latest N encrypted candidates under the current job lock.
+
+        Trimming at the storage ceiling is safe: a discarded candidate cannot
+        enter the global top N when more candidates arrive. These positions
+        remain private until the separate completed-selection marker commits.
+        """
+        limit, field = selection
+        candidates = []
+        for row in connection.execute(
+            text("SELECT * FROM drive_owner_search_results WHERE job_id=:job AND user_id=:user"),
+            {"job": job["job_id"], "user": job["user_id"]},
+        ).mappings():
+            item = self.search_cipher.open(
+                row["metadata_envelope"],
+                user_id=job["user_id"],
+                resource_id=f"{job['job_id']}:{row['position']}",
+                purpose="owner-search-result",
+            )
+            value = item.get(field)
+            try:
+                if not isinstance(value, str):
+                    return None
+                timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+                    return None
+                timestamp = timestamp.astimezone(UTC)
+            except (ValueError, OverflowError):
+                return None
+            candidates.append((timestamp, item["id"], row["file_digest"], item))
+        # Stable secondary ordering prevents a provider's tie/page order from
+        # changing the exact files the owner reviews and the requester buys.
+        candidates.sort(key=lambda candidate: candidate[1])
+        candidates.sort(key=lambda candidate: candidate[0], reverse=True)
+        selected = candidates[:limit]
+        sealed = [
+            {
+                "job": job["job_id"],
+                "user": job["user_id"],
+                "position": position,
+                "digest": digest,
+                "envelope": self._seal(
+                    item, job["user_id"], f"{job['job_id']}:{position}", "owner-search-result"
+                ),
+            }
+            for position, (_, _, digest, item) in enumerate(selected, start=1)
+        ]
+        connection.execute(
+            text("DELETE FROM drive_owner_search_results WHERE job_id=:job AND user_id=:user"),
+            {"job": job["job_id"], "user": job["user_id"]},
+        )
+        if sealed:
+            connection.execute(
+                text("""INSERT INTO drive_owner_search_results
+                (job_id,user_id,position,file_digest,metadata_envelope)
+                VALUES(:job,:user,:position,:digest,CAST(:envelope AS jsonb))"""),
+                sealed,
+            )
+        return len(selected), sum(item.get("shareable") is False for _, _, _, item in selected)
+
     async def commit_page(self, job, *, checkpoint, files, incomplete=False, done=False):
         # Provider collection pages may contain 100 metadata rows. The
         # person-facing result cursor remains a separate 25-file boundary.
@@ -759,9 +876,13 @@ class DriveOwnerSearchStore(DriveLivePreferences):
 
         def operation(connection):
             row = self._current(connection, job)
+            selection = _bounded_selection(self._checkpoint(row))
+            if _bounded_selection(checkpoint) != selection:
+                raise DriveReadError("search_superseded")
             count = row["matched"]
             unshareable = row.get("unshareable_count", 0)
             limited = False
+            invalid_ranking = False
             for item in files:
                 digest = self.search_cipher.digest("owner-search-file", [job["job_id"], item["id"]])
                 if self._row(
@@ -774,8 +895,15 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                         counts["deduplicatedCount"] = counts.get("deduplicatedCount", 0) + 1
                     continue
                 if count == MAX_RESULTS:
-                    limited = True
-                    break
+                    if selection is None or selection[0] >= MAX_RESULTS:
+                        limited = True
+                        break
+                    retained = self._retain_latest_candidates(connection, job, selection)
+                    if retained is None:
+                        limited = invalid_ranking = True
+                        break
+                    count, unshareable = retained
+                    checkpoint["request_candidate_pool_pruned"] = True
                 count += 1
                 unshareable += int(item.get("shareable") is False)
                 connection.execute(
@@ -792,8 +920,18 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                         ),
                     },
                 )
-            limited = limited or count == MAX_RESULTS and not done
+            limited = limited or selection is None and count == MAX_RESULTS and not done
             is_incomplete = incomplete or row["incomplete_search"] or limited
+            if selection is not None:
+                checkpoint["request_results_finalized"] = False
+                checkpoint["request_candidate_count"] = count
+                if done and not is_incomplete:
+                    selected = self._retain_latest_candidates(connection, job, selection)
+                    if selected is None:
+                        is_incomplete = invalid_ranking = True
+                    else:
+                        count, unshareable = selected
+                        checkpoint["request_results_finalized"] = True
             state = (
                 "limited"
                 if limited or done and is_incomplete
@@ -817,7 +955,11 @@ class DriveOwnerSearchStore(DriveLivePreferences):
                     "incomplete": is_incomplete,
                     "state": state,
                     "terminal": state != "running",
-                    "code": "search_limit" if limited else None,
+                    "code": "provider_response_invalid"
+                    if invalid_ranking
+                    else "search_limit"
+                    if limited
+                    else None,
                     "envelope": self._seal(
                         checkpoint, job["user_id"], job["job_id"], "owner-search-checkpoint"
                     ),

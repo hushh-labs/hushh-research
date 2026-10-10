@@ -898,19 +898,24 @@ export function GuestPreview({
           </div>
 
           <footer className={styles.footer}>
+            {/* Progress starts at the first preview (Circles). The welcome
+                screen has no footer, so it gets no dash of its own. */}
             <nav className={styles.progress} aria-label="Preview screens">
-              {["Welcome", "Circles", "Agents", "Get started"].map((label, index) => (
-                <button
-                  key={label}
-                  type="button"
-                  aria-label={`Screen ${index + 1}: ${label}`}
-                  aria-current={step === index ? "step" : undefined}
-                  disabled={index > furthestStep}
-                  onClick={() => moveTo(index)}
-                >
-                  <span />
-                </button>
-              ))}
+              {["Circles", "Agents", "Get started"].map((label, index) => {
+                const target = index + 1;
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    aria-label={`Screen ${index + 1}: ${label}`}
+                    aria-current={step === target ? "step" : undefined}
+                    disabled={target > furthestStep}
+                    onClick={() => moveTo(target)}
+                  >
+                    <span />
+                  </button>
+                );
+              })}
             </nav>
             <Button
               variant="blue"

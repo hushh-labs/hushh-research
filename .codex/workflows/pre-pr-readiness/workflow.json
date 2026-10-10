@@ -17,12 +17,14 @@
     "docs/reference/operations/cli.md",
     ".codex/skills/repo-operations/references/admin-release-sop.md",
     ".codex/skills/repo-operations/references/agent-trigger-policy.md",
-    "docs/reference/quality/definition-of-done.md"
+    "docs/reference/quality/definition-of-done.md",
+    "docs/reference/architecture/ui-contract-contributor-guide.md"
   ],
   "required_commands": [
     "./bin/hushh codex route-task pre-pr-readiness",
     "./bin/hushh codex pre-pr",
-    "./bin/hushh codex pre-pr --include-advisory"
+    "./bin/hushh codex pre-pr --include-advisory",
+    "cd hushh-webapp && npm run ui:doctor"
   ],
   "verification_bundle": {
     "id": "pre-pr-readiness",

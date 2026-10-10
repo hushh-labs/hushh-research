@@ -129,6 +129,7 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/setup/calendar`
 - `/one/setup/[capability]`
 - `/one/calendar`
+- `/one/todos` — encrypted owner items plus Calendar and owner-confirmed Gmail follow-ups. Calendar remains the event source of truth; Gmail message identifiers never enter the To-do record, and completion or dismissal stays private.
 - `/one/wallet` (Wallet, formerly Cards; naming map in `docs/reference/one/wallet.md`)
 - `/one/wallet-card` (Wallet Profile management; also composed inside Profile/NWS card details in Wallet, with automatic owner-session provisioning)
 - `/one/pkm/recent`
@@ -138,6 +139,8 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/email`
 - `/one/kyc`
 - `/one/career`
+- `/one/referrals` — authenticated referral dashboard; `/one/profile/referrals` redirects here. Account totals and milestone cards come from the referral API, with explicit unavailable states and no sample balances.
+  - A first-visit introduction pairs the agent artwork with a short referral explanation. Continue and Skip intro open the dashboard; View welcome screen replays it. The cosmetic dismissal is scoped to the account on this device through `OnboardingLocalService`, with Capacitor Preferences and browser fallback. It never completes account setup, connects an agent, qualifies a referral, or awards points. Back from either view returns to `/one`.
 - `/one/location`
 - `/one/location/map`
 - `/one/location/check-in`
@@ -229,7 +232,7 @@ Memory registers card, nested path and category unwind without putting private d
 
 `backVerification` in the existing route layout contract is verification metadata, not a second runtime router. Its cases exercise production parent resolution, canonical targets, query replacements and eventual root reachability. Every physical route needs coverage, every Location action needs cases for Now/People/Links, and new history bypasses fail. Existing entry, redirect and hidden surfaces explicitly describe their shell boundary; this gate does not invent a parent for them.
 
-After reviewing changed behavior and updating cases, run `npm run build:back-contracts`. It runs the shared hierarchy regressions before stamping the source revision. CI runs `npm run verify:back-contracts` read-only, including stale-source checks, mutation controls, Memory integration and native gesture regressions. Both Preflight Gate and CI Status Gate require success, including on documentation-only PRs. Authenticated browser and physical-device certification remains a separate release check.
+Before UI edits, follow the [UI contract contributor scaffold](./ui-contract-contributor-guide.md) and run `npm run ui:doctor`. After reviewing changed behavior and updating cases, run `npm run build:ui-contracts` (Back before Search). It runs the shared hierarchy regressions before stamping the source revision. The mandatory UI Contracts job runs `npm run verify:ui-contracts` read-only, including stale-source checks, AST bypass checks, generated mirrors and mutation controls. Required frontend lanes retain Memory integration and native gesture regressions. Both Preflight Gate and CI Status Gate require success, including on documentation-only PRs. Authenticated browser and physical-device certification remains a separate release check.
 
 ## Shell and navigation
 
@@ -346,8 +349,33 @@ private vault and saves the encrypted key through the existing settings route.
 
 Search consumes the authored voice action gateway and generated route index. Do not maintain a separate Search action list. Declare labels, aliases, reachability, execution targets and public query defaults in the owning web voice action contract. RIA Picks declares `source` and `category` defaults; partial route targets compare only the dimensions they change.
 
-Every PR runs **Search Web Contracts**, independently of changed-path filtering. The required **CI Status Gate** requires Search success and rejects skips. The read-only gate checks route coverage, source revisions, all generated gateway mirrors and route-index freshness. UI revisions include pages, layouts, templates and their transitive local modules and authored JSON, normalized across Windows/Linux line endings. Generated contracts are excluded from their own source digest.
+Every PR runs **UI Contracts**, independently of changed-path filtering. Both **Preflight Gate** and **CI Status Gate** require combined Back/Search success and reject skips. The read-only gate checks route coverage, source revisions, all generated gateway mirrors and route-index freshness. UI revisions include pages, layouts, templates and their transitive local modules and authored JSON, normalized across Windows/Linux line endings. Generated contracts are excluded from their own source digest. Follow the [contributor scaffold](./ui-contract-contributor-guide.md) before editing.
 
-After reviewing changed screen actions/context, run `cd hushh-webapp && npm run build:search-contracts` and commit the authored contracts and generated mirrors in the same PR. Run `npm run verify:search-contracts` locally; CI never repairs stale files. The global source revision deliberately refreshes all surface contracts for shared UI changes. A fingerprint proves freshness, not semantic correctness: authors remain responsible for describing new interactions in web contracts, while Search derives its catalog automatically. New route coverage and generated reachability validation remain mandatory.
+After reviewing changed screen actions/context, run `cd hushh-webapp && npm run build:search-contracts` and commit authored edits, review receipts and changed generated mirrors in the same PR. Run `npm run verify:search-contracts` locally; CI never repairs stale files. Global source freshness is recorded in immutable content-addressed receipts under `hushh-webapp/contracts/ui-review`, not copied into every surface or runtime gateway. Independent source reviews add distinct files instead of conflicting shared stamps; combined sources still require their own exact review receipt. Back uses the same receipt boundary while retaining authored route-case hashing. A fingerprint proves freshness, not semantic correctness: authors remain responsible for describing new interactions in web contracts, while Search derives its catalog automatically. New route coverage and generated reachability validation remain mandatory.
 
 The gate also validates literal `data-voice-control-id` values against authored action `control_ids`. New controls require action coverage before regeneration succeeds. Existing 28 uncovered controls are explicitly listed as legacy coverage debt in the global command-bar contract. Dynamic or unannotated interactions still require author review; the checker cannot infer their meaning. Suggestion subview priorities live in authored `search.subview_action_boost` metadata rather than a Search source-code map.
+
+### Messages workspace layout
+
+The `/one/messages` workspace hides the shared top profile header and retains
+persistent bottom navigation with no route-specific footer styling. The inbox
+provides a Home link; its Chat title matches the conversation contact title.
+Outgoing bubbles use royal blue, and editing uses a compact dialog with a
+separate inner message field. The phone control reports that calls are not
+available yet; the composer mic retains the private-agent voice entry. The message composer projects into
+the existing centered Agent Dock above navigation; both panes reserve the full
+dock height, while keyboard lift reserves only navigation and outer insets.
+Every bubble shows its timestamp beside the existing delivery status. The inbox
+keeps the message-shaped dock visible, with typing and sending disabled until a
+writable conversation is selected. Its mic opens the existing private-agent
+voice entry; an engaged voice or command surface retains the inbox dock. Active
+global commands and voice controls remain available and measured. On
+mobile, a selected conversation replaces the inbox and Back to chats restores
+it. Inbox filtering matches contact names and message previews; an empty inbox
+links to the existing Connect entry point. Browser selection restoration uses
+the authenticated encrypted-token contract described in
+[API Contracts](./api-contracts.md). After validation, the token is kept in
+owner-scoped browser history state and the address becomes `/one/messages`.
+Refresh and history navigation revalidate the token; invalid selections return
+to the inbox. The disconnected notice sits directly above the input in the
+shared composer column.

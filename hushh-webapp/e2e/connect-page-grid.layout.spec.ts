@@ -18,6 +18,7 @@ const STUBBED = [
   "@/hooks/use-auth",
   "@/lib/vault/vault-context",
   "@/lib/firebase/config",
+  "@/lib/services/direct-messages-service",
   "@/lib/services/connections-service",
   "@/lib/services/cache-service",
   "@/lib/cache/cache-sync-service",
@@ -139,14 +140,16 @@ async function open(
   await page.addScriptTag({ content: script });
 }
 
-async function settle(page: Page, width: number) {
+async function settle(page: Page, _width: number) {
   const group = page.getByTestId("connect-my-connections-group");
   // The page bundle is large; its first commit can take a few seconds under
   // parallel workers before the timed network even starts.
   await expect(group.locator("[data-voice-label]")).toHaveCount(6, { timeout: 30_000 });
   await expect(page.getByTestId("connect-directory-group").getByText("Avery Stone")).toBeVisible();
-  if (width >= 640)
-    await expect(page.getByRole("button", { name: /Your Trusted Circle/ })).toBeVisible();
+  // Circles now lives in an inactive pager pane, including desktop; it must
+  // not expose off-screen controls while the Connections pane is selected.
+  await expect(page.locator('[data-connect-surface="circles"]').getByText("Your Trusted Circle", { exact: true })).toHaveCount(1);
+  await expect(page.locator('[data-connect-surface="circles"]').locator('..')).toHaveAttribute("aria-hidden", "true");
   await expect
     .poll(() =>
       page.evaluate(
@@ -180,25 +183,18 @@ for (const dark of [false, true]) {
       await mutual.click();
       await expect(page.locator("body")).toHaveAttribute("data-last-navigation", /^\/people\/person_alex\?/);
       await expect(cards.nth(1).getByTestId("mutual-connection")).toHaveCount(0);
-      await page.getByRole("button", { name: "Create your own circle" }).click();
-      const createDialog = page.getByRole("dialog", { name: "Create a Circle" });
-      await expect(createDialog).toBeVisible();
-      await expect(createDialog.getByRole("textbox")).toBeVisible();
-      const createBounds = await createDialog.boundingBox();
-      expect(createBounds).not.toBeNull();
-      expect(Math.abs(createBounds!.x + createBounds!.width / 2 - width / 2)).toBeLessThan(2);
-      expect(createBounds!.x).toBeGreaterThanOrEqual(0);
-      expect(createBounds!.x + createBounds!.width).toBeLessThanOrEqual(width);
-      await createDialog.getByRole("button", { name: "Close", exact: true }).click();
-      await expect(createDialog).toHaveCount(0);
+      // Circle creation moved to its named flow; Connect cards no longer own
+      // the retired discovery-card dialog (also asserted by the page unit contract).
+      await expect(page.getByRole("button", { name: "Create your own circle" })).toHaveCount(0);
       const messageButtons = page.getByRole("button", { name: /^Message / });
       await expect(messageButtons).toHaveCount(6);
       await expect(messageButtons.first()).toBeEnabled();
       await messageButtons.first().click();
       await expect(page.locator("body")).toHaveAttribute(
         "data-last-navigation",
-        "/one/messages?person=person_0",
+        "/one/messages?token=dm1.fixture",
       );
+      await expect(page.locator("body")).toHaveAttribute("data-message-recipient", "person_0");
       const geometry = await cards.evaluateAll((nodes) => nodes.map((node) => {
         const r = node.getBoundingClientRect();
         return { left: r.left, top: r.top, right: r.right, width: r.width };

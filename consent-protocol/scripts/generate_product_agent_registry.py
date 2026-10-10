@@ -73,7 +73,9 @@ def main() -> int:
         return 0
     for target in OUTPUTS:
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(rendered, encoding="utf-8")
+        # This artifact is fingerprinted byte-for-byte by the capability graph.
+        # Use the same bytes on Windows and hosted Linux, not OS newlines.
+        target.write_text(rendered, encoding="utf-8", newline="\n")
         print(f"Generated {target.relative_to(REPO_ROOT)}")
     return 0
 

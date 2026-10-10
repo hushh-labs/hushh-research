@@ -8,17 +8,22 @@ const mocks = vi.hoisted(() => ({
   getCard: vi.fn(),
   ensureCard: vi.fn(),
   readShareLink: vi.fn(),
+  imageShare: vi.fn(),
   changed: null as (() => void) | null,
 }));
 
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: mocks.owner }, loading: false }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: mocks.owner, displayName: "Account name", metadata: { creationTime: "2025-06-01T00:00:00Z" } }, loading: false }) }));
 vi.mock("@/hooks/use-effective-avatar-url", () => ({ useEffectiveAvatarUrl: () => null }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: true, vaultOwnerToken: `token-${mocks.owner}` }) }));
 vi.mock("@/lib/navigation/use-scroll-reset", () => ({ useScrollReset: () => {} }));
 vi.mock("@/components/app-ui/native-test-beacon", () => ({ NativeTestBeacon: () => null }));
 vi.mock("@/components/profile/pkm-settings-shell", () => ({ PkmSettingsShell: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock("@/components/wallet-card/wallet-card-confirm-dialog", () => ({ WalletCardConfirmDialog: () => null }));
-vi.mock("@/components/wallet-card/wallet-card-manage", () => ({ WalletCardManage: ({ card, shareLink, onAction }: { card: { displayName: string }; shareLink: { shareUrl: string } | null; onAction: (action: "edit" | "preview") => void }) => <div>{card.displayName}<span>{shareLink?.shareUrl}</span><button onClick={() => onAction("edit")}>Edit profile</button><button onClick={() => onAction("preview")}>Preview profile</button></div> }));
+vi.mock("@/components/wallet-card/wallet-card-manage", () => ({ WalletCardManage: ({ card, shareLink, onAction, shareAction }: { card: { displayName: string }; shareLink: { shareUrl: string } | null; onAction: (action: "edit" | "preview") => void; shareAction: ReactNode }) => <div>{card.displayName}<span>{shareLink?.shareUrl}</span><button onClick={() => onAction("edit")}>Edit profile</button><button onClick={() => onAction("preview")}>Preview profile</button>{shareAction}</div> }));
+vi.mock("@/components/wallet/wallet-card-image-share-button", () => ({ WalletCardImageShareButton: (props: { disabled?: boolean }) => {
+  mocks.imageShare(props);
+  return <button disabled={props.disabled}>Share card image</button>;
+} }));
 vi.mock("@/lib/services/wallet-card-service", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/services/wallet-card-service")>(),
   canAddToAppleWallet: () => false,
@@ -39,9 +44,36 @@ describe("Wallet Profile owner isolation", () => {
     mocks.getCard.mockReset();
     mocks.ensureCard.mockReset();
     mocks.readShareLink.mockReset().mockReturnValue({ shareToken: "test-token", shareUrl: "/c/test-token" });
+    mocks.imageShare.mockReset();
     mocks.changed = null;
   });
   afterEach(cleanup);
+
+  it.each([
+    { embedded: true, variant: "profile" as const, cardId: "agent-one-profile" },
+    { embedded: false, variant: "nws" as const, cardId: "agent-one-nws" },
+  ])("shares the current $variant face and disables export when sharing is paused", async ({ embedded, variant, cardId }) => {
+    const card = { status: "active", displayName: "Old display name", passSerial: "wallet-123", createdAt: "2026-01-01T00:00:00Z", cardPayload: { full_name: "Current shared name", username: "current.name" }, shareTokenVersion: 1 };
+    mocks.getCard.mockResolvedValue({ enabled: true, exists: true, card });
+    render(<WalletCardWorkspace embedded={embedded} passVariant={variant} />);
+    expect(await screen.findByRole("button", { name: "Share card image" })).toBeEnabled();
+    expect(mocks.imageShare).toHaveBeenLastCalledWith({
+      cardId, disabled: false,
+      profile: {
+        ownerId: "owner-a", displayName: "Current shared name", cardPayload: card.cardPayload,
+        memberSince: "2025-06-01T00:00:00Z", walletId: "wallet-123",
+        shareUrl: "/c/test-token", shareToken: "test-token",
+      },
+    });
+    await act(async () => {});
+    mocks.readShareLink.mockReturnValue({ shareUrl: "/c/rotated", shareToken: "rotated" });
+    mocks.getCard.mockResolvedValue({ card: { ...card, shareTokenVersion: 2, cardPayload: { ...card.cardPayload, username: "updated.name" } } });
+    await act(async () => { mocks.changed?.(); });
+    expect(mocks.imageShare.mock.lastCall?.[0].profile).toMatchObject({ shareUrl: "/c/rotated", shareToken: "rotated", cardPayload: { username: "updated.name" } });
+    mocks.getCard.mockResolvedValue({ card: { ...card, status: "paused" } });
+    await act(async () => { mocks.changed?.(); });
+    expect(screen.getByRole("button", { name: "Share card image" })).toBeDisabled();
+  });
 
   it("closes embedded edit and preview before the containing card and cleans up on unmount", async () => {
     mocks.getCard.mockResolvedValue({ enabled: true, exists: true, card: { status: "active", displayName: "Owner profile", cardPayload: {} } });
@@ -102,7 +134,10 @@ describe("Wallet Profile owner isolation", () => {
       return { card: rotated };
     });
     render(<WalletCardWorkspace embedded />);
-    await screen.findByText("/c/original", {}, { timeout: 5_000 });
+    await screen.findByText("/c/original");
+    // The remote event belongs to the mounted manage-stage subscription.
+    // Rendering the original link can settle before that effect installs it.
+    await waitFor(() => expect(mocks.changed).toBeTypeOf("function"));
     await act(async () => { mocks.changed?.(); });
     expect(await screen.findByText("/c/rotated", {}, { timeout: 5_000 })).toBeVisible();
     expect(screen.queryByText("/c/original")).toBeNull();

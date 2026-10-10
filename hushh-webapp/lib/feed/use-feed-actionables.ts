@@ -59,6 +59,24 @@ import {
 import { useFeedPaymentClock } from "@/lib/feed/use-feed-payment-clock";
 import { useFeedPaymentContext } from "@/lib/feed/use-feed-payment-context";
 import { DriveRequestPaymentService } from "@/lib/services/drive-request-payment-service";
+import {
+  DriveSharingError,
+  DriveSharingService,
+  type SharingReview,
+  type SharingSessionGuard,
+} from "@/lib/services/drive-sharing-service";
+import {
+  isVaultSessionEpochCurrent,
+  snapshotVaultSessionEpoch,
+} from "@/lib/vault/session-epoch";
+import {
+  ownerDocumentDecision,
+  type OwnerDocumentDecision,
+} from "@/lib/consent/document-request-decision";
+import {
+  formatDocumentRequestPrice,
+  isValidDocumentRequestPriceCents,
+} from "@/lib/consent/document-request-price";
 import { driveSharingSelectionId, isDriveSharingEntry } from "@/lib/consent/drive-query-consent";
 import { resolveConsentRequesterLabel } from "@/lib/consent/consent-display";
 import { parseConsentInstant } from "@/lib/consent/consent-owner-copy";
@@ -101,7 +119,8 @@ export type FeedIconTone =
 /** A registry glyph (`@/components/icons/agents`) or a legacy line icon. */
 export type FeedIcon = ComponentType<{ className?: string }>;
 
-export type FeedActionTone = "primary" | "ghost" | "danger";
+/** `success` is a decision's green positive answer (Allow beside a red Deny). */
+export type FeedActionTone = "primary" | "ghost" | "danger" | "success";
 
 export interface FeedActionButton {
   key: string;
@@ -180,6 +199,84 @@ export interface UseFeedActionablesResult {
   clearSmsEmergencies: () => void;
   /** Open while an inline Allow or Don't allow waits for the vault. */
   consentUnlockPrompt: OwnerConsentUnlockPrompt;
+  /** Open while Allow on a document request waits for the owner's price. */
+  documentPricePrompt: DocumentPricePrompt;
+}
+
+/**
+ * The price step behind Allow on a document request from someone outside the
+ * owner's Trusted circle. The Feed renders it once; the row only opens it.
+ * Allow waits for the request's terms, read from the owner's review.
+ */
+export interface DocumentPricePrompt {
+  open: boolean;
+  requesterLabel: string;
+  /** False for a free request: Allow sends no price. */
+  paymentRequired: boolean;
+  purpose: string | null;
+  recipientEmail: string | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  /** The terms have not loaded; Allow stays off until the owner can read them. */
+  detailsPending: boolean;
+  busy: boolean;
+  error: string | null;
+  /** Whole-dollar cents, or null when no payment is required. */
+  submit: (amountCents: number | null) => void;
+  cancel: () => void;
+}
+
+type DocumentPriceTarget = OwnerDocumentDecision & {
+  entryId: string;
+  requesterLabel: string;
+};
+
+/** What the owner reads before Allow, and the revision Allow answers. */
+type DocumentPriceTerms = {
+  revision: number;
+  paymentRequired: boolean;
+  purpose: string;
+  recipientEmail: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+};
+
+function decisionErrorCode(cause: unknown): string {
+  return cause instanceof DriveSharingError ? cause.code : "request_failed";
+}
+
+/** What the owner reads when Allow or Deny did not go through. Never server text. */
+export function documentDecisionErrorCopy(code: string): string {
+  switch (code) {
+    case "invalid_payment_amount":
+      return "Choose a whole-dollar price from $1 to $500.";
+    // The server says request_already_decided for every closed state as well:
+    // answered elsewhere, cancelled, expired or already allowed.
+    case "review_changed":
+    case "request_changed":
+    case "request_already_decided":
+      return "This request changed. Check it and try again.";
+    case "request_unavailable":
+      return "This request is no longer available.";
+    case "request_expired":
+      return "This request expired.";
+    case "date_range_required":
+      return "Ask them to send a new request with exact start and end dates.";
+    case "connection_required":
+      return "You're no longer connected with this person.";
+    case "reconnect_required":
+    case "connection_changed":
+      return "Reconnect Google Drive, then try again.";
+    case "verify_google_identity_required":
+      return "Verify your Google identity to continue.";
+    case "sharing_unavailable":
+    case "connector_unavailable":
+      return "Document sharing isn't available right now.";
+    case "session_changed":
+      return "Unlock your vault, then try again.";
+    default:
+      return "That didn't go through. Try again.";
+  }
 }
 
 /** The server owns whether an incoming Drive request needs the owner's help. */
@@ -403,7 +500,7 @@ export function buildDebateFeedAnalysisHref(
 export function useFeedActionables(): UseFeedActionablesResult {
   const router = useRouter();
   const { user } = useAuth();
-  const { vaultOwnerToken } = useVault();
+  const { vaultOwnerToken, getVaultOwnerToken } = useVault();
   const userId = user?.uid ?? null;
   const [dismissedSmsEmergencyIds, setDismissedSmsEmergencyIds] = useState<
     Set<string>
@@ -441,8 +538,28 @@ export function useFeedActionables(): UseFeedActionablesResult {
       }),
     [declineConsentWithUndo, markConsentSettled, unmarkConsentSettled],
   );
+  // Allow on a document request asks for a price first. The target outlives
+  // `open` so the sheet keeps its copy while it closes.
+  const [priceTarget, setPriceTarget] = useState<DocumentPriceTarget | null>(
+    null,
+  );
+  const [priceOpen, setPriceOpen] = useState(false);
+  const [priceTerms, setPriceTerms] = useState<DocumentPriceTerms | null>(
+    null,
+  );
+  const [priceBusy, setPriceBusy] = useState(false);
+  const [priceError, setPriceError] = useState<string | null>(null);
+  // State lags a render; the ref closes the double-submit window.
+  const priceBusyRef = useRef(false);
+  // Only the latest terms read may change the sheet.
+  const priceLoadRef = useRef(0);
   useEffect(() => {
     setSettledConsentKeys(new Set());
+    priceLoadRef.current += 1;
+    setPriceOpen(false);
+    setPriceTarget(null);
+    setPriceTerms(null);
+    setPriceError(null);
   }, [userId]);
 
   // Revoked/expired SOS cards stay in the feed as a historical alert until the
@@ -682,6 +799,226 @@ export function useFeedActionables(): UseFeedActionablesResult {
   const sentProgressRefresh = sentProgressResource.refresh;
   const activeProgressRefresh = activeProgressResource.refresh;
 
+  // ── Document requests from outside the Trusted circle: Allow or Deny ──
+  // Both answers go out on this vault session's owner token only. A lock,
+  // unlock or account switch mid-request ends it as session_changed.
+  const documentSessionGuard = useCallback(
+    (token: string): SharingSessionGuard => {
+      const epoch = snapshotVaultSessionEpoch();
+      return () => {
+        if (!isVaultSessionEpochCurrent(epoch) || getVaultOwnerToken() !== token) {
+          throw new DriveSharingError("session_changed");
+        }
+      };
+    },
+    [getVaultOwnerToken],
+  );
+
+  const refreshDocumentRequests = useCallback(async () => {
+    await Promise.all([
+      consentSummaryRefresh({ force: true }),
+      consentListRefresh({ force: true }),
+      receivedOverflowRefresh({ force: true }),
+    ]);
+  }, [consentListRefresh, consentSummaryRefresh, receivedOverflowRefresh]);
+
+  // The answered row leaves now; the forced refetch then agrees. Recording the
+  // mutation first keeps that refetch off the proxy's pre-decision copy.
+  const settleDocumentRequest = useCallback(
+    (entryId: string) => {
+      markConsentSettled(entryId);
+      if (userId) CacheSyncService.onConsentMutated(userId);
+      notifyFeedActionResolved();
+      void refreshDocumentRequests();
+    },
+    [markConsentSettled, refreshDocumentRequests, userId],
+  );
+
+  const declineDocumentRequest = useCallback(
+    async (entryId: string, decision: OwnerDocumentDecision) => {
+      // The token as of the tap, not the render, so a renewal in between is
+      // not mistaken for a different session.
+      const token = getVaultOwnerToken();
+      if (!token) return;
+      try {
+        await DriveSharingService.decide(
+          token,
+          decision.requestId,
+          "decline",
+          decision.revision,
+          documentSessionGuard(token),
+        );
+      } catch (cause) {
+        toast.error(documentDecisionErrorCopy(decisionErrorCode(cause)));
+        // The request may have moved on; show what the server has now.
+        await refreshDocumentRequests();
+        return;
+      }
+      settleDocumentRequest(entryId);
+    },
+    [documentSessionGuard, getVaultOwnerToken, refreshDocumentRequests, settleDocumentRequest],
+  );
+
+  // The Feed row carries no request text. Allow therefore reads the owner's
+  // vault-protected review first: the sheet shows its purpose, period,
+  // recipient and access, and Allow answers that review's revision. A request
+  // that can no longer be allowed closes the sheet and refreshes the rows.
+  const loadDocumentTerms = useCallback(
+    async (target: DocumentPriceTarget) => {
+      const load = ++priceLoadRef.current;
+      const token = getVaultOwnerToken();
+      if (!token) {
+        setPriceError(documentDecisionErrorCopy("session_changed"));
+        return;
+      }
+      let review: SharingReview;
+      try {
+        review = await DriveSharingService.review(
+          token,
+          target.requestId,
+          documentSessionGuard(token),
+        );
+      } catch (cause) {
+        if (load === priceLoadRef.current) {
+          setPriceError(documentDecisionErrorCopy(decisionErrorCode(cause)));
+        }
+        return;
+      }
+      if (load !== priceLoadRef.current) return;
+      if (review.allowAvailable !== true) {
+        priceLoadRef.current += 1;
+        setPriceOpen(false);
+        setPriceError(null);
+        if (review.ownerAllowed === true) {
+          // An Allow already landed, for example one whose answer was lost.
+          settleDocumentRequest(target.entryId);
+          toast.info(
+            typeof review.priceCents === "number"
+              ? `Already allowed at ${formatDocumentRequestPrice(review.priceCents)}.`
+              : "Already allowed.",
+          );
+        } else {
+          toast.info(documentDecisionErrorCopy("request_changed"));
+          void refreshDocumentRequests();
+        }
+        return;
+      }
+      setPriceTerms({
+        revision: review.revision,
+        paymentRequired: review.paymentRequired === true,
+        purpose: review.purpose.purpose,
+        recipientEmail: review.recipientEmail,
+        periodStart: review.purpose.periodStart,
+        periodEnd: review.purpose.periodEnd,
+      });
+    },
+    [
+      documentSessionGuard,
+      getVaultOwnerToken,
+      refreshDocumentRequests,
+      settleDocumentRequest,
+    ],
+  );
+
+  // Allow only opens the price step and returns, so the row is never locked
+  // behind a sheet the owner may simply cancel.
+  const openDocumentPrice = useCallback(
+    (target: DocumentPriceTarget) => {
+      if (priceBusyRef.current) return;
+      setPriceTarget(target);
+      setPriceTerms(null);
+      setPriceError(null);
+      setPriceOpen(true);
+      void loadDocumentTerms(target);
+    },
+    [loadDocumentTerms],
+  );
+
+  const submitDocumentPrice = useCallback(
+    async (amountCents: number | null) => {
+      const target = priceTarget;
+      const terms = priceTerms;
+      if (!priceOpen || !target || !terms || priceBusyRef.current) return;
+      const token = getVaultOwnerToken();
+      if (!token) {
+        setPriceError(documentDecisionErrorCopy("session_changed"));
+        return;
+      }
+      // A free request never carries a price; a paid one never goes without.
+      const price = terms.paymentRequired ? amountCents : null;
+      if (terms.paymentRequired && !isValidDocumentRequestPriceCents(price)) {
+        setPriceError(documentDecisionErrorCopy("invalid_payment_amount"));
+        return;
+      }
+      priceBusyRef.current = true;
+      setPriceBusy(true);
+      setPriceError(null);
+      try {
+        await DriveSharingService.allow(
+          token,
+          target.requestId,
+          { revision: terms.revision, amountCents: price },
+          documentSessionGuard(token),
+        );
+      } catch (cause) {
+        setPriceError(documentDecisionErrorCopy(decisionErrorCode(cause)));
+        // Read the request again before another try: the sheet stays open
+        // only while it can still be allowed, at its current revision.
+        setPriceTerms(null);
+        void loadDocumentTerms(target);
+        void refreshDocumentRequests();
+        return;
+      } finally {
+        priceBusyRef.current = false;
+        setPriceBusy(false);
+      }
+      setPriceOpen(false);
+      settleDocumentRequest(target.entryId);
+      toast.success(
+        price === null
+          ? "Allowed. Files are shared as they're found."
+          : `Allowed at ${formatDocumentRequestPrice(price)}. Files are shared after payment.`,
+      );
+    },
+    [
+      documentSessionGuard,
+      getVaultOwnerToken,
+      loadDocumentTerms,
+      priceOpen,
+      priceTarget,
+      priceTerms,
+      refreshDocumentRequests,
+      settleDocumentRequest,
+    ],
+  );
+
+  const documentPricePrompt = useMemo<DocumentPricePrompt>(
+    () => ({
+      open: priceOpen,
+      requesterLabel: priceTarget?.requesterLabel ?? "",
+      paymentRequired:
+        priceTerms?.paymentRequired ?? priceTarget?.paymentRequired ?? false,
+      purpose: priceTerms?.purpose ?? null,
+      recipientEmail: priceTerms?.recipientEmail ?? null,
+      periodStart: priceTerms?.periodStart ?? null,
+      periodEnd: priceTerms?.periodEnd ?? null,
+      detailsPending: priceTerms === null,
+      busy: priceBusy,
+      error: priceError,
+      submit: (amountCents) => {
+        void submitDocumentPrice(amountCents);
+      },
+      cancel: () => {
+        if (priceBusyRef.current) return;
+        // A terms read still in flight must not reopen or retitle the sheet.
+        priceLoadRef.current += 1;
+        setPriceOpen(false);
+        setPriceError(null);
+      },
+    }),
+    [priceBusy, priceError, priceOpen, priceTarget, priceTerms, submitDocumentPrice],
+  );
+
   const receivedProgress = useMemo(() => {
     return projectFeedDriveProgress(receivedOverflowItems ?? []);
   }, [receivedOverflowItems]);
@@ -839,13 +1176,14 @@ export function useFeedActionables(): UseFeedActionablesResult {
 
     for (const payment of sentPayments) {
       const displayPayment = describeFeedDrivePayment(payment, paymentClockNow, paymentContexts[payment.requestId]);
-      const paymentIsExpired = displayPayment.status === "expired";
+      const paymentIsExpired = displayPayment.status !== "ready";
       const paymentAction = paymentIsExpired
         ? []
         : [
             {
-              key: displayPayment.status === "link_expired" ? "renew" : "pay",
-              label: displayPayment.status === "link_expired" ? "Create new link" : "Pay $10",
+              key: "pay",
+              // The order's price: the owner's, or $10 in the Trusted circle.
+              label: `Pay ${formatDocumentRequestPrice(payment.amountCents)}`,
               tone: "primary" as const,
               run: async () => {
                 try {
@@ -895,12 +1233,22 @@ export function useFeedActionables(): UseFeedActionablesResult {
           queueEntries.push(entry);
           continue;
         }
+        // A document request from outside the Trusted circle that the server
+        // says the owner can answer now gets Deny and Allow inline. Anything
+        // else (background access, waiting on payment) keeps its chevron row.
+        const documentDecision = ownerDocumentDecision(entry);
+        if (documentDecision && settledConsentKeys.has(entry.id)) continue;
         const requesterLabel = resolveConsentRequesterLabel({
           counterpartLabel: entry.counterpart_label,
           counterpartEmail: entry.counterpart_email,
           counterpartSecondaryLabel: entry.counterpart_secondary_label,
           counterpartId: entry.counterpart_id,
         });
+        const reviewHref = buildConsentCenterHref("pending", {
+          requestId: driveSharingSelectionId(entry),
+          from: "/one/feed",
+        });
+        const entryId = entry.id;
         items.push({
           id: `consent:${entry.id}`,
           icon: ConsentAgentIcon,
@@ -915,12 +1263,34 @@ export function useFeedActionables(): UseFeedActionablesResult {
               : null,
           title: requesterLabel,
           description: consentSummary(entry),
-          href: buildConsentCenterHref("pending", {
-            requestId: driveSharingSelectionId(entry),
-            from: "/one/feed",
-          }),
-          chevron: true,
-          actions: [],
+          href: reviewHref,
+          // A row with inline actions is not a link; its tap opens the same review.
+          ...(documentDecision ? { onSelect: () => router.push(reviewHref) } : {}),
+          chevron: !documentDecision,
+          actions: documentDecision
+            ? [
+                {
+                  key: "deny",
+                  label: "Deny",
+                  tone: "danger",
+                  disabled: !vaultOwnerToken,
+                  confirm: true,
+                  run: () => declineDocumentRequest(entryId, documentDecision),
+                },
+                {
+                  key: "allow",
+                  label: "Allow",
+                  tone: "success",
+                  disabled: !vaultOwnerToken,
+                  run: () =>
+                    openDocumentPrice({
+                      ...documentDecision,
+                      entryId,
+                      requesterLabel,
+                    }),
+                },
+              ]
+            : [],
           // `issued_at` when the backend populated it — never the expiry, which
           // is in the future and would sort this above everything. Otherwise
           // when it was first seen, so it holds its place across refreshes.
@@ -1437,6 +1807,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
     appTaskState.tasks,
     consentDecision.allow,
     declineConsentRequest,
+    declineDocumentRequest,
+    openDocumentPrice,
     markConsentSettled,
     settledConsentKeys,
     connectionRequests,
@@ -1489,5 +1861,6 @@ export function useFeedActionables(): UseFeedActionablesResult {
     hasClearableSmsEmergencies: clearableSmsEmergencyIds.length > 0,
     clearSmsEmergencies,
     consentUnlockPrompt: consentDecision.unlockPrompt,
+    documentPricePrompt,
   };
 }

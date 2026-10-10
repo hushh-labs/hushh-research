@@ -217,6 +217,19 @@ class BulkShareCreateRequest(StrictRequest):
     audience: Literal["trusted_circle"]
 
 
+class AllowRequest(DecisionRequest):
+    # Whole US dollars as cents. Required only for a paid request; the store
+    # checks that against the request it locks.
+    amountCents: int | None = Field(default=None, strict=True, ge=100, le=50000, multiple_of=100)
+    confirmed: StrictBool
+
+    @model_validator(mode="after")
+    def explicit_confirmation(self):
+        if self.confirmed is not True:
+            raise ValueError("Explicit approval is required.")
+        return self
+
+
 class BulkShareApprovalRequest(StrictRequest):
     revision: int = Field(ge=1, strict=True)
     reviewDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -259,7 +272,7 @@ class RuleRevocationRequest(StrictRequest):
 class RevocationRequest(DecisionRequest):
     directiveId: str = Field(min_length=1, max_length=128)
     reviewDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
-    grantIds: list[UUID] = Field(min_length=1, max_length=25)
+    grantIds: list[UUID] = Field(default_factory=list, max_length=25)
     confirmed: StrictBool
 
 
@@ -333,6 +346,7 @@ def _error(error):
         "search_not_found": (404, "This Drive search is unavailable."),
         "no_recipients": (409, "No one in your Trusted circle can receive these files yet."),
         "date_range_required": (422, "Choose exact start and end dates before requesting files."),
+        "invalid_payment_amount": (422, "Choose a whole-dollar price from $1 to $500."),
         "invalid_argument": (422, "Check the document-sharing request."),
     }
     code = str(error) if isinstance(error, DriveReadError) else "sharing_unavailable"
@@ -957,6 +971,18 @@ async def decline(request_id: UUID, body: DecisionRequest, owner: Owner = Depend
         request_id=str(request_id),
         revision=body.revision,
         decision="declined",
+    )
+
+
+@router.post("/requests/{request_id}/allow", status_code=202)
+async def allow(request_id: UUID, body: AllowRequest, owner: Owner = Depends(_owner)):
+    """A allows one request outside the Trusted circle; the automatic search runs next."""
+    return await _call(
+        "allow",
+        owner=owner,
+        request_id=str(request_id),
+        revision=body.revision,
+        amount_cents=body.amountCents,
     )
 
 

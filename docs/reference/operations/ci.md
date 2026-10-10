@@ -451,6 +451,13 @@ Deploy to UAT is expected to behave as a closed-loop release lane:
 7. roll back only the failing changed surface
 8. publish release artifacts with revisions, reports, and final status
 
+UAT revision retirement is a separate `Capacity Maintenance` workflow. It records
+drain deadlines and returns; scheduled passes revalidate the healthy source
+release and live traffic before deleting eligible revisions. The deployment
+workflow finishes without awaiting retirement. Maintenance creates no UAT
+deployment record and holds the shared mutation lock only during a short pass,
+never during the request drain. See [the UAT maintenance contract](../../../deploy/README.md#normal-uat-dispatch).
+
 See [Branch Governance](./branch-governance.md).
 
 ---
@@ -826,3 +833,9 @@ the suite actually ran.
 
 The gate is deliberately separate from the manifest: the manifest answers "which
 suites gate a merge", and the gate answers "can every test file still be loaded".
+
+## Combined UI Contracts gate
+
+Every PR runs one mandatory **UI Contracts** job before expensive lanes. It installs only the locked TypeScript parser, shares source reads, rejects Back/Search coverage and freshness drift, and verifies Surface Map, Gateway, Siri and Route Orchestration mirrors. It runs mutation regressions that prove either owner failure rejects the combined check. Target validation execution is 5–10 seconds; dependency downloads, checkout, runner startup and queue time are separate. The command prints its actual elapsed time. Preflight and CI Status require success; frontend changes also require Web Core and the full Vitest suite, which retain behavior coverage.
+
+Run `cd hushh-webapp && npm run ui:doctor` before edits. Follow the [contributor scaffold](../architecture/ui-contract-contributor-guide.md), review authored Back cases and Search actions, then run `npm run build:ui-contracts` and `npm run verify:ui-contracts`. The pre-push wrapper runs the same read-only fast check. It never repairs or stamps source. The previous individual package commands remain available for diagnosis.

@@ -1,17 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowRight, X } from "@/components/icons";
+import { X } from "@/components/icons";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { Button } from "@/components/ui/button";
+import { RowDescription, RowLabel } from "@/components/app-ui/typography";
+import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
 import { cardNetworkLabel } from "./card-network-mark";
 import styles from "./wallet-card-gesture.module.css";
 
-export type WalletCardControlSummary = { title: string; subtitle?: string };
+export type WalletCardControlSummary = {
+  title: string;
+  subtitle?: string;
+  /** Only safe summary fields supplied by the card's owner data source. */
+  fields?: readonly { label: string; value: string }[];
+};
 
 /** Card-local gestures only; opening this panel never reveals encrypted details. */
-export function WalletCardSwipe({ card, children, disabled, onOpen, hint, dismissHint, summary }: {
+export function WalletCardSwipe({ card, children, disabled, hint, dismissHint, summary }: {
   card: WalletCardSummary; children: ReactNode; disabled: boolean;
   onOpen: () => void; hint: boolean; dismissHint: () => void;
   summary?: WalletCardControlSummary;
@@ -22,7 +28,7 @@ export function WalletCardSwipe({ card, children, disabled, onOpen, hint, dismis
   const surface = useRef<HTMLDivElement>(null);
   const slidingCard = useRef<HTMLDivElement>(null);
   const controls = useRef<HTMLDivElement>(null);
-  const detailsButton = useRef<HTMLButtonElement>(null);
+  const closeButton = useRef<HTMLButtonElement>(null);
   const liveOffset = useRef(0);
   const openedRef = useRef(false);
   const dismiss = useRef(dismissHint);
@@ -43,7 +49,7 @@ export function WalletCardSwipe({ card, children, disabled, onOpen, hint, dismis
     if (returnFocus) slidingCard.current?.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true });
   }, [moveCard, revealWidth]);
   useEffect(() => {
-    if (opened) detailsButton.current?.focus({ preventScroll: true });
+    if (opened) closeButton.current?.focus({ preventScroll: true });
   }, [opened]);
   useEffect(() => {
     const node = surface.current;
@@ -77,8 +83,14 @@ export function WalletCardSwipe({ card, children, disabled, onOpen, hint, dismis
   };
   const label = summary ?? {
     title: `${cardNetworkLabel(card.brand)} •••• ${card.last4}`,
-    subtitle: `Expires ${String(card.expiryMonth).padStart(2, "0")}/${String(card.expiryYear).slice(-2)}`,
   };
+  // A title supplied for a saved payment card must not erase its safe summary.
+  // This uses the list response only; swiping never requests decrypted data.
+  const fields = summary?.fields?.length ? summary.fields : card.last4 ? [
+    { label: "Network", value: cardNetworkLabel(card.brand) },
+    { label: "Card number", value: `•••• ${card.last4}` },
+    { label: "Expires", value: `${String(card.expiryMonth).padStart(2, "0")}/${String(card.expiryYear).slice(-2)}` },
+  ] : [];
   return <div ref={surface} className={styles.swipe} data-swipe-views-horizontal-scroll data-controls-open={opened}
     onKeyDown={event => {
       if (disabled) return;
@@ -108,9 +120,14 @@ export function WalletCardSwipe({ card, children, disabled, onOpen, hint, dismis
       }
     }}>
     <div ref={controls} className={styles.controls} data-card-controls inert={!opened || undefined} aria-hidden={!opened || undefined}>
-      <div className={styles.controlHeader}><p>{label.title}</p><ShellActionSurface aria-label="Back to card" className="size-11 shrink-0" onClick={() => settle(false, true)}><X aria-hidden="true" className="size-4" /></ShellActionSurface></div>
-      {label.subtitle ? <span>{label.subtitle}</span> : null}
-      <Button ref={detailsButton} size="compact" className="min-h-11 w-full" disabled={disabled} onClick={onOpen}>View details <ArrowRight aria-hidden="true" className="size-4" /></Button>
+      <div className={styles.controlHeader}>
+        <RowLabel as="p" compact className="min-w-0 [overflow-wrap:anywhere]">{label.title}</RowLabel>
+        <ShellActionSurface ref={closeButton} aria-label="Back to card" className="size-11 shrink-0" onClick={() => settle(false, true)}><X aria-hidden="true" className="size-4" /></ShellActionSurface>
+      </div>
+      {label.subtitle ? <RowDescription compact className="px-2">{label.subtitle}</RowDescription> : null}
+      <SettingsGroup embedded density="compact" separatorInset shellClassName="bg-transparent shadow-none">
+        {fields.map(field => <SettingsRow key={field.label} title={field.label} description={field.value} className="[--settings-row-px:8px]" />)}
+      </SettingsGroup>
     </div>
     <div ref={slidingCard} className={styles.slidingCard}>
       {children}

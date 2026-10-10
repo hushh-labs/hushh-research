@@ -1,4 +1,5 @@
 import { DOCUMENT_REQUEST_UUID } from "@/lib/consent/document-share-consent";
+import { isValidDocumentRequestPriceCents } from "@/lib/consent/document-request-price";
 import { ApiService } from "@/lib/services/api-service";
 
 export type DriveRequestPaymentStatus =
@@ -7,7 +8,8 @@ export type DriveRequestPaymentStatus =
 
 export interface DriveRequestPayment {
   status: DriveRequestPaymentStatus;
-  amountCents: 0 | 1000;
+  /** 0 when no payment is required; otherwise the request's whole-dollar price. */
+  amountCents: number;
   currency: "usd";
   reconciliationRequired?: boolean;
   paymentLinkExpired?: boolean;
@@ -15,6 +17,10 @@ export interface DriveRequestPayment {
 }
 
 const CHECKOUT_HOSTS = new Set(["checkout.stripe.com", "checkout.stripe.dev"]);
+
+function validPaymentAmount(status: unknown, amountCents: unknown): boolean {
+  return status === "not_required" ? amountCents === 0 : isValidDocumentRequestPriceCents(amountCents);
+}
 
 function requestPath(requestId: string): string {
   if (!DOCUMENT_REQUEST_UUID.test(requestId)) throw new Error("Invalid request ID");
@@ -48,7 +54,7 @@ export class DriveRequestPaymentService {
     const value = await paymentRequest(firebaseIdToken, requestId, false);
     if (
       !["not_required", "preparing", "awaiting_payment", "checkout_open", "paid", "refunded", "expired"].includes(String(value.status)) ||
-      value.amountCents !== (value.status === "not_required" ? 0 : 1000) ||
+      !validPaymentAmount(value.status, value.amountCents) ||
       value.currency !== "usd"
       || (value.reconciliationRequired !== undefined && typeof value.reconciliationRequired !== "boolean")
       || (value.paymentLinkExpired !== undefined && typeof value.paymentLinkExpired !== "boolean")

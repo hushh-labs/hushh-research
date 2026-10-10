@@ -8,11 +8,13 @@ import { WalletReferralCardDetails } from "./wallet-referral-card-details";
 import type { ReferralSummary } from "@/lib/services/referral-service";
 import { WalletCardWorkspace } from "@/components/wallet-card/wallet-card-workspace";
 import { WalletAddCollection } from "./wallet-add-collection";
+import { WalletSharing } from "./wallet-sharing";
 import { WalletCardFace } from "./wallet-card-face";
 import { WALLET_DEMO_CARDS, WalletDemoCardFace, isAgentWalletCard, type WalletDemoProfile } from "./wallet-demo-cards";
 import { cardNetworkLabel } from "./card-network-mark";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
 import { useBackLayer } from "@/lib/navigation/back-layers";
+import { walletProfileUsername } from "@/lib/wallet/wallet-profile-username";
 import { ROUTES } from "@/lib/navigation/routes";
 import styles from "./wallet-card-browser.module.css";
 
@@ -145,7 +147,14 @@ export function WalletCardBrowser({ cards, cardholderNames = {}, selectedCardId,
   return <div ref={content} className={styles.browser} data-testid="wallet-card-browser" data-mode={mode}>
     <h2 className="sr-only">Your cards</h2>
     {mode === "all" ? <>
-      <WalletAddCollection hintOwnerId={ownerId} cards={collection} selectedCardId={null} onSelect={choose} onOpen={choose} onAdd={onAdd} onRemove={onRemove} busyCardId={busyCardId} disabled={disabled} demoProfile={demoProfile} renderCard={(card) => isAgentWalletCard(card.cardId) ? <WalletDemoCardFace summary={card} profile={demoProfile} /> : <WalletCardFace summary={card} cardholderName={cardholderNames[card.cardId]} collection />} cardControlSummary={(card) => isAgentWalletCard(card.cardId) ? { title: card.nickname || "Agent One", subtitle: "Profile, sharing and scans" } : { title: card.nickname || cardNetworkLabel(card.brand), subtitle: `${cardNetworkLabel(card.brand)} ending ${card.last4}` }} scrollReveal showActions={false} showDetailsLink />
+      <WalletAddCollection hintOwnerId={ownerId} cards={collection} selectedCardId={null} onSelect={choose} onOpen={choose} onAdd={onAdd} onRemove={onRemove} busyCardId={busyCardId} disabled={disabled} demoProfile={demoProfile} renderCard={(card) => isAgentWalletCard(card.cardId) ? <WalletDemoCardFace summary={card} profile={demoProfile} /> : <WalletCardFace summary={card} cardholderName={cardholderNames[card.cardId]} collection />} cardControlSummary={(card) => isAgentWalletCard(card.cardId) ? {
+        title: card.nickname || "Agent One",
+        fields: [
+          { label: "Username", value: demoProfile?.cardPayload?.username || walletProfileUsername(demoProfile?.displayName ?? "") },
+          { label: "Member since", value: demoProfile?.memberSince && !Number.isNaN(Date.parse(demoProfile.memberSince)) ? String(new Date(demoProfile.memberSince).getFullYear()) : "—" },
+          { label: "Wallet ID", value: demoProfile?.walletId?.slice(-8).toUpperCase() || "—" },
+        ],
+      } : { title: card.nickname || cardNetworkLabel(card.brand) }} scrollReveal showActions={false} showDetailsLink />
       <div className={styles.quickActions}>
         <Button variant="secondary" size="standard" className="w-full" onClick={onAdd} disabled={isBusy}><Plus aria-hidden="true" />{cards.length ? "Add another card" : "Add a payment card"}</Button>
 
@@ -155,10 +164,13 @@ export function WalletCardBrowser({ cards, cardholderNames = {}, selectedCardId,
       <div data-swipe-views-horizontal-scroll onTouchStart={(event) => { const point = event.touches[0]; gesture.current = event.touches.length === 1 && point ? { x: point.clientX, y: point.clientY } : null; }} onTouchEnd={finishSwipe} onTouchCancel={() => { gesture.current = null; }} className={styles.selectedFace}>
         {isAgentWalletCard(selected.cardId) ? <WalletDemoCardFace summary={selected} profile={demoProfile} /> : <WalletCardFace summary={selected} cardholderName={cardholderNames[selected.cardId]} collection />}
       </div>
-      {selected.cardId === "agent-one-referral" ? <WalletReferralCardDetails summary={referralSummary ?? null} shareToken={demoProfile?.shareToken ?? null} failed={referralError} onRetry={onRetryReferral} /> : isAgentWalletCard(selected.cardId) ? <div className="space-y-4">
+      {selected.cardId === "agent-one-referral" ? <WalletReferralCardDetails summary={referralSummary ?? null} shareToken={demoProfile?.shareToken ?? null} profile={demoProfile} failed={referralError} onRetry={onRetryReferral} /> : isAgentWalletCard(selected.cardId) ? <div className="space-y-4">
         {selected.cardId === "agent-one-nws" ? <p className="text-sm text-muted-foreground">This is a sample score; no net worth evaluation has been run. Sharing uses your Wallet Profile and its scan totals.</p> : null}
         <WalletCardWorkspace embedded active={active} passVariant={selected.cardId === "agent-one-nws" ? "nws" : "profile"} />
-      </div> : details}
+      </div> : <div className="space-y-5">
+        {active ? <WalletSharing cardDetails /> : null}
+        {details}
+      </div>}
     </div>}
     {active && dockHost ? createPortal(dock, dockHost) : null}
 

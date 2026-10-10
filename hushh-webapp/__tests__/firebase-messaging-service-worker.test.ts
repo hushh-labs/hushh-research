@@ -1,6 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
+import { webcrypto } from "node:crypto";
+import { IDBFactory } from "fake-indexeddb";
+import fixture from "./fixtures/chat-push-preview.json";
+import { sealNotificationPreview } from "@/lib/notifications/chat-preview";
 
 import { describe, expect, it } from "vitest";
 
@@ -146,7 +150,8 @@ function createHarness(options: {
     path.join(process.cwd(), "public", "firebase-messaging-sw.js"),
     "utf8",
   );
-  vm.runInNewContext(source, {
+  const database = new IDBFactory();
+  const context = vm.createContext({
     self: serviceWorker,
     setTimeout,
     clearTimeout,
@@ -155,9 +160,37 @@ function createHarness(options: {
     Math,
     Promise,
     encodeURIComponent,
+    indexedDB: database,
+    crypto: webcrypto,
+    TextEncoder,
+    TextDecoder,
+    Uint8Array,
+    ArrayBuffer,
+    atob,
+    btoa,
   });
+  context.importScripts = (name: string) => vm.runInContext(fs.readFileSync(path.join(process.cwd(), "public", name.replace(/^\//u, "")), "utf8"), context);
+  vm.runInContext(source, context);
 
   return {
+    async installKey(keyId: string = fixture.keyId) {
+      const decode = (value: string) => Uint8Array.from(Buffer.from(value, "base64url"));
+      const key = await webcrypto.subtle.importKey("pkcs8", decode(fixture.privateKey), { name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = database.open("hussh-chat-preview-v1", 1);
+        request.onupgradeneeded = () => request.result.createObjectStore("keys");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = reject;
+      });
+      await new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction("keys", "readwrite");
+        transaction.objectStore("keys").put({ keyId, privateKey: key }, "active");
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = reject;
+      });
+      db.close();
+    },
+    openPreview: (data: Record<string, unknown>) => (serviceWorker as unknown as { openChatNotificationPreview: (value: Record<string, unknown>) => Promise<unknown> }).openChatNotificationPreview(data),
     shown,
     clientMessages,
     clientMessagesByIndex,
@@ -516,7 +549,8 @@ describe("Firebase messaging service-worker lifecycle ownership", () => {
       purpose: "private purpose",
     });
     expect(harness.shown[0]?.title).toBe("Payment needed");
-    expect(harness.shown[0]?.options?.body).toContain("Pay $10");
+    // The owner sets the price, so a push never names a fixed amount.
+    expect(harness.shown[0]?.options?.body).toBe("Pay in One to continue your document request.");
     const data = harness.shown[0]?.options?.data as Record<string, unknown>;
     expect(data.url).toBe("/one/feed");
     expect(JSON.stringify(data)).not.toMatch(/private\.pdf|private purpose/);
@@ -585,4 +619,35 @@ describe("Firebase messaging service-worker lifecycle ownership", () => {
     await harness.click({ type });
     expect(harness.openedUrls).toEqual(["/one/feed"]);
   });
+});
+
+
+it("opens Python and browser previews with the same binding and rejects tampering", async () => {
+  const harness = createHarness({ clientState: "none" });
+  await harness.installKey();
+  const data = { chat_preview: fixture.sealed, preview_context: fixture.context };
+  expect(await harness.openPreview(data)).toEqual(fixture.preview);
+  expect(await harness.openPreview({ ...data, preview_context: fixture.context + "-other" })).toBeNull();
+  const damaged = JSON.parse(fixture.sealed) as string[];
+  damaged[3] = (damaged[3][0] === "A" ? "B" : "A") + damaged[3].slice(1);
+  expect(await harness.openPreview({ ...data, chat_preview: JSON.stringify(damaged) })).toBeNull();
+  Object.defineProperty(globalThis, "crypto", { configurable: true, value: webcrypto });
+  const sealed = await sealNotificationPreview({ userId: "fixture", keyId: fixture.keyId, publicKey: fixture.publicKey }, fixture.context, fixture.preview);
+  expect(await harness.openPreview({ ...data, chat_preview: sealed })).toEqual(fixture.preview);
+});
+
+it("renders sealed authoritative Circle identity and suppresses pushes after account rotation", async () => {
+  const harness = createHarness({ clientState: "none" });
+  await harness.installKey();
+  const data = { type: "location_circle_message", circle_id: "11111111-2222-3333-4444-555555555555", message_id: "fixture-circle-message",
+    recipient_key_id: fixture.keyId, chat_preview: fixture.sealed, chat_identity: fixture.identity, preview_context: fixture.context,
+    chat_expires_at: String(Math.floor(Date.now() / 1000) + 60) };
+  await harness.push(data.type, data);
+  expect(harness.shown).toHaveLength(1);
+  expect(harness.shown[0].title).toBe("Weekend");
+  expect(harness.shown[0].options?.body).toBe("Alice: " + fixture.preview.text);
+  await harness.installKey("new-owner-preview-key");
+  await harness.push(data.type, data);
+  expect(harness.shown).toHaveLength(1);
+  expect(harness.clientMessages).toHaveLength(0);
 });

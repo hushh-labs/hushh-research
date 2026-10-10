@@ -73,6 +73,9 @@ const mocks = vi.hoisted(() => {
     pkmWriteCoordinator: {
       savePreparedDomain: vi.fn(),
     },
+    receiptMemorySave: {
+      saveReceiptCanonicalIndexToMemory: vi.fn(),
+    },
     personalKnowledgeModelService: {
       validatePreparedDomainStore: vi.fn(),
     },
@@ -114,6 +117,7 @@ vi.mock("@/lib/services/gmail-receipts-service", async (importOriginal) => {
     GmailReceiptsService: mocks.gmailReceiptsService,
     GmailReceiptRequestError: actual.GmailReceiptRequestError,
     isRetryableReceiptScanPageError: actual.isRetryableReceiptScanPageError,
+    isReceiptConnectionLostError: actual.isReceiptConnectionLostError,
     isReceiptScanInProgressError: (error: unknown) =>
       Boolean(
         error &&
@@ -335,6 +339,14 @@ vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
 
 vi.mock("@/lib/services/pkm-write-coordinator", () => ({
   PkmWriteCoordinator: mocks.pkmWriteCoordinator,
+}));
+
+// The save routine is async and finishes after a test ends; mocking it here
+// keeps one test's late write out of another's count. Its governed writer
+// (gmail_receipt_memory_save_button) is pinned in gmail-receipt-memory-save.test.ts.
+vi.mock("@/lib/profile/gmail-receipt-memory-save", () => ({
+  saveReceiptCanonicalIndexToMemory:
+    mocks.receiptMemorySave.saveReceiptCanonicalIndexToMemory,
 }));
 
 vi.mock("@/lib/services/gmail-receipt-memory-service", () => ({
@@ -631,6 +643,9 @@ describe("ProfileReceiptsPage", () => {
     });
     mocks.pkmDomainResourceService.prepareDomainWriteContext.mockResolvedValue({
       domainData: {},
+    });
+    mocks.receiptMemorySave.saveReceiptCanonicalIndexToMemory.mockResolvedValue({
+      count: 1,
     });
     mocks.pkmWriteCoordinator.savePreparedDomain.mockResolvedValue({
       success: true,
@@ -998,7 +1013,7 @@ describe("ProfileReceiptsPage", () => {
     expect(screen.queryByText(/one \/ mail/i)).toBeNull();
   });
 
-  it("keeps generic summary cards off the landing while preserving its preview pipeline", async () => {
+  it("keeps generic summary cards off the landing, preserves its preview pipeline and saves the finished sync once", async () => {
     vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue({
       items: [makeReceipt(1, "Myntra")],
       page: 1,
@@ -1017,7 +1032,20 @@ describe("ProfileReceiptsPage", () => {
         vi.mocked(GmailReceiptMemoryService.preview),
       ).toHaveBeenCalledOnce();
     });
+    // The owner started this sync, so its finished list is saved once to private
+    // memory (default on) through the save routine, and the page writes nothing itself.
+    await waitFor(() => {
+      expect(
+        mocks.receiptMemorySave.saveReceiptCanonicalIndexToMemory,
+      ).toHaveBeenCalledOnce();
+    });
+    const saved =
+      mocks.receiptMemorySave.saveReceiptCanonicalIndexToMemory.mock.calls[0][0];
+    expect(saved.userId).toBe("user-123");
+    expect(saved.receipts).toHaveLength(1);
     expect(mocks.pkmWriteCoordinator.savePreparedDomain).not.toHaveBeenCalled();
+    // The owner is never asked to save: there is no control for it.
+    expect(screen.queryByRole("button", { name: /private memory/i })).toBeNull();
   });
 
   it("holds sealed receipts behind vault unlock when the vault is locked", async () => {
@@ -1163,6 +1191,36 @@ describe("ProfileReceiptsPage", () => {
       3,
       expect.objectContaining({ page: 2 }),
     );
+  });
+
+  it("asks to reconnect Mail instead of offering Try again when Mail rejected the saved login", async () => {
+    // UAT 2026-10-09: Google answered invalid_grant, so every later scan was
+    // refused. "Try again" could never succeed and was offered forever.
+    const view = makeGmailView();
+    view.refreshStatus.mockResolvedValue(view.status);
+    mocks.useGmailConnectorStatus.mockReturnValue(view);
+    vi.mocked(GmailReceiptsService.scanReceipts).mockRejectedValue(
+      new GmailReceiptRequestError(
+        "Reconnect Gmail before loading receipts.",
+        401,
+        "GMAIL_REAUTH_REQUIRED",
+      ),
+    );
+
+    render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    await startReceiptSync();
+
+    expect(
+      await screen.findByText(
+        "Mail needs to be reconnected before it can sync your receipts.",
+      ),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Reconnect Mail" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.queryByText("Couldn’t finish scanning your receipts.")).toBeNull();
+    // Read once, never retried; the real connection state is re-read.
+    expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(1);
+    expect(view.refreshStatus).toHaveBeenCalledWith({ force: true });
   });
 
   it("stops an empty scan at the fifty-page receipt bound", async () => {

@@ -44,7 +44,13 @@ async def notification_store(sharing):
 
 
 def event(store):
-    return rows(store, "drive_share_events")[0]
+    # A request also writes a requester Feed milestone. These tests exercise
+    # the owner-directed push and must not depend on outbox row order.
+    return next(
+        row
+        for row in rows(store, "drive_share_events")
+        if row["event_type"] == "document_share_request"
+    )
 
 
 def make_due(store, event_id):
@@ -71,7 +77,7 @@ async def test_document_event_push_is_opaque_deduped_and_settled_as_dispatch_onl
 
     assert result == {
         "schema_version": "drive.share_notifications.worker.v1",
-        "outcomes": {"settled": 1},
+        "outcomes": {"settled": 1, "suppressed": 1},
     }
     send.assert_called_once()
     args, kwargs = send.call_args
@@ -129,7 +135,7 @@ async def test_feature_disabled_inspects_but_never_claims_or_dispatches(
 
     assert result == {
         "schema_version": "drive.share_notifications.worker.v1",
-        "outcomes": {"disabled": 1},
+        "outcomes": {"disabled": 2},
     }
     assert event(notification_store)["notification_state"] == "queued"
     send.assert_not_called()
@@ -189,7 +195,10 @@ async def test_dispatch_failures_retry_with_a_bound_then_settle_unavailable(
         result = await worker.run()
         current = event(notification_store)
         if attempt < 3:
-            assert result["outcomes"] == {"retry_scheduled": 1}
+            assert result["outcomes"] == {
+                "retry_scheduled": 1,
+                **({"suppressed": 1} if attempt == 1 else {}),
+            }
             assert current["notification_state"] == "queued"
             assert current["notification_settled_at"] is None
             assert current["notification_error_code"] == "notification_unavailable"
@@ -273,6 +282,8 @@ async def test_payment_ready_push_checks_live_order_before_dispatch():
     store.payment_ready_current.return_value = True
     assert await worker._dispatch(job) == "settled"
     send.assert_called_once()
+    # Prices vary by request and the opaque payload carries none, so the copy names none.
+    assert "$" not in send.call_args.kwargs["title"] + send.call_args.kwargs["body"]
 
 
 @pytest.mark.asyncio
@@ -291,8 +302,19 @@ async def test_payment_push_accepts_approved_requests_but_suppresses_expired_che
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
               (request_id,user_id,requester_user_id,status,stripe_checkout_expires_at)
-              VALUES (:request,'owner','recipient','checkout_open',
+              VALUES (:request,'owner','recipient','awaiting_payment',
                 clock_timestamp()+INTERVAL '5 minutes')"""),
+            {"request": request_id},
+        )
+    assert not await notification_store.payment_ready_current(
+        request_id=request_id, user_id="recipient"
+    )
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_request_payment_orders
+              SET status='checkout_open',stripe_checkout_session_id='cs_test_notice',
+                stripe_checkout_url='https://checkout.stripe.com/c/pay/test'
+              WHERE request_id=:request"""),
             {"request": request_id},
         )
     assert await notification_store.payment_ready_current(

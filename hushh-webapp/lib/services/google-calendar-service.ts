@@ -59,15 +59,43 @@ export type CalendarEventsResponse = {
   time_zone?: string | null;
 };
 
-async function errorMessage(
-  response: Response,
-  fallback: string,
-): Promise<string> {
+export type CalendarReadRecovery = "connect" | "reconnect" | "permission" | "retry";
+
+const CALENDAR_RECOVERY: Readonly<Record<string, CalendarReadRecovery>> = {
+  calendar_not_connected: "connect",
+  calendar_reauthorization_required: "reconnect",
+  calendar_permission_required: "permission",
+  calendar_list_permission_required: "permission",
+  calendar_rate_limited: "retry",
+  calendar_timeout: "retry",
+  calendar_invalid_response: "retry",
+  calendar_connection_changed: "retry",
+};
+
+export class GoogleCalendarError extends Error {
+  constructor(
+    message: string,
+    readonly reasonCode: string | null,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "GoogleCalendarError";
+  }
+
+  get recovery(): CalendarReadRecovery {
+    return (this.reasonCode && CALENDAR_RECOVERY[this.reasonCode]) || "retry";
+  }
+}
+
+async function calendarError(response: Response, fallback: string): Promise<GoogleCalendarError> {
   const body = (await response.json().catch(() => null)) as {
-    detail?: { message?: string } | string;
+    detail?: { message?: string; reason_code?: string } | string;
   } | null;
   const detail = body?.detail;
-  return (typeof detail === "string" ? detail : detail?.message) || fallback;
+  const message = (typeof detail === "string" ? detail : detail?.message) || fallback;
+  const reason = typeof detail === "object" && typeof detail?.reason_code === "string"
+    ? detail.reason_code : null;
+  return new GoogleCalendarError(message, reason, response.status);
 }
 
 /** Typed transport for the Calendar API. Components never call fetch directly. */
@@ -83,9 +111,7 @@ export class GoogleCalendarService {
       },
     );
     if (!response.ok)
-      throw new Error(
-        await errorMessage(response, "Unable to load Calendar connection."),
-      );
+      throw await calendarError(response, "Unable to load Calendar connection.");
     return response.json() as Promise<GoogleCalendarStatus>;
   }
 
@@ -109,9 +135,7 @@ export class GoogleCalendarService {
       },
     );
     if (!response.ok)
-      throw new Error(
-        await errorMessage(response, "Unable to start Calendar connection."),
-      );
+      throw await calendarError(response, "Unable to start Calendar connection.");
     return response.json() as Promise<OAuthStart>;
   }
 
@@ -137,9 +161,7 @@ export class GoogleCalendarService {
       },
     );
     if (!response.ok)
-      throw new Error(
-        await errorMessage(response, "Unable to finish Calendar connection."),
-      );
+      throw await calendarError(response, "Unable to finish Calendar connection.");
     return response.json() as Promise<GoogleCalendarStatus>;
   }
 
@@ -159,9 +181,7 @@ export class GoogleCalendarService {
       },
     );
     if (!response.ok)
-      throw new Error(
-        await errorMessage(response, "Unable to start Calendar connection."),
-      );
+      throw await calendarError(response, "Unable to start Calendar connection.");
     const start = (await response.json()) as NativeOAuthStart;
     if (typeof start.state !== "string" || !start.state.trim()) {
       throw new Error(
@@ -198,9 +218,7 @@ export class GoogleCalendarService {
       },
     );
     if (!response.ok)
-      throw new Error(
-        await errorMessage(response, "Unable to finish Calendar connection."),
-      );
+      throw await calendarError(response, "Unable to finish Calendar connection.");
     return response.json() as Promise<GoogleCalendarStatus>;
   }
 
@@ -217,9 +235,7 @@ export class GoogleCalendarService {
       body: JSON.stringify({ user_id: userId }),
     });
     if (!response.ok)
-      throw new Error(
-        await errorMessage(response, "Unable to disconnect Calendar."),
-      );
+      throw await calendarError(response, "Unable to disconnect Calendar.");
     return response.json() as Promise<GoogleCalendarStatus>;
   }
 
@@ -244,9 +260,7 @@ export class GoogleCalendarService {
       },
     );
     if (!response.ok)
-      throw new Error(
-        await errorMessage(response, "Unable to apply Calendar change."),
-      );
+      throw await calendarError(response, "Unable to apply Calendar change.");
     return response.json() as Promise<CalendarExecution>;
   }
 
@@ -281,9 +295,7 @@ export class GoogleCalendarService {
       }),
     });
     if (!response.ok)
-      throw new Error(
-        await errorMessage(response, "Unable to load Calendar events."),
-      );
+      throw await calendarError(response, "Unable to load Calendar events.");
     return response.json() as Promise<CalendarEventsResponse>;
   }
 }

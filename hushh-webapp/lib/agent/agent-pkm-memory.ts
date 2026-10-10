@@ -25,6 +25,7 @@ import {
   type PkmReconciliationCandidate,
 } from "@/lib/agent/agent-pkm-context-store";
 import type { OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
+import type { ReceiptCanonicalIndex } from "@/lib/profile/gmail-receipt-memory-index";
 import { isDegradedPreviewCard } from "@/lib/profile/pkm-agent-lab-preview";
 import { humanizeMemorySegment } from "@/lib/pkm/humanize-segment";
 import { toPlainMemoryText, toPlainMemoryValue } from "@/lib/pkm/memory-plain-text";
@@ -203,19 +204,19 @@ function titleize(value: string | null | undefined): string {
  * that markup here, the one client step every preview passes through, so the
  * review title and the value that is encrypted into Memory are both plain.
  */
-function withPlainMemoryText(card: AgentPkmPreviewCard): AgentPkmPreviewCard {
+function withPlainMemoryText(card: AgentPkmPreviewCard, preserveValues = false): AgentPkmPreviewCard {
   return {
     ...card,
     source_quote: card.source_quote ?? String(card.source_text || ""),
     source_text: toPlainMemoryText(String(card.source_text || "")),
     ...(card.candidate_payload
-      ? { candidate_payload: toPlainMemoryValue(card.candidate_payload) }
+      ? { candidate_payload: preserveValues ? card.candidate_payload : toPlainMemoryValue(card.candidate_payload) }
       : {}),
   };
 }
 
-function normalizePreviewCards(response: AgentPkmPreviewResponse): AgentPkmPreviewCard[] {
-  return rawPreviewCards(response).map(withPlainMemoryText);
+function normalizePreviewCards(response: AgentPkmPreviewResponse, preserveValues = false): AgentPkmPreviewCard[] {
+  return rawPreviewCards(response).map(card => withPlainMemoryText(card, preserveValues));
 }
 
 function rawPreviewCards(response: AgentPkmPreviewResponse): AgentPkmPreviewCard[] {
@@ -327,7 +328,7 @@ export async function previewAgentPkmMemory(params: {
   vaultOwnerToken: string;
   ingestionId?: string;
   chunkIndex?: number;
-  memoryProfile?: "general" | "kyc_identity_v1";
+  memoryProfile?: "general" | "kyc_identity_v1" | "business_directory_v1";
   /** Existing details the merge agent may extend or correct (explicit saves). */
   reconciliationCandidates?: readonly PkmReconciliationCandidate[];
   signal?: AbortSignal;
@@ -368,11 +369,14 @@ export async function previewAgentPkmMemory(params: {
 
   if (!response.ok) {
     let errorCode = `http_${response.status}`;
+    let profileMismatch = false;
     try {
       const payload = await response.json() as {
-        detail?: { type?: unknown; code?: unknown } | Array<{ type?: unknown; code?: unknown }>;
+        detail?: { type?: unknown; code?: unknown; loc?: unknown } | Array<{ type?: unknown; code?: unknown; loc?: unknown }>;
       };
       const detail = Array.isArray(payload?.detail) ? payload.detail[0] : payload?.detail;
+      profileMismatch = response.status === 422 && detail?.type === "literal_error" &&
+        Array.isArray(detail.loc) && detail.loc.at(-1) === "memory_profile";
       if (detail && typeof detail === "object") {
         const candidate = detail.code || detail.type;
         if (typeof candidate === "string" && candidate.trim()) {
@@ -388,13 +392,20 @@ export async function previewAgentPkmMemory(params: {
       status: response.status,
       error_code: errorCode,
     });
+    if (profileMismatch) {
+      const error = new Error("Review is unavailable until the backend update finishes.");
+      error.name = "PkmBackendContractMismatch";
+      throw error;
+    }
     throw new Error(`Memory preparation failed (${errorCode}). Please try again.`);
   }
 
   const payload = (await response.json()) as AgentPkmPreviewResponse;
   return {
     ...payload,
-    cards: normalizePreviewCards(payload).map((card, index) => ({
+    // Business listing values are an exact contract, not pasted-note markup.
+    // Formatting them before validation changes legitimate names/descriptions.
+    cards: normalizePreviewCards(payload, params.memoryProfile === "business_directory_v1").map((card, index) => ({
       ...card,
       card_id: card.card_id || `agent_pkm_preview_${index + 1}`,
       source_text: card.source_text || toPlainMemoryText(params.message),
@@ -1028,6 +1039,17 @@ export async function loadAgentPkmContext(params: {
     source: "metadata",
     mode: "summary",
   };
+}
+
+/**
+ * The owner's saved receipt index for one typed chat turn, or null. Read from
+ * the same unlocked working set as `peekAgentPkmContext`, so it costs no extra
+ * decrypt and is voided by the same domain-change event as a new save.
+ */
+export function peekReceiptMemoryIndex(params: {
+  userId: string;
+}): ReceiptCanonicalIndex | null {
+  return AgentPkmContextStore.peekReceiptIndex(params.userId);
 }
 
 export function peekAgentPkmContext(params: {

@@ -98,7 +98,11 @@ vault credentials, or PKM values. Provider timeouts or a response without a
 Gmail message ID become `outcome_unknown`; the owner is told to check Sent Mail
 and the action is not blindly retried.
 The owner- and vault-authorized `GET /api/one/email/send/status/{action_id}`
-returns only the action ID, state and unknown-outcome flag. The browser may keep
+returns only the action ID, state and unknown-outcome flag. The same authorized
+`POST /api/one/email/send/status/{action_id}` also settles an immediate send
+that has remained `sending` for five minutes to non-retryable
+`outcome_unknown`; it never calls Gmail or repeats a send. The browser uses
+this reconciliation path when recovering a lost response. The browser may keep
 opaque pending action IDs in owner-scoped session storage to recover a lost
 response after reload; it never keeps an envelope or credential there.
 

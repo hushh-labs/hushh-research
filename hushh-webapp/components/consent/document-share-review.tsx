@@ -29,6 +29,13 @@ import {
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import {
+  DOCUMENT_REQUEST_PRICE_RULE,
+  DocumentRequestPriceSheet,
+} from "@/components/consent/document-request-price-sheet";
+import { formatDocumentRequestPrice } from "@/lib/consent/document-request-price";
+import { SEMANTIC_ROLE_SOLID } from "@/lib/morphy-ux/tokens/semantic-roles";
+import { useArmedAction } from "@/lib/ui/use-armed-action";
+import {
   DriveSharingError,
   DriveSharingService,
   StreamUnavailable,
@@ -45,7 +52,7 @@ import {
   type DriveBulkFileOutcome,
   type DriveBulkShareView,
 } from "@/lib/services/drive-sharing-service";
-import type { DriveSearchResults } from "@/lib/services/drive-search-service";
+import { isDriveSearchSelectionReady, type DriveSearchResults } from "@/lib/services/drive-search-service";
 
 type Snapshot = {
   status: SharingStatus;
@@ -61,6 +68,7 @@ type Activity =
   | "finding_files"
   | "sharing"
   | "retrying_share"
+  | "allowing"
   | "declining"
   | "cancelling"
   | "restarting"
@@ -120,6 +128,7 @@ const ACTIVITY_LABELS: Record<Exclude<Activity, "idle" | "finding_files">, strin
   loading: "Loading request…",
   sharing: "Sharing…",
   retrying_share: "Retrying sharing…",
+  allowing: "Allowing…",
   declining: "Declining…",
   cancelling: "Cancelling…",
   restarting: "Starting a new search…",
@@ -137,6 +146,12 @@ const STAGE_LABELS: Record<PrepareStage, string> = {
 const TRUST_DESCRIPTION =
   "Your private agent shares any Drive file they request, including future files, without asking. This can happen while you’re away if background preparation is on. You can stop future sharing anytime.";
 const CHECKBOX_CLASS = "size-5 border-2 border-foreground/40";
+// Allow is the one green decision: the solid success fill and its readable tone.
+const ALLOW_CLASS = cn(
+  SEMANTIC_ROLE_SOLID.success.fill,
+  SEMANTIC_ROLE_SOLID.success.fg,
+  "border-transparent hover:bg-[color:var(--app-success)] hover:text-[color:var(--app-success-fg)] hover:opacity-90",
+);
 const SEARCH_FILE_UNAVAILABLE: Record<NonNullable<DriveSearchResults["files"][number]["unavailableReason"]>, string> = {
   shortcut_target_unavailable: "Shortcut target unavailable",
   source_not_shareable: "Your Google account cannot share this file",
@@ -256,8 +271,25 @@ function errorCopy(cause: unknown): string {
   return "Refresh to try again.";
 }
 
+/** Why the price sheet could not allow the request. */
+function allowErrorCopy(cause: unknown): string {
+  const code = cause instanceof DriveSharingError ? cause.code : "request_failed";
+  if (code === "invalid_payment_amount" || code === "invalid_argument")
+    return DOCUMENT_REQUEST_PRICE_RULE;
+  if (code === "review_changed" || code === "request_already_decided")
+    return "This request changed. Check it and try again.";
+  return errorCopy(cause);
+}
+
 function isDurableReview(review: SharingReview | undefined): boolean {
   return review?.durableAvailable === true;
+}
+
+/** A request from outside the Trusted circle waiting for the owner's Allow or Deny. */
+function isOwnerDecision(snapshot: Snapshot | null): boolean {
+  return snapshot?.status.direction === "incoming" &&
+    snapshot.status.status === "pending" &&
+    snapshot.review?.allowAvailable === true;
 }
 
 function isAutomaticSharingActive(review: SharingReview | undefined): boolean {
@@ -269,7 +301,7 @@ function isAutomaticSharingActive(review: SharingReview | undefined): boolean {
 /** The private agent is still looking for files for this incoming request. */
 function isFinding(snapshot: Snapshot | null): boolean {
   const review = snapshot?.review;
-  if (review?.preparationError === "date_range_required") return false;
+  if (review?.preparationError === "date_range_required" || isOwnerDecision(snapshot)) return false;
   if (isDurableReview(review))
     return !!review && !review.bulkShare &&
       (!review.search || ["queued", "running"].includes(review.search.status));
@@ -349,6 +381,10 @@ function UnlockedDocumentReview({
   const [findingSince, setFindingSince] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [trustFuture, setTrustFuture] = useState(false);
+  const [priceOpen, setPriceOpen] = useState(false);
+  const [allowError, setAllowError] = useState<string | null>(null);
+  // Deny is irreversible: a second tap confirms, as on the Feed row.
+  const denyConfirm = useArmedAction();
   // Files A left unticked for this review revision; every file starts selected.
   const [unselected, setUnselected] = useState<{ key: string; ids: string[] }>({
     key: "",
@@ -426,6 +462,14 @@ function UnlockedDocumentReview({
           throw cause;
         }
       };
+      const pendingOwnerDelivery = async (review: SharingReview): Promise<SharingDelivery | undefined> => {
+        if (!review.bulkShare) return undefined;
+        const delivery = await DriveSharingService.delivery(token, requestId, guard);
+        guard();
+        return delivery.canStopAccess || delivery.accessStopStatus || delivery.bulkShareId
+          ? delivery
+          : undefined;
+      };
       if (status.direction !== "incoming")
         return { status, delivery: await optionalOutgoingDelivery() };
       if (!UNDECIDED.has(status.status)) {
@@ -437,8 +481,13 @@ function UnlockedDocumentReview({
       }
       let review = await DriveSharingService.review(token, requestId, guard);
       guard();
+      // Nothing searches Drive until the owner allows the request.
+      if (isOwnerDecision({ status, review })) return { status, review };
       if (isDurableReview(review)) {
-        if (isAutomaticSharingActive(review)) return { status, review };
+        if (isAutomaticSharingActive(review)) {
+          const delivery = await pendingOwnerDelivery(review);
+          return delivery ? { status, review, delivery } : { status, review };
+        }
         const legacyJob = review.search?.status === "completed" &&
           review.search.coverage?.shareabilityVerified !== true ? review.search.jobId : null;
         if ((status.status === "pending" || status.status === "review_ready") &&
@@ -464,7 +513,8 @@ function UnlockedDocumentReview({
           review = await DriveSharingService.review(token, requestId, guard);
           guard();
         }
-        return { status, review };
+        const delivery = await pendingOwnerDelivery(review);
+        return delivery ? { status, review, delivery } : { status, review };
       }
       // Worker-held, ready, or already tried for this revision: no search.
       if (
@@ -670,6 +720,7 @@ function UnlockedDocumentReview({
   const removal = snapshot?.revocation;
   const search = review?.search;
   const bulkShare = review?.bulkShare;
+  const ownerDecision = isOwnerDecision(snapshot);
   const automaticSharing = isAutomaticSharingActive(review);
   const progressive = review?.progressiveAllowed === true;
   const batches = review?.batches ?? [];
@@ -678,8 +729,7 @@ function UnlockedDocumentReview({
   const recoverablePositions = review?.recoverablePositions ?? [];
   const durableReview = isDurableReview(review);
   const legacySearch = search?.status === "completed" && search.coverage?.shareabilityVerified !== true;
-  const searchReady = search?.status === "completed" && !search.incompleteSearch &&
-    search.coverage?.providerPagesExhausted !== false && search.coverage?.shareabilityVerified === true;
+  const searchReady = isDriveSearchSelectionReady(search);
   const searchJobId = search && (!bulkShare || progressive) && !legacySearch ? search.jobId : null;
   const bulkPreviewId = bulkShare?.shareId ?? null;
   const deliveryBulkId = snapshot?.status.direction === "outgoing"
@@ -794,6 +844,8 @@ function UnlockedDocumentReview({
     !!snapshot &&
     !removal &&
     !retryLater &&
+    // Nothing runs while the owner decides.
+    !ownerDecision &&
     (durableReview && snapshot.status.direction === "incoming"
       ? ((!search && !searchStartFailed.current) || ["queued", "running"].includes(search?.status ?? "") ||
           batches.some(batch => ["queued", "running"].includes(batch.status) ||
@@ -818,6 +870,10 @@ function UnlockedDocumentReview({
   );
 
   useEffect(() => setTrustFuture(false), [review?.reviewDigest]);
+  // The price sheet belongs to one open decision; it never reopens by itself.
+  useEffect(() => {
+    if (!ownerDecision) setPriceOpen(false);
+  }, [ownerDecision]);
   const locked = activity !== "idle" && activity !== "finding_files";
   const canApprove =
     !finding &&
@@ -872,6 +928,42 @@ function UnlockedDocumentReview({
         : action === "cancel"
           ? "cancelling"
           : "restarting",
+    );
+  };
+  const openPriceSheet = () => {
+    denyConfirm.disarm();
+    setAllowError(null);
+    setPriceOpen(true);
+  };
+  const closePriceSheet = () => {
+    if (activity === "allowing") return;
+    setPriceOpen(false);
+    setAllowError(null);
+  };
+  const allow = (amountCents: number | null) => {
+    if (!snapshot?.review || !isOwnerDecision(snapshot)) return;
+    const revision = snapshot.review.revision;
+    void run(
+      async (token, guard, report) => {
+        try {
+          await DriveSharingService.allow(token, requestId, { revision, amountCents }, guard);
+        } catch (cause) {
+          guard();
+          // Read again: the sheet stays open only while the request can still be allowed.
+          setAllowError(allowErrorCopy(cause));
+          return load(token, guard, report);
+        }
+        guard();
+        setPriceOpen(false);
+        setAllowError(null);
+        // Acknowledged work is reconciled even when the next GET fails.
+        onChanged();
+        report.acknowledged();
+        return load(token, guard, report);
+      },
+      "decide",
+      "allowing",
+      true,
     );
   };
   const retryDurableSearch = () => {
@@ -975,6 +1067,8 @@ function UnlockedDocumentReview({
             ? error
               ? "Couldn't load request"
               : ACTIVITY_LABELS.loading
+            : ownerDecision
+              ? "Needs your decision"
             : durableReview && durableStatus
               ? durableStatus
               : snapshot.status.direction === "outgoing" &&
@@ -1060,11 +1154,57 @@ function UnlockedDocumentReview({
         </div>
       ) : null}
 
+      {review && ownerDecision && !removal ? <>
+        <BodyText className="whitespace-pre-wrap [overflow-wrap:anywhere]">“{review.purpose.purpose}”</BodyText>
+        <dl className={HAIRLINES}>
+          <Fact label="Share with" value={review.recipientEmail} />
+          {review.purpose.periodStart ? (
+            <Fact label="Period" value={`${review.purpose.periodStart} – ${review.purpose.periodEnd}`} />
+          ) : null}
+          <Fact label="Access" value="Viewer, until removed" />
+        </dl>
+        <HelperText>{review.paymentRequired === true
+          ? "Allow to set a price. Matching files are found automatically and shared after they pay."
+          : "Allow to find and share matching files automatically."}</HelperText>
+        <FlowActionGroup
+          primary={
+            <Button size="prominent" variant="none" className={ALLOW_CLASS} disabled={locked}
+              onClick={openPriceSheet}>
+              Allow
+            </Button>
+          }
+          secondary={
+            <Button size="standard" variant={denyConfirm.armed ? "destructive" : "none"}
+              className={denyConfirm.armed ? undefined : "text-destructive hover:text-destructive"}
+              disabled={locked} aria-label={denyConfirm.ariaLabel("Deny")}
+              onClick={() => denyConfirm.activate(() => decide("decline"))}>
+              {denyConfirm.label("Deny")}
+            </Button>
+          }
+        />
+        <DocumentRequestPriceSheet
+          open={priceOpen}
+          requesterLabel={review.recipientEmail}
+          purpose={review.purpose.purpose}
+          recipientEmail={review.recipientEmail}
+          periodStart={review.purpose.periodStart}
+          periodEnd={review.purpose.periodEnd}
+          paymentRequired={review.paymentRequired === true}
+          busy={activity === "allowing"}
+          error={allowError}
+          onSubmit={allow}
+          onCancel={closePriceSheet}
+        />
+      </> : null}
+
       {review && automaticSharing && !removal ? <>
         <BodyText className="whitespace-pre-wrap [overflow-wrap:anywhere]">“{review.purpose.purpose}”</BodyText>
         <dl className={HAIRLINES}>
           <Fact label="Share with" value={review.recipientEmail} />
           <Fact label="Access" value="Viewer, until removed" />
+          {review.ownerAllowed === true && typeof review.priceCents === "number" ? (
+            <Fact label="Price" value={formatDocumentRequestPrice(review.priceCents)} />
+          ) : null}
         </dl>
         {review.preparationError === "date_range_required" ? (
           <BodyText>This request needs exact start and end dates. Ask the requester to send a new request with both dates.</BodyText>
@@ -1077,6 +1217,16 @@ function UnlockedDocumentReview({
         </HelperText>}
         {search && review.preparationError !== "date_range_required" ? <HelperText>{search.matched.toLocaleString()} matching files found so far
           {search.status === "running" ? " · search continues" : ""}</HelperText> : null}
+        {/* An Allow can be withdrawn until a batch is frozen: nothing is charged or shared before that. */}
+        {review.ownerAllowed === true && snapshot?.status.status === "pending" &&
+          !bulkShare && batchCount === 0 && !review.aggregateCounts ? (
+          <Button size="standard" variant={denyConfirm.armed ? "destructive" : "none"}
+            className={denyConfirm.armed ? undefined : "text-destructive hover:text-destructive"}
+            disabled={locked} aria-label={denyConfirm.ariaLabel("Decline")}
+            onClick={() => denyConfirm.activate(() => decide("decline"))}>
+            {denyConfirm.label("Decline")}
+          </Button>
+        ) : null}
         {review.aggregateCounts || bulkShare ? <div className="space-y-3">
           <OutcomeSummary counts={review.aggregateCounts ?? bulkShare!.counts} issues={bulkShare?.issues} />
           {bulkPage?.files.length ? <SettingsGroup embedded title="Latest files" {...groupSurface}>
@@ -1087,10 +1237,13 @@ function UnlockedDocumentReview({
         </div> : null}
       </> : null}
 
-      {review && durableReview && !automaticSharing && !removal ? (
+      {review && durableReview && !automaticSharing && !ownerDecision && !removal ? (
         <>
           {review.trustedAuto && review.preparationError === "trusted_relationship_changed" ?
-            <BodyText>Trusted Circle changed. Review this request manually before sharing.</BodyText> : null}
+            <BodyText>{review.ownerAllowed === true
+              // An allowed request was never Trusted Circle work; only the connection changed.
+              ? "This request needs a manual review before sharing."
+              : "Trusted Circle changed. Review this request manually before sharing."}</BodyText> : null}
           {review.trustedAuto && review.preparationError === "preparation_unavailable" ?
             <BodyText>Automatic sharing could not finish. Review and share the files yourself.</BodyText> : null}
           <BodyText className="whitespace-pre-wrap [overflow-wrap:anywhere]">
@@ -1331,7 +1484,7 @@ function UnlockedDocumentReview({
         </>
       ) : null}
 
-      {review && !durableReview && !automaticSharing && !removal ? (
+      {review && !durableReview && !automaticSharing && !ownerDecision && !removal ? (
         <>
           <BodyText className="whitespace-pre-wrap [overflow-wrap:anywhere]">
             “{review.purpose.purpose}”
@@ -1692,7 +1845,7 @@ function UnlockedDocumentReview({
                 />
               ))}
             </SettingsGroup>
-          ) : outgoingOpen ? null : (
+          ) : outgoingOpen || delivery.canStopAccess || delivery.accessStopStatus ? null : (
             <BodyText>Nothing was shared.</BodyText>
           )}
 
@@ -1745,6 +1898,24 @@ function UnlockedDocumentReview({
                     onClick={prepareRemoval}
                   />
                 ) : null}
+                {delivery.canStopAccess ? (
+                  <SettingsRow
+                    title="Stop access"
+                    ariaLabel="Stop access"
+                    description="Prevent pending files from being shared."
+                    tone="destructive"
+                    disabled={locked}
+                    onClick={prepareRemoval}
+                  />
+                ) : delivery.accessStopStatus && delivery.files.length === 0 ? (
+                  <SettingsRow
+                    title={delivery.accessStopStatus === "pending"
+                      ? "Stopping access"
+                      : delivery.accessStopStatus === "removed"
+                        ? "Sharing stopped"
+                        : "Check remaining access"}
+                  />
+                ) : null}
               </SettingsGroup>
               <HelperText>
                 Disconnecting Drive doesn&apos;t remove Google access. Other
@@ -1791,20 +1962,69 @@ function UnlockedDocumentReview({
         </>
       ) : null}
 
+      {delivery?.bulkShareId && !outgoing && !removal ? (
+        <SettingsGroup embedded title="Shared files" {...groupSurface}>
+          <SettingsRow
+            title={delivery.accessStopStatus === "pending"
+              ? "Stopping access"
+              : delivery.accessStopStatus === "removed"
+                ? "Access removed"
+                : delivery.accessStopStatus === "needs_attention"
+                  ? "Some access needs review"
+                  : `${(delivery.sharedCount ?? 0).toLocaleString()} files shared`}
+            description={delivery.accessStopStatus === "pending"
+              ? "Checking Google Drive permissions…"
+              : delivery.accessStopStatus === "removed"
+                ? "One's Viewer access was removed."
+                : delivery.accessStopStatus === "needs_attention"
+                  ? "Check remaining access in Google Drive."
+                  : "You can stop access anytime."}
+          />
+          {delivery.accessStopStatus === "needs_attention" ? (
+            <SettingsRow asChild title="Manage in Google Drive" trailing={<ExternalLink aria-hidden="true" className="h-4 w-4 text-[color:var(--app-tertiary-label)]" />}>
+              <a href="https://drive.google.com" target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" />
+            </SettingsRow>
+          ) : null}
+          {!delivery.accessStopStatus ? (
+            <SettingsRow
+              title="Review removal"
+              tone="destructive"
+              disabled={locked}
+              onClick={prepareRemoval}
+            />
+          ) : null}
+        </SettingsGroup>
+      ) : null}
+
       {removal ? (
         <>
-          <ul aria-label="Exact access to remove" className={HAIRLINES}>
-            {removal.files.map((file) => (
-              <li key={file.grantId} className="py-2.5">
-                <MediumRowLabel as="p" className="[overflow-wrap:anywhere]">
-                  {file.name}
-                </MediumRowLabel>
-                <HelperText className="[overflow-wrap:anywhere]">
-                  {file.recipientEmail}
-                </HelperText>
-              </li>
-            ))}
-          </ul>
+          {removal.files.length ? (
+            <ul aria-label="Exact access to remove" className={HAIRLINES}>
+              {removal.files.map((file) => (
+                <li key={file.grantId} className="py-2.5">
+                  <MediumRowLabel as="p" className="[overflow-wrap:anywhere]">
+                    {file.name}
+                  </MediumRowLabel>
+                  <HelperText className="[overflow-wrap:anywhere]">
+                    {file.recipientEmail}
+                  </HelperText>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <BodyText>
+              {removal.affectedCount
+                ? `Stop this request and check ${removal.affectedCount.toLocaleString()} file permissions.`
+                : removal.pendingCount
+                  ? "Stop this request and check pending file permissions."
+                  : "Stop this request before files are shared."}
+            </BodyText>
+          )}
+          {(removal.pendingCount ?? 0) > 0 ? (
+            <HelperText>
+              {removal.pendingCount?.toLocaleString()} {removal.pendingCount === 1 ? "grant is" : "grants are"} still settling.
+            </HelperText>
+          ) : null}
           <HelperText>
             Removes only the recorded Viewer access. Other permissions may still
             give access.
@@ -1828,7 +2048,7 @@ function UnlockedDocumentReview({
                   )
                 }
               >
-                Remove access
+                Stop access
               </Button>
             }
             secondary={

@@ -1,17 +1,7 @@
 "use client";
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { WalletCardQr } from "@/components/wallet-card/wallet-card-qr";
-
-/** First letters of the name, used when there is no photo. */
-function initialsFrom(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "1";
-  const first = parts[0]?.[0] ?? "";
-  const last = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "";
-  return (first + last).toUpperCase() || "1";
-}
 
 /**
  * A faithful-but-static rendering of the pass face.
@@ -25,7 +15,6 @@ export function WalletCardPassPreview({
   headline,
   organisation,
   locationLabel,
-  avatarUrl,
   shareUrl,
   className,
 }: {
@@ -33,7 +22,6 @@ export function WalletCardPassPreview({
   headline: string;
   organisation: string;
   locationLabel: string;
-  avatarUrl: string | null;
   shareUrl: string | null;
   className?: string;
 }) {
@@ -47,7 +35,7 @@ export function WalletCardPassPreview({
       )}
       data-testid="wallet-card-pass-preview"
     >
-      <div className="flex items-start justify-between gap-4 border-b border-border/60 px-5 py-4">
+      <div className="border-b border-border/60 px-5 py-4">
         <div className="min-w-0">
           <div className="text-[10px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
             Hussh One
@@ -61,12 +49,6 @@ export function WalletCardPassPreview({
             </div>
           ) : null}
         </div>
-        <Avatar size="lg" className="size-14 rounded-[12px]">
-          {avatarUrl ? <AvatarImage src={avatarUrl} alt="" /> : null}
-          <AvatarFallback className="rounded-[12px] text-sm font-medium">
-            {initialsFrom(fullName)}
-          </AvatarFallback>
-        </Avatar>
       </div>
 
       {auxiliary.length > 0 ? (

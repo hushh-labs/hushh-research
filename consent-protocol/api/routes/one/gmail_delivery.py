@@ -24,6 +24,7 @@ from hushh_mcp.services.gmail_delivery_service import (
     get_gmail_delivery_service,
     get_owner_send_action,
     normalize_draft,
+    reconcile_owner_send_action,
 )
 from hushh_mcp.services.gmail_mailbox_actions import get_gmail_mailbox_actions
 from hushh_mcp.services.gmail_personal_information_request_service import (
@@ -415,6 +416,31 @@ async def gmail_email_send(
         raise _as_http_error(exc) from exc
 
 
+def _send_action_status_payload(
+    *, action_id: str, row: dict[str, Any] | None, response: Response
+) -> dict[str, Any]:
+    if row is None:
+        raise HTTPException(status_code=404, detail={"code": "ACTION_NOT_FOUND"})
+    state = str(row.get("state") or "")
+    if state not in {
+        "prepared",
+        "sending",
+        "sent",
+        "failed",
+        "outcome_unknown",
+        "expired",
+        "cancelled",
+    }:
+        raise HTTPException(status_code=503, detail={"code": "GMAIL_DELIVERY_UNAVAILABLE"})
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Pragma"] = "no-cache"
+    return {
+        "action_id": action_id,
+        "state": state,
+        "outcome_unknown": state == "outcome_unknown",
+    }
+
+
 @router.get("/email/send/status/{action_id}")
 async def gmail_email_send_status(
     action_id: str,
@@ -435,26 +461,23 @@ async def gmail_email_send_status(
     except Exception as exc:
         logger.warning("one.gmail_delivery.status_failed error=%s", type(exc).__name__)
         raise _as_http_error(exc) from exc
-    if row is None:
+    return _send_action_status_payload(action_id=action_id, row=row, response=response)
+
+
+@router.post("/email/send/status/{action_id}")
+async def gmail_email_reconcile_send_status(
+    action_id: str,
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+) -> dict[str, Any]:
+    """Settle an interrupted immediate attempt after its execution grace period."""
+    user_id = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
+    if not re.fullmatch(r"[A-Za-z0-9-]{1,128}", action_id):
         raise HTTPException(status_code=404, detail={"code": "ACTION_NOT_FOUND"})
-    state = str(row.get("state") or "")
-    if state not in {
-        "prepared",
-        "sending",
-        "sent",
-        "failed",
-        "outcome_unknown",
-        "expired",
-        "cancelled",
-    }:
-        raise HTTPException(
-            status_code=503,
-            detail={"code": "GMAIL_DELIVERY_UNAVAILABLE"},
-        )
-    response.headers["Cache-Control"] = "private, no-store"
-    response.headers["Pragma"] = "no-cache"
-    return {
-        "action_id": action_id,
-        "state": state,
-        "outcome_unknown": state == "outcome_unknown",
-    }
+    try:
+        row = await reconcile_owner_send_action(user_id=user_id, action_id=action_id)
+    except Exception as exc:
+        logger.warning("one.gmail_delivery.status_reconcile_failed error=%s", type(exc).__name__)
+        raise _as_http_error(exc) from exc
+    return _send_action_status_payload(action_id=action_id, row=row, response=response)

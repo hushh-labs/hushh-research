@@ -29,8 +29,8 @@ from hushh_mcp.one_voice.tools.mail_recipients import RecipientSource, resolve_r
 from hushh_mcp.services.gmail_delivery_service import (
     GmailDeliveryError,
     GmailDeliveryService,
-    get_owner_send_action,
     normalize_draft,
+    reconcile_owner_send_action,
 )
 from hushh_mcp.services.gmail_receipts_service import GmailApiError
 
@@ -796,7 +796,7 @@ async def _status(ctx: ToolContext, args: DraftStatusInput) -> ToolResult:
         action = task.prepared.get("action_id")
         if action:
             try:
-                reader = ctx.services.get("mail_delivery_status", get_owner_send_action)
+                reader = ctx.services.get("mail_delivery_status", reconcile_owner_send_action)
                 row = await reader(user_id=ctx.user_id, action_id=action)
             except Exception:
                 row = None

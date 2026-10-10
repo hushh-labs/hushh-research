@@ -126,10 +126,12 @@ and writes use the current snapshot revision to preserve concurrent additions.
 ## Card browser
 
 The Cards tab uses `WalletCardBrowser` to coordinate an All overview, the existing
-animated card collection, and a selected-card detail view. Cards open as a compact deck; View all opens a scroll-driven stack and Collapse cards restores
-the compact deck without overlapping detail links. A thumbnail strip outside the tab pager remains above the shared
-bottom chrome; its plus action opens the existing Add form. Reduced-motion users
-receive the same controls with a static list and instant selection.
+animated card collection, and a selected-card detail view. Cards open with one
+full face above the remaining stack. The deck fits the available viewport above
+the shared bottom controls, showing two lower card edges at normal zoom. Native
+vertical scrolling unfolds it into a spaced column. Reduced-motion users receive
+a static list. Card taps and the compact View details control open the same
+existing detail flow; the card switcher remains available to assistive technology.
 
 Agent One cards use the owner's identity and existing sharing services. Profile
 details compose `WalletCardWorkspace`, including the real QR, aggregate scans,
@@ -174,8 +176,6 @@ has bounded batches, prints counts only, requires encrypted link recovery when
 applying, and never edits existing rows. Apply it in each environment only after
 its schema and runtime are deployed; a UAT deployment does not deploy production.
 
-The card thumbnail bar hides on downward page scrolling and returns on upward scrolling. Stopping alone does not reveal it; keyboard focus keeps its controls available.
-
 ### Add: manual entry
 
 Wallet Add and the secure chat widget share `SecureCardAddForm`. Neither offers
@@ -216,4 +216,24 @@ whitespace-only PIN input is omitted before validation and saving.
 
 ### Card browsing gestures
 
-The Cards overview presents one full card above a compact lower stack. Vertical scrolling unfolds the remaining cards; reduced-motion users receive a static, fully unfolded list. A left drag or horizontal trackpad scroll opens card-local summary controls; full details continue through the existing Wallet reveal flow. The first-use swipe hint is scoped to the account and device through OnboardingLocalService. The compact thumbnail shelf hides on downward scrolling and returns on upward scrolling or keyboard navigation.
+The Cards overview presents one full card above a compact lower stack. Vertical scrolling unfolds the remaining cards; reduced-motion users receive a static, fully unfolded list. A left drag or horizontal trackpad scroll opens card-local summary controls; full details continue through the existing Wallet reveal flow. The first-use swipe hint is scoped to the account and device through OnboardingLocalService. The swipe panel shows identity fields or masked payment metadata, using the Profile row styling. It contains no second View details button and never decrypts payment secrets.
+
+
+### Complete card images
+
+`wallet-card-image.ts` composes the approved artwork, bundled font, current face
+fields and QR into one self-contained SVG. The face is revealed only after that
+complete image loads; an opaque card placeholder occupies the same dimensions
+while loading. Returning from details reuses cached public artwork. Personal
+compositions and object URLs remain component-local and are invalidated when
+identity or the QR link changes.
+
+The same composition produces a 1080×681 PNG for Profile, Referral and NWS.
+Share card prepares the file before the click to preserve Web Share activation.
+Supported browsers share the PNG through the system sheet; unsupported browsers
+download it. Installed apps use their existing file/share plugins and remove the
+temporary cache file after the share sheet completes. Dismissing sharing does not
+trigger a download. Copy link remains a separate action. Profile/NWS image sharing
+is disabled when sharing is paused. Referral exports use the latest referral URL.
+No export uploads the card or adds a new tracking authority; the existing QR
+resolver still owns visits, pause and rotation behavior.

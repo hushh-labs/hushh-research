@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -31,6 +32,20 @@ WORKFLOW = ROOT / ".github/workflows/ci.yml"
 TARGETED = ROOT / "scripts/ci/web-targeted-check.sh"
 FULL_SUITE = ROOT / "scripts/ci/web-full-suite-check.sh"
 PACKAGE_JSON = ROOT / "hushh-webapp/package.json"
+
+
+def _bash() -> str:
+    # A Windows WSL shim named bash cannot run this Git Bash contract fixture.
+    if os.name == "nt":
+        git = shutil.which("git")
+        if git:
+            directory = Path(git).resolve().parent
+            for anchor in (directory, directory.parent, directory.parent.parent):
+                for candidate in (anchor / "bash.exe", anchor / "bin/bash.exe"):
+                    if candidate.is_file():
+                        return str(candidate)
+        raise RuntimeError("Git Bash is required to verify web lane partitioning on Windows")
+    return "bash"
 
 STUB_NPM = """#!/usr/bin/env bash
 if [ "${1:-}" = "run" ]; then
@@ -65,7 +80,7 @@ def _run(script: Path, env_overrides: dict[str, str]) -> tuple[int, list[str], s
         )
         env.update(env_overrides)
         proc = subprocess.run(
-            ["bash", str(script)],
+            [_bash(), str(script)],
             cwd=ROOT,
             env=env,
             capture_output=True,

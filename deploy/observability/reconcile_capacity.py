@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parent
 DEFAULT_EMAILS = ("manish@hushh.ai", "ankit@hushh.ai", "kushal@hushh.ai")
 METRICS = (
     "obs_request_summary_count",
+    "obs_agent_stream_failure_count",
     "obs_unexpected_error_count",
     "obs_account_mail_failure_count",
     "obs_data_health_anomaly_count",
@@ -30,6 +31,7 @@ METRICS = (
 )
 POLICIES = (
     "backend-5xx-policy",
+    "agent-stream-failures-policy",
     "backend-latency-policy",
     "unexpected-errors-policy",
     "account-mail-failures-policy",

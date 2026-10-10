@@ -32,7 +32,7 @@ const ONE_STREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(285_000, {
   overrideEnvKey: "HUSHH_ONE_STREAM_TIMEOUT_MS",
 });
 
-const CIRCLE_CHAT_MAX_REQUEST_BYTES = 7_250_000;
+const CIRCLE_CHAT_MAX_REQUEST_BYTES = 9_000_000;
 async function readCircleChatBody(request: NextRequest, maximum = CIRCLE_CHAT_MAX_REQUEST_BYTES): Promise<string> {
   const declared = request.headers.get("content-length");
   if (declared && (!/^\d+$/.test(declared) || Number(declared) > maximum)) {

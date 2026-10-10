@@ -82,6 +82,7 @@ from hushh_mcp.one_adk.queued_input import (
 from hushh_mcp.one_adk.queued_input import (
     registry as queued_input_registry,
 )
+from hushh_mcp.one_adk.receipt_memory_turn import STATE_RECEIPT_MEMORY, admit_receipt_memory
 from hushh_mcp.one_adk.request_secrets import consume_request_secret, store_request_secret
 from hushh_mcp.one_adk.shared_with_me_card import (
     SHARED_WITH_ME_CARD_KIND,
@@ -384,6 +385,9 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     # The person's unsent draft card, so a follow-up can revise it. Only an
     # unlocked owner turn keeps it; it never becomes conversation state.
     pending_email_draft = admit_pending_email_draft(forwarded)
+    # The owner's saved receipt index, decrypted on their device for this turn.
+    # Only an unlocked owner turn keeps it; it never becomes conversation state.
+    receipt_memory = admit_receipt_memory(forwarded)
     # The owner's Settings style choices, sent apart from the memory packet.
     # Closed schema: anything outside it refuses the turn instead of clipping.
     try:
@@ -397,6 +401,8 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         turn_location = ""
         consume_request_secret(pending_email_draft)
         pending_email_draft = ""
+        consume_request_secret(receipt_memory)
+        receipt_memory = ""
     owner_display_name = await _owner_display_name_for_turn(user_id) if token and user_id else ""
     return {
         STATE_EXECUTION_SURFACE: "typed_chat",
@@ -434,6 +440,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         **consent_continuation,
         **feed_attention,
         STATE_PENDING_EMAIL_DRAFT: pending_email_draft,
+        STATE_RECEIPT_MEMORY: receipt_memory,
     }
 
 
@@ -1400,7 +1407,9 @@ _ACTIVITY_TOOLS = frozenset(
         "set_preferred_model",
         "propose_style_settings",
         "calendar_summary",
+        "calendar_calendars",
         "calendar_events",
+        "calendar_event_detail",
         "calendar_availability",
         "calendar_free_slots",
         "propose_calendar_event",
@@ -1409,6 +1418,7 @@ _ACTIVITY_TOOLS = frozenset(
         "open_gmail_email_draft",
         "open_gmail_information_request_reply",
         "propose_gmail_mailbox_change",
+        "propose_gmail_todo",
         "propose_drive_share",
         "propose_drive_bulk_share",
         "propose_drive_file_share",

@@ -245,3 +245,19 @@ it("mounts the Profile page at once under reduced motion, where there is no slid
 
   vault.isVaultUnlocked = false;
 });
+
+
+it.each(["connectors", "preferences", "account"])("shows the main Profile page when reopened after closing %s", (panel) => {
+  vault.isVaultUnlocked = true;
+  url.query = `profile_pane=1&profile_panel=${panel}`;
+  const view = render(<ProfilePane open onOpenChange={vi.fn()} />);
+  paintFirstFrames();
+  expect(screen.getByTestId("pane-body")).toHaveAttribute("data-panel", panel);
+  url.query = "";
+  view.rerender(<ProfilePane open={false} onOpenChange={vi.fn()} />);
+  url.query = "profile_pane=1";
+  view.rerender(<ProfilePane open onOpenChange={vi.fn()} />);
+  paintFirstFrames();
+  expect(screen.getByTestId("pane-body")).toHaveAttribute("data-panel", "root");
+  expect(screen.getByRole("heading", { name: "Profile", exact: true })).toBeInTheDocument();
+});

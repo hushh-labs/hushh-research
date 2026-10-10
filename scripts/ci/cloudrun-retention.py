@@ -11,8 +11,8 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
-
 
 REVISION_RE = re.compile(r"^[a-z][a-z0-9-]*-[a-z0-9]+$")
 TAG_RE = re.compile(r"^[a-z][a-z0-9-]*$")
@@ -37,7 +37,9 @@ def gcloud(
     if project:
         command.append(f"--project={project}")
     command.append("--format=json" if json_output else "--quiet")
-    result = subprocess.run(command, check=True, capture_output=True, text=True)
+    result = subprocess.run(
+        command, check=True, capture_output=True, text=True, timeout=180
+    )
     return json.loads(result.stdout) if json_output else None
 
 
@@ -64,7 +66,7 @@ def traffic_state(service: dict[str, Any]) -> tuple[tuple[str, int, str], ...]:
     return tuple(sorted(traffic))
 
 
-def traffic_fingerprint(service: dict[str, Any]) -> tuple[Any, str, Any]:
+def traffic_fingerprint(service: dict[str, Any]) -> tuple[Any, str, Any, Any]:
     # A desired traffic update can precede its resolved status. Include both
     # generations and desired traffic so a concurrent rollout cannot hide in
     # the status propagation window.
@@ -74,6 +76,7 @@ def traffic_fingerprint(service: dict[str, Any]) -> tuple[Any, str, Any]:
         traffic_state(service),
         json.dumps(desired, sort_keys=True),
         metadata.get("generation"),
+        metadata.get("uid"),
     )
 
 
@@ -105,6 +108,17 @@ def plan_cleanup(
     # Keep a fallback if the caller omitted its exact predeploy revision.
     fallback = next((name for name in ordered if name not in serving), None)
     protected = serving | explicit_protected | set(ordered[:keep_count])
+    status = service.get("status") or {}
+    protected.update(
+        name
+        for name in (
+            status.get("latestCreatedRevisionName"),
+            status.get("latestReadyRevisionName"),
+        )
+        if name
+    )
+    if not protected.issubset(ordered):
+        raise UnsafeState("latest revision absent from revision list")
     if fallback:
         protected.add(fallback)
     # Revision protection preserves rollback artifacts, not their public tag
@@ -161,10 +175,72 @@ def revision_state(name: str, project: str | None, region: str) -> list[dict[str
 
 
 def assert_traffic(
-    name: str, project: str | None, region: str, expected: tuple[Any, str, Any]
+    name: str, project: str | None, region: str, expected: tuple[Any, ...]
 ) -> None:
     if traffic_fingerprint(service_state(name, project, region)) != expected:
         raise UnsafeState("service traffic changed during cleanup; refusing mutation")
+
+
+def deferred_drain_ready(
+    path: Path,
+    *,
+    service: str,
+    project: str,
+    region: str,
+    expected: tuple[Any, ...],
+    plan: Plan,
+    drain_seconds: int,
+    release_run_id: str,
+) -> bool:
+    """Persist drainage evidence between short maintenance runs, never sleep.
+
+    A generation change invalidates the clock even if traffic went A -> B -> A.
+    Revision creation time cannot prove when its last request was admitted.
+    """
+    if not project or not expected[2] or not expected[3]:
+        raise UnsafeState(
+            "deferred cleanup requires project, service generation and UID"
+        )
+    now = int(time.time())
+    identity = {
+        "schema_version": 1,
+        "service": service,
+        "project": project,
+        "region": region,
+        "release_run_id": release_run_id,
+        "fingerprint": json.loads(json.dumps(expected)),
+        "protected": sorted(plan.protected),
+    }
+    prior = json.loads(path.read_text()) if path.exists() else {}
+    if not isinstance(prior, dict):
+        raise UnsafeState("invalid deferred retention state")
+    observed_at = prior.get("observed_at")
+    valid = (
+        all(prior.get(key) == value for key, value in identity.items())
+        and isinstance(observed_at, int)
+        and not isinstance(observed_at, bool)
+        and 0 < observed_at <= now
+        and isinstance(prior.get("revisions"), list)
+        and all(isinstance(name, str) for name in prior["revisions"])
+        and set(plan.delete_revisions).issubset(prior["revisions"])
+    )
+    if not valid:
+        observed_at = now
+    due_at = observed_at + drain_seconds
+    state = {
+        **identity,
+        "observed_at": observed_at,
+        "not_before": due_at,
+        "revisions": list(plan.delete_revisions),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, indent=2) + "\n")
+    if now < due_at:
+        print(
+            f"Deferred deletion until epoch {due_at}; {due_at - now}s remain. No runner wait."
+        )
+        return False
+    return True
 
 
 def main() -> int:
@@ -186,11 +262,26 @@ def main() -> int:
         "--healthy", action="store_true", help="assert release health gate passed"
     )
     parser.add_argument("--drain-seconds", type=int, default=120)
+    parser.add_argument(
+        "--tags-only",
+        action="store_true",
+        help="retire zero-traffic tags without waiting or deleting revisions",
+    )
+    parser.add_argument(
+        "--defer-state",
+        type=Path,
+        help="persist drain state; return instead of sleeping",
+    )
+    parser.add_argument("--release-run-id", default="")
     args = parser.parse_args()
     if args.keep_count < 1 or args.drain_seconds < 0:
         parser.error("keep_count must be positive and drain-seconds nonnegative")
     if args.apply and not args.healthy:
         parser.error("--apply requires --healthy after the release health gate")
+    if args.tags_only and args.defer_state:
+        parser.error("--tags-only and --defer-state cannot be combined")
+    if args.defer_state and (not args.apply or not args.release_run_id.isdigit()):
+        parser.error("--defer-state requires --apply and a numeric --release-run-id")
     protected = {
         name
         for name in (
@@ -207,7 +298,11 @@ def main() -> int:
     expected = traffic_fingerprint(before)
     revisions = revision_state(args.service, args.project, args.region)
     plan = plan_cleanup(before, revisions, args.keep_count, protected)
-    drain_seconds = required_drain_seconds(before, revisions, plan, args.drain_seconds)
+    drain_seconds = (
+        0
+        if args.tags_only
+        else required_drain_seconds(before, revisions, plan, args.drain_seconds)
+    )
     print(
         f"{'APPLY' if args.apply else 'DRY RUN'}: {args.service} project={args.project or '(default)'}"
     )
@@ -245,11 +340,33 @@ def main() -> int:
                 "traffic differed after tag removal; refusing revision deletion"
             )
         expected = traffic_fingerprint(after_service)
+    if args.tags_only:
+        # The independently serialized maintenance job owns full timeout-based
+        # draining and deletion. Tag retirement alone preserves all revisions.
+        assert_traffic(args.service, args.project, args.region, expected)
+        print("Tags retired; revision draining/deletion deferred to maintenance")
+        return 0
     if plan.delete_revisions:
+        if args.defer_state:
+            if not deferred_drain_ready(
+                args.defer_state,
+                service=args.service,
+                project=args.project,
+                region=args.region,
+                expected=expected,
+                plan=plan,
+                drain_seconds=drain_seconds,
+                release_run_id=args.release_run_id,
+            ):
+                return 0
         # This also covers a retry after an earlier run removed tags but failed
         # before deletion; no durable untag timestamp is available.
-        print(f"Waiting {drain_seconds}s for requests to drain before deletion")
-        time.sleep(drain_seconds)
+        else:
+            print(
+                f"Waiting {drain_seconds}s for requests to drain before deletion",
+                flush=True,
+            )
+            time.sleep(drain_seconds)
     for revision in plan.delete_revisions:
         assert_traffic(args.service, args.project, args.region, expected)
         current = revision_state(args.service, args.project, args.region)
@@ -272,12 +389,19 @@ def main() -> int:
             json_output=False,
         )
         print(f"Deleted {revision}")
+    if args.defer_state:
+        args.defer_state.unlink(missing_ok=True)
     return 0
 
 
 if __name__ == "__main__":
     try:
         sys.exit(main())
-    except (subprocess.CalledProcessError, json.JSONDecodeError, UnsafeState) as exc:
+    except (
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        json.JSONDecodeError,
+        UnsafeState,
+    ) as exc:
         print(f"Retention stopped: {exc}", file=sys.stderr)
         sys.exit(1)

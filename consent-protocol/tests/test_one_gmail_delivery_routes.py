@@ -158,6 +158,31 @@ def test_send_status_reconciles_same_owner_action_without_mail_or_provider_metad
     reader.assert_awaited_once_with(user_id="firebase-user", action_id="action-1")
 
 
+def test_send_status_post_settles_only_the_matching_owner_without_disclosing_metadata():
+    row = {
+        "action_id": "action-1",
+        "state": "outcome_unknown",
+        "gmail_message_id": "private-gmail-message",
+        "safe_error_code": "send_interrupted",
+    }
+    reconciler = AsyncMock(return_value=row)
+    with patch.object(module, "reconcile_owner_send_action", reconciler):
+        response = TestClient(_app()).post("/api/one/email/send/status/action-1")
+        denied = TestClient(_app(owner_user_id="other-user")).post(
+            "/api/one/email/send/status/action-1"
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "action_id": "action-1",
+        "state": "outcome_unknown",
+        "outcome_unknown": True,
+    }
+    assert response.headers["cache-control"] == "private, no-store"
+    assert denied.status_code == 403
+    reconciler.assert_awaited_once_with(user_id="firebase-user", action_id="action-1")
+
+
 def test_send_status_refuses_other_owner_before_reading_ledger():
     reader = AsyncMock(return_value={"action_id": "action-1", "state": "sent"})
     with patch.object(module, "get_owner_send_action", reader):

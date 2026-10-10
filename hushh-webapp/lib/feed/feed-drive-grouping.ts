@@ -3,6 +3,11 @@ import type { FeedItem } from "@/lib/services/feed-service";
 const DRIVE_EVENT_DOMAIN = "connected_systems";
 const DRIVE_DECISION_EVENT = "document_share_decided";
 const DRIVE_OUTCOME_EVENT = "document_share_outcome";
+const DRIVE_PAYMENT_READY_EVENT = "document_share_payment_ready";
+const DRIVE_PAYMENT_SETTLED_EVENTS = new Set([
+  "document_share_payment_confirmed",
+  "document_share_payment_refunded",
+]);
 
 /**
  * The Drive worker publishes progress and then a terminal outcome. Older
@@ -23,7 +28,9 @@ function isDriveLifecycleItem(item: FeedItem): boolean {
   return (
     item.source_domain === DRIVE_EVENT_DOMAIN &&
     (item.event_type === DRIVE_DECISION_EVENT ||
-      item.event_type === DRIVE_OUTCOME_EVENT)
+      item.event_type === DRIVE_OUTCOME_EVENT ||
+      item.event_type === DRIVE_PAYMENT_READY_EVENT ||
+      DRIVE_PAYMENT_SETTLED_EVENTS.has(item.event_type))
   );
 }
 
@@ -54,8 +61,12 @@ export function collapseDriveLifecycleRows(items: FeedItem[]): FeedItem[] {
 
   const successfulOutcomeIds = new Set<string>();
   const emptyOutcomeIds = new Set<string>();
+  const settledPaymentIds = new Set<string>();
   for (const [id, group] of groups) {
     for (const item of group) {
+      if (DRIVE_PAYMENT_SETTLED_EVENTS.has(item.event_type)) {
+        settledPaymentIds.add(id);
+      }
       if (item.event_type !== DRIVE_OUTCOME_EVENT) continue;
       if (SUCCESSFUL_STATUSES.has(status(item))) successfulOutcomeIds.add(id);
       if (EMPTY_STATUSES.has(status(item))) emptyOutcomeIds.add(id);
@@ -75,6 +86,17 @@ export function collapseDriveLifecycleRows(items: FeedItem[]): FeedItem[] {
     }
     const hasSuccessfulOutcome = successfulOutcomeIds.has(id);
     const hasEmptyOutcome = emptyOutcomeIds.has(id);
+    if (
+      item.event_type === DRIVE_PAYMENT_READY_EVENT &&
+      ((status(item) !== "expired" && item.metadata?.current_payment_status !== "expired") ||
+        item.metadata?.current_payment_status === "paid" ||
+        item.metadata?.current_payment_status === "refunded") &&
+      (settledPaymentIds.has(id) || hasSuccessfulOutcome || hasEmptyOutcome)
+    ) {
+      // The live actionable owns Checkout; historical Pay is no longer a
+      // current instruction once payment or delivery has settled.
+      continue;
+    }
     if (
       item.event_type === DRIVE_OUTCOME_EVENT &&
       EMPTY_STATUSES.has(status(item)) &&

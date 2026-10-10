@@ -321,6 +321,7 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         # mismatch — which reads like an outage, not a config error.
         "nws_nearby_v4_project_id": args.project,
         "one_places_directory_enabled": args.one_places_directory_enabled,
+        "one_business_directory_enabled": getattr(args, "one_business_directory_enabled", "false"),
     }
     return _drop_empty(config)
 
@@ -499,6 +500,9 @@ def main() -> int:
     # key mirrored from the project that owns it.
     parser.add_argument("--insurance-agents-api-base-url", default="")
     parser.add_argument("--one-places-directory-enabled", default="")
+    parser.add_argument(
+        "--one-business-directory-enabled", default="false", choices=["true", "false"]
+    )
     parser.add_argument("--insurance-agents-api-key-source-project", default="hushh-tech-prod")
     parser.add_argument(
         "--insurance-agents-api-key-source-secret", default="insurance-agents-api-key"

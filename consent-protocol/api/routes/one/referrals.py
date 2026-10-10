@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import time
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -18,6 +19,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from api.middleware import require_firebase_auth
 from api.referral_listener import get_referral_queue, release_referral_queue
+from hushh_mcp.operons.referral_scoring.weekly_cutoff import next_weekly_cutoff
 from hushh_mcp.services.one_referral_circle_service import (
     CircleSelectionError,
     get_active_circle_selection,
@@ -39,6 +41,7 @@ from hushh_mcp.services.one_referral_program_settings_service import (
     ProgramSettingsUnavailable,
     get_active_program_settings,
 )
+from hushh_mcp.services.one_referral_scoring_service import get_cumulative_score
 from hushh_mcp.services.one_referral_service import (
     ReferralProgramDisabled,
     ReferralServiceError,
@@ -53,7 +56,7 @@ router = APIRouter(prefix="/api/one/referrals", tags=["One Referrals"])
 
 
 @router.get("/summary")
-async def referral_summary(firebase_uid: str = Depends(require_firebase_auth)):
+def referral_summary(firebase_uid: str = Depends(require_firebase_auth)):
     """This person's referral link and how their referrals are doing.
 
     A failure here must never look like a broken Profile: the tab renders its
@@ -126,7 +129,7 @@ class SelectCircleRequest(BaseModel):
 
 
 @router.get("/circle")
-async def referral_circle_selection(firebase_uid: str = Depends(require_firebase_auth)):
+def referral_circle_selection(firebase_uid: str = Depends(require_firebase_auth)):
     """This person's current referral-contest team, if any."""
     selection = get_active_circle_selection(firebase_uid)
     if selection is None:
@@ -187,8 +190,22 @@ async def set_referral_display_handle(
     return {"handle": handle}
 
 
+@router.get("/points")
+def referral_cumulative_points(firebase_uid: str = Depends(require_firebase_auth)):
+    """This person's own recorded point total, summed live from the ledger.
+
+    Deliberately independent of the published leaderboard snapshot: a
+    referrer whose points just posted, or who has never appeared in a
+    snapshot at all (not yet ranked, or no snapshot has published since they
+    joined), still sees their real balance here. `user_id` comes only from
+    the verified token, never a request parameter -- this can only ever
+    answer for the caller's own account.
+    """
+    return {"points": get_cumulative_score(firebase_uid)}
+
+
 @router.get("/leaderboard")
-async def referral_individual_leaderboard(
+def referral_individual_leaderboard(
     after_rank: int = 0,
     limit: int = 20,
     firebase_uid: str = Depends(require_firebase_auth),
@@ -207,7 +224,7 @@ async def referral_individual_leaderboard(
 
 
 @router.get("/circles/leaderboard")
-async def referral_circle_leaderboard(
+def referral_circle_leaderboard(
     limit: int = 20,
     _firebase_uid: str = Depends(require_firebase_auth),
 ):
@@ -215,18 +232,65 @@ async def referral_circle_leaderboard(
     return {"teams": get_circle_leaderboard(limit=max(1, min(limit, 50)))}
 
 
+@router.get("/policy")
+def referral_program_policy(_firebase_uid: str = Depends(require_firebase_auth)):
+    """Public rule amounts from the active version, behind owner authentication."""
+    try:
+        settings = get_active_program_settings()
+    except ProgramSettingsUnavailable:
+        raise HTTPException(status_code=503, detail={"code": "REFERRAL_PROGRAM_SETTINGS_OFF"})
+    return {
+        "version": settings.version,
+        "challenge_duration_days": 7
+        if next_weekly_cutoff(datetime.now(timezone.utc), settings.weekly_schedule)
+        else None,
+        "points": settings.points,
+        "streak_rules": settings.streak_rules,
+        "weekly_schedule": settings.weekly_schedule,
+        "weekly_prizes_enabled": settings.feature_active,
+    }
+
+
+@router.get("/challenge")
+def referral_weekly_challenge(_firebase_uid: str = Depends(require_firebase_auth)):
+    """The current seven-day challenge round's start and close.
+
+    A display computation only, derived from the active settings version's
+    `weekly_schedule` -- it never creates or reads a reward-round row. Returns
+    `active: false` with no window when the schedule is unset (v1's state) or
+    the active row cannot be found, so the dashboard can render a "not yet
+    scheduled" state instead of guessing at a deadline.
+    """
+    try:
+        settings = get_active_program_settings()
+    except ProgramSettingsUnavailable:
+        return {"active": False, "week_started_at": None, "cutoff_at": None, "timezone": None}
+    window = next_weekly_cutoff(datetime.now(timezone.utc), settings.weekly_schedule)
+    if window is None:
+        return {"active": False, "week_started_at": None, "cutoff_at": None, "timezone": None}
+    return {
+        "active": True,
+        "week_started_at": window.week_started_at.isoformat(),
+        "cutoff_at": window.cutoff_at.isoformat(),
+        "timezone": window.timezone,
+    }
+
+
 @router.get("/milestones")
-async def referral_milestone_progress(firebase_uid: str = Depends(require_firebase_auth)):
+def referral_milestone_progress(firebase_uid: str = Depends(require_firebase_auth)):
     """This person's lifetime milestone progress and earned merchandise."""
     try:
         settings = get_active_program_settings()
     except ProgramSettingsUnavailable:
         raise HTTPException(status_code=503, detail={"code": "REFERRAL_PROGRAM_SETTINGS_OFF"})
-    return get_milestone_progress(firebase_uid, settings_milestones=settings.milestones)
+    return {
+        **get_milestone_progress(firebase_uid, settings_milestones=settings.milestones),
+        "available_milestones": settings.milestones,
+    }
 
 
 @router.get("/engagement")
-async def referral_engagement_status(firebase_uid: str = Depends(require_firebase_auth)):
+def referral_engagement_status(firebase_uid: str = Depends(require_firebase_auth)):
     """This person's streak progress and whether a flash window is active now.
 
     Display-only -- an award itself is always decided by the scoring worker,

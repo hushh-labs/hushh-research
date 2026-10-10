@@ -8,7 +8,7 @@ import json
 import threading
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
@@ -134,7 +134,121 @@ async def _request(sharing):
     )
 
 
-def _search(bulk, *, request_id, count=525, incomplete=False, shareability=None, verified=True):
+@pytest.mark.asyncio
+async def test_nontrusted_progressive_payment_starts_only_after_owner_approval(
+    request_bulk, sharing
+):
+    created = await _request(sharing)
+    request_id = created["requestId"]
+    search = _search(request_bulk, request_id=request_id, count=1)
+    review = await request_bulk.create_review(
+        user_id="owner",
+        search_job_id=search,
+        client_request_id=str(uuid4()),
+        recipients=[_recipient("recipient", "b@example.invalid")],
+        excluded=[],
+        origin_request_id=request_id,
+        selected_positions=[1],
+    )
+    create_session = Mock(
+        side_effect=lambda **params: {
+            "id": "cs_test_owner_approved",
+            "mode": "payment",
+            "client_reference_id": params["client_reference_id"],
+            "amount_total": 1000,
+            "currency": "usd",
+            "livemode": False,
+            "metadata": params["metadata"],
+            "url": "https://checkout.stripe.com/c/pay/cs_test_owner_approved",
+            "expires_at": params["expires_at"],
+        }
+    )
+    payment = DriveRequestPaymentService(
+        db=sharing.db,
+        stripe_api=SimpleNamespace(
+            checkout=SimpleNamespace(Session=SimpleNamespace(create=create_session))
+        ),
+    )
+    assert (await payment.payment_state(requester_user_id="recipient", request_id=request_id))[
+        "status"
+    ] == "preparing"
+    with pytest.raises(DriveSharingError, match="payment_not_ready"):
+        await payment.ensure_payment_for_frozen_batch("owner", request_id, review["shareId"])
+    with pytest.raises(DriveSharingError, match="payment_not_ready"):
+        await payment.checkout(requester_user_id="recipient", request_id=request_id)
+    create_session.assert_not_called()
+    with sharing.db.engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_request_payment_orders WHERE request_id=:request"),
+                {"request": request_id},
+            ).scalar_one()
+            == 0
+        )
+        assert (
+            connection.execute(
+                text("""SELECT count(*) FROM drive_share_events
+              WHERE request_id=:request AND event_type='document_share_payment_ready'"""),
+                {"request": request_id},
+            ).scalar_one()
+            == 0
+        )
+
+    await request_bulk.approve(
+        user_id="owner",
+        share_id=review["shareId"],
+        revision=review["revision"],
+        review_digest=review["reviewDigest"],
+    )
+    state = await payment.payment_state(requester_user_id="recipient", request_id=request_id)
+    assert state["status"] == "awaiting_payment"
+    assert request_id in {row["request_id"] for row in await payment.due_checkout_orders(limit=20)}
+    with pytest.raises(DriveSharingError, match="payment_required"):
+        await request_bulk.claim(
+            user_id="owner",
+            share_id=review["shareId"],
+            position=1,
+            recipient_user_id="recipient",
+        )
+    assert (await payment.checkout(requester_user_id="recipient", request_id=request_id))[
+        "checkoutUrl"
+    ] == "https://checkout.stripe.com/c/pay/cs_test_owner_approved"
+    create_session.assert_called_once()
+    with sharing.db.engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("SELECT status FROM drive_share_requests WHERE request_id=:request"),
+                {"request": request_id},
+            ).scalar_one()
+            == "pending"
+        )
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_request_payment_orders WHERE request_id=:request"),
+                {"request": request_id},
+            ).scalar_one()
+            == 1
+        )
+        assert (
+            connection.execute(
+                text("""SELECT count(*) FROM drive_share_events
+              WHERE request_id=:request AND event_type='document_share_payment_ready'"""),
+                {"request": request_id},
+            ).scalar_one()
+            == 1
+        )
+
+
+def _search(
+    bulk,
+    *,
+    request_id,
+    count=525,
+    incomplete=False,
+    shareability=None,
+    verified=True,
+    selection=None,
+):
     job = str(uuid4())
     rows = []
     for position in range(1, count + 1):
@@ -192,6 +306,7 @@ def _search(bulk, *, request_id, count=525, incomplete=False, shareability=None,
                         "request_origin_id": request_id,
                         "request_revision": request_revision,
                         **({"request_shareability_version": 1} if verified else {}),
+                        **(selection or {}),
                     },
                     user_id="owner",
                     resource_id=job,
@@ -207,6 +322,76 @@ def _search(bulk, *, request_id, count=525, incomplete=False, shareability=None,
                 rows,
             )
     return job
+
+
+@pytest.mark.parametrize("status", ["queued", "running", "completed"])
+@pytest.mark.parametrize("progressive", [False, True])
+async def test_bounded_candidates_cannot_be_frozen_or_paid_before_final_ranking(
+    request_bulk, sharing, status, progressive
+):
+    request_id = (await _request(sharing))["requestId"]
+    search = _search(
+        request_bulk,
+        request_id=request_id,
+        count=1,
+        selection={"request_result_limit": 100, "request_order_field": "modifiedTime"},
+    )
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_owner_search_jobs SET status=:status WHERE job_id=:job"),
+            {"job": search, "status": status},
+        )
+    assert await request_bulk.unclaimed_positions(user_id="owner", request_id=request_id) == []
+    with pytest.raises(DriveSharingError, match="search_in_progress"):
+        await request_bulk.create_review(
+            user_id="owner",
+            search_job_id=search,
+            client_request_id=str(uuid4()),
+            recipients=[_recipient("recipient", "b@example.invalid")],
+            excluded=[],
+            origin_request_id=request_id,
+            **({"selected_positions": [1]} if progressive else {}),
+        )
+    with sharing.db.engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_request_payment_orders WHERE request_id=:request"),
+                {"request": request_id},
+            ).scalar_one()
+            == 0
+        )
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_bulk_shares WHERE origin_request_id=:request"),
+                {"request": request_id},
+            ).scalar_one()
+            == 0
+        )
+
+
+async def test_bounded_final_selection_can_enter_normal_review(request_bulk, sharing):
+    request_id = (await _request(sharing))["requestId"]
+    search = _search(
+        request_bulk,
+        request_id=request_id,
+        count=1,
+        selection={
+            "request_result_limit": 100,
+            "request_order_field": "modifiedTime",
+            "request_results_finalized": True,
+        },
+    )
+    assert await request_bulk.unclaimed_positions(user_id="owner", request_id=request_id) == [1]
+    review = await request_bulk.create_review(
+        user_id="owner",
+        search_job_id=search,
+        client_request_id=str(uuid4()),
+        recipients=[_recipient("recipient", "b@example.invalid")],
+        excluded=[],
+        origin_request_id=request_id,
+        selected_positions=[1],
+    )
+    assert review["status"] == "review_ready"
 
 
 @pytest.mark.asyncio
@@ -247,6 +432,120 @@ async def test_completed_search_without_matches_has_no_permission_attempt(reques
             .all()
         )
     assert set(events) == {"owner", "recipient"}
+
+
+@pytest.mark.parametrize(
+    "fault", ["request_origin_id", "request_revision", "request_shareability_version", "stop"]
+)
+def test_terminal_outcome_fence_rejects_unbound_or_stopped_evidence_without_database(fault):
+    request_id, job_id = str(uuid4()), str(uuid4())
+    request = {
+        "user_id": "owner",
+        "request_id": request_id,
+        "status": "pending",
+        "revision": 2,
+        "access_stop_requested_at": datetime.now(UTC) if fault == "stop" else None,
+    }
+    checkpoint = {
+        "request_origin_id": request_id,
+        "request_revision": 2,
+        "request_shareability_version": 1,
+    }
+    source = {
+        "job_id": job_id,
+        "status": "completed",
+        "incomplete_search": False,
+        "checkpoint_envelope": {},
+    }
+    if fault != "stop":
+        checkpoint[fault] = None
+    bulk = DriveBulkShareStore(
+        db=SimpleNamespace(), cipher=SimpleNamespace(open=Mock(return_value=checkpoint))
+    )
+    bulk._row = Mock(side_effect=[request, source])
+    connection = SimpleNamespace(execute=Mock(side_effect=RuntimeError("passed evidence fence")))
+    bulk._finalize_progressive_request(connection, request_id)
+    connection.execute.assert_not_called()
+
+    # Positive control reaches downstream finalization with current evidence;
+    # the fence must not suppress genuine empty-search outcomes unconditionally.
+    request["access_stop_requested_at"] = None
+    checkpoint.update(
+        request_origin_id=request_id, request_revision=2, request_shareability_version=1
+    )
+    bulk._row.reset_mock(side_effect=True)
+    bulk._row.side_effect = [request, source]
+    with pytest.raises(RuntimeError, match="passed evidence fence"):
+        bulk._finalize_progressive_request(connection, request_id)
+    connection.execute.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "binding", ["request_origin_id", "request_revision", "request_shareability_version"]
+)
+async def test_empty_search_cannot_finalize_a_request_without_current_binding(
+    request_bulk, sharing, binding
+):
+    request = await _request(sharing)
+    request_id = request["requestId"]
+    job_id = _search(request_bulk, request_id=request_id, count=0)
+    with request_bulk.db.engine.begin() as connection:
+        source = dict(
+            connection.execute(
+                text("SELECT * FROM drive_owner_search_jobs WHERE job_id=:job"),
+                {"job": job_id},
+            )
+            .mappings()
+            .one()
+        )
+        checkpoint = request_bulk._open(
+            source["checkpoint_envelope"],
+            user_id="owner",
+            resource_id=job_id,
+            purpose="owner-search-checkpoint",
+        )
+        if binding == "request_revision":
+            checkpoint[binding] += 1
+        else:
+            checkpoint.pop(binding)
+        connection.execute(
+            text("""UPDATE drive_owner_search_jobs SET checkpoint_envelope=CAST(:envelope AS jsonb)
+            WHERE job_id=:job"""),
+            {
+                "job": job_id,
+                "envelope": request_bulk._seal(
+                    checkpoint,
+                    user_id="owner",
+                    resource_id=job_id,
+                    purpose="owner-search-checkpoint",
+                ),
+            },
+        )
+    await request_bulk.refresh_request(user_id="owner", request_id=request_id)
+    assert (await sharing.request_status(user_id="owner", request_id=request_id))[
+        "status"
+    ] == "pending"
+    with request_bulk.db.engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("""SELECT count(*) FROM drive_share_events
+            WHERE request_id=:request AND event_type='document_share_outcome'"""),
+                {"request": request_id},
+            ).scalar_one()
+            == 0
+        )
+        # A current, request-bound empty search still publishes its genuine
+        # terminal result. The guard must not hide all no-match outcomes.
+        connection.execute(
+            text("""UPDATE drive_owner_search_jobs SET checkpoint_envelope=CAST(:envelope AS jsonb)
+            WHERE job_id=:job"""),
+            {"job": job_id, "envelope": json.dumps(source["checkpoint_envelope"])},
+        )
+    await request_bulk.refresh_request(user_id="owner", request_id=request_id)
+    assert (await sharing.request_status(user_id="owner", request_id=request_id))[
+        "status"
+    ] == "no_match"
 
 
 @pytest.mark.asyncio
@@ -947,6 +1246,10 @@ async def test_new_trusted_request_cannot_queue_or_claim_grants_until_paid(reque
               VALUES (:request,'owner','trusted-member','awaiting_payment')"""),
             {"request": request_id},
         )
+    assert str(request_id) in {
+        row["request_id"]
+        for row in await DriveRequestPaymentService(db=sharing.db).due_checkout_orders(limit=20)
+    }
     with pytest.raises(DriveSharingError, match="payment_required"):
         await request_bulk.approve(**approval)
     with request_bulk.db.engine.begin() as connection:
@@ -988,6 +1291,82 @@ async def test_new_trusted_request_cannot_queue_or_claim_grants_until_paid(reque
         )
         is not None
     )
+
+
+@pytest.mark.asyncio
+async def test_owner_can_stop_paid_frozen_request_before_any_grant(request_bulk, sharing):
+    review = await _trusted_review(request_bulk, sharing)
+    with sharing.db.engine.begin() as connection:
+        request_id = str(
+            connection.execute(
+                text("SELECT origin_request_id FROM drive_bulk_shares WHERE share_id=:share"),
+                {"share": review["shareId"]},
+            ).scalar_one()
+        )
+        connection.execute(
+            text("""UPDATE drive_request_payment_orders
+              SET stripe_payment_intent_id='pi_paid_frozen_stop'
+              WHERE request_id=:request"""),
+            {"request": request_id},
+        )
+        assert (
+            connection.execute(
+                text("SELECT status FROM drive_share_requests WHERE request_id=:request"),
+                {"request": request_id},
+            ).scalar_one()
+            == "pending"
+        )
+        assert (
+            connection.execute(text("SELECT count(*) FROM drive_bulk_share_effects")).scalar_one()
+            == 0
+        )
+
+    store = DriveSuggestionStore(db=sharing.db, authority_key="synthetic-ledger-key")
+    before = await store.delivery_snapshot(user_id="owner", request_id=request_id)
+    assert before["result"]["canStopAccess"] is True
+    assert "bulkShareId" not in before["result"]
+
+    prepared = await store.prepare_revocation(user_id="owner", generation=1, request_id=request_id)
+    assert prepared["affectedCount"] == 0
+    stopped = await store.confirm_revocation(
+        user_id="owner",
+        generation=1,
+        request_id=request_id,
+        revision=prepared["revision"],
+        directive_id=prepared["directiveId"],
+        review_digest=prepared["reviewDigest"],
+        grant_ids=[],
+        confirmed=True,
+    )
+    assert stopped["revocationStatus"] == "pending"
+    after = await store.delivery_snapshot(user_id="owner", request_id=request_id)
+    assert after["result"]["canStopAccess"] is False
+    assert after["result"]["accessStopStatus"] == "removed"
+    with sharing.db.engine.begin() as connection:
+        assert (
+            connection.execute(
+                text(
+                    "SELECT access_stop_requested_at IS NOT NULL FROM drive_share_requests WHERE request_id=:request"
+                ),
+                {"request": request_id},
+            ).scalar_one()
+            is True
+        )
+        assert (
+            connection.execute(text("SELECT count(*) FROM drive_bulk_share_effects")).scalar_one()
+            == 0
+        )
+        refunds = _claim_refunds(DriveRequestPaymentService(db=sharing.db), connection, limit=1)
+        assert [item["request_id"] for item in refunds] == [request_id]
+
+    with pytest.raises(DriveSharingError, match="request_changed"):
+        await request_bulk.approve(
+            user_id="owner",
+            share_id=review["shareId"],
+            revision=review["revision"],
+            review_digest=review["reviewDigest"],
+            approval_source="trusted_auto",
+        )
 
 
 async def _approved_request(bulk, sharing, count):

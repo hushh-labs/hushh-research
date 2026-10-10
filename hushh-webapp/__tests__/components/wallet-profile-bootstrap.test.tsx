@@ -23,7 +23,29 @@ describe("Wallet Profile automatic provisioning", () => {
     mocks.vault.isVaultUnlocked = true;
     mocks.ensure.mockReset().mockResolvedValue({});
   });
-  afterEach(() => { cleanup(); vi.useRealTimers(); });
+  afterEach(() => { cleanup(); vi.useRealTimers(); delete window.__HUSHH_NATIVE_TEST__; });
+
+  it.each(["read_only", "preparation_only", "bounded_mutation"] as const)(
+    "does not provision in a %s reviewer session, including recovery events",
+    async (reviewerMutationPolicy) => {
+      vi.useFakeTimers();
+      window.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true, reviewerMutationPolicy };
+      render(<WalletProfileBootstrap />);
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+        window.dispatchEvent(new Event("online"));
+        document.dispatchEvent(new Event("visibilitychange"));
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+      expect(mocks.ensure).not.toHaveBeenCalled();
+    },
+  );
+
+  it("retains provisioning for a mutation-authorized reviewer session", async () => {
+    window.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true, reviewerMutationPolicy: "mutation_authorized" };
+    render(<WalletProfileBootstrap />);
+    await waitFor(() => expect(mocks.ensure).toHaveBeenCalledTimes(1));
+  });
 
   it("creates from current account basics without opening Wallet", async () => {
     const view = render(<WalletProfileBootstrap />);

@@ -21,7 +21,7 @@ from datetime import timezone as datetime_timezone
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from hushh_mcp.agents.email.runtime import run_email_gene
 from hushh_mcp.services.gmail_metadata_reader import (
@@ -29,14 +29,22 @@ from hushh_mcp.services.gmail_metadata_reader import (
     MAX_BODY_MESSAGES,
     GmailMetadataError,
     GmailMetadataReader,
-    MailOperation,
     RequireAccess,
 )
 from hushh_mcp.services.gmail_personal_information_request_service import (
     SensitiveRequestAssessment,
     get_personal_gmail_information_request_service,
 )
+from hushh_mcp.services.gmail_receipts_service import GmailApiError
 from hushh_mcp.services.owner_time import owner_zone
+from hushh_mcp.services.receipt_memory_read import (
+    OPEN_RECEIPTS_ACTION_ID,
+    ReceiptIdentifierKind,
+    ReceiptPlanError,
+    ReceiptPlanFields,
+    ReceiptStatus,
+    read_receipt_memory,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +95,7 @@ def mail_latency(stage: str, log: logging.Logger | None = None) -> Iterator[Mail
 
 AnalysisCategory = Literal["personal_info", "action_items", "meetings"]
 _ANALYSIS_CATEGORIES = ("personal_info", "action_items", "meetings")
+_ANALYSIS_CATEGORY_DEADLINE = 25.0
 _CATEGORY_TITLES = {
     "personal_info": "personal-information request",
     "action_items": "action item",
@@ -102,7 +111,9 @@ class MailReadPlan(BaseModel):
         "search_inbox",
         "read_message",
         "read_thread",
+        "read_offered",
         "analyze_mail",
+        "read_receipts",
         "clarify",
     ]
     query: str = Field(default="", max_length=512)
@@ -111,6 +122,114 @@ class MailReadPlan(BaseModel):
     mailbox: Literal["inbox", "sent", "anywhere"] = "inbox"
     clarification: str = Field(default="", max_length=500)
     categories: list[AnalysisCategory] = Field(default_factory=list, max_length=3)
+    # Only for read_receipts: the window and filters the planner chose from the
+    # person's own words, answered from their saved receipt memory and never
+    # from the inbox. Flat scalars and one array of enums on purpose; nested
+    # objects in a structured-output schema are what Vertex rejected for
+    # ``MailItemGist``. An empty value means "no such restriction".
+    receipt_since: str = Field(default="", max_length=10)
+    receipt_until: str = Field(default="", max_length=10)
+    receipt_statuses: list[ReceiptStatus] = Field(default_factory=list, max_length=4)
+    receipt_identifier_kinds: list[ReceiptIdentifierKind] = Field(
+        default_factory=list, max_length=4
+    )
+    receipt_merchant: str = Field(default="", max_length=80)
+    receipt_window_label: str = Field(default="", max_length=60)
+    # "Show more" / "next" / "older": continue the receipts list just shown.
+    receipt_more: bool = False
+
+    def receipt_fields(self) -> ReceiptPlanFields:
+        return ReceiptPlanFields(
+            since=self.receipt_since,
+            until=self.receipt_until,
+            statuses=tuple(self.receipt_statuses),
+            identifier_kinds=tuple(self.receipt_identifier_kinds),
+            merchant=self.receipt_merchant,
+            window_label=self.receipt_window_label,
+            more=self.receipt_more,
+        )
+
+    @property
+    def has_receipt_fields(self) -> bool:
+        fields = self.receipt_fields()
+        return fields.more or fields.has_filters or bool(fields.window_label)
+
+    # The model must explicitly distinguish "newest" from a reference to the
+    # last shown list. An absent anchor never silently becomes the newest mail.
+    target_origin: Literal["newest", "offered"] | None = None
+    ordinal: int | None = Field(default=None, ge=1, le=25)
+
+
+class MailReadOffer(BaseModel):
+    """Private, short-lived exact selection carried by One's encrypted session."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    owner_id: str = Field(min_length=1, max_length=256)
+    conversation_id: str = Field(min_length=1, max_length=256)
+    account: str = Field(min_length=1, max_length=256)
+    mailbox: Literal["inbox", "sent", "anywhere"]
+    message_ids: list[str] = Field(min_length=1, max_length=25)
+    created_at_ms: int = Field(ge=1)
+    selected_ordinal: int | None = Field(default=None, ge=1, le=25)
+
+    @field_validator("message_ids")
+    @classmethod
+    def valid_ids(cls, values: list[str]) -> list[str]:
+        if len(set(values)) != len(values) or any(
+            not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,200}", value)
+            for value in values
+        ):
+            raise ValueError("invalid_mail_offer_ids")
+        return values
+
+    def message_id_at(self, ordinal: int) -> str | None:
+        if 1 <= ordinal <= len(self.message_ids):
+            return self.message_ids[ordinal - 1]
+        if len(self.message_ids) == 1 and ordinal == self.selected_ordinal:
+            return self.message_ids[0]
+        return None
+
+
+def current_mail_read_offer(
+    raw: Any, *, owner_id: str, conversation_id: str, now_ms: int | None = None
+) -> MailReadOffer | None:
+    """Reject stale, cross-owner or cross-conversation selections before a read."""
+
+    try:
+        offer = MailReadOffer.model_validate(raw)
+    except (ValidationError, TypeError, ValueError):
+        return None
+    now = int(time.time() * 1000) if now_ms is None else now_ms
+    if (
+        offer.owner_id != owner_id
+        or offer.conversation_id != conversation_id
+        or now - offer.created_at_ms > 300_000
+        or offer.created_at_ms - now > 5_000
+    ):
+        return None
+    return offer
+
+
+def make_mail_read_offer(raw: Any, *, owner_id: str, conversation_id: str) -> dict[str, Any] | None:
+    """Bind only a reader-minted exact offer to the authenticated chat session."""
+
+    if not isinstance(raw, dict):
+        return None
+    try:
+        offer = MailReadOffer.model_validate(
+            {
+                "owner_id": owner_id,
+                "conversation_id": conversation_id,
+                "account": raw.get("account"),
+                "mailbox": raw.get("mailbox"),
+                "message_ids": raw.get("message_ids"),
+                "created_at_ms": int(time.time() * 1000),
+                "selected_ordinal": raw.get("selected_ordinal"),
+            }
+        )
+    except (ValidationError, TypeError, ValueError):
+        return None
+    return offer.model_dump(mode="json")
 
 
 class MailAnalysisFinding(BaseModel):
@@ -260,7 +379,7 @@ async def _analyze_rows(
 
         async def one(row: dict[str, Any]) -> dict[str, Any] | None:
             async with semaphore:
-                assessment = await asyncio.wait_for(personal_assessor(row), timeout=25)
+                assessment = await personal_assessor(row)
             if not assessment.is_information_request:
                 return None
             fields = list(assessment.requested_fields[:3])
@@ -338,7 +457,13 @@ async def _analyze_rows(
     for category in categories:
         if category != "personal_info":
             jobs.append(([category], tasks_and_meetings(category)))
-    outcomes = await asyncio.gather(*(job for _, job in jobs), return_exceptions=True)
+    # Bound the whole category, including time queued behind the four-message
+    # semaphore. Per-message timeouts otherwise permit three serial 25s waves.
+    # A failed category cancels its own work while preserving finished siblings.
+    outcomes = await asyncio.gather(
+        *(asyncio.wait_for(job, timeout=_ANALYSIS_CATEGORY_DEADLINE) for _, job in jobs),
+        return_exceptions=True,
+    )
     for (owned_categories, _), outcome in zip(jobs, outcomes, strict=True):
         if isinstance(outcome, BaseException):
             failed.extend(owned_categories)
@@ -359,6 +484,7 @@ def _result(
     coverage=None,
     offer=None,
     failure_stage: str | None = None,
+    failure_reason: str | None = None,
     analysis_failed: tuple[AnalysisCategory, ...] = (),
 ) -> dict[str, Any]:
     """The specialist turn, plus what a surface needs to show the person.
@@ -396,11 +522,92 @@ def _result(
         # row, which makes a later positional request refuse instead of guess.
         "offer": dict(offer) if offer else None,
         "failure_stage": failure_stage,
+        "failure_reason": failure_reason,
         # Bounded planner categories, separate from the strict shared receipt.
         # A failed read has no coverage, but One still needs to name the
         # requested analyses it could not complete.
         "analysis_failed": list(analysis_failed),
     }
+
+
+_RECEIPT_ERRORS = {
+    "invalid_argument": (
+        "I couldn't turn that into a receipts request. "
+        "Try “show my receipts from the last 2 months”."
+    ),
+    "not_in_this_surface": (
+        "I can't read your saved receipts here yet. Ask in chat, or open Receipts in Mail."
+    ),
+}
+
+
+def _answer_from_receipt_memory(
+    *,
+    conversation_id: str,
+    plan: MailReadPlan,
+    receipt_memory: object | None,
+    receipt_cursor: str | None,
+    receipt_reads: bool,
+    zone: ZoneInfo,
+    now: datetime,
+) -> dict[str, Any]:
+    """Answer a planned receipts question from the saved receipt memory alone.
+
+    This path builds no Gmail reader and so cannot reach ``search_inbox``. The
+    planner chose the window and filters; the interpreter is not asked, because
+    every value in the answer is copied from the person's saved memory and
+    formatted by code, and a model re-writing a number is the failure to avoid.
+    That skip is logged, never silent.
+    """
+    if plan.categories:
+        raise GmailMetadataError("invalid_argument")
+    if not receipt_reads:
+        # One Live Voice has no channel for the saved memory. Refuse plainly
+        # instead of falling back to a search of the inbox.
+        return _result(
+            conversation_id,
+            _RECEIPT_ERRORS["not_in_this_surface"],
+            "invalid_argument",
+            failure_stage="planning",
+        )
+    try:
+        with mail_latency("receipts"):
+            outcome = read_receipt_memory(
+                index_raw=receipt_memory,
+                plan=plan.receipt_fields(),
+                cursor_raw=receipt_cursor,
+                zone=zone,
+                now=now,
+            )
+    except ReceiptPlanError:
+        return _result(
+            conversation_id,
+            _RECEIPT_ERRORS["invalid_argument"],
+            "invalid_argument",
+            failure_stage="planning",
+        )
+    logger.info("one_voice.mail.latency stage=%s ms=%d status=%s", "interpret", 0, "skipped")
+    if outcome.drift:
+        logger.info("one_voice.mail.receipts drift=%s", ",".join(outcome.drift))
+    result = _result(
+        conversation_id,
+        outcome.text,
+        outcome.status,
+        truncated=outcome.has_more,
+        metadata_only=True,
+        coverage=outcome.coverage,
+    )
+    # Siblings of the strict shared receipt, like ``items`` and ``offer``: the
+    # caller persists the list position for "show more" and, when the memory is
+    # not ready, proposes the generated Open Receipts action to One.
+    result["receipt_cursor"] = {"action": outcome.cursor_action, "value": outcome.cursor}
+    if outcome.propose_open_receipts:
+        result["directive"] = {
+            "type": "receipts_open_proposal",
+            "actionId": OPEN_RECEIPTS_ACTION_ID,
+            "slots": {},
+        }
+    return result
 
 
 async def run_delegated_mail_read(
@@ -415,6 +622,11 @@ async def run_delegated_mail_read(
     message_ids: tuple[str, ...] = (),
     offer_mailbox: str = "inbox",
     expect_account: str = "",
+    receipt_memory: object | None = None,
+    receipt_cursor: str | None = None,
+    receipt_reads: bool = False,
+    read_offer: dict[str, Any] | None = None,
+    require_explicit_latest: bool = False,
     gene_runner: Callable[..., Awaitable[dict[str, Any]]] = run_email_gene,
     reader_factory: Callable[..., GmailMetadataReader] = GmailMetadataReader,
     personal_assessor: Callable[
@@ -433,10 +645,30 @@ async def run_delegated_mail_read(
         "current_time_utc": clock().astimezone(datetime_timezone.utc).isoformat(),
         "user_timezone": zone.key,
     }
+    current_offer = current_mail_read_offer(
+        read_offer, owner_id=user_id, conversation_id=conversation_id
+    )
     stage = "planning"
     analysis_categories: tuple[AnalysisCategory, ...] = ()
     try:
         async with asyncio.timeout(105):
+            if not receipt_reads:
+                # Voice can only read the live mailbox. Refuse unavailable
+                # grants before spending a model round trip on planning. Typed
+                # receipt-memory reads remain usable without a Gmail grant.
+                try:
+                    await gmail.assert_read_ready(user_id=user_id)
+                except GmailApiError as exc:
+                    code = {
+                        "GMAIL_NOT_CONNECTED": "connect_required",
+                        "GMAIL_READ_PERMISSION_REQUIRED": "reconnect_required",
+                        "GMAIL_REAUTH_REQUIRED": "reconnect_required",
+                    }.get(exc.code, "retryable")
+                    raise GmailMetadataError(code) from None
+            read_ids = message_ids
+            read_mailbox = offer_mailbox
+            read_account = expect_account
+            selected_ordinal: int | None = None
             if message_ids:
                 # The person named a position in a list this server minted, so
                 # there is nothing to plan: the operation and its target are both
@@ -451,7 +683,14 @@ async def run_delegated_mail_read(
                         await gene_runner(
                             gene_id="agent_email_read_planner",
                             prompt=json.dumps(
-                                {"user_request": message, **time_context}, ensure_ascii=False
+                                {
+                                    "user_request": message,
+                                    "offered_message_count": (
+                                        len(current_offer.message_ids) if current_offer else 0
+                                    ),
+                                    **time_context,
+                                },
+                                ensure_ascii=False,
                             ),
                             user_id=user_id,
                             consent_token=consent_token,
@@ -466,7 +705,47 @@ async def run_delegated_mail_read(
                     plan.clarification or "What would you like to find in your inbox?",
                     "input_required",
                 )
-            operation: MailOperation = plan.operation
+            if plan.operation == "read_receipts":
+                # Receipt questions are answered from the saved receipt memory
+                # only. There is deliberately no branch from here to the reader.
+                if plan.ordinal is not None or plan.target_origin is not None:
+                    raise GmailMetadataError("invalid_argument")
+                return _answer_from_receipt_memory(
+                    conversation_id=conversation_id,
+                    plan=plan,
+                    receipt_memory=receipt_memory,
+                    receipt_cursor=receipt_cursor,
+                    receipt_reads=receipt_reads,
+                    zone=zone,
+                    now=clock(),
+                )
+            if plan.has_receipt_fields:
+                raise GmailMetadataError("invalid_argument")
+            operation = plan.operation
+            if operation == "read_offered":
+                if plan.query.strip() or plan.target_origin == "newest":
+                    raise GmailMetadataError("invalid_argument")
+                if plan.ordinal is None or current_offer is None:
+                    return _result(
+                        conversation_id,
+                        "Please show me the mail list again, then tell me which message to read.",
+                        "input_required",
+                    )
+                offered_id = current_offer.message_id_at(plan.ordinal)
+                if offered_id is None:
+                    return _result(
+                        conversation_id,
+                        f"That list has {len(current_offer.message_ids)} messages. Which one did you mean?",
+                        "input_required",
+                    )
+                read_ids = (offered_id,)
+                read_mailbox = current_offer.mailbox
+                read_account = current_offer.account
+                selected_ordinal = plan.ordinal
+                operation = "read_message_by_id"
+            elif plan.ordinal is not None or plan.target_origin == "offered":
+                # An ordinal on another operation cannot turn into a fresh search.
+                raise GmailMetadataError("invalid_argument")
             if operation == "analyze_mail":
                 if not plan.categories or len(set(plan.categories)) != len(plan.categories):
                     raise GmailMetadataError("invalid_argument")
@@ -481,10 +760,21 @@ async def run_delegated_mail_read(
                 operation = "list_recent"
             elif operation in {"list_recent", "list_needs_reply"} and plan.query:
                 raise GmailMetadataError("invalid_argument")
-            arguments: dict[str, Any] = {"mailbox": plan.mailbox}
-            if message_ids:
+            if (
+                require_explicit_latest
+                and operation == "read_message"
+                and not plan.query.strip()
+                and plan.target_origin != "newest"
+            ):
+                return _result(
+                    conversation_id,
+                    "Do you mean your newest email, or one from the list I showed you?",
+                    "input_required",
+                )
+            arguments: dict[str, Any] = {"mailbox": read_mailbox if read_ids else plan.mailbox}
+            if read_ids:
                 operation = "read_message_by_id"
-                arguments["message_ids"] = list(message_ids)
+                arguments["message_ids"] = list(read_ids)
             elif operation == "read_message":
                 # Reading bodies is bounded tighter than listing; a larger plan
                 # limit is normalized to that bound, never widened.
@@ -505,7 +795,7 @@ async def run_delegated_mail_read(
                 # Ids resolved in one mailbox are meaningless in another, so a
                 # reconnect to a different Google account refuses the read
                 # rather than reading whatever now holds that position.
-                expect_account=expect_account,
+                expect_account=read_account,
             )
             stage = "retrieval"
             with mail_latency("fetch"):
@@ -548,7 +838,7 @@ async def run_delegated_mail_read(
                 coverage = dict(metadata.get("coverage") or {})
                 coverage["assessed"] = len(readable)
                 coverage["analysis_unassessable"] = len(rows) - len(readable)
-                coverage["plan_source"] = "planner"
+                coverage["plan_source"] = "offer" if read_ids else "planner"
                 coverage["analysis_requested"] = list(plan.categories)
                 coverage["analysis_failed"] = failed
                 for category in _ANALYSIS_CATEGORIES:
@@ -619,7 +909,8 @@ async def run_delegated_mail_read(
                         {
                             "message_ids": list(offered_ids),
                             "account": reader.account,
-                            "mailbox": plan.mailbox,
+                            "mailbox": arguments["mailbox"],
+                            **({"selected_ordinal": selected_ordinal} if selected_ordinal else {}),
                         }
                         if offered_ids
                         else None
@@ -630,6 +921,29 @@ async def run_delegated_mail_read(
             # the whole point of computing them here is that prose cannot be
             # trusted with a number. Its prompt stays exactly what it was.
             coverage = dict(metadata.get("coverage") or {})
+            rows = metadata["untrusted_external_content"]
+            if not rows:
+                # No evidence can support model-authored mailbox claims.
+                # Empty retrieval is a server fact; retain the exact read's
+                # coverage and recheck the grant at the release boundary.
+                await reader.require_current()
+                coverage.update(
+                    cited=0, summarized=0, plan_source="offer" if read_ids else "planner"
+                )
+                text = "I did not find any matching mail in the messages checked."
+                if coverage.get("matches_beyond_page") or coverage.get("items_omitted"):
+                    text += " More mail may be outside this page."
+                logger.info(
+                    "one_voice.mail.latency stage=%s ms=%d status=%s", "interpret", 0, "skipped"
+                )
+                return _result(
+                    conversation_id,
+                    text,
+                    "ok",
+                    truncated=metadata["truncated"],
+                    metadata_only=metadata["metadata_only"],
+                    coverage=coverage,
+                )
             evidence = {k: v for k, v in metadata.items() if k != "coverage"}
             stage = "interpretation"
             with mail_latency("interpret"):
@@ -678,7 +992,7 @@ async def run_delegated_mail_read(
             # How many the interpreter chose to cite is a fact about the
             # interpreter. It is never how many messages were found.
             coverage["cited"] = len(sources)
-            coverage["plan_source"] = "offer" if message_ids else "planner"
+            coverage["plan_source"] = "offer" if read_ids else "planner"
             coverage["summarized"] = len(gist_refs)
             offered_ids = reader.offered_message_ids()
             # Merged onto the rows the surface already renders, rather than sent
@@ -691,6 +1005,11 @@ async def run_delegated_mail_read(
                 for row in rows
             ]
             text = answer.answer
+            if operation == "list_needs_reply":
+                text += (
+                    "\n\nThese are possible replies based on sender metadata; "
+                    "I have not confirmed each needs a response."
+                )
             matches_cut = bool(coverage.get("matches_beyond_page") or coverage.get("items_omitted"))
             text_cut = bool(coverage.get("content_shortened"))
             if not coverage.get("operation") and metadata["truncated"]:
@@ -719,7 +1038,8 @@ async def run_delegated_mail_read(
                     {
                         "message_ids": list(offered_ids),
                         "account": reader.account,
-                        "mailbox": plan.mailbox,
+                        "mailbox": arguments["mailbox"],
+                        **({"selected_ordinal": selected_ordinal} if selected_ordinal else {}),
                     }
                     if offered_ids
                     else None
@@ -736,6 +1056,7 @@ async def run_delegated_mail_read(
                 else "unavailable"
             ),
             failure_stage=stage,
+            failure_reason=exc.code if exc.code in _ERRORS else None,
             analysis_failed=analysis_categories if stage == "analysis" else (),
         )
     except PermissionError:
