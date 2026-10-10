@@ -13,6 +13,7 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import DBAPIError
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -72,6 +73,7 @@ def projection_db():
                 "282_direct_message_actions.sql",
                 "284_direct_message_multiple_reactions.sql",
                 "290_chat_push_delivery.sql",
+                "295_direct_message_attachments.sql",
             ]:
                 sql = (ROOT / "db/migrations" / migration).read_text(encoding="utf-8")
                 # Replay the actual production guards and projection wiring.
@@ -174,6 +176,8 @@ def _message_service(db, monkeypatch, events=None, pushes=None):
         db=db,
         event_notifier=lambda *args, **kwargs: events.append(args) if events is not None else None,
         push_notifier=lambda *args, **kwargs: pushes.append(args) if pushes is not None else None,
+        # This fixture exercises the actual database Feed trigger, without the global DB callback.
+        feed_notifier=lambda *args, **kwargs: None,
     )
 
 
@@ -194,6 +198,112 @@ def _seed_people(db):
                 "INSERT INTO connections(user_a_id,user_b_id) VALUES('alice','carol'),('bob','carol')"
             )
         )
+
+
+def test_attachment_migration_replay_preserves_encrypted_rows_and_authorization(
+    projection_db, monkeypatch
+):
+    migration = (ROOT / "db/migrations/295_direct_message_attachments.sql").read_text(
+        encoding="utf-8"
+    )
+
+    def apply_migration():
+        raw = projection_db.engine.raw_connection()
+        try:
+            raw.autocommit = True
+            with raw.cursor() as cursor:
+                cursor.execute(migration)
+        finally:
+            raw.close()
+
+    apply_migration()
+    _seed_people(projection_db)
+    service = _message_service(projection_db, monkeypatch)
+    first_id, second_id = str(uuid.uuid4()), str(uuid.uuid4())
+    for message_id in (first_id, second_id):
+        service.send_message(
+            "alice",
+            recipient_user_id="bob",
+            content="Encrypted attachment",
+            client_message_id=message_id,
+        )
+    insert_attachment = text(
+        """
+        INSERT INTO direct_message_attachments(message_id,ciphertext,iv,content_digest,size_bytes)
+        VALUES(CAST(:message_id AS UUID),:ciphertext,:iv,:digest,1)
+        """
+    )
+    payload = {"ciphertext": b"c" * 17, "iv": b"i" * 12, "digest": b"d" * 32}
+    with projection_db.engine.begin() as connection:
+        connection.execute(insert_attachment, {"message_id": first_id, **payload})
+        original = connection.execute(text("SELECT * FROM direct_message_attachments")).one()
+        table_oid = connection.execute(
+            text("SELECT 'public.direct_message_attachments'::regclass::oid")
+        ).scalar_one()
+        original_acl = connection.execute(
+            text("SELECT relacl FROM pg_class WHERE oid=:oid"), {"oid": table_oid}
+        ).scalar_one()
+
+    # Deploy replays the migration over existing attachment history.
+    apply_migration()
+    apply_migration()
+    with projection_db.engine.begin() as connection:
+        assert (
+            connection.execute(text("SELECT * FROM direct_message_attachments")).one() == original
+        )
+        assert (
+            connection.execute(
+                text("SELECT 'public.direct_message_attachments'::regclass::oid")
+            ).scalar_one()
+            == table_oid
+        )
+        assert (
+            connection.execute(
+                text("SELECT relrowsecurity FROM pg_class WHERE oid=:oid"), {"oid": table_oid}
+            ).scalar_one()
+            is True
+        )
+        assert (
+            connection.execute(
+                text("SELECT relacl FROM pg_class WHERE oid=:oid"), {"oid": table_oid}
+            ).scalar_one()
+            == original_acl
+        )
+        assert connection.execute(
+            text("""
+                SELECT polname, pg_get_expr(polqual,polrelid), pg_get_expr(polwithcheck,polrelid)
+                FROM pg_policy WHERE polrelid=:oid
+            """),
+            {"oid": table_oid},
+        ).all() == [("direct_message_attachments_deny_all", "false", "false")]
+        # Even a role with read access to every table cannot read encrypted history through RLS.
+        connection.execute(text("SET LOCAL ROLE pg_read_all_data"))
+        assert (
+            connection.execute(text("SELECT count(*) FROM direct_message_attachments")).scalar_one()
+            == 0
+        )
+
+    with pytest.raises(DBAPIError, match="row-level security policy") as denied:
+        with projection_db.engine.begin() as connection:
+            connection.execute(
+                text("GRANT INSERT ON direct_message_attachments TO pg_read_all_data")
+            )
+            connection.execute(text("SET LOCAL ROLE pg_read_all_data"))
+            connection.execute(insert_attachment, {"message_id": second_id, **payload})
+    assert denied.value.orig.pgcode == "42501"
+
+    with pytest.raises(DBAPIError, match="DIRECT_MESSAGE_ATTACHMENT_IMMUTABLE") as immutable:
+        with projection_db.engine.begin() as connection:
+            connection.execute(
+                text("UPDATE direct_message_attachments SET ciphertext=:ciphertext"), payload
+            )
+    assert immutable.value.orig.pgcode == "42501"
+    with projection_db.engine.begin() as connection:
+        connection.execute(text("UPDATE connections SET status='revoked'"))
+    with pytest.raises(DBAPIError, match="DIRECT_MESSAGE_CONNECTION_REQUIRED") as revoked:
+        with projection_db.engine.begin() as connection:
+            connection.execute(insert_attachment, {"message_id": second_id, **payload})
+    assert revoked.value.orig.pgcode == "42501"
 
 
 def test_concurrent_uuid_replay_commits_one_message_feed_and_push(projection_db, monkeypatch):
