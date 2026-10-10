@@ -26,11 +26,9 @@ SET contact_discoverable = FALSE,
     contact_sync_consent_enabled_at = NULL,
     contact_sync_consent_contract_version = NULL,
     updated_at = NOW()
-WHERE (contact_sync_consent_enabled_at IS NULL
+WHERE contact_sync_consent_enabled_at IS NULL
    OR contact_sync_consent_rule_version < 1
-   OR contact_sync_consent_contract_version IS DISTINCT FROM 'contact_find_auto_connect_v1')
-  AND (contact_discoverable, contact_sync_consent_enabled_at,
-       contact_sync_consent_contract_version) IS DISTINCT FROM (FALSE, NULL, NULL);
+   OR contact_sync_consent_contract_version IS DISTINCT FROM 'contact_find_auto_connect_v1';
 
 ALTER TABLE connection_origins
   DROP CONSTRAINT IF EXISTS connection_origins_origin_kind_check;

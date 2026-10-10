@@ -52,8 +52,6 @@ LEFT JOIN ria_profiles rp
   ON rp.user_id = ap.user_id
 ON CONFLICT (user_id) DO UPDATE SET
   display_name = COALESCE(actor_identity_cache.display_name, EXCLUDED.display_name),
-  updated_at = NOW()
-WHERE actor_identity_cache.display_name IS NULL
-  AND EXCLUDED.display_name IS NOT NULL;
+  updated_at = NOW();
 
 COMMIT;

@@ -222,9 +222,18 @@ VALUES
     8760,
     TRUE
   )
--- These version-one seeds cannot replace an existing accepted template.
--- Subsequent policy changes belong to a forward, versioned migration.
-ON CONFLICT (template_id) DO NOTHING;
+ON CONFLICT (template_id) DO UPDATE
+SET
+  version = EXCLUDED.version,
+  requester_actor_type = EXCLUDED.requester_actor_type,
+  subject_actor_type = EXCLUDED.subject_actor_type,
+  template_name = EXCLUDED.template_name,
+  description = EXCLUDED.description,
+  allowed_scopes = EXCLUDED.allowed_scopes,
+  default_duration_hours = EXCLUDED.default_duration_hours,
+  max_duration_hours = EXCLUDED.max_duration_hours,
+  active = EXCLUDED.active,
+  updated_at = NOW();
 
 CREATE TABLE IF NOT EXISTS marketplace_public_profiles (
   user_id TEXT PRIMARY KEY REFERENCES actor_profiles(user_id) ON DELETE CASCADE,

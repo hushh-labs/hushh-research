@@ -352,8 +352,9 @@ Every new table must have a declared owner, data class, primary access path, exp
 ### Infrastructure integration lineage (2026-10-09)
 
 Main migrations 284–288 retain their canonical identities. The infrastructure
-branch's commerce and explicit Shared-choice SQL is registered unchanged as 289
-and 290. Original branch-only 284/287 files and rollbacks remain in `db/legacy/`
+branch's earlier commerce and explicit Shared-choice SQL was registered as 289
+and 290 at that integration stage; the current manifest owns the later IDs.
+Original branch-only 284/287 files and rollbacks remain in `db/legacy/`
 as historical preview evidence, outside the release manifest. Never relabel an
 applied ledger row or replay this lineage on a preview that recorded the old IDs.
 The shared dev ledger readback contained neither old ID; recheck the target ledger

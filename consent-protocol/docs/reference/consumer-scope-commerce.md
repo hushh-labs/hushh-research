@@ -2103,3 +2103,47 @@ Both reviewers still have zero scope-commerce funding, purchase and payout
 records. The task-owned recovery container was gracefully stopped and removed
 after verification of the retained backup checksum; this cleanup did not change
 the cloud database or establish a baseline.
+
+### Shared Dev replay preservation correction — 2026-10-09
+
+The combined phone, erasure and registration candidate passed the complete local
+core bundle and was committed on the existing infrastructure branch as
+`a6b6c294`. No deployment or financial acceptance is implied by that result.
+
+An isolated PostgreSQL 15 restoration exposed a separate deployment defect in
+the existing full-release replay: historical backfills changed timestamps in
+eight tables and replaced an equivalent circle constraint's catalog expression.
+Per-file, per-column aggregate attribution retained no protected values. Older
+PKM and persona upserts could also replace newer owner state on a later replay.
+
+The correction makes legacy PKM, persona and version-one template seeds
+insert-only, excludes legacy segments and paths from established current
+domains, and restricts legacy scopes to newly imported domains. A transaction-held
+writer lock fences that admission snapshot; legitimate first-run legacy blobs
+without manifests remain preserved. Recovery versions fill independently with a source-revision
+predicate, and skips updates whose intended values already match. The circle
+guard checks relation, column binding, predicate and validation flags before
+retaining the existing constraint. The nine original SQL bodies are archived
+byte-for-byte in
+[`replay-source-a6b6c294`](../../db/legacy/scope-commerce-dev-2349b160/replay-source-a6b6c294/030_pkm_cutover.sql).
+Existing applied receipts and the canonical 249 deferral remain unchanged.
+
+The corrected full shared-Dev selection of 268 migrations preserved original
+columns and financial history on the checksummed restored clone. Its second full
+replay produced exact catalog and record parity. The 28 focused checks passed,
+including first import, preservation of current owner choices, refusal to
+recreate removed scopes, independent version backfill, and rejection of a wrong
+constraint predicate. Negative controls reproduce the old persona and PKM
+overwrites. Disposable containers were removed. This qualifies replay behavior
+on the retained restoration; it neither creates a baseline nor proves current
+source preservation or deployed reviewer transactions. Hosted CI and the Dev
+release remain separate gates.
+
+Fresh authenticated Dev readback at 01:48Z found the requested recorded phone
+already assigned to an independently active reviewer outside this rehearsal.
+The dedicated temporary transport was disabled in Secret Manager at 01:51Z,
+without changing Firebase or application records. Enrollment awaits an explicit
+fixture choice; deployment must not silently transfer the existing binding.
+Headless readback still confirms the counterpart's unlocked private Azure setup
+and the primary's absence of a phone, vault or owner-cloud setup. Commerce and
+live admission remain disabled; both reviewers have no financial receipts.

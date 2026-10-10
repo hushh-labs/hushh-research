@@ -1,13 +1,5 @@
 BEGIN;
 
--- Legacy storage is a seed, never a source that overwrites current PKM.
--- Only domains imported by this invocation may acquire legacy scope handles.
-CREATE TEMP TABLE pkm_cutover_imported_domains (
-  user_id TEXT NOT NULL,
-  domain TEXT NOT NULL,
-  PRIMARY KEY (user_id, domain)
-) ON COMMIT DROP;
-
 CREATE TABLE IF NOT EXISTS pkm_index (
   user_id TEXT PRIMARY KEY,
   available_domains TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
@@ -210,13 +202,6 @@ ALTER TABLE pkm_migration_state
     )
   );
 
--- Keep first-run orphan legacy imports, while never restoring a removed root
--- or path inside a domain that already belongs to current PKM. Hold the writer
--- lock through commit so this admission snapshot cannot race a new manifest.
-LOCK TABLE pkm_manifests IN SHARE ROW EXCLUSIVE MODE;
-CREATE TEMP TABLE pkm_cutover_existing_domains ON COMMIT DROP AS
-  SELECT user_id, domain FROM pkm_manifests;
-
 DO $$
 BEGIN
   IF EXISTS (
@@ -247,61 +232,16 @@ BEGIN
         COALESCE(total_attributes, 0),
         COALESCE(created_at, NOW()),
         COALESCE(updated_at, NOW())
-      FROM world_model_index_v2 AS legacy
-      WHERE NOT EXISTS (SELECT 1 FROM pkm_manifests AS current
-                        WHERE current.user_id = legacy.user_id)
-      ON CONFLICT (user_id) DO NOTHING
-    $sql$;
-  END IF;
-END $$;
-
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM information_schema.tables
-    WHERE table_schema = 'public'
-      AND table_name = 'user_domain_manifests'
-  ) THEN
-    EXECUTE $sql$
-      WITH imported AS (
-      INSERT INTO pkm_manifests (
-        user_id,
-        domain,
-        manifest_version,
-        structure_decision,
-        summary_projection,
-        top_level_scope_paths,
-        externalizable_paths,
-        segment_ids,
-        path_count,
-        externalizable_path_count,
-        last_structured_at,
-        last_content_at,
-        created_at,
-        updated_at
-      )
-      SELECT
-        user_id,
-        domain,
-        COALESCE(manifest_version, 1),
-        COALESCE(structure_decision, '{}'::JSONB),
-        COALESCE(summary_projection, '{}'::JSONB),
-        COALESCE(top_level_scope_paths, ARRAY[]::TEXT[]),
-        COALESCE(externalizable_paths, ARRAY[]::TEXT[]),
-        ARRAY['root']::TEXT[],
-        COALESCE(path_count, 0),
-        COALESCE(externalizable_path_count, 0),
-        COALESCE(last_structured_at, NOW()),
-        COALESCE(last_content_at, NOW()),
-        COALESCE(created_at, NOW()),
-        COALESCE(updated_at, NOW())
-      FROM user_domain_manifests
-      ON CONFLICT (user_id, domain) DO NOTHING
-      RETURNING user_id, domain
-      )
-      INSERT INTO pkm_cutover_imported_domains (user_id, domain)
-      SELECT user_id, domain FROM imported
+      FROM world_model_index_v2
+      ON CONFLICT (user_id) DO UPDATE
+      SET
+        available_domains = EXCLUDED.available_domains,
+        domain_summaries = EXCLUDED.domain_summaries,
+        computed_tags = EXCLUDED.computed_tags,
+        activity_score = EXCLUDED.activity_score,
+        last_active_at = EXCLUDED.last_active_at,
+        total_attributes = EXCLUDED.total_attributes,
+        updated_at = EXCLUDED.updated_at
     $sql$;
   END IF;
 END $$;
@@ -343,13 +283,76 @@ BEGIN
         COALESCE(created_at, NOW()),
         COALESCE(updated_at, NOW())
       FROM world_model_domain_blobs
-      WHERE (user_id, domain) NOT IN (SELECT user_id, domain FROM pkm_cutover_existing_domains)
-      ON CONFLICT (user_id, domain, segment_id) DO NOTHING
+      ON CONFLICT (user_id, domain, segment_id) DO UPDATE
+      SET
+        ciphertext = EXCLUDED.ciphertext,
+        iv = EXCLUDED.iv,
+        tag = EXCLUDED.tag,
+        algorithm = EXCLUDED.algorithm,
+        content_revision = EXCLUDED.content_revision,
+        size_bytes = EXCLUDED.size_bytes,
+        updated_at = EXCLUDED.updated_at
     $sql$;
   END IF;
 END $$;
 
-
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name = 'user_domain_manifests'
+  ) THEN
+    EXECUTE $sql$
+      INSERT INTO pkm_manifests (
+        user_id,
+        domain,
+        manifest_version,
+        structure_decision,
+        summary_projection,
+        top_level_scope_paths,
+        externalizable_paths,
+        segment_ids,
+        path_count,
+        externalizable_path_count,
+        last_structured_at,
+        last_content_at,
+        created_at,
+        updated_at
+      )
+      SELECT
+        user_id,
+        domain,
+        COALESCE(manifest_version, 1),
+        COALESCE(structure_decision, '{}'::JSONB),
+        COALESCE(summary_projection, '{}'::JSONB),
+        COALESCE(top_level_scope_paths, ARRAY[]::TEXT[]),
+        COALESCE(externalizable_paths, ARRAY[]::TEXT[]),
+        ARRAY['root']::TEXT[],
+        COALESCE(path_count, 0),
+        COALESCE(externalizable_path_count, 0),
+        COALESCE(last_structured_at, NOW()),
+        COALESCE(last_content_at, NOW()),
+        COALESCE(created_at, NOW()),
+        COALESCE(updated_at, NOW())
+      FROM user_domain_manifests
+      ON CONFLICT (user_id, domain) DO UPDATE
+      SET
+        manifest_version = EXCLUDED.manifest_version,
+        structure_decision = EXCLUDED.structure_decision,
+        summary_projection = EXCLUDED.summary_projection,
+        top_level_scope_paths = EXCLUDED.top_level_scope_paths,
+        externalizable_paths = EXCLUDED.externalizable_paths,
+        segment_ids = EXCLUDED.segment_ids,
+        path_count = EXCLUDED.path_count,
+        externalizable_path_count = EXCLUDED.externalizable_path_count,
+        last_structured_at = EXCLUDED.last_structured_at,
+        last_content_at = EXCLUDED.last_content_at,
+        updated_at = EXCLUDED.updated_at
+    $sql$;
+  END IF;
+END $$;
 
 DO $$
 BEGIN
@@ -390,8 +393,17 @@ BEGIN
         COALESCE(created_at, NOW()),
         COALESCE(updated_at, NOW())
       FROM user_domain_manifest_paths
-      WHERE (user_id, domain) NOT IN (SELECT user_id, domain FROM pkm_cutover_existing_domains)
-      ON CONFLICT (user_id, domain, json_path) DO NOTHING
+      ON CONFLICT (user_id, domain, json_path) DO UPDATE
+      SET
+        parent_path = EXCLUDED.parent_path,
+        path_type = EXCLUDED.path_type,
+        segment_id = EXCLUDED.segment_id,
+        scope_handle = EXCLUDED.scope_handle,
+        exposure_eligibility = EXCLUDED.exposure_eligibility,
+        consent_label = EXCLUDED.consent_label,
+        sensitivity_label = EXCLUDED.sensitivity_label,
+        source_agent = EXCLUDED.source_agent,
+        updated_at = EXCLUDED.updated_at
     $sql$;
   END IF;
 END $$;
@@ -427,10 +439,14 @@ SELECT
   NOW(),
   NOW()
 FROM pkm_manifests AS manifests
-JOIN pkm_cutover_imported_domains AS imported
-  ON imported.user_id = manifests.user_id AND imported.domain = manifests.domain
 CROSS JOIN LATERAL UNNEST(COALESCE(manifests.top_level_scope_paths, ARRAY[]::TEXT[])) AS scope_path
-ON CONFLICT (user_id, domain, scope_handle) DO NOTHING;
+ON CONFLICT (user_id, domain, scope_handle) DO UPDATE
+SET
+  scope_label = EXCLUDED.scope_label,
+  segment_ids = EXCLUDED.segment_ids,
+  manifest_version = EXCLUDED.manifest_version,
+  summary_projection = EXCLUDED.summary_projection,
+  updated_at = EXCLUDED.updated_at;
 
 DO $$
 BEGIN
@@ -504,7 +520,12 @@ BEGIN
         NOW(),
         NOW()
       FROM world_model_data AS legacy
-      ON CONFLICT (user_id) DO NOTHING
+      ON CONFLICT (user_id) DO UPDATE
+      SET
+        status = EXCLUDED.status,
+        source_model = EXCLUDED.source_model,
+        legacy_blob_present = EXCLUDED.legacy_blob_present,
+        updated_at = EXCLUDED.updated_at
     $sql$;
   END IF;
 END $$;

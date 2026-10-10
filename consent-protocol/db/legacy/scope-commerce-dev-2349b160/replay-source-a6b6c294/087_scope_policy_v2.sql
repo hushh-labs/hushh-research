@@ -22,8 +22,7 @@ SET allowed_capabilities = CASE
       updated_at,
       (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT
     )
-WHERE LOWER(TRIM(display_name)) IN ('hushh technology', 'hushh technologies')
-  AND NOT (allowed_capabilities ? 'cap.one.invoke');
+WHERE LOWER(TRIM(display_name)) IN ('hushh technology', 'hushh technologies');
 
 -- Append REVOKED events for every latest live grant with a retired scope. The
 -- original grant row/string remains immutable for audit and can no longer win

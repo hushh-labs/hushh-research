@@ -26,14 +26,9 @@ SET visibility_posture = CASE
     ELSE COALESCE(NULLIF(TRIM(visibility_posture), ''), 'consent_required')
   END,
   default_projection_ready = FALSE
-WHERE (visibility_posture IS NULL
+WHERE visibility_posture IS NULL
    OR TRIM(visibility_posture) = ''
-   OR exposure_enabled IS FALSE)
-  AND (visibility_posture, default_projection_ready) IS DISTINCT FROM (
-    CASE WHEN exposure_enabled IS FALSE THEN 'private'
-      ELSE COALESCE(NULLIF(TRIM(visibility_posture), ''), 'consent_required') END,
-    FALSE
-  );
+   OR exposure_enabled IS FALSE;
 
 CREATE TABLE IF NOT EXISTS pkm_default_available_projections (
   id BIGSERIAL PRIMARY KEY,

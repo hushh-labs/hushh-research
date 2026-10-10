@@ -12,14 +12,8 @@ ALTER TABLE pkm_manifests
   ADD COLUMN IF NOT EXISTS readable_projection_version TEXT NOT NULL DEFAULT '0.0.0',
   ADD COLUMN IF NOT EXISTS latest_upgrade_commit_id UUID;
 
--- Fill each unset version independently and avoid triggering timestamp writes
--- when no valid projection version is available.
-WITH version_candidates AS (
-SELECT user_id, domain, pkm_contract_version AS prior_contract_version,
-       readable_projection_version AS prior_projection_version,
-       summary_projection AS prior_summary_projection,
-       structure_decision AS prior_structure_decision, CASE
-      WHEN pkm_contract_version <> '0.0.0' THEN pkm_contract_version
+UPDATE pkm_manifests
+SET pkm_contract_version = CASE
       WHEN COALESCE(summary_projection->>'pkm_contract_version', '')
         ~ '^(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})$'
         THEN summary_projection->>'pkm_contract_version'
@@ -27,9 +21,8 @@ SELECT user_id, domain, pkm_contract_version AS prior_contract_version,
         ~ '^(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})$'
         THEN structure_decision->'summary_projection'->>'pkm_contract_version'
       ELSE pkm_contract_version
-    END AS next_contract_version,
-    CASE
-      WHEN readable_projection_version <> '0.0.0' THEN readable_projection_version
+    END,
+    readable_projection_version = CASE
       WHEN COALESCE(summary_projection->>'readable_projection_version', '')
         ~ '^(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})$'
         THEN summary_projection->>'readable_projection_version'
@@ -37,22 +30,9 @@ SELECT user_id, domain, pkm_contract_version AS prior_contract_version,
         ~ '^(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})$'
         THEN structure_decision->'summary_projection'->>'readable_projection_version'
       ELSE readable_projection_version
-    END AS next_projection_version
-FROM pkm_manifests
+    END
 WHERE pkm_contract_version = '0.0.0'
-   OR readable_projection_version = '0.0.0'
-)
-UPDATE pkm_manifests AS manifest
-SET pkm_contract_version = candidate.next_contract_version,
-    readable_projection_version = candidate.next_projection_version
-FROM version_candidates AS candidate
-WHERE manifest.user_id = candidate.user_id AND manifest.domain = candidate.domain
-  AND (manifest.pkm_contract_version, manifest.readable_projection_version,
-       manifest.summary_projection, manifest.structure_decision) IS NOT DISTINCT FROM
-      (candidate.prior_contract_version, candidate.prior_projection_version,
-       candidate.prior_summary_projection, candidate.prior_structure_decision)
-  AND (manifest.pkm_contract_version, manifest.readable_projection_version)
-    IS DISTINCT FROM (candidate.next_contract_version, candidate.next_projection_version);
+   OR readable_projection_version = '0.0.0';
 
 ALTER TABLE pkm_scope_registry
   ADD COLUMN IF NOT EXISTS scope_origin TEXT NOT NULL DEFAULT 'dynamic',

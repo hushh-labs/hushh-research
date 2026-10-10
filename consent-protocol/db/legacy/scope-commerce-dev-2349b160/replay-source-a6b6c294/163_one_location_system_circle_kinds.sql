@@ -54,34 +54,11 @@ WHERE is_system
 
 -- Drop-then-add, per 158/159: Postgres has no ADD CONSTRAINT IF NOT EXISTS and
 -- the deploy lane replays.
--- Preserve the exact existing catalog when its validated, local predicate is
--- already equivalent. PostgreSQL 15 deparses varchar casts in two forms.
-DO $migration$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint AS constraint_row
-    JOIN pg_attribute AS column_row
-      ON column_row.attrelid = constraint_row.conrelid
-      AND column_row.attname = 'system_kind' AND NOT column_row.attisdropped
-    WHERE constraint_row.conrelid = 'one_location_circles'::regclass
-      AND constraint_row.conname = 'one_location_circles_system_kind_values'
-      AND constraint_row.contype = 'c'
-      AND constraint_row.convalidated AND constraint_row.conislocal
-      AND NOT constraint_row.connoinherit
-      AND constraint_row.conkey = ARRAY[column_row.attnum]::SMALLINT[]
-      AND pg_get_constraintdef(constraint_row.oid, TRUE) IN (
-        'CHECK (system_kind IS NULL OR (system_kind::text = ANY (ARRAY[''sms''::character varying::text, ''trusted''::character varying::text])))',
-        'CHECK (system_kind IS NULL OR (system_kind::text = ANY (ARRAY[''sms''::character varying, ''trusted''::character varying]::text[])))'
-      )
-  ) THEN
-    ALTER TABLE one_location_circles
-      DROP CONSTRAINT IF EXISTS one_location_circles_system_kind_values;
-    ALTER TABLE one_location_circles
-      ADD CONSTRAINT one_location_circles_system_kind_values
-        CHECK (system_kind IS NULL OR system_kind IN ('sms', 'trusted'));
-  END IF;
-END
-$migration$;
+ALTER TABLE one_location_circles
+  DROP CONSTRAINT IF EXISTS one_location_circles_system_kind_values;
+ALTER TABLE one_location_circles
+  ADD CONSTRAINT one_location_circles_system_kind_values
+    CHECK (system_kind IS NULL OR system_kind IN ('sms', 'trusted'));
 
 -- One live Circle per (owner, kind). Both provisioners are find-or-create
 -- hooks that run on bootstrap, from more than one device at once; without this
