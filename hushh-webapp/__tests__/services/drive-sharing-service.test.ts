@@ -394,6 +394,27 @@ describe("private sharing transport", () => {
         .rejects.toMatchObject({ code: "invalid_response" });
     }
   });
+  it("accepts only the owner's request-bound payout projection and keeps unsettled earnings hidden", async () => {
+    const payout = {
+      requestId, currency: "usd", grossAmountCents: 1000,
+      retainedAmountCents: null, platformFeeCents: null,
+      processingFeeCents: null, ownerEarningCents: null,
+      status: "awaiting_fee",
+    };
+    fetcher.mockResolvedValueOnce(reply({ ...notStartedReview(), ownerPayout: payout }));
+    expect((await DriveSharingService.review("vault", requestId, guard)).ownerPayout)
+      .toEqual(payout);
+    for (const invalid of [
+      { requestId: "22222222-2222-4222-8222-222222222222" },
+      { currency: "eur" },
+      { status: "paid_to_bank" },
+      { ownerEarningCents: "970" },
+    ]) {
+      fetcher.mockResolvedValueOnce(reply({ ...notStartedReview(), ownerPayout: { ...payout, ...invalid } }));
+      await expect(DriveSharingService.review("vault", requestId, guard))
+        .rejects.toMatchObject({ code: "invalid_response" });
+    }
+  });
   it("allows with the revision, explicit confirmation and a price only when one is set", async () => {
     fetcher.mockResolvedValueOnce(reply({ requestId, status: "pending", revision: 4,
       ownerAllowed: true, amountCents: 2000 }, 202));
@@ -450,6 +471,21 @@ describe("private sharing transport", () => {
       ...(timeZone ? { timeZone } : {}),
     });
     expect(options.isEffectCurrent()).toBe(true);
+  });
+  it("sends the displayed quote version while preserving legacy unversioned clients", async () => {
+    const draft = {
+      ownerPersonRef: documentId,
+      clientRequestId: requestId,
+      expectedQuoteVersion: 3,
+      purpose: { purpose: "Statements", periodStart: "2026-03-01", periodEnd: "2026-08-31" },
+    };
+    fetcher.mockResolvedValueOnce(reply({ requestId, status: "pending", revision: 0 }, 202));
+    await DriveSharingService.create("vault", "firebase", draft, guard);
+    expect(JSON.parse(fetcher.mock.calls[0][1].body).expectedQuoteVersion).toBe(3);
+    await expect(DriveSharingService.create("vault", "firebase", {
+      ...draft, expectedQuoteVersion: -1,
+    }, guard)).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
   it.each([
     [null, null, true],

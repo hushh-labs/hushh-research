@@ -79,7 +79,7 @@ export function FeedPaymentReturnNotice() {
       : state === "refunded"
         ? "Your payment was refunded because this request could not be completed."
         : state === "expired"
-          ? "This payment link expired. Return to the Feed to create a new link."
+          ? "This payment link expired. Send a new document request if you still need the files."
           : state === "cancelled"
             ? "Payment wasn't completed. Your request is still waiting for payment."
             : state === "unavailable"

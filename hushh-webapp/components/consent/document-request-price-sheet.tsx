@@ -3,6 +3,7 @@
 import { useId, useState } from "react";
 
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
+import { DocumentPayoutAccountCard } from "@/components/consent/document-payout-account";
 import { SettingsDetailPanel } from "@/components/app-ui/settings-ui";
 import { BodyText, FormLabel, HelperText } from "@/components/app-ui/typography";
 import {
@@ -35,6 +36,8 @@ export interface DocumentRequestPriceSheetProps {
   detailsPending?: boolean;
   /** False for a free request: no price controls, and Allow submits null. */
   paymentRequired: boolean;
+  /** New requests hold the quote shown to the requester; legacy requests remain editable. */
+  lockedAmountCents?: number | null;
   busy: boolean;
   error: string | null;
   onSubmit: (amountCents: number | null) => void;
@@ -111,6 +114,7 @@ function PriceSheet({
   periodEnd,
   detailsPending = false,
   paymentRequired,
+  lockedAmountCents = null,
   busy,
   error,
   onSubmit,
@@ -127,8 +131,11 @@ function PriceSheet({
   const customCents = parseWholeDollarPrice(customText);
   const customInvalid =
     choice === "custom" && customText.trim() !== "" && customCents === null;
+  const lockedQuote = paymentRequired && lockedAmountCents !== null;
   const amountCents = !paymentRequired
     ? null
+    : lockedQuote
+      ? lockedAmountCents
     : choice === "custom"
       ? customCents
       : choice;
@@ -214,6 +221,13 @@ function PriceSheet({
         )}
         {paymentRequired ? (
           <>
+            {lockedQuote ? (
+              <div className="space-y-1" aria-label="Locked document request quote">
+                <FormLabel as="p">Request price</FormLabel>
+                <BodyText>{formatDocumentRequestPrice(lockedAmountCents)}</BodyText>
+                <HelperText>The requester saw this price before sending. It stays fixed for this request.</HelperText>
+              </div>
+            ) : <>
             <FormLabel as="p" id={priceLabelId}>
               Price
             </FormLabel>
@@ -285,6 +299,11 @@ function PriceSheet({
                 ) : null}
               </div>
             ) : null}
+            </>}
+            <HelperText>
+              Your net earnings are calculated after delivery, minus Hushh&apos;s 3% commission and the actual Stripe fee. Undelivered files are refunded to the requester.
+            </HelperText>
+            <DocumentPayoutAccountCard active={open} compact disabled={busy} />
           </>
         ) : null}
         {error ? <HelperText role="alert">{error}</HelperText> : null}

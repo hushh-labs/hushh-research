@@ -62,6 +62,36 @@ def test_trusted_auto_attention_follows_linked_search_state(search_state, attent
     assert entry(row)["metadata"]["owner_attention_required"] is attention_required
 
 
+def test_consent_projects_locked_quote_and_owner_setup_without_an_order():
+    row = {
+        "source": "share",
+        "id": f"document_share_request:{uuid4()}",
+        "request_id": uuid4(),
+        "bucket": "outgoing_requests",
+        "status": "pending",
+        "issued_at": 0,
+        "direction": "outgoing",
+        "state": "pending",
+        "revision": 0,
+        "quoted_amount_cents": 2500,
+        "quote_version": 2,
+        "payment_status": None,
+    }
+    requester = entry(row)["metadata"]
+    assert (requester["quotedAmountCents"], requester["quoteVersion"]) == (2500, 2)
+    assert requester["paymentRequired"] is True
+    assert "ownerPayoutAccountReady" not in requester
+
+    row.update(
+        bucket="incoming_requests",
+        direction="incoming",
+        owner_payout_account_ready=False,
+    )
+    owner = entry(row)["metadata"]
+    assert owner["ownerPayoutAccountReady"] is False
+    assert "quotedAmountCents" not in owner
+
+
 def test_background_setup_label_is_owner_only_and_clears_on_resume():
     row = {
         "source": "share",
