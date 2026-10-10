@@ -643,6 +643,20 @@ These are used by MCP modules (`mcp_modules/`) for MCP server functionality, not
 
 ---
 
+### Stripe mode on UAT
+
+`STRIPE_MODE` is server-only runtime configuration: `test` or `live`, validated
+against the secret key. Production defaults to and requires `live`; other
+runtimes default to `test`. The UAT workflow reads environment variable
+`STRIPE_UAT_MODE` and applies it to both API and private Drive worker. Live UAT
+uses its own `STRIPE_LIVE_SECRET_KEY`, `STRIPE_LIVE_WEBHOOK_SECRET` and
+`STRIPE_LIVE_CONNECT_WEBHOOK_SECRET` Secret Manager bindings. These map to the
+same runtime names (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
+`STRIPE_CONNECT_WEBHOOK_SECRET`); no credentials enter GitHub variables or code.
+The worker only mounts the API key and payment webhook secret because public
+Connect events terminate at the API. Sandbox secrets and production bindings are
+not overwritten. See [document payments](./drive-request-stripe-paywall.md#uat-live-payments).
+
 ## Secret Manager (GCP) — strict parity with code
 
 Secret Manager must hold **exactly** the keys the code uses. No extra secrets; no missing secrets. Cloud Build injects only these.

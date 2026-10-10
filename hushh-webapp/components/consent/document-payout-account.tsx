@@ -5,7 +5,10 @@ import { useSearchParams } from "next/navigation";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { HelperText } from "@/components/app-ui/typography";
-import { ChevronDown, Landmark } from "@/components/icons";
+import { ChevronDown } from "@/components/icons";
+import { ProfileAccountBankIcon } from "@/components/profile/profile-your-account-icons";
+import { ProfileInnerReviewIcon } from "@/components/profile/profile-inner-icons";
+import { ProfileSecondaryReceiptIcon } from "@/components/profile/profile-secondary-icons";
 import { Button } from "@/lib/morphy-ux/button";
 import { CONSENT_STATE_CHANGED_EVENT, dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 import {
@@ -137,27 +140,47 @@ export function DocumentPayoutAccountCard({ active = true, compact = false, hand
   }, [active, returnState, start, token, scope]);
   if (!active || !token) return null;
   const busy = busyScope === scope;
-  const label = ready ? "Manage bank" : account ? "Finish setup" : "Link bank";
-  const description = account?.status === "restricted" ? "Verification needed" : "US payouts";
+  const canManage = Boolean(account?.detailsSubmitted && (account.canManageBank ?? ready));
+  const bankCheckUnavailable = account?.bankStatus === "unavailable";
+  const label = canManage ? "Manage bank" : account ? "Finish setup" : "Link bank";
+  const bankLabel = account?.bank
+    ? [account.bank.name || "Bank", account.bank.last4 ? `•••• ${account.bank.last4}` : null].filter(Boolean).join(" ")
+    : null;
+  const description = account?.bankStatus === "needs_attention" ? "Update your bank"
+    : account?.bankStatus === "missing" ? "Bank needed"
+    : bankCheckUnavailable ? "Bank check unavailable"
+    : account?.status === "restricted" ? "Verification needed"
+    : bankLabel || (data?.stripeMode === "test" ? "Test payouts" : "US payouts");
   return (
     <section aria-label="Document payouts" className="space-y-4">
-      <SettingsGroup embedded density="compact">
-        <SettingsRow icon={Landmark} title={ready ? "Bank linked" : "Payout bank"} description={description}
-          trailing={resource.loading ? <HelperText role="status">Checking…</HelperText> :
-            <Button type="button" size="standard" variant={ready ? "none" : undefined}
-              disabled={busy || disabled || resource.failed} onClick={() => void start(ready)}>
-              {busy ? "Opening…" : label}
-            </Button>} />
+      <SettingsGroup title={compact ? undefined : "Bank account"} embedded={compact} density="compact">
+        <SettingsRow icon={ProfileAccountBankIcon} iconTone="capability"
+          title={ready ? "Bank linked" : "Payout bank"} description={description}
+          ariaLabel={label} chevron disabled={busy || disabled || resource.failed || resource.loading}
+          onClick={() => void start(canManage)}
+          trailing={<span className="profile-account-inline-action" role={resource.loading ? "status" : undefined}>
+            {resource.loading ? "Checking…" : busy ? "Opening…" : label}
+          </span>} />
+        {canManage && !ready && !bankCheckUnavailable && account?.bankStatus !== "missing" && account?.bankStatus !== "needs_attention" ? (
+          <SettingsRow icon={ProfileInnerReviewIcon} iconTone="capability" title="Verify details"
+            description="Finish setup to receive payouts." chevron disabled={busy || disabled || resource.failed}
+            onClick={() => void start()} />
+        ) : null}
       </SettingsGroup>
-      {resource.failed ? <div><HelperText role="alert">Couldn't check your bank. Try again.</HelperText>
-        <Button type="button" size="standard" variant="none" onClick={resource.retry}>Retry</Button></div> : null}
-      {actionError?.scope === scope ? <HelperText role="alert">{actionError.text}</HelperText> : null}
+      {bankCheckUnavailable && !resource.failed ? <Button type="button" size="sm" effect="fade" variant="none"
+        disabled={busy || disabled} onClick={resource.retry}>Retry</Button> : null}
+      {canManage && !compact ? <HelperText className="profile-account-note">Change banks in Stripe. Replace your payout bank before removing it.</HelperText> : null}
+      {resource.failed ? <div><HelperText role="alert" className="profile-account-note">Couldn't check your bank. Try again.</HelperText>
+        <Button type="button" size="sm" effect="fade" variant="none" onClick={resource.retry}>Retry</Button></div> : null}
+      {actionError?.scope === scope ? <HelperText role="alert" className="profile-account-note">{actionError.text}</HelperText> : null}
       {!compact ? <DocumentEarningsHistory /> : null}
     </section>
   );
 }
 
-function earningStatus(item: DocumentEarning): string {
+function earningStatus(item: DocumentEarning, activeMode?: "test" | "live"): string {
+  if (item.stripeMode === "legacy") return "Under review";
+  if (item.stripeMode === "test" && activeMode === "live") return "No bank deposit";
   switch (item.status) {
     case "awaiting_delivery": return "Awaiting delivery";
     case "awaiting_refund": return "Refund pending";
@@ -203,17 +226,16 @@ function DocumentEarningsHistory() {
   if (!token) return null;
   return (
     <section aria-label="Document transactions" className="space-y-2">
-      <SettingsGroup embedded title="Transactions" density="compact">
+      <SettingsGroup title="Transactions" density="compact">
         {history?.transactions.map((item) => (
-          <details key={item.requestId} className="px-4 py-3 text-sm">
-            <summary className="flex cursor-pointer list-none items-start justify-between gap-3">
-              <span className="flex min-w-0 flex-1 flex-col">
-                <span className="break-words">{item.description}</span>
-                <HelperText>{earningStatus(item)} · {shortDate(item.createdAt)}</HelperText>
-              </span>
-              <span className="flex shrink-0 items-center gap-2 tabular-nums">{money(item.netAmountCents)}<ChevronDown aria-hidden="true" className="size-4 text-muted-foreground" /></span>
+          <details key={item.requestId} className="group">
+            <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset">
+              <SettingsRow icon={ProfileSecondaryReceiptIcon} iconTone="capability" title={item.description}
+                description={[item.stripeMode === "test" ? "Test payment" : item.stripeMode === "legacy" ? "Payment mode unconfirmed" : null,
+                  earningStatus(item, history.stripeMode), shortDate(item.createdAt)].filter(Boolean).join(" · ")}
+                trailing={<span className="flex shrink-0 items-center gap-2 tabular-nums">{money(item.netAmountCents)}<ChevronDown aria-hidden="true" className="size-4 text-muted-foreground group-open:rotate-180" /></span>} />
             </summary>
-            <dl className="mt-3 space-y-1">
+            <dl className="profile-account-details space-y-1 px-4 pb-3 text-sm">
               {([ ["Paid", item.grossAmountCents], ["Refund", item.refundAmountCents],
                 ["Hushh (3%)", item.platformFeeCents], ["Stripe fees", item.processingFeeCents],
                 ["Your earnings", item.netAmountCents],
@@ -230,10 +252,10 @@ function DocumentEarningsHistory() {
         {history?.transactions.length === 0 ? <HelperText className="p-4">No earnings yet.</HelperText> : null}
       </SettingsGroup>
       {resource.failed ? <div><HelperText role="alert">Couldn't load transactions.</HelperText>
-        <Button type="button" size="standard" variant="none" onClick={resource.retry}>Retry</Button></div> : null}
-      {history?.nextCursor ? <Button type="button" size="standard" variant="none" disabled={moreBusy} onClick={() => void more()}>{moreBusy ? "Loading…" : "More transactions"}</Button> : null}
+        <Button type="button" size="sm" effect="fade" variant="none" onClick={resource.retry}>Retry</Button></div> : null}
+      {history?.nextCursor ? <Button type="button" size="sm" effect="fade" variant="none" disabled={moreBusy} onClick={() => void more()}>{moreBusy ? "Loading…" : "More transactions"}</Button> : null}
       {moreError ? <HelperText role="alert">Couldn't load more. Try again.</HelperText> : null}
-      <HelperText>Stripe transfers and bank deposits update separately.</HelperText>
+      <HelperText className="profile-account-note">Stripe transfers and bank deposits update separately.</HelperText>
     </section>
   );
 }
@@ -262,17 +284,16 @@ export function DocumentBankPayoutStatusCard({ compact = false, refreshOnFeedCha
     <section aria-label="Bank payout status" className={compact ? "rounded-xl border border-border/60 px-4 py-3" : "space-y-2"}>
       {compact ? <><p className="text-sm font-semibold">Bank payout</p>
         <HelperText className="mt-1">{bankPayoutCopy(latest!)}</HelperText></> :
-        <SettingsGroup embedded title="Bank deposits" density="compact">
-          {payouts?.map((payout) => <div key={payout.id} className="px-4 py-3">
-            <HelperText>{bankPayoutCopy(payout)}</HelperText>
-            {payout.expectedArrivalAt && ["pending", "in_transit"].includes(payout.status) ?
-              <HelperText>Expected {shortDate(payout.expectedArrivalAt)}</HelperText> : null}
-          </div>)}
+        <SettingsGroup title="Bank deposits" density="compact">
+          {payouts?.map((payout) => <SettingsRow key={payout.id} icon={ProfileAccountBankIcon} iconTone="capability"
+            title={bankPayoutCopy(payout)}
+            description={payout.expectedArrivalAt && ["pending", "in_transit"].includes(payout.status)
+              ? `Expected ${shortDate(payout.expectedArrivalAt)}` : undefined} />)}
           {resource.loading ? <HelperText role="status" className="p-4">Loading deposits…</HelperText> : null}
           {payouts?.length === 0 ? <HelperText className="p-4">No bank deposits yet.</HelperText> : null}
         </SettingsGroup>}
       {resource.failed ? <HelperText role="alert">Couldn't check bank payouts right now.</HelperText> : null}
-      {latest ? <HelperText>Bank payouts may combine earnings from multiple requests.</HelperText> : null}
+      {latest ? <HelperText className="profile-account-note">Bank payouts may combine earnings from multiple requests.</HelperText> : null}
     </section>
   );
 }

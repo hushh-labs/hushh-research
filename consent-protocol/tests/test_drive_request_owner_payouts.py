@@ -58,7 +58,8 @@ async def test_earnings_history_paginates_and_never_crosses_owner_boundary(
           request_id UUID PRIMARY KEY,status TEXT,gross_amount_cents INT,
           refund_amount_cents INT,platform_fee_cents INT,allocated_processing_fee_cents INT,
           owner_earning_cents INT,reversal_amount_cents INT,created_at TIMESTAMPTZ,
-          transferred_at TIMESTAMPTZ,expected_files INT,confirmed_files INT,erased_at TIMESTAMPTZ)""")
+          transferred_at TIMESTAMPTZ,expected_files INT,confirmed_files INT,erased_at TIMESTAMPTZ,
+          stripe_mode TEXT DEFAULT 'test')""")
         )
         for i, request_id in enumerate([*owner_ids, other_id]):
             c.execute(
@@ -71,7 +72,7 @@ async def test_earnings_history_paginates_and_never_crosses_owner_boundary(
             )
             c.execute(
                 text("""INSERT INTO drive_request_owner_payouts VALUES
-              (:id,'transferred',1000,0,30,59,911,NULL,:created,:created,1,1,NULL)"""),
+              (:id,'transferred',1000,0,30,59,911,NULL,:created,:created,1,1,NULL,'test')"""),
                 {
                     "id": request_id,
                     "created": datetime(2026, 1, 1, tzinfo=UTC) + timedelta(seconds=i),
@@ -362,6 +363,7 @@ def _transfer(**overrides) -> dict:
 def _erased_earning(**overrides) -> tuple[dict, dict]:
     now = datetime.now(UTC)
     payout = {
+        "stripe_mode": "test",
         "request_id": REQUEST,
         "status": "due",
         "erased_at": now,
@@ -519,6 +521,18 @@ def test_erased_transfer_still_checks_account_intent_and_partial_charge():
                     "details_submitted": True,
                     "payouts_enabled": True,
                     "capabilities": {"transfers": "active"},
+                    "external_accounts": {
+                        "data": [
+                            {
+                                "object": "bank_account",
+                                "country": "US",
+                                "currency": "usd",
+                                "default_for_currency": True,
+                                "status": "verified",
+                                "last4": "6789",
+                            }
+                        ]
+                    },
                     "livemode": False,
                 }
             )
@@ -681,6 +695,7 @@ def test_unknown_attempt_after_refund_hold_only_reconciles_provider():
     }
     refund = {"status": "pending", "amount_cents": 333}
     payout = {
+        "stripe_mode": "test",
         "request_id": REQUEST,
         "status": "unknown",
         "erased_at": None,
@@ -926,6 +941,7 @@ def test_bank_setup_only_resets_provably_unused_transfer_attempt(first_attempt, 
         "stripe_payment_intent_id": "pi_123",
     }
     payout = {
+        "stripe_mode": "test",
         "status": "dispatching",
         "transfer_attempt_id": "attempt",
         "refund_amount_cents": 0,
@@ -979,3 +995,157 @@ def test_old_transfer_completion_cannot_reset_newer_claim():
         == "manual_review"
     )
     connection.execute.assert_not_called()
+
+
+def test_explicit_uat_live_mode_requires_matching_key_and_production_stays_live(monkeypatch):
+    from hushh_mcp.services.stripe_mode import configured_stripe_mode, stripe_key_mode
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    monkeypatch.delenv("HUSSH_DEPLOY_ENV", raising=False)
+    monkeypatch.delenv("STRIPE_MODE", raising=False)
+    assert configured_stripe_mode() == "test"
+    with pytest.raises(ValueError):
+        stripe_key_mode("sk_live_" + "x" * 30)
+    monkeypatch.setenv("STRIPE_MODE", "live")
+    assert stripe_key_mode("sk_live_" + "x" * 30) == "live"
+    with pytest.raises(ValueError):
+        stripe_key_mode("sk_test_" + "x" * 30)
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "production")
+    monkeypatch.setenv("STRIPE_MODE", "test")
+    with pytest.raises(ValueError):
+        configured_stripe_mode()
+
+
+def test_old_test_or_unknown_earning_cannot_claim_a_live_transfer(monkeypatch):
+    monkeypatch.setenv("STRIPE_MODE", "live")
+    for mode in ("test", "legacy"):
+        payout, obligation = _erased_earning(stripe_mode=mode)
+        service = DriveRequestOwnerPayoutService(db=Mock(), stripe_api=Mock())
+        service._row = Mock(side_effect=[None, None, obligation, None, payout])
+        assert service._claim_transfer(Mock(), REQUEST) is None
+        service.stripe_api.Transfer.create.assert_not_called()
+
+
+def test_stripe_mode_migration_preserves_unknown_history_and_replays(connector_postgres_url):
+    migrations = Path(__file__).resolve().parents[1] / "db/migrations"
+    forward = (migrations / "298_stripe_mode_isolation.sql").read_text()
+    rollback = (migrations / "rollback/298_stripe_mode_isolation.rollback.sql").read_text()
+    database = "stripe_modes_" + uuid4().hex
+    admin = create_engine(connector_postgres_url, isolation_level="AUTOCOMMIT")
+    engine = None
+    try:
+        with admin.connect() as connection:
+            connection.exec_driver_sql(f'CREATE DATABASE "{database}"')
+        engine = create_engine(make_url(connector_postgres_url).set(database=database))
+        with engine.begin() as connection:
+            for table in ("drive_request_payment_orders", "drive_request_payment_obligations"):
+                connection.exec_driver_sql(
+                    f"CREATE TABLE {table}(request_id UUID PRIMARY KEY,stripe_checkout_session_id TEXT)"
+                )
+            connection.exec_driver_sql(
+                "CREATE TABLE drive_request_owner_payouts(request_id UUID PRIMARY KEY)"
+            )
+            connection.exec_driver_sql(
+                "CREATE TABLE pkm_packet_orders(stripe_checkout_session_id TEXT)"
+            )
+            connection.exec_driver_sql(
+                "CREATE TABLE stripe_connect_bank_payout_events(event_type TEXT)"
+            )
+            connection.exec_driver_sql(
+                "CREATE FUNCTION preserve_drive_request_owner_payout() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN OLD; END $$"
+            )
+            for _mode, session in (
+                ("test", "cs_test_old"),
+                ("live", "cs_live_old"),
+                ("legacy", None),
+            ):
+                request_id = str(uuid4())
+                for table in ("drive_request_payment_orders", "drive_request_payment_obligations"):
+                    connection.execute(
+                        text(f"INSERT INTO {table} VALUES (:request,:session)"),
+                        {"request": request_id, "session": session},
+                    )
+                connection.execute(
+                    text("INSERT INTO drive_request_owner_payouts VALUES (:request)"),
+                    {"request": request_id},
+                )
+                connection.execute(
+                    text("INSERT INTO pkm_packet_orders VALUES (:session)"), {"session": session}
+                )
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+            connection.exec_driver_sql(forward, execution_options={"no_parameters": True})
+            connection.exec_driver_sql(forward, execution_options={"no_parameters": True})
+            for table in (
+                "drive_request_payment_orders",
+                "drive_request_payment_obligations",
+                "drive_request_owner_payouts",
+                "pkm_packet_orders",
+            ):
+                assert set(
+                    connection.exec_driver_sql(f"SELECT stripe_mode FROM {table}").scalars()
+                ) == {"test", "live", "legacy"}
+            connection.exec_driver_sql(
+                "INSERT INTO stripe_owner_payout_accounts(user_id,stripe_mode,stripe_account_id) VALUES ('owner','test','acct_test'),('owner','live','acct_live')"
+            )
+            # An old replica can bind a provider session after migration.
+            connection.exec_driver_sql(
+                "INSERT INTO pkm_packet_orders(stripe_checkout_session_id) VALUES ('cs_live_rolling')"
+            )
+            assert (
+                connection.exec_driver_sql(
+                    "SELECT stripe_mode FROM pkm_packet_orders WHERE stripe_checkout_session_id='cs_live_rolling'"
+                ).scalar_one()
+                == "live"
+            )
+            with pytest.raises(Exception, match="Stripe mode is immutable"):
+                connection.exec_driver_sql(
+                    "UPDATE pkm_packet_orders SET stripe_mode='test' WHERE stripe_checkout_session_id='cs_live_rolling'"
+                )
+            connection.exec_driver_sql(rollback, execution_options={"no_parameters": True})
+            assert (
+                connection.exec_driver_sql(
+                    "SELECT count(*) FROM stripe_owner_payout_accounts"
+                ).scalar_one()
+                == 2
+            )
+            assert (
+                connection.exec_driver_sql(
+                    "SELECT count(*) FROM drive_request_owner_payouts"
+                ).scalar_one()
+                == 3
+            )
+    finally:
+        if engine:
+            engine.dispose()
+        with admin.connect() as connection:
+            connection.exec_driver_sql(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+        admin.dispose()
+
+
+@pytest.mark.asyncio
+async def test_existing_production_earnings_adopt_legacy_bank_without_profile_visit(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.pkm_packet_order_service import PacketOrderError
+    from hushh_mcp.services.pkm_payout_service import PkmPayoutService
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "production")
+    monkeypatch.delenv("HUSSH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("STRIPE_MODE", "live")
+    service = DriveRequestOwnerPayoutService(db=Mock(), stripe_api=Mock())
+    service._transaction = AsyncMock(return_value=["owner-retry", "owner-ready"])
+    refresh = AsyncMock(side_effect=[PacketOrderError("PAYOUT_UNAVAILABLE", "Retry"), {}])
+    monkeypatch.setattr(PkmPayoutService, "refresh_account", refresh)
+    await service._adopt_production_transfer_accounts([REQUEST])
+    assert refresh.await_count == 2
+    assert refresh.await_args_list[1].args == ("owner-ready",)
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "uat")
+    service._transaction.reset_mock()
+    refresh.reset_mock()
+    await service._adopt_production_transfer_accounts([REQUEST])
+    service._transaction.assert_not_awaited()
+    refresh.assert_not_awaited()

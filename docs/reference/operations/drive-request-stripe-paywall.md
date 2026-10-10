@@ -197,9 +197,9 @@ define the native query, pagination and corpus boundaries used here.
 
 The backend deployment has a fail-closed `DRIVE_REQUEST_PAYMENTS_ENABLED` switch.
 It requires `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` secrets in the same GCP
-project before enabling. UAT accepts a Stripe `sk_test_` key and production accepts
-an `sk_live_` key; the webhook signing secret must be from the corresponding
-endpoint. `APP_FRONTEND_ORIGIN` supplies the canonical HTTPS Checkout return
+project before enabling. `STRIPE_MODE` selects `test` or `live`; the API key must
+match that mode, and production requires `live`. The webhook signing secret must
+belong to the matching endpoint and mode. `APP_FRONTEND_ORIGIN` supplies the canonical HTTPS Checkout return
 origin. The backend refuses Checkout if these values are absent or mismatched.
 
 1. In `hushh-pda-uat`, create enabled Secret Manager versions named
@@ -329,7 +329,7 @@ separately; a refund does not automatically reverse a Stripe Connect transfer.
 
 Deploy migrations 292–294 and 297 with the flag off first. The UAT API and private
 Drive worker both read GitHub variable `DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED`,
-defaulting to `false`; set it to `true` only with Stripe test credentials, a
+defaulting to `false`; enable it only with matching Stripe credentials, a
 completed US owner Connect account and the payment acceptance checks above.
 The UAT release refuses an enabled rollout if Stripe secrets are absent.
 Production API and worker keep this payout flag off in this release. Turning the
@@ -344,6 +344,56 @@ Register a separate connected-account event destination at
 webhook secret and belong to the same test/live mode. The public API receives
 these webhooks; the private Drive worker uses the payment API credentials for
 settlement and does not receive public webhooks.
+
+### UAT live payments
+
+`STRIPE_UAT_MODE` is a GitHub UAT environment variable (`test` by default). Both
+API and private worker source `deploy/drive/uat_stripe_bindings.sh` so they select
+one mode and one secret family. With `live`, UAT binds `STRIPE_LIVE_SECRET_KEY`,
+`STRIPE_LIVE_WEBHOOK_SECRET` and `STRIPE_LIVE_CONNECT_WEBHOOK_SECRET` in
+`hushh-pda-uat` to the existing runtime variable names. Existing sandbox secrets
+stay unchanged, including for old revisions. Production deployment is separate.
+
+The live endpoints are `https://api.uat.hushh.ai/api/payments/stripe/webhook` and
+`https://api.uat.hushh.ai/api/one/payouts/connect/webhook`. Their signing secrets
+must be distinct from production and sandbox endpoints. Connect also receives
+`account.external_account.created`, `account.external_account.updated` and
+`account.external_account.deleted` so bank changes invalidate readiness.
+
+Use two governed releases of the same exact commit:
+
+1. Keep `STRIPE_UAT_MODE=test`. Apply migration 298 and deploy the mode-aware API
+   and private worker. Verify both serving revisions use that commit and test
+   secret bindings; record these revisions as the rollback targets. Do not flip
+   mode while either serving role still runs older, mode-unaware code.
+2. Provision the three `STRIPE_LIVE_*` secrets above and their matching live
+   endpoints, initially disabled. After phase one's serving checks pass, enable
+   both live endpoints and verify they are active immediately before setting
+   `STRIPE_UAT_MODE=live` and dispatching the governed backend release of the same
+   commit, which also deploys the private worker. The serving test runtime rejects
+   live signatures or mode while Stripe retains and retries deliveries; live
+   Checkout starts only when the live API serves. Do not promote a live API while
+   either live endpoint remains disabled, which could lose the first payment's
+   event delivery.
+   Verify both serving revisions, `STRIPE_MODE=live`, the exact live secret
+   family, and a read-only Stripe response with `livemode=true` after promotion.
+
+If phase two fails, restore both recorded mode-aware test revisions and their
+scheduler routing, and reset `STRIPE_UAT_MODE=test` for subsequent releases.
+Retain migration 298, both secret families, and all financial history. Never
+retag live money as test or roll back to mode-unaware code. A return to test
+pauses live settlement; preserve the live endpoint configuration and reconcile
+any outstanding live charges, refunds and transfers through a verified live
+runtime before retiring it.
+
+Never replace a test key in an old serving revision: cached test accounts and
+unfinished sandbox orders cannot authorize live charges, refunds or transfers.
+Owners complete
+live Stripe verification and bank setup before paid-request admission. Test
+history stays identified as test history, not real bank proceeds. Verify both
+serving roles' mode and secret bindings after the governed release, and confirm
+Stripe reports `livemode=true` with a read-only provider call. Do not use real
+charges, transfers or bank edits as automated deployment probes.
 
 ### Migration 297: payout readiness and earnings updates
 
@@ -366,6 +416,27 @@ ledger preservation. Release schema contracts in all lanes require the column
 and trigger function. A backend-containing UAT deploy applies this migration
 before promoting the API, then deploys the private Drive worker from the same
 pinned image/SHA.
+
+### Migration 298: Stripe mode isolation
+
+The canonical base release manifest registers `298_stripe_mode_isolation.sql`
+and its non-destructive rollback. Dev, UAT, and production schema contracts
+require `stripe_owner_payout_accounts`, the mode columns on document payment
+orders, retained obligations, owner earnings and packet orders, plus
+`mirror_drive_request_stripe_mode()` and `bind_stripe_checkout_mode()`. The old
+owner mapping remains intact for
+rolling deployments; the new mapping is keyed by owner and `test`/`live` mode.
+Existing Checkout IDs with a provider-defined test/live prefix classify known
+historical orders. The same binding trigger classifies Checkout IDs written by
+old replicas during promotion and rejects changes to an already bound mode. Unknown rows stay `legacy`; they cannot be promoted to live
+merely by changing a runtime key. Bank external-account events join the existing
+signed-event constraint without adding bank credentials to stored receipts.
+
+Rollback preserves mode columns, mapped accounts, and all financial records.
+Restore the matching prior application and Stripe configuration together; do
+not drop the mode boundary or copy live accounts into the legacy test mapping.
+Schema presence is a local contract check; provider connectivity, same-mode
+webhooks, and the final serving deployment need separate runtime verification.
 
 ## Refund reconciliation
 

@@ -47,6 +47,7 @@ MIGRATIONS = Path(__file__).resolve().parents[2] / "db" / "migrations"
 
 @pytest.fixture
 async def sharing(documents, monkeypatch):
+    monkeypatch.setenv("STRIPE_MODE", "test")
     monkeypatch.setenv("DRIVE_SHARING_KEY_V1", base64.b64encode(b"s" * 32).decode())
     monkeypatch.setenv("DRIVE_DOCUMENT_SHARING", "true")
     monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "true")
@@ -74,6 +75,11 @@ async def sharing(documents, monkeypatch):
                  details_submitted BOOLEAN NOT NULL DEFAULT FALSE,
                  payouts_enabled BOOLEAN NOT NULL DEFAULT FALSE,
                  account_ready BOOLEAN NOT NULL DEFAULT FALSE)"""
+        )
+        # The mode migration also governs packet checkout bindings. This suite
+        # needs only their provider session column; no packet processing runs.
+        connection.exec_driver_sql(
+            "CREATE TABLE pkm_packet_orders(stripe_checkout_session_id TEXT)"
         )
         pair_id = str(uuid4())
         connection.execute(
@@ -106,7 +112,9 @@ async def sharing(documents, monkeypatch):
             "291_drive_request_owner_allowed.sql",
             "292_drive_request_owner_payouts.sql",
             "293_drive_request_owner_pricing.sql",
+            "294_drive_request_bank_payout_events.sql",
             "297_document_commerce_readiness.sql",
+            "298_stripe_mode_isolation.sql",
         ):
             # Raw SQL preserves JSON colons; double percent signs for psycopg2's
             # parameter parser while retaining PostgreSQL format() placeholders.
@@ -166,9 +174,9 @@ async def test_owner_price_is_locked_at_request_creation_and_retry(sharing, monk
     assert first == {"enabled": True, "amountCents": 2500, "version": 1}
     with sharing.db.engine.begin() as connection:
         connection.execute(
-            text("""INSERT INTO pkm_owner_payout_accounts
-              (user_id,stripe_account_id,details_submitted,payouts_enabled,account_ready)
-              VALUES ('owner','acct_test_owner',TRUE,TRUE,TRUE)""")
+            text("""INSERT INTO stripe_owner_payout_accounts
+              (stripe_mode,user_id,stripe_account_id,details_submitted,payouts_enabled,account_ready)
+              VALUES ('test','owner','acct_test_owner',TRUE,TRUE,TRUE)""")
         )
     assert (await sharing.request_quote(user_id="recipient", owner_user_id="owner")) == {
         "amountCents": 2500,
@@ -311,9 +319,9 @@ async def test_trusted_request_waits_for_payout_and_price_and_resumes_without_re
     assert not rows(sharing, "drive_request_payment_orders")
     with sharing.db.engine.begin() as connection:
         connection.execute(
-            text("""INSERT INTO pkm_owner_payout_accounts
-          (user_id,stripe_account_id,details_submitted,payouts_enabled,account_ready)
-          VALUES ('owner','acct_test_owner',TRUE,TRUE,TRUE)""")
+            text("""INSERT INTO stripe_owner_payout_accounts
+          (stripe_mode,user_id,stripe_account_id,details_submitted,payouts_enabled,account_ready)
+          VALUES ('test','owner','acct_test_owner',TRUE,TRUE,TRUE)""")
         )
     assert (await sharing.resume_owner_setup(user_id="owner"))["resumed"] == 0
     assert stored_request(sharing, identity)[0]["preparation_error_code"] == "owner_price_required"
@@ -373,15 +381,53 @@ async def trusted_unpriced_request(
             )
         if payout_ready:
             connection.execute(
-                text("""INSERT INTO pkm_owner_payout_accounts
-              (user_id,stripe_account_id,details_submitted,payouts_enabled,account_ready)
-              VALUES ('owner','acct_test_owner',TRUE,TRUE,TRUE)""")
+                text("""INSERT INTO stripe_owner_payout_accounts
+              (stripe_mode,user_id,stripe_account_id,details_submitted,payouts_enabled,account_ready)
+              VALUES ('test','owner','acct_test_owner',TRUE,TRUE,TRUE)""")
             )
     if default_amount_cents is not None:
         await sharing.update_owner_pricing(
             user_id="owner", enabled=True, amount_cents=default_amount_cents, expected_version=0
         )
     return await request(sharing)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("trusted", [True, False])
+async def test_live_requests_require_live_payout_setup_for_both_trust_paths(
+    sharing, monkeypatch, trusted
+):
+    monkeypatch.setenv("STRIPE_MODE", "live")
+    created = await trusted_unpriced_request(
+        sharing, monkeypatch, trusted=trusted, default_amount_cents=200
+    )
+    assert created["ownerPayoutAccountReady"] is False
+    if not trusted:
+        created = await owner_allow(sharing, created, 300)
+        assert created["ownerAllowed"] is True
+    assert (
+        stored_request(sharing, created["requestId"])[0]["preparation_error_code"]
+        == "owner_payout_required"
+    )
+    assert not rows(sharing, "drive_request_payment_orders")
+    # An old unclassified mapping cannot stand in for verified live setup.
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO pkm_owner_payout_accounts
+          (user_id,stripe_account_id,details_submitted,payouts_enabled,account_ready)
+          VALUES ('owner','acct_legacy_owner',TRUE,TRUE,TRUE)""")
+        )
+    assert (await sharing.resume_owner_setup(user_id="owner"))["resumed"] == 0
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO stripe_owner_payout_accounts
+          (user_id,stripe_mode,stripe_account_id,details_submitted,payouts_enabled,account_ready)
+          VALUES ('owner','live','acct_live_owner',TRUE,TRUE,TRUE)""")
+        )
+    assert (await sharing.resume_owner_setup(user_id="owner"))["resumed"] == 1
+    row, _ = stored_request(sharing, created["requestId"])
+    assert row["quoted_amount_cents"] == (200 if trusted else 300)
+    assert row["preparation_error_code"] == "trusted_auto_queued"
 
 
 @pytest.mark.asyncio
@@ -458,8 +504,8 @@ async def test_trusted_per_request_price_rechecks_immutable_and_authority_guards
         elif guard == "order":
             connection.execute(
                 text("""INSERT INTO drive_request_payment_orders
-                     (request_id,user_id,requester_user_id,status)
-                     VALUES (:id,'owner','recipient','expired')"""),
+                     (stripe_mode,request_id,user_id,requester_user_id,status)
+                     VALUES ('test',:id,'owner','recipient','expired')"""),
                 {"id": identity},
             )
         elif guard == "nontrusted":
@@ -487,9 +533,9 @@ async def test_scheduler_recovers_setup_without_account_webhook_wake(sharing, mo
     await owner_allow(sharing, created, 500)
     with sharing.db.engine.begin() as connection:
         connection.execute(
-            text("""INSERT INTO pkm_owner_payout_accounts
-          (user_id,stripe_account_id,details_submitted,payouts_enabled,account_ready)
-          VALUES ('owner','acct_test_owner',TRUE,TRUE,TRUE)""")
+            text("""INSERT INTO stripe_owner_payout_accounts
+          (stripe_mode,user_id,stripe_account_id,details_submitted,payouts_enabled,account_ready)
+          VALUES ('test','owner','acct_test_owner',TRUE,TRUE,TRUE)""")
         )
     monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", "true")
     due = await sharing.due_trusted_searches(limit=20)

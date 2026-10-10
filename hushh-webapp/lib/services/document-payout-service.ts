@@ -8,8 +8,15 @@ export type DocumentPayoutAccount = {
   payoutsEnabled: boolean;
   ready: boolean;
   status: "ready" | "onboarding_required" | "restricted";
+  bankStatus?: "linked" | "missing" | "needs_attention" | "unavailable";
+  canManageBank?: boolean;
+  bank?: {
+    name: string | null;
+    last4: string | null;
+    status: "new" | "validated" | "verified" | "verification_failed" | "errored" | "unknown";
+  } | null;
 };
-export type DocumentPayoutAccountResponse = { account: DocumentPayoutAccount | null };
+export type DocumentPayoutAccountResponse = { account: DocumentPayoutAccount | null; stripeMode?: "test" | "live" };
 export type DocumentBankPayout = {
   id: string;
   amountCents: number;
@@ -25,6 +32,7 @@ const EARNING_STATUSES = ["awaiting_delivery", "awaiting_refund", "awaiting_fee"
 export type DocumentEarning = {
   requestId: string;
   description: string;
+  stripeMode?: "test" | "live" | "legacy";
   status: typeof EARNING_STATUSES[number];
   grossAmountCents: number;
   refundAmountCents: number | null;
@@ -37,11 +45,16 @@ export type DocumentEarning = {
   expectedFiles: number | null;
   confirmedFiles: number | null;
 };
-export type DocumentEarningsResponse = { currency: "USD"; transactions: DocumentEarning[]; nextCursor: string | null };
+export type DocumentEarningsResponse = { currency: "USD"; transactions: DocumentEarning[]; nextCursor: string | null; stripeMode?: "test" | "live" };
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid payout response");
   return value as Record<string, unknown>;
+}
+function stripeMode(body: Record<string, unknown>): { stripeMode?: "test" | "live" } {
+  if (body.stripeMode === undefined) return {};
+  if (body.stripeMode !== "test" && body.stripeMode !== "live") throw new Error("Invalid payout mode");
+  return { stripeMode: body.stripeMode };
 }
 function integer(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
@@ -70,14 +83,35 @@ export class DocumentPayoutService {
     const body = object(await apiJson<unknown>("/api/one/payouts/account", {
       headers: authHeaders(vaultOwnerToken), cache: "no-store",
     }));
-    if (body.account === null) return { account: null };
+    const mode = stripeMode(body);
+    if (body.account === null) return { account: null, ...mode };
     const account = object(body.account);
     if (!["detailsSubmitted", "transfersEnabled", "payoutsEnabled", "ready"].every((key) => typeof account[key] === "boolean") ||
         !["ready", "onboarding_required", "restricted"].includes(String(account.status)) ||
         (account.ready === true && (!account.detailsSubmitted || !account.transfersEnabled || !account.payoutsEnabled || account.status !== "ready"))) {
       throw new Error("Invalid payout account response");
     }
-    return { account: {
+    let bank: DocumentPayoutAccount["bank"];
+    if (account.bank === null) bank = null;
+    else if (account.bank !== undefined) {
+      const item = object(account.bank);
+      if (!(item.name === null || (typeof item.name === "string" && item.name.length <= 100)) ||
+          !(item.last4 === null || (typeof item.last4 === "string" && /^\d{4}$/.test(item.last4))) ||
+          !["new", "validated", "verified", "verification_failed", "errored", "unknown"].includes(String(item.status))) {
+        throw new Error("Invalid payout bank response");
+      }
+      bank = { name: item.name as string | null, last4: item.last4 as string | null,
+        status: item.status as NonNullable<DocumentPayoutAccount["bank"]>["status"] };
+    }
+    if ((account.bankStatus !== undefined && !["linked", "missing", "needs_attention", "unavailable"].includes(String(account.bankStatus))) ||
+        (account.canManageBank !== undefined && typeof account.canManageBank !== "boolean") ||
+        (account.ready === true && ["missing", "needs_attention", "unavailable"].includes(String(account.bankStatus)))) {
+      throw new Error("Invalid payout bank response");
+    }
+    return { ...mode, account: {
+      ...(bank !== undefined ? { bank } : {}),
+      ...(account.bankStatus !== undefined ? { bankStatus: account.bankStatus as DocumentPayoutAccount["bankStatus"] } : {}),
+      ...(account.canManageBank !== undefined ? { canManageBank: account.canManageBank as boolean } : {}),
       detailsSubmitted: account.detailsSubmitted as boolean,
       transfersEnabled: account.transfersEnabled as boolean,
       payoutsEnabled: account.payoutsEnabled as boolean,
@@ -107,10 +141,12 @@ export class DocumentPayoutService {
     if (body.currency !== "USD" || !Array.isArray(body.transactions) || body.transactions.length > 20 ||
         !(body.nextCursor === null || (typeof body.nextCursor === "string" && DOCUMENT_REQUEST_UUID.test(body.nextCursor))) ||
         (cursor !== undefined && body.nextCursor === cursor)) throw new Error("Invalid earnings response");
+    const mode = stripeMode(body);
     const transactions = body.transactions.map((value): DocumentEarning => {
       const item = object(value);
       if (typeof item.requestId !== "string" || !DOCUMENT_REQUEST_UUID.test(item.requestId) ||
           typeof item.description !== "string" || !item.description.trim() || item.description.length > 120 ||
+          (item.stripeMode !== undefined && !["test", "live", "legacy"].includes(String(item.stripeMode))) ||
           !EARNING_STATUSES.includes(item.status as DocumentEarning["status"]) || !integer(item.grossAmountCents) ||
           !["refundAmountCents", "platformFeeCents", "processingFeeCents", "netAmountCents", "reversedAmountCents", "expectedFiles", "confirmedFiles"].every((key) => nullableInteger(item[key])) ||
           !date(item.createdAt) || !(item.transferredAt === null || date(item.transferredAt)) ||
@@ -118,6 +154,7 @@ export class DocumentPayoutService {
         throw new Error("Invalid earnings response");
       }
       return {
+        ...(item.stripeMode !== undefined ? { stripeMode: item.stripeMode as DocumentEarning["stripeMode"] } : {}),
         requestId: item.requestId, description: item.description, status: item.status as DocumentEarning["status"],
         grossAmountCents: item.grossAmountCents,
         refundAmountCents: item.refundAmountCents as number | null,
@@ -130,7 +167,7 @@ export class DocumentPayoutService {
       };
     });
     if (new Set(transactions.map((item) => item.requestId)).size !== transactions.length) throw new Error("Invalid earnings response");
-    return { currency: "USD", transactions, nextCursor: body.nextCursor as string | null };
+    return { ...mode, currency: "USD", transactions, nextCursor: body.nextCursor as string | null };
   }
 
   static async bankPayouts(vaultOwnerToken: string): Promise<DocumentBankPayoutsResponse> {
