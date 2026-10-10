@@ -61,6 +61,26 @@ def answer_engine(connector_postgres_url):  # noqa: F811
                  user_a_id TEXT NOT NULL, user_b_id TEXT NOT NULL,
                  status TEXT NOT NULL DEFAULT 'active')"""
         )
+        # The lane projects milestones into the Feed; migration 117 owns the
+        # real table and only these columns are written here.
+        # Migration 080 owns this; the sweep reads the requester's published
+        # ECDH key from it rather than standing up a second key plane.
+        connection.exec_driver_sql(
+            """CREATE TABLE IF NOT EXISTS marketplace_recipient_keys (
+                 user_id TEXT NOT NULL, key_id TEXT NOT NULL,
+                 public_key_jwk JSONB NOT NULL, algorithm TEXT,
+                 status TEXT NOT NULL DEFAULT 'active',
+                 created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                 PRIMARY KEY (user_id, key_id))"""
+        )
+        connection.exec_driver_sql(
+            """CREATE TABLE IF NOT EXISTS feed_events (
+                 id BIGSERIAL PRIMARY KEY, user_id TEXT NOT NULL,
+                 source_domain TEXT NOT NULL, event_type TEXT NOT NULL,
+                 actor_label TEXT, metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+                 source_row_id TEXT, read_at TIMESTAMPTZ,
+                 created_at TIMESTAMPTZ NOT NULL DEFAULT now())"""
+        )
         connection.exec_driver_sql(
             """CREATE TABLE IF NOT EXISTS pkm_scope_registry (
                  user_id TEXT NOT NULL, scope_handle TEXT NOT NULL,
@@ -86,11 +106,21 @@ def clean(answer_engine):
     with answer_engine.begin() as connection:
         connection.exec_driver_sql("DELETE FROM pkm_answer_requests")
         connection.exec_driver_sql("DELETE FROM pkm_answer_payment_obligations")
+        connection.exec_driver_sql("DELETE FROM feed_events")
+        connection.exec_driver_sql("DELETE FROM marketplace_recipient_keys")
         connection.exec_driver_sql("DELETE FROM connections")
         connection.exec_driver_sql("DELETE FROM pkm_scope_registry")
         connection.execute(
             text("INSERT INTO connections (user_a_id,user_b_id,status) VALUES (:a,:b,'active')"),
             {"a": OWNER, "b": REQUESTER},
+        )
+        connection.execute(
+            text(
+                """INSERT INTO marketplace_recipient_keys
+                   (user_id,key_id,public_key_jwk,algorithm)
+                   VALUES (:u,'key-1',CAST(:jwk AS JSONB),'ECDH-P256-AES256-GCM')"""
+            ),
+            {"u": REQUESTER, "jwk": json.dumps({"kty": "EC", "crv": "P-256", "x": "x", "y": "y"})},
         )
         for handle, label in OWNER_SCOPES:
             connection.execute(
@@ -423,6 +453,47 @@ class TestRecovery:
         assert status == "cancelled"
         with pytest.raises(AnswerRequestError, match="request_not_cancellable"):
             await service.cancel(requester_user_id=REQUESTER, request_id=request_id)
+
+
+class TestFeed:
+    """Each milestone reaches the right person, carrying no question text."""
+
+    async def test_feed_events_fire_and_never_carry_the_question(self, answer_engine):
+        service, request_id = await _ask(answer_engine, StubResolver(["attr.travel.trips"]))
+        approved = await service.approve(
+            owner_user_id=OWNER,
+            request_id=request_id,
+            scopes=["attr.travel.trips"],
+            amount_cents=1000,
+        )
+        _mark_paid(answer_engine, request_id, approved["termsDigest"])
+        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+
+        with answer_engine.begin() as connection:
+            rows = (
+                connection.execute(
+                    text(
+                        "SELECT user_id, event_type, metadata::text AS meta, source_row_id"
+                        " FROM feed_events ORDER BY id"
+                    )
+                )
+                .mappings()
+                .all()
+            )
+
+        by_event = {row["event_type"]: row for row in rows}
+        # The owner learns a question arrived; the requester learns it is
+        # payable and later that it was answered.
+        assert by_event["answer_request_received"]["user_id"] == OWNER
+        assert by_event["answer_request_payment_ready"]["user_id"] == REQUESTER
+        assert by_event["answer_delivered"]["user_id"] == REQUESTER
+
+        # Plaintext boundary: feed_events.metadata is server-readable, so the
+        # question, the scopes and the answer must never appear in it.
+        for row in rows:
+            assert "travel last year" not in row["meta"]
+            assert "attr.travel.trips" not in row["meta"]
+            assert row["source_row_id"] == f"answer_request:{request_id}"
 
 
 class TestObligationMirror:

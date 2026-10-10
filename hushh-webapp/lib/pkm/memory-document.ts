@@ -59,8 +59,29 @@ export interface MemoryDocumentSourceDomain {
   unavailableReason?: string;
 }
 
+/**
+ * The owner's account identity: the things One holds about them that are not
+ * PKM domain values -- their name, picture, sign-in email and verified role.
+ *
+ * These are the same fields a connected person already sees on the owner's
+ * profile screen, and they carry no PKM value, so they render for both
+ * audiences. They are listed explicitly rather than skipped, because a memory
+ * document that silently omitted the person's own name would not be the
+ * complete picture it claims to be.
+ */
+export interface MemoryAccountIdentity {
+  displayName?: string | null;
+  email?: string | null;
+  photoUrl?: string | null;
+  verifiedRole?: string | null;
+  personRef?: string | null;
+  joinedAt?: string | null;
+}
+
 export interface BuildMemoryDocumentParams {
   snapshot: PkmMemorySnapshot;
+  /** Account-level identity. Omitted entirely when the caller has none. */
+  account?: MemoryAccountIdentity | null;
   /**
    * Every domain the owner has, including ones that failed to load. A domain
    * absent from this list but present in the snapshot is still rendered; a
@@ -163,6 +184,35 @@ function renderSectionBody(cards: readonly PkmMemoryCard[]): string[] {
   return lines;
 }
 
+const ACCOUNT_FIELDS: ReadonlyArray<[keyof MemoryAccountIdentity, string]> = [
+  ["displayName", "Name"],
+  ["email", "Email"],
+  ["photoUrl", "Picture"],
+  ["verifiedRole", "Verified role"],
+  ["personRef", "Profile reference"],
+  ["joinedAt", "Joined"],
+];
+
+/** The account section, or an empty list when the caller supplied no identity. */
+function renderAccount(account: MemoryAccountIdentity | null | undefined): string[] {
+  if (!account) return [];
+  const rows = ACCOUNT_FIELDS.map(([key, label]) => {
+    const value = String(account[key] ?? "").trim();
+    return value ? `| ${escapeTableCell(label)} | ${escapeTableCell(value)} |` : null;
+  }).filter((row): row is string => row !== null);
+  if (rows.length === 0) return [];
+  return [
+    "## Account",
+    "",
+    "_From the account profile, not from encrypted PKM._",
+    "",
+    "| Detail | Value |",
+    "| --- | --- |",
+    ...rows,
+    "",
+  ];
+}
+
 function renderInsight(insight: PkmDomainInsight | undefined): string[] {
   if (!insight) return [];
   const lines: string[] = [];
@@ -184,7 +234,7 @@ function renderInsight(insight: PkmDomainInsight | undefined): string[] {
  * `sources` with an `unavailableReason` so they appear honestly.
  */
 export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDocument {
-  const { snapshot, sources, audience, builtAt } = params;
+  const { snapshot, sources, audience, builtAt, account } = params;
 
   const insightByDomain = new Map<string, PkmDomainInsight>();
   for (const insight of snapshot.domainInsights || []) {
@@ -296,7 +346,7 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
     );
   }
 
-  const markdown = [...header, ...body].join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
+  const markdown = [...header, ...renderAccount(account), ...body].join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
 
   return {
     markdown,

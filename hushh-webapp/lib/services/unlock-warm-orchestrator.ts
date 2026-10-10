@@ -17,6 +17,8 @@ import { OneLocationService } from "@/lib/one-location/service";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { bootstrapCurrentUserMarketplaceRecipientKey } from "@/lib/one-marketplace/key-bootstrap";
 import { runMarketplaceDeliverySweep } from "@/lib/one-marketplace/delivery-sweep";
+import { runAnswerDeliverySweep } from "@/lib/answers/answer-delivery-sweep";
+import { AuthService } from "@/lib/services/auth-service";
 import { warmAgentPkmContext } from "@/lib/agent/agent-pkm-memory";
 import { warmAgentChatHistoryCache } from "@/lib/agent/agent-chat-history-cache";
 import { warmGeminiRuntimeConnection } from "@/lib/connections/gemini-runtime-configuration";
@@ -302,6 +304,36 @@ export class UnlockWarmOrchestrator {
         "[UnlockWarmOrchestrator] Marketplace delivery sweep failed:",
         error,
       );
+    });
+  }
+
+  private static answerSweptByUser = new Set<string>();
+
+  // The same shape as the marketplace sweep, for the same reason: the backend
+  // settles a paid answer but has no vault key, so it can only move the
+  // request to `answering`. Producing and sealing the answer needs the owner's
+  // decrypted PKM and WebCrypto, which exist only here.
+  //
+  // INTERIM: this is unlock-dependent, not 24/7. A paid question produces
+  // nothing until the owner opens the app. The requester is told that before
+  // paying and a missed deadline refunds in full. See
+  // docs/reference/architecture/living-memory-freshness-adr.md.
+  private static queueAnswerDeliverySweep(params: {
+    userId: string;
+    vaultKey: string;
+    vaultOwnerToken: string;
+  }): void {
+    if (shouldSkipReviewerBackgroundWritesForAutomation()) return;
+    if (this.answerSweptByUser.has(params.userId)) return;
+    this.answerSweptByUser.add(params.userId);
+    void (async () => {
+      const firebaseIdToken = await AuthService.getIdToken();
+      if (!firebaseIdToken) throw new Error("no id token");
+      return runAnswerDeliverySweep({ ...params, firebaseIdToken });
+    })().catch((error) => {
+      // Never block unlock warming; allow a later retry this session.
+      this.answerSweptByUser.delete(params.userId);
+      console.warn("[UnlockWarmOrchestrator] Answer delivery sweep failed:", error);
     });
   }
 
@@ -882,6 +914,12 @@ export class UnlockWarmOrchestrator {
       });
       // Deliver any slices an agent approved without a browser to seal.
       this.queueMarketplaceDeliverySweep({
+        userId: params.userId,
+        vaultKey: params.vaultKey,
+        vaultOwnerToken: params.vaultOwnerToken,
+      });
+      // Answer any questions that were approved and paid for while away.
+      this.queueAnswerDeliverySweep({
         userId: params.userId,
         vaultKey: params.vaultKey,
         vaultOwnerToken: params.vaultOwnerToken,

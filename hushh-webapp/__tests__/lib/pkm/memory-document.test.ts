@@ -109,6 +109,40 @@ describe("memory.md audience exclusion", () => {
   });
 });
 
+describe("memory.md account identity", () => {
+  // "Everything One holds" has to include the plain account facts, not only
+  // PKM domains: a document that omitted the person's own name and picture
+  // would not be the complete picture it claims to be.
+  it("renders name, email, picture and role from the account profile", () => {
+    const result = buildMemoryDocument({
+      snapshot: snapshotOf([card("personal_data", "Home city", "Bengaluru")]),
+      sources: [{ domain: "personal_data", contentRevision: 1 }],
+      audience: "self",
+      builtAt: "2026-10-10T12:00:00.000Z",
+      account: {
+        displayName: "Ankit Kumar Singh",
+        email: "ankit@hushh.ai",
+        photoUrl: "https://example.test/a.png",
+        verifiedRole: "Investor",
+      },
+    });
+    expect(result.markdown).toContain("## Account");
+    expect(result.markdown).toContain("Ankit Kumar Singh");
+    expect(result.markdown).toContain("ankit@hushh.ai");
+    expect(result.markdown).toContain("https://example.test/a.png");
+    expect(result.markdown).toContain("Investor");
+    // It is labelled as account data so it is never mistaken for a PKM value.
+    expect(result.markdown).toContain("not from encrypted PKM");
+  });
+
+  it("omits the section entirely when there is no account identity", () => {
+    const result = build([card("personal_data", "Home city", "Bengaluru")], "agent", [
+      { domain: "personal_data", contentRevision: 1 },
+    ]);
+    expect(result.markdown).not.toContain("## Account");
+  });
+});
+
 describe("memory.md freshness honesty", () => {
   // An unreadable section must never look like an empty one: a paid answer
   // built on a partial document would otherwise read fully confident.

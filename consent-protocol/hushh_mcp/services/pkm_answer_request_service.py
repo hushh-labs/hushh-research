@@ -84,6 +84,43 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
         if row is None:
             raise AnswerRequestError("connection_required")
 
+    # ------------------------------------------------------------------ feed
+
+    @staticmethod
+    def _feed(
+        connection,
+        *,
+        user_id: str,
+        event_type: str,
+        request_id: str,
+        status: str | None = None,
+    ) -> None:
+        """Project one answer-lane milestone into the person's Feed.
+
+        Plaintext boundary matches the Drive projection (migration 246): a
+        closed event type, the opaque request id and a coarse status. The
+        question text, the scopes and the answer never appear here, because
+        `feed_events.metadata` is server-readable and this lane's content is
+        not.
+        """
+        connection.execute(
+            text(
+                """INSERT INTO feed_events
+                   (user_id, source_domain, event_type, metadata, source_row_id)
+                   VALUES (:user, 'consent', :event, CAST(:meta AS JSONB), :row)"""
+            ),
+            {
+                "user": user_id,
+                "event": event_type,
+                "meta": json.dumps(
+                    {"lane": "answer_request", "status": status}
+                    if status
+                    else {"lane": "answer_request"}
+                ),
+                "row": f"answer_request:{request_id}",
+            },
+        )
+
     # --------------------------------------------------------------- create
 
     async def create(
@@ -124,7 +161,15 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 .mappings()
                 .first()
             )
-            return str(row["request_id"])
+            request_id = str(row["request_id"])
+            self._feed(
+                connection,
+                user_id=owner_user_id,
+                event_type="answer_request_received",
+                request_id=request_id,
+                status="awaiting_owner",
+            )
+            return request_id
 
         request_id = await self._transaction(insert)
         await self.resolve_scopes(request_id=request_id)
@@ -366,6 +411,13 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 ),
                 {"request": request_id, "amount": amount_cents, "digest": digest},
             )
+            self._feed(
+                connection,
+                user_id=request["requester_user_id"],
+                event_type="answer_request_payment_ready",
+                request_id=request_id,
+                status="approved",
+            )
             return digest
 
         digest = await self._transaction(write)
@@ -375,8 +427,8 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
         def write(connection):
             request = self._row(
                 connection,
-                """SELECT status, owner_user_id FROM pkm_answer_requests
-                   WHERE request_id = :request FOR UPDATE""",
+                """SELECT status, owner_user_id, requester_user_id
+                   FROM pkm_answer_requests WHERE request_id = :request FOR UPDATE""",
                 {"request": request_id},
             )
             if request is None or request["owner_user_id"] != owner_user_id:
@@ -391,6 +443,13 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                        WHERE request_id = :request"""
                 ),
                 {"request": request_id},
+            )
+            self._feed(
+                connection,
+                user_id=request["requester_user_id"],
+                event_type="answer_request_declined",
+                request_id=request_id,
+                status="declined",
             )
             return request["status"]
 
@@ -461,9 +520,43 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                             if row["answer_deadline_at"]
                             else None
                         ),
+                        "requesterUserId": row["requester_user_id"],
                     }
                 )
-            return out
+            # Attach the requester's published ECDH recipient key so the device
+            # can seal in one pass. Reuses the marketplace key store (migration
+            # 080) rather than standing up a second key plane, and reads it on
+            # this same connection instead of the global client.
+            ready: list[dict[str, Any]] = []
+            for item in out:
+                key = (
+                    connection.execute(
+                        text(
+                            """SELECT key_id, public_key_jwk, algorithm
+                           FROM marketplace_recipient_keys
+                           WHERE user_id = :user AND status = 'active'
+                           ORDER BY created_at DESC LIMIT 1"""
+                        ),
+                        {"user": item["requesterUserId"]},
+                    )
+                    .mappings()
+                    .first()
+                )
+                if not key or not key["key_id"] or not key["public_key_jwk"]:
+                    # Not a failure: the sweep retries, exactly as the
+                    # marketplace does for RecipientKeyUnavailableError.
+                    logger.info(
+                        "answer_delivery.recipient_key_unavailable request=%s",
+                        item["requestId"],
+                    )
+                    continue
+                item["recipientKey"] = {
+                    "keyId": key["key_id"],
+                    "publicKeyJwk": key["public_key_jwk"],
+                    "algorithm": key["algorithm"],
+                }
+                ready.append(item)
+            return ready
 
         return await self._transaction(read)
 
@@ -492,7 +585,7 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
         def write(connection):
             request = self._row(
                 connection,
-                """SELECT request_id, owner_user_id, status, terms_digest
+                """SELECT request_id, owner_user_id, requester_user_id, status, terms_digest
                    FROM pkm_answer_requests WHERE request_id = :request FOR UPDATE""",
                 {"request": request_id},
             )
@@ -539,6 +632,13 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                        WHERE request_id = :request AND status = 'paid'"""
                 ),
                 {"request": request_id, "earning": "due" if has_content else "none"},
+            )
+            self._feed(
+                connection,
+                user_id=request["requester_user_id"],
+                event_type="answer_delivered",
+                request_id=request_id,
+                status="answered" if has_content else "empty",
             )
 
         await self._transaction(write)
