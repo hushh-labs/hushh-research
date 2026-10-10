@@ -174,6 +174,18 @@ and UAT deployment are all in place.
 
 Desktop acceptance on `https://uat.one.hushh.ai`:
 
+Contact sync reuses signup phone verification. A missing client phone payload or
+failed identity hydration must not request another OTP or cancel a completed
+contact read. The client hydrates the verified phone once as a normalization hint;
+the backend repairs an incomplete identity shadow from Firebase before its existing
+verified-requester admission and abuse-budget checks. Verified backend-only phone
+claims remain intact when the primary Google/email Firebase account has no phone.
+Without an account phone or Android SIM region, only explicit international
+numbers are checked; ambiguous national numbers are reported as uncheckable rather
+than guessed from a locale or classified as unmatched. Retry sync after identity
+hydration recovers to check those entries. Privacy, consent and account-switch
+guards remain mandatory.
+
 1. Connect and Location People offer `Find contacts`. First-run Location
    onboarding offers `Find contacts` followed by `Check my contacts` when a
    contact source is available.

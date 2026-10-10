@@ -67,7 +67,7 @@ export function AgentSuggestionList({ suggestions, label, testId, disabled = fal
       role="group"
       aria-label={label}
       className={layout === "starter-grid"
-        ? "mt-4 mb-2 grid w-full max-w-2xl grid-cols-1 auto-rows-fr gap-1 text-left sm:grid-cols-3 sm:gap-4"
+        ? "mt-3 mb-1 grid w-full max-w-2xl grid-cols-1 auto-rows-fr gap-0.5 text-left sm:grid-cols-3 sm:gap-3"
         : "mb-2 flex w-full max-w-2xl flex-col items-start gap-0.5 text-left"}
     >
       {suggestions.map((suggestion, index) => (
@@ -77,7 +77,7 @@ export function AgentSuggestionList({ suggestions, label, testId, disabled = fal
           disabled={disabled}
           onClick={() => onSelect(suggestion)}
           className={`relative inline-flex !h-auto max-w-full !justify-start overflow-hidden !rounded-lg !border-0 !bg-transparent text-left text-sm font-medium !shadow-none transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 active:!scale-100 disabled:pointer-events-none disabled:opacity-60 ${layout === "starter-grid"
-            ? "!min-h-11 w-full items-center gap-3 !px-0 !py-2 text-foreground hover:text-[color:var(--app-accent-deep)]"
+            ? "!min-h-11 w-full items-center gap-3 !px-0 !py-1.5 text-foreground hover:text-[color:var(--app-accent-deep)]"
             : "!min-h-11 items-center gap-2 !px-2 !py-2 text-muted-foreground hover:text-foreground"}`}
         >
           {layout === "starter-grid" ? (

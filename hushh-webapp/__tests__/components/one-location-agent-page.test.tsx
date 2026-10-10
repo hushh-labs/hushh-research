@@ -7980,13 +7980,10 @@ describe("OneLocationAgentPage", () => {
     cancelled.name = "AbortError";
     mockRequestGoogleContactsToken.mockRejectedValueOnce(cancelled);
 
+    // Cancellation is a workspace contract; onboarding has its own coverage.
+    window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
     render(<OneLocationAgentPage />);
-    await leaveLocationFeatureStep();
-    await expectLocationInviteStep();
-    fireEvent.click(await locationFinishButton());
-    await waitFor(() =>
-      expect(screen.queryByTestId("one-location-onboarding")).toBeNull(),
-    );
+    expect(await screen.findByRole("heading", { name: "Location" })).toBeTruthy();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole("button", { name: "People" }));

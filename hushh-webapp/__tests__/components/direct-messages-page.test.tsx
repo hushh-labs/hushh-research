@@ -277,7 +277,12 @@ describe("DirectMessagesPage", () => {
     mocks.query = "";
     renderConnectionThread();
 
-    expect(await screen.findByRole("heading", { name: "Chat" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Messages" })).toBeVisible();
+    const lanes = within(screen.getByRole("complementary", { name: "Conversations" }))
+      .getByRole("tablist", { name: "Message lanes" });
+    const laneTabs = within(lanes);
+    expect(laneTabs.getByRole("tab", { name: "People 1" })).toHaveAttribute("aria-selected", "true");
+    expect(laneTabs.getByRole("tab", { name: "Circles 0" })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByLabelText("Search conversations")).toBeVisible();
     expect(screen.getByText("Select a conversation to see the chat here.")).toBeVisible();
     expect(screen.queryByRole("textbox", { name: "Message" })).not.toBeInTheDocument();
@@ -307,7 +312,7 @@ describe("DirectMessagesPage", () => {
     mocks.commandPhase = owner === "command-result" ? "result" : owner === "command" ? "working" : "idle";
     renderConnectionThread();
 
-    expect(await screen.findByRole("heading", { name: "Chat" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Messages" })).toBeVisible();
     expect(screen.getByTestId("shared-chat-dock")).not.toBeVisible();
     expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
     expect(mocks.sendMessage).not.toHaveBeenCalled();

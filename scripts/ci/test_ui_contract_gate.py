@@ -88,7 +88,7 @@ class UiGateTests(unittest.TestCase):
         self.assertIn("search-contracts.test.mjs", scripts["test:ui-contract-validators"])
         self.assertEqual(scripts["verify:back-contracts"], "node ./scripts/architecture/verify-back-navigation.mjs && node --test ./scripts/architecture/back-navigation.test.mjs && npm run test:back-hierarchy")
         behavior = scripts["test:back-hierarchy"]
-        for required in ("back-hierarchy.contract.test.ts", "top-shell-back.test.ts", "android-back.test.ts", "app-edge-back-gesture.test.tsx", "pkm-natural-panel.test.tsx", "one-location-agent-page.test.tsx", "profile-pane.test.ts", "wallet-card-browser.test.tsx", "wallet-card-workspace.test.tsx"):
+        for required in ("back-hierarchy.contract.test.ts", "top-shell-back.test.ts", "android-back.test.ts", "app-edge-back-gesture.test.tsx", "pkm-natural-panel.test.tsx", "one-location-agent-page.test.tsx", "profile-pane.test.ts", "wallet-card-browser.test.tsx", "wallet-card-workspace.test.tsx", "location-immersive-map.test.tsx"):
             self.assertIn(required, behavior)
         for forbidden in ("passWithNoTests", "||", "--exclude", "--testNamePattern", "--grep"):
             self.assertNotIn(forbidden, behavior)

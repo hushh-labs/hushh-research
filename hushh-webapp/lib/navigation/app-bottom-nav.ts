@@ -95,14 +95,12 @@ export function resolveOneNavSlot(
   pathname: string | null | undefined,
 ): OneNavKey {
   const normalizedPathname = normalizeBottomNavPathname(pathname);
-  if (
-    normalizedPathname === ROUTES.HOME ||
-    normalizedPathname === ROUTES.ONE_HOME
-  ) {
-    return "dashboard";
-  }
+  if (normalizedPathname === ROUTES.HOME) return "chat";
   if (isBottomNavRoute(normalizedPathname, ROUTES.ONE_MESSAGES)) {
     return "chat";
+  }
+  if (normalizedPathname === ROUTES.ONE_HOME) {
+    return "dashboard";
   }
   if (isBottomNavRoute(normalizedPathname, ROUTES.CONNECT)) {
     return "connect";
@@ -183,14 +181,12 @@ export function resolveInvestorActiveNav(
   pathname: string | null | undefined,
 ): InvestorNavKey {
   const normalizedPathname = normalizeBottomNavPathname(pathname);
+  if (normalizedPathname === ROUTES.HOME) return "chat";
   if (
-    normalizedPathname === ROUTES.HOME ||
-    normalizedPathname === ROUTES.ONE_HOME
+    normalizedPathname === ROUTES.ONE_HOME ||
+    isBottomNavRoute(normalizedPathname, ROUTES.ONE_MESSAGES)
   ) {
     return "dashboard";
-  }
-  if (isBottomNavRoute(normalizedPathname, ROUTES.ONE_MESSAGES)) {
-    return "chat";
   }
   if (isBottomNavRoute(normalizedPathname, ROUTES.PROFILE)) {
     return "profile";
@@ -221,14 +217,12 @@ export function resolveRiaActiveNav(
   pathname: string | null | undefined,
 ): RiaNavKey {
   const normalizedPathname = normalizeBottomNavPathname(pathname);
+  if (normalizedPathname === ROUTES.HOME) return "chat";
   if (
-    normalizedPathname === ROUTES.HOME ||
-    normalizedPathname === ROUTES.ONE_HOME
+    normalizedPathname === ROUTES.ONE_HOME ||
+    isBottomNavRoute(normalizedPathname, ROUTES.ONE_MESSAGES)
   ) {
     return "dashboard";
-  }
-  if (isBottomNavRoute(normalizedPathname, ROUTES.ONE_MESSAGES)) {
-    return "chat";
   }
   if (isBottomNavRoute(normalizedPathname, ROUTES.PROFILE)) {
     return "profile";
@@ -250,15 +244,14 @@ export function resolveBottomNavActiveKey(
 ): AppBottomNavKey {
   if (isKaiCommandBarOpen(searchParams)) return "search";
   const normalizedPathname = normalizeBottomNavPathname(pathname);
-  if (
-    normalizedPathname === ROUTES.HOME ||
-    normalizedPathname === ROUTES.ONE_HOME
-  ) {
-    return "dashboard";
-  }
-  // Connection threads are a Chat destination, not the One dashboard.
+  if (normalizedPathname === ROUTES.HOME) return "chat";
+  // Direct messages are Chat: keep their visible bottom-tab state in sync
+  // with the conversation surface rather than highlighting the One dashboard.
   if (isBottomNavRoute(normalizedPathname, ROUTES.ONE_MESSAGES)) {
     return "chat";
+  }
+  if (normalizedPathname === ROUTES.ONE_HOME) {
+    return "dashboard";
   }
   if (isBottomNavRoute(normalizedPathname, ROUTES.CONNECT)) {
     return "connect";
@@ -309,9 +302,9 @@ export function resolveBottomNavAction(
     case "portfolio":
       return { type: "route", href: ROUTES.KAI_PORTFOLIO };
     case "dashboard":
-      return { type: "route", href: ROUTES.HOME };
+      return { type: "route", href: ROUTES.ONE_HOME };
     case "chat":
-      return { type: "route", href: ROUTES.ONE_MESSAGES };
+      return { type: "route", href: ROUTES.HOME };
     case "search":
       return { type: "command", mode: "search" };
     case "gmail":

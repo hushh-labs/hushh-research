@@ -425,7 +425,7 @@ def test_sync_route_keeps_both_outer_request_limits() -> None:
 
 def test_sync_route_hydrates_requester_identity_before_matching() -> None:
     source = inspect.getsource(sync_contacts)
-    warmup = "await ActorIdentityService().sync_from_firebase"
+    warmup = "await ActorIdentityService().sync_verified_phone_from_firebase"
     assert warmup in source
     assert source.index(warmup) < source.index("reserve_contact_sync_lookup_budget")
     assert source.index(warmup) < source.index("match_one_network_contact_lookups_exact")

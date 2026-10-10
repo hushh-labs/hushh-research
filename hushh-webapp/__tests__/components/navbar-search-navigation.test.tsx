@@ -214,8 +214,8 @@ describe("Search navigation through the shared shell", () => {
   });
 
   it.each([
-    ["Chat", ROUTES.ONE_MESSAGES],
-    ["One", ROUTES.HOME],
+    ["Chat", ROUTES.HOME],
+    ["One", ROUTES.ONE_HOME],
     ["Connect", ROUTES.CONNECT],
     ["Feed", ROUTES.ONE_FEED],
   ])("keeps the %s button working after Search dismissal", async (label, href) => {
@@ -230,15 +230,20 @@ describe("Search navigation through the shared shell", () => {
     expect(requests).toHaveLength(3);
   });
 
-  it("closes Search before handing a typed prompt to Chat", async () => {
-    render(<Shell />);
-    fireEvent.click(screen.getByRole("radio", { name: "Search" }));
-    const input = await screen.findByRole("combobox");
-    fireEvent.change(input, { target: { value: "Help me plan tomorrow" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(window.location.search).toBe("");
-    expect(window.location.pathname).toBe(ROUTES.HOME);
-    expect(mocks.createHandoff).toHaveBeenCalledWith({ reason: "user_requested", transcript: "Help me plan tomorrow" });
-  });
+  it.each([ROUTES.HOME, ROUTES.ONE_HOME, ROUTES.ONE_MESSAGES])(
+    "closes Search on %s before handing a typed prompt to Chat",
+    async (pathname) => {
+      window.history.replaceState({}, "", pathname);
+      render(<Shell />);
+      fireEvent.click(screen.getByRole("radio", { name: "Search" }));
+      const input = await screen.findByRole("combobox");
+      fireEvent.change(input, { target: { value: "Help me plan tomorrow" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(window.location.search).toBe("");
+      expect(window.location.pathname).toBe(ROUTES.HOME);
+      expect(mocks.createHandoff).toHaveBeenCalledWith({ reason: "user_requested", transcript: "Help me plan tomorrow" });
+      expect(requests.at(-1)).toMatchObject({ href: ROUTES.HOME, source: "programmatic" });
+    },
+  );
 });
