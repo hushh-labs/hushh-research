@@ -75,6 +75,8 @@ describe("Feed payment return", () => {
     mocks.status.mockResolvedValueOnce({ status: "expired", amountCents: 1000, currency: "usd" });
     render(<FeedPaymentReturnNotice />);
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("payment link expired"));
+    expect(screen.getByRole("status")).toHaveTextContent("Send a new document request");
+    expect(screen.getByRole("status")).not.toHaveTextContent("create a new link");
     expect(mocks.dispatchConsentStateChanged).toHaveBeenCalledWith({ source: "drive_payment_expired" });
   });
 });

@@ -108,18 +108,47 @@ def test_stripe_secret_bindings_survive_payment_rollout_switch_off() -> None:
         workflow = _read(f".github/workflows/deploy-{lane}.yml")
         assert "_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY" in workflow
         assert "_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET" in workflow
+        assert "_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET=STRIPE_CONNECT_WEBHOOK_SECRET" in workflow
         assert "_STRIPE_SECRET_KEY_SECRET=${{" not in workflow
         assert "_STRIPE_WEBHOOK_SECRET_SECRET=${{" not in workflow
+        assert "_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET=${{" not in workflow
 
     # The build binds optional existing secrets, but refuses an enabled
     # new-request rollout unless both names resolve in the deploy project.
-    assert 'if [[ "${_DRIVE_REQUEST_PAYMENTS_ENABLED}" == "true" ]]; then' in backend_build
+    assert (
+        '"${_DRIVE_REQUEST_PAYMENTS_ENABLED}" == "true" || "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED}" == "true"'
+        in backend_build
+    )
     assert (
         'for required_secret in "${_STRIPE_SECRET_KEY_SECRET}" "${_STRIPE_WEBHOOK_SECRET_SECRET}"; do'
         in backend_build
     )
     assert 'add_secret "${!v}" "${n}"' in backend_build
     assert "STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET" in backend_build
+    assert "STRIPE_CONNECT_WEBHOOK_SECRET OPENAI_API_KEY" in backend_build
+    assert '"${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED}" == "true"' in backend_build
+    assert 'gcloud secrets describe "${_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET}"' in backend_build
+    assert '_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET: ""' in backend_build
+
+
+def test_document_owner_payouts_require_explicit_uat_api_and_worker_switches() -> None:
+    """A UAT payout rollout must reach both runtimes and cannot silently reach production."""
+    uat = _read(".github/workflows/deploy-uat.yml")
+    production = _read(".github/workflows/deploy-production.yml")
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    uat_worker = _read("deploy/drive/deploy_worker_service.sh")
+    production_worker = _read("deploy/drive/deploy_worker_service_prod.sh")
+
+    flag = "DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED"
+    uat_variable = "${{ vars.DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED || 'false' }}"
+    assert f"_{flag}={uat_variable}" in uat
+    assert f"DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED: {uat_variable}" in uat
+    assert f'_{flag}: "false"' in backend_build
+    assert f"{flag} ONE_EMAIL" in backend_build
+    assert f"{flag}=${{DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED:-false}}" in uat_worker
+    assert '"${DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED:-false}" == "true"' in uat_worker
+    assert f"_{flag}=" not in production
+    assert f"{flag}=false" in production_worker
 
 
 def test_uat_runtime_capacity_is_bounded_and_revision_safe() -> None:

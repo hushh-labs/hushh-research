@@ -53,7 +53,10 @@ WITH participants AS (
     drive_share_requests.access_stop_requested_at IS NOT NULL AS access_stopped,
     {owner_decision_ready} AS owner_decision_ready,
     {payment_required} AS payment_required,
-    {owner_allowed} AS owner_allowed
+    {owner_allowed} AS owner_allowed,
+    {quoted_amount_cents} AS quoted_amount_cents,
+    {quote_version} AS quote_version,
+    {owner_payout_account_ready} AS owner_payout_account_ready
   FROM drive_share_requests
   {identity_joins}
   WHERE drive_share_requests.user_id=:user
@@ -61,7 +64,7 @@ WITH participants AS (
   UNION ALL
   SELECT request_id,revocation_revision,created_at,'share','incoming',NULL::text,'management_only',
     NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE,
-    FALSE,FALSE,FALSE
+    FALSE,FALSE,FALSE,NULL::integer,NULL::integer,NULL::boolean
   FROM drive_share_management_contexts
   WHERE user_id=:user AND private_request_erased_at IS NOT NULL{queries}
 ), classified AS (
@@ -124,7 +127,7 @@ _QUERIES = """
       WHEN status='running' THEN 'pending'
       ELSE status END,
     NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE,
-    FALSE,FALSE,FALSE
+    FALSE,FALSE,FALSE,NULL::integer,NULL::integer,NULL::boolean
   FROM drive_live_query_requests WHERE user_id=:user OR requester_user_id=:user"""
 
 _OWNER_SEARCH_STATE = """(
@@ -289,6 +292,8 @@ def _projection(
     payments: bool,
     identity_cache: bool,
     owner_allowed: bool,
+    pricing: bool = False,
+    payout_projection: bool = False,
 ) -> str:
     projection = _PROJECTION.replace("{queries}", _QUERIES if queries else "")
     projection = projection.replace("{identity_joins}", _IDENTITY_JOINS if identity_cache else "")
@@ -344,6 +349,26 @@ def _projection(
         "owner_allowed": "drive_share_requests.owner_allowed_at IS NOT NULL"
         if owner_allowed
         else "FALSE",
+        "quoted_amount_cents": "drive_share_requests.quoted_amount_cents"
+        if pricing
+        else "NULL::integer",
+        "quote_version": "drive_share_requests.quote_version" if pricing else "NULL::integer",
+        "owner_payout_account_ready": """CASE WHEN
+          drive_share_requests.user_id=:user
+          AND drive_share_requests.payment_required=TRUE
+          AND drive_share_requests.quoted_amount_cents IS NOT NULL
+          AND ((drive_share_requests.status IN
+            ('pending','preparing','review_ready','approved','partial')
+            AND drive_share_requests.expires_at>clock_timestamp())
+            OR EXISTS (SELECT 1 FROM drive_request_owner_payouts p
+              WHERE p.request_id=drive_share_requests.request_id
+                AND p.status='awaiting_account'))
+          THEN EXISTS (SELECT 1 FROM pkm_owner_payout_accounts account
+            WHERE account.user_id=drive_share_requests.user_id
+              AND account.details_submitted=TRUE AND account.payouts_enabled=TRUE)
+          ELSE NULL END"""
+        if pricing and payout_projection
+        else "NULL::boolean",
     }.items():
         projection = projection.replace("{" + name + "}", expression)
     return projection
@@ -467,6 +492,21 @@ def entry(row: Any) -> dict[str, Any]:
             ),
             **({"payment_waiting_for_requester": True} if owner_payment_waiting else {}),
             **(
+                {"ownerPayoutAccountReady": row["owner_payout_account_ready"] is True}
+                if row["direction"] == "incoming"
+                and row.get("owner_payout_account_ready") is not None
+                else {}
+            ),
+            **(
+                {
+                    "quotedAmountCents": row["quoted_amount_cents"],
+                    "quoteVersion": row["quote_version"],
+                    "paymentRequired": True,
+                }
+                if row["direction"] == "outgoing" and row.get("quoted_amount_cents") is not None
+                else {}
+            ),
+            **(
                 {
                     "paymentStatus": row["payment_status"],
                     "paymentAmountCents": row["payment_amount_cents"],
@@ -582,6 +622,28 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
         )
 
     @staticmethod
+    def _pricing_installed(connection) -> bool:
+        return bool(
+            connection.execute(
+                text("""SELECT EXISTS (SELECT 1 FROM pg_attribute
+                  WHERE attrelid=to_regclass('drive_share_requests')
+                    AND attname='quoted_amount_cents' AND NOT attisdropped)
+                  AND EXISTS (SELECT 1 FROM pg_attribute
+                  WHERE attrelid=to_regclass('drive_share_requests')
+                    AND attname='quote_version' AND NOT attisdropped)""")
+            ).scalar_one()
+        )
+
+    @staticmethod
+    def _payout_projection_installed(connection) -> bool:
+        return bool(
+            connection.execute(
+                text("""SELECT to_regclass('drive_request_owner_payouts') IS NOT NULL
+                  AND to_regclass('pkm_owner_payout_accounts') IS NOT NULL""")
+            ).scalar_one()
+        )
+
+    @staticmethod
     def _identity_cache_installed(connection) -> bool:
         # Test fixtures and rolling deployments can predate the optional
         # identity cache. Keep the metadata projection available with its
@@ -634,6 +696,8 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                         self._payments_installed(connection),
                         self._identity_cache_installed(connection),
                         self._owner_allowed_installed(connection),
+                        self._pricing_installed(connection),
+                        self._payout_projection_installed(connection),
                     )  # nosec B608
                     + "SELECT bucket,count(*) AS total FROM filtered GROUP BY bucket"
                 ),
@@ -670,6 +734,8 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                             self._payments_installed(connection),
                             self._identity_cache_installed(connection),
                             self._owner_allowed_installed(connection),
+                            self._pricing_installed(connection),
+                            self._payout_projection_installed(connection),
                         )  # nosec B608
                         + """
                         SELECT totals.total,page.* FROM (SELECT count(*) AS total FROM filtered) totals
@@ -721,6 +787,8 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                         self._payments_installed(connection),
                         self._identity_cache_installed(connection),
                         self._owner_allowed_installed(connection),
+                        self._pricing_installed(connection),
+                        self._payout_projection_installed(connection),
                     )  # nosec B608
                     + """
                     , ranked AS (

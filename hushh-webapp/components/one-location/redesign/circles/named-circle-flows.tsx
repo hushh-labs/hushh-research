@@ -17,7 +17,7 @@ import {
   Trash2,
   UsersRound,
 } from "@/components/icons";
-import { InviteCodeRowIcon, JoinRowIcon } from "@/components/icons/agents";
+import { JoinRowIcon } from "@/components/icons/agents";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { INPUT_CLASSNAME } from "@/components/ui/input";
@@ -783,16 +783,18 @@ export function CreateCircleFlow({
         </div>
       </div>
 
-      <Button
-        type="button"
-        size="prominent"
-        disabled={!canSubmit}
-        isLoading={busy}
-        onClick={() => void submit()}
-        className={cn("w-full", BLOCKED_CTA)}
-      >
-        {busy ? "Creating…" : "Create Circle"}
-      </Button>
+      <div className={CIRCLE_SHEET_CTA_CLASSNAME}>
+        <Button
+          type="button"
+          size="prominent"
+          disabled={!canSubmit}
+          isLoading={busy}
+          onClick={() => void submit()}
+          className={cn("w-full", BLOCKED_CTA)}
+        >
+          {busy ? "Creating…" : "Create Circle"}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -2295,8 +2297,6 @@ export function CircleDetailFlow({
               ) : null}
               {canViewInviteCode ? (
                 <SettingsRow
-                  icon={InviteCodeRowIcon}
-                  iconTone="capability"
                   title="Invite code"
                   trailing={inviteCode ? "Ready" : "Create"}
                   chevron
@@ -2357,11 +2357,13 @@ export function CircleDetailFlow({
                     </div>
                     <FlowActionGroup
                       stacked
+                      separateSecondary={false}
+                      className={CIRCLE_SHEET_CTA_CLASSNAME}
                       secondary={
                         <Button
                           type="button"
                           variant="outline"
-                          size="standard"
+                          size="prominent"
                           disabled={busy}
                           onClick={() => void copyInviteCode(inviteCode.code)}
                         >
@@ -2372,7 +2374,7 @@ export function CircleDetailFlow({
                       primary={
                         <Button
                           type="button"
-                          size="standard"
+                          size="prominent"
                           disabled={busy}
                           onClick={() =>
                             void onShareCode(circle, inviteCode.code)

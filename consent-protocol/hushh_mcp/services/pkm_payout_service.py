@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from db.db_client import get_db
@@ -29,6 +29,10 @@ from hushh_mcp.services.pkm_packet_order_service import (
 logger = logging.getLogger(__name__)
 
 ACCOUNTS = "pkm_owner_payout_accounts"
+ONBOARDING_RETURN_PATHS = {
+    "marketplace": "/one/marketplace",
+    "documents": "/one/profile/my-data",
+}
 
 
 def _now() -> str:
@@ -42,9 +46,40 @@ def _earning(order: dict[str, Any]) -> int:
 def _app_origin() -> str:
     origin = get_app_runtime_settings().app_frontend_origin.rstrip("/")
     parsed = urlsplit(origin)
-    if parsed.scheme not in {"https", "http"} or not parsed.hostname:
+    local = parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1"}
+    if (
+        not parsed.hostname
+        or (parsed.scheme != "https" and not local)
+        or parsed.username
+        or parsed.password
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
         raise PacketOrderError("PAYMENT_UNAVAILABLE", "Payouts are not available right now.")
     return origin
+
+
+def _account_readiness(remote: dict[str, Any]) -> dict[str, Any]:
+    """A live Stripe Account is the authority for transfer and payout readiness."""
+    capabilities = remote.get("capabilities") or {}
+    requirements = remote.get("requirements") or {}
+    disabled = bool(
+        remote.get("deleted")
+        or requirements.get("disabled_reason")
+        or remote.get("country") != "US"
+    )
+    submitted = bool(remote.get("details_submitted"))
+    transfers = capabilities.get("transfers") == "active"
+    payouts = bool(remote.get("payouts_enabled"))
+    ready = submitted and transfers and payouts and not disabled
+    return {
+        "detailsSubmitted": submitted,
+        "transfersEnabled": transfers,
+        "payoutsEnabled": payouts,
+        "ready": ready,
+        "status": "ready" if ready else "restricted" if disabled else "onboarding_required",
+    }
 
 
 class PkmPayoutService:
@@ -70,60 +105,120 @@ class PkmPayoutService:
 
     # --- owner -------------------------------------------------------------
 
-    async def onboarding_link(self, *, user_id: str) -> dict[str, Any]:
+    async def onboarding_link(
+        self, *, user_id: str, surface: Literal["marketplace", "documents"] = "marketplace"
+    ) -> dict[str, Any]:
         """Create (once) the owner's Express account and a fresh onboarding link."""
         key, _, _ = _stripe_config()
         origin = _app_origin()
+        return_path = ONBOARDING_RETURN_PATHS[surface]
         account = await self._account(user_id)
         if account is None:
-            created = _stripe_dict(
-                await asyncio.to_thread(
-                    self.stripe_api.Account.create,
-                    api_key=key,
-                    idempotency_key=f"pkm-payout-account:{user_id}",
-                    type="express",
-                    country="US",
-                    capabilities={"transfers": {"requested": True}},
-                    metadata={"hussh_user_ref": "pkm_owner"},
+            try:
+                created = _stripe_dict(
+                    await asyncio.to_thread(
+                        self.stripe_api.Account.create,
+                        api_key=key,
+                        idempotency_key=f"pkm-payout-account:{user_id}",
+                        type="express",
+                        country="US",
+                        capabilities={"transfers": {"requested": True}},
+                        metadata={"hussh_user_ref": "pkm_owner"},
+                    )
                 )
-            )
-            await self._rows(
-                self.db.table(ACCOUNTS).insert(
-                    {"user_id": user_id, "stripe_account_id": created["id"]}
+            except Exception as exc:
+                logger.warning("pkm_payout.account_create_failed type=%s", type(exc).__name__)
+                raise PacketOrderError(
+                    "PAYOUT_UNAVAILABLE", "Could not start payout setup. Please retry."
+                ) from None
+            account_id = created.get("id")
+            if not account_id:
+                raise PacketOrderError(
+                    "PAYOUT_UNAVAILABLE", "Could not start payout setup. Please retry."
                 )
-            )
-            account_id = created["id"]
+            try:
+                await self._rows(
+                    self.db.table(ACCOUNTS).insert(
+                        {"user_id": user_id, "stripe_account_id": account_id}
+                    )
+                )
+            except Exception:
+                # A concurrent request may have inserted the same owner's mapping.
+                # Stripe's owner-scoped idempotency key also keeps creation single.
+                account = await self._account(user_id)
+                if account is None:
+                    raise PacketOrderError(
+                        "PAYOUT_UNAVAILABLE", "Could not start payout setup. Please retry."
+                    ) from None
+                account_id = account["stripe_account_id"]
         else:
             account_id = account["stripe_account_id"]
-        link = _stripe_dict(
-            await asyncio.to_thread(
-                self.stripe_api.AccountLink.create,
-                api_key=key,
-                account=account_id,
-                type="account_onboarding",
-                refresh_url=f"{origin}/one/marketplace?payouts=refresh",
-                return_url=f"{origin}/one/marketplace?payouts=done",
+        # An existing mapping must never be replaced with another Connect account.
+        # Stripe may have disabled or deleted the account since the last visit.
+        remote = await self._retrieve_account(account_id, key=key)
+        if remote.get("deleted") or (remote.get("country") and remote["country"] != "US"):
+            raise PacketOrderError(
+                "PAYOUT_ACCOUNT_DISABLED",
+                "This payout account needs support before setup can continue.",
             )
-        )
+        query_key = "documentPayouts" if surface == "documents" else "payouts"
+        try:
+            link = _stripe_dict(
+                await asyncio.to_thread(
+                    self.stripe_api.AccountLink.create,
+                    api_key=key,
+                    account=account_id,
+                    type="account_onboarding",
+                    refresh_url=f"{origin}{return_path}?{query_key}=refresh",
+                    return_url=f"{origin}{return_path}?{query_key}=done",
+                )
+            )
+        except Exception as exc:
+            logger.warning("pkm_payout.account_link_failed type=%s", type(exc).__name__)
+            raise PacketOrderError(
+                "PAYOUT_UNAVAILABLE", "Could not start payout setup. Please retry."
+            ) from None
+        if not link.get("url"):
+            raise PacketOrderError(
+                "PAYOUT_UNAVAILABLE", "Could not start payout setup. Please retry."
+            )
         return {"url": link["url"]}
+
+    async def _retrieve_account(self, account_id: str, *, key: str) -> dict[str, Any]:
+        try:
+            remote = _stripe_dict(
+                await asyncio.to_thread(self.stripe_api.Account.retrieve, account_id, api_key=key)
+            )
+        except Exception as exc:
+            logger.warning("pkm_payout.account_retrieve_failed type=%s", type(exc).__name__)
+            raise PacketOrderError(
+                "PAYOUT_UNAVAILABLE", "Could not verify payout setup. Please retry."
+            ) from None
+        if remote.get("id") != account_id:
+            raise PacketOrderError(
+                "PAYOUT_UNAVAILABLE", "Could not verify payout setup. Please retry."
+            )
+        return remote
 
     async def refresh_account(self, user_id: str) -> dict[str, Any] | None:
         account = await self._account(user_id)
         if account is None:
             return None
         key, _, _ = _stripe_config()
-        remote = _stripe_dict(
-            await asyncio.to_thread(
-                self.stripe_api.Account.retrieve, account["stripe_account_id"], api_key=key
-            )
-        )
+        remote = await self._retrieve_account(account["stripe_account_id"], key=key)
+        readiness = _account_readiness(remote)
         patch = {
-            "details_submitted": bool(remote.get("details_submitted")),
-            "payouts_enabled": bool(remote.get("payouts_enabled")),
+            "details_submitted": readiness["detailsSubmitted"],
+            "payouts_enabled": readiness["payoutsEnabled"],
             "updated_at": _now(),
         }
         await self._rows(self.db.table(ACCOUNTS).update(patch).eq("user_id", user_id))
-        return {**account, **patch}
+        return {**account, **patch, "readiness": readiness}
+
+    async def account_status(self, *, user_id: str) -> dict[str, Any]:
+        """Document checkout consumes this without exposing PKM sales or account IDs."""
+        account = await self.refresh_account(user_id)
+        return {"account": account["readiness"] if account is not None else None}
 
     async def summary(self, *, user_id: str) -> dict[str, Any]:
         account = await self.refresh_account(user_id)

@@ -280,6 +280,8 @@ def test_identity_set_null_fk_inventory_is_explicitly_reviewed():
         ("038_kai_alpaca_funding_orchestration.sql", "user_id"),
         ("049_one_email_kyc_workflows.sql", "user_id"),
         ("165_one_referral_program.sql", "bound_user_id"),
+        ("296_circle_chat_reactions_events.sql", "subject_user_id"),
+        ("296_circle_chat_reactions_events.sql", "actor_user_id"),
     }
 
     account_service = (ROOT / "hushh_mcp/services/account_service.py").read_text(encoding="utf-8")

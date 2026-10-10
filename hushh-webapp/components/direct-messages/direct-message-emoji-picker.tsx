@@ -281,6 +281,7 @@ type DirectMessageEmojiPickerProps = {
   label?: string;
   triggerClassName?: string;
   compact?: boolean;
+  dismissSignal?: number;
 };
 
 export function DirectMessageEmojiPicker({
@@ -289,12 +290,15 @@ export function DirectMessageEmojiPicker({
   label = "Choose emoji",
   triggerClassName,
   compact = false,
+  dismissSignal,
 }: DirectMessageEmojiPickerProps) {
   const searchId = useId();
   const [open, setOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState(DEFAULT_CATEGORY.id);
   const [recent, setRecent] = useState<string[]>([]);
   const [query, setQuery] = useState("");
+
+  useEffect(() => { setOpen(false); }, [dismissSignal]);
 
   useEffect(() => {
     setRecent(readRecentEmojis());

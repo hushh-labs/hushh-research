@@ -23,7 +23,9 @@ test.beforeAll(async () => {
       } }], resolve: { alias: [
         { find: "@/hooks/use-auth", replacement: path.join(root, "e2e/fixtures/direct-chat-auth.ts") },
         { find: "@/lib/services/direct-messages-service", replacement: path.join(root, "e2e/fixtures/direct-chat-boundary.ts") },
+        { find: "@/lib/services/connections-service", replacement: path.join(root, "e2e/fixtures/direct-chat-connections.ts") },
         { find: "@/lib/firebase/config", replacement: path.join(root, "e2e/fixtures/direct-chat-auth.ts") },
+        { find: "@/components/connect/circles/circle-messages-pane", replacement: path.join(root, "e2e/fixtures/bottom-shell-boundaries.tsx") },
         { find: "next/navigation", replacement: path.join(root, "e2e/fixtures/direct-chat-navigation.tsx") },
         { find: "next/link", replacement: path.join(root, "e2e/fixtures/direct-chat-navigation.tsx") },
         ...["@/lib/vault/vault-context", "@/lib/consent/use-consent-pending-summary-count", "@/lib/feed/use-feed-unread-count", "@/lib/one-voice/readiness", "@/components/one-voice/voice-session-provider", "@/components/one-voice/tool-result-card", "@/components/one-location/onboarding/location-onboarding-interaction-surface"].map((find) => ({ find, replacement: path.join(root, "e2e/fixtures/bottom-shell-boundaries.tsx") })),
@@ -61,6 +63,70 @@ async function mount(page: Page, dark = false, delayInbox = false, inbox = false
 }
 const fixture = (page: Page, code: string) => page.evaluate((value) => { Function("fixture", value)((window as any).directChatFixture); }, code);
 const transcript = (page: Page) => page.getByTestId("direct-message-list");
+
+test("chat theme follows the device, persists a choice, and keeps the shared navbar centered", async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 844 });
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.addInitScript(() => { document.documentElement.dataset.accent = "gold"; });
+  await mount(page, false, false, true);
+  const chat = page.locator("[data-direct-message-page]");
+  const navigation = page.locator("[data-bottom-shell-navigation-slot]");
+  await expect(chat).toHaveAttribute("data-theme", "dark");
+  await expect(chat).toHaveAttribute("data-chat-open", "false");
+  await expect(page.locator("[data-direct-message-composer-input]")).toBeHidden();
+  await expect(navigation).toBeVisible();
+  const activeNav = navigation.getByRole("radio", { name: "Chat" });
+  await expect(activeNav).toHaveCSS("color", "rgb(10, 132, 255)");
+  const navLabels = await navigation.innerText();
+  expect(navLabels).toContain("Chat");
+  expect(navLabels).toContain("One");
+  expect(navLabels).toContain("Connect");
+  expect(navLabels).toContain("Feed");
+  expect(navLabels).toContain("Search");
+
+  await page.getByRole("button", { name: "Switch to light mode" }).click();
+  await expect(chat).toHaveAttribute("data-theme", "light");
+  await expect(activeNav).toHaveCSS("color", "rgb(0, 122, 255)");
+  await page.reload();
+  await page.addScriptTag({ content: script });
+  await expect(chat).toHaveAttribute("data-theme", "light");
+  await expect(page.getByRole("button", { name: "Switch to dark mode" })).toBeVisible();
+
+  await page.getByRole("button", { name: /Arjun Mehta/ }).click();
+  await expect(chat).toHaveAttribute("data-chat-open", "true");
+  await expect(page.locator("[data-direct-message-composer-input]")).toBeVisible();
+  expect(await navigation.innerText()).toBe(navLabels);
+  const bounds = (await navigation.boundingBox())!;
+  expect(Math.abs(bounds.x + bounds.width / 2 - 393 / 2)).toBeLessThanOrEqual(1);
+});
+
+test("system Back closes message search before returning from a People thread", async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 844 });
+  await mount(page);
+  const chat = page.locator("[data-direct-message-page]");
+  await page.getByRole("button", { name: "Search messages", exact: true }).click();
+  await expect(page.getByRole("searchbox", { name: "Search messages" })).toBeVisible();
+  const systemBack = () => page.evaluate(() => (window as any).directChatUnwindBack());
+
+  expect(await systemBack()).toBe(true);
+  await expect(page.getByRole("searchbox", { name: "Search messages" })).toHaveCount(0);
+  await expect(chat).toHaveAttribute("data-chat-open", "true");
+  expect(await systemBack()).toBe(true);
+  await expect(chat).toHaveAttribute("data-chat-open", "false");
+  expect(await systemBack()).toBe(false);
+});
+
+test("system Back closes the New chat picker before leaving the inbox", async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 844 });
+  await mount(page, false, false, true);
+  await page.getByRole("button", { name: "New chat" }).first().click();
+  await expect(page.getByRole("dialog", { name: "New chat" })).toBeVisible();
+
+  expect(await page.evaluate(() => (window as any).directChatUnwindBack())).toBe(true);
+  await expect(page.getByRole("dialog", { name: "New chat" })).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).directChatUnwindBack())).toBe(false);
+});
+
 test("inbox search keyboard keeps a completed command visible and dismissible", async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 844 });
   const errors = await mount(page, false, false, true, "result");
@@ -80,8 +146,8 @@ test("inbox search keyboard keeps a completed command visible and dismissible", 
     document.documentElement.classList.remove("kb-open", "native-keyboard-inset");
     document.documentElement.style.removeProperty("--kb-height");
   });
-  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeDisabled();
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeHidden();
+  await expect(page.locator("[data-bottom-shell-navigation-slot]")).toBeVisible();
   expect(errors).toEqual([]);
 });
 for (const [width, height] of [[320, 568], [393, 844], [430, 932], [768, 852], [1440, 1000], [844, 390]]) {
@@ -94,7 +160,7 @@ for (const [width, height] of [[320, 568], [393, 844], [430, 932], [768, 852], [
         const row = page.locator(`[data-chat-message="${id}"]`);
         await expect(row).toContainText("with details.");
         await row.hover();
-        for (const label of ["Choose a reaction", "Message options"]) {
+        for (const label of ["React to message", "Message options"]) {
           const box = (await row.getByRole("button", { name: label }).boundingBox())!;
           expect(box.x).toBeGreaterThanOrEqual(0);
           expect(box.x + box.width).toBeLessThanOrEqual(width!);
@@ -117,12 +183,12 @@ for (const [width, height] of [[320, 568], [393, 844], [430, 932], [768, 852], [
     const geometry = await editor.boundingBox(); const target = await send.boundingBox();
     expect(geometry!.height).toBeGreaterThanOrEqual(44); expect(target!.width).toBeGreaterThanOrEqual(44); expect(target!.height).toBeGreaterThanOrEqual(44);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width! + 1);
-    if (width! < 768) {
+    if (width! < 960) {
       const workspace = (await page.locator('[data-direct-message-page]').boundingBox())!;
       const thread = (await page.locator('[data-direct-message-page] > main').boundingBox())!;
       expect(Math.abs(thread.width - workspace.width)).toBeLessThanOrEqual(1);
     }
-    if (width! >= 700) await expect(page.getByRole("complementary", { name: "Conversations" })).toBeVisible();
+    if (width! >= 960) await expect(page.getByRole("complementary", { name: "Conversations" })).toBeVisible();
     else { await page.getByRole("button", { name: "Back to messages" }).click(); await expect(page.getByRole("complementary", { name: "Conversations" })).toBeVisible(); }
     expect(errors).toEqual([]);
   });
@@ -185,7 +251,7 @@ test("hover actions do not shift messages or the centered composer", async ({ pa
   for (const role of ["user", "peer"]) {
     const row = page.locator(`[data-message-role="${role}"]`).last();
     await row.hover();
-    const emoji = row.getByRole("button", { name: "Choose a reaction" });
+    const emoji = row.getByRole("button", { name: "React to message" });
     const iconBox = (await emoji.boundingBox())!;
     const menuBox = (await row.getByRole("button", { name: "Message options" }).boundingBox())!;
     expect(Math.abs(iconBox.y - menuBox.y)).toBeLessThanOrEqual(1);
@@ -196,7 +262,11 @@ test("hover actions do not shift messages or the centered composer", async ({ pa
   }
   await page.getByRole("heading", { name: "Maya Rao", exact: true }).hover();
   await expect(page.locator('article[data-actions-visible="true"]')).toHaveCount(0);
-  await expect(bubble.getByRole("button", { name: "Message options" }).locator("..")).toHaveCSS("opacity", "0");
+  const touchPointer = await page.evaluate(() => matchMedia("(hover: none)").matches);
+  await expect(bubble.getByRole("button", { name: "Message options" }).locator("..")).toHaveCSS(
+    "opacity",
+    touchPointer ? "1" : "0",
+  );
   await bubble.getByRole("button", { name: "Message options" }).focus();
   await page.getByRole("heading", { name: "Maya Rao", exact: true }).hover();
   await expect(bubble).toHaveAttribute("data-actions-visible", "true");
@@ -206,9 +276,15 @@ test("hover actions do not shift messages or the centered composer", async ({ pa
   const contact = page.getByRole("heading", { name: "Maya Rao", exact: true });
   const typography = (node: HTMLElement | SVGElement) => {
     const style = getComputedStyle(node);
-    return [style.fontFamily, style.fontSize, style.fontWeight, style.lineHeight];
+    return { family: style.fontFamily, size: style.fontSize, weight: style.fontWeight };
   };
-  expect(await title.evaluate(typography)).toEqual(await contact.evaluate(typography));
+  const screenTitle = await title.evaluate(typography);
+  const threadTitle = await contact.evaluate(typography);
+  expect(screenTitle.family).toBe(threadTitle.family);
+  expect(screenTitle.size).toBe("20px");
+  expect(screenTitle.weight).toBe("700");
+  expect(threadTitle.size).toBe("16px");
+  expect(threadTitle.weight).toBe("700");
 });
 test("hidden encrypted selections survive browser history and refresh", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 }); await mount(page);
@@ -319,9 +395,9 @@ test("preserves replies, edits and delete actions with a short phone keyboard", 
   await expect(page.locator('[data-chat-message]').filter({ hasText: "Edited reply" })).toHaveCount(1);
   await page.evaluate(() => { document.documentElement.classList.remove('kb-open', 'native-keyboard-inset'); document.documentElement.style.removeProperty("--kb-height"); });
   const edited = page.locator('[data-chat-message]').filter({ hasText: "Edited reply" });
-  await edited.locator("[data-chat-bubble]").click(); await edited.getByRole("button", { name: "Choose a reaction" }).click();
-  await page.getByRole("button", { name: "Use 😀", exact: true }).click();
-  await expect(edited.getByRole("button", { name: "😀 reaction, 1", exact: true })).toBeVisible();
+  await edited.locator("[data-chat-bubble]").click(); await edited.getByRole("button", { name: "React to message" }).click();
+  await page.getByRole("button", { name: "React ❤️", exact: true }).click();
+  await expect(edited.getByRole("button", { name: "❤️ reaction, 1", exact: true })).toBeVisible();
   await edited.locator("[data-chat-bubble]").click(); await edited.getByRole("button", { name: "Message options" }).click();
   await page.getByRole("menuitem", { name: "Delete for everyone", exact: true }).click();
   await page.getByRole("button", { name: "Yes, delete", exact: true }).click();
