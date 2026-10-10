@@ -2112,14 +2112,14 @@ export function CircleDetailFlow({
 
       {circle ? (
         <>
-          <div className={CIRCLE_DETAIL_HEADER_CLASSNAME}>
+          <div className={cn(CIRCLE_DETAIL_HEADER_CLASSNAME, hasChat && "items-center gap-3")}>
             {hasChat ? <CirclePhotoEditor key={`${currentUserId}:${circle.id}`} circleId={circle.id} photoUrl={circle.photoUrl ?? null}
               onOpenChange={setPhotoSheetOpen}
               canEdit={Boolean(isOwner && onPhotoUpdate)} onUpdate={onPhotoUpdate ? async (photoUrl) => {
                 const updated = await onPhotoUpdate(circle.id, photoUrl);
                 setCircle((current) => current?.id === updated.id ? { ...current, photoUrl: updated.photoUrl } : current);
               } : undefined} /> : null}
-            <div className={CIRCLE_DETAIL_HEADER_COPY_CLASSNAME}>
+            <div className={cn(CIRCLE_DETAIL_HEADER_COPY_CLASSNAME, hasChat && "[&_h1]:text-xl [&_h1]:leading-7 [&_p]:text-sm")}>
               <TaskFlowHeader
                 title={circle.name}
                 description={hasChat ? `${visibleMemberCount} ${visibleMemberCount === 1 ? "member" : "members"}` : visibleMemberSummary}
@@ -2147,9 +2147,9 @@ export function CircleDetailFlow({
               <TabsTrigger value="chat" className="min-h-11 min-w-24 flex-none after:!bottom-0 data-[state=active]:!text-[color:var(--app-accent)] after:bg-[color:var(--app-accent)]">Chat</TabsTrigger>
               <TabsTrigger value="members" className="min-h-11 min-w-24 flex-none after:!bottom-0 data-[state=active]:!text-[color:var(--app-accent)] after:bg-[color:var(--app-accent)]">Members</TabsTrigger>
             </TabsList>
-            <TabsContent value="chat" forceMount hidden={detailView !== "chat"} className="space-y-4">
+            <TabsContent value="chat" forceMount hidden={detailView !== "chat"} className="space-y-2">
               {renderChat?.(circle, { active: detailView === "chat", readingBlocked: photoSheetOpen || renameSheetOpen || inviteCodeSheetOpen || peopleSheetOpen || replaceCodeConfirmOpen })}
-              <button type="button" onClick={() => setDetailView("members")} className="flex min-h-16 w-full min-w-0 items-center gap-3 rounded-[var(--app-card-radius-standard)] border border-border bg-card px-3 py-3 text-sm focus-visible:outline-2 focus-visible:outline-ring sm:px-5" aria-label="View circle members">
+              <button type="button" onClick={() => setDetailView("members")} className="flex min-h-11 w-full min-w-0 items-center gap-3 rounded-lg px-3 py-1 text-sm focus-visible:outline-2 focus-visible:outline-ring hover:bg-muted/40 sm:px-5" aria-label="View circle members">
                 <span aria-hidden="true" className="flex shrink-0 -space-x-2">
                   {orbitMembers.slice(0, 4).map((member) => <ConnectionPersonAvatar key={member.userId} photoUrl={member.photoUrl} label={member.displayName} size="comfortable" className="!size-8 ring-2 ring-card" />)}
                   {visibleMemberCount > 4 ? <span className="flex size-8 items-center justify-center rounded-full bg-muted text-xs ring-2 ring-card">+{visibleMemberCount - 4}</span> : null}

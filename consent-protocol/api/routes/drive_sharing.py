@@ -153,6 +153,7 @@ class CreateRequest(StrictRequest):
     clientRequestId: UUID
     purpose: ShareRequestPurpose
     timeZone: str | None = Field(default=None, min_length=1, max_length=64)
+    expectedQuoteVersion: int | None = Field(default=None, ge=0, strict=True)
 
     @model_validator(mode="after")
     def one_owner_target(self):
@@ -163,6 +164,12 @@ class CreateRequest(StrictRequest):
 
 class DecisionRequest(StrictRequest):
     revision: int = Field(ge=0, strict=True)
+
+
+class OwnerPricingRequest(StrictRequest):
+    enabled: StrictBool
+    amountCents: int = Field(strict=True, ge=100, le=50000, multiple_of=100)
+    expectedVersion: int = Field(strict=True, ge=0)
 
 
 class QueryCreateRequest(StrictRequest):
@@ -217,6 +224,19 @@ class BulkShareCreateRequest(StrictRequest):
     audience: Literal["trusted_circle"]
 
 
+class AllowRequest(DecisionRequest):
+    # Whole US dollars as cents. Required only for a paid request; the store
+    # checks that against the request it locks.
+    amountCents: int | None = Field(default=None, strict=True, ge=100, le=50000, multiple_of=100)
+    confirmed: StrictBool
+
+    @model_validator(mode="after")
+    def explicit_confirmation(self):
+        if self.confirmed is not True:
+            raise ValueError("Explicit approval is required.")
+        return self
+
+
 class BulkShareApprovalRequest(StrictRequest):
     revision: int = Field(ge=1, strict=True)
     reviewDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -259,7 +279,7 @@ class RuleRevocationRequest(StrictRequest):
 class RevocationRequest(DecisionRequest):
     directiveId: str = Field(min_length=1, max_length=128)
     reviewDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
-    grantIds: list[UUID] = Field(min_length=1, max_length=25)
+    grantIds: list[UUID] = Field(default_factory=list, max_length=25)
     confirmed: StrictBool
 
 
@@ -294,6 +314,8 @@ def _error(error):
         "confirmation_required": (409, "Review and explicitly confirm this removal."),
         "request_already_decided": (409, "This request already has a decision."),
         "request_changed": (409, "This request changed. Refresh its status."),
+        "price_changed": (409, "The price changed. Review it again."),
+        "payout_unavailable": (503, "Document payments are temporarily unavailable."),
         "revocation_pending": (409, "Removal is pending. Refresh its status."),
         "no_revocable_permissions": (409, "There are no recorded permissions available to remove."),
         "sharing_unavailable": (503, "Document sharing is not available yet."),
@@ -333,6 +355,7 @@ def _error(error):
         "search_not_found": (404, "This Drive search is unavailable."),
         "no_recipients": (409, "No one in your Trusted circle can receive these files yet."),
         "date_range_required": (422, "Choose exact start and end dates before requesting files."),
+        "invalid_payment_amount": (422, "Choose a whole-dollar price from $1 to $500."),
         "invalid_argument": (422, "Check the document-sharing request."),
     }
     code = str(error) if isinstance(error, DriveReadError) else "sharing_unavailable"
@@ -418,7 +441,30 @@ async def create_request(
         client_request_id=str(body.clientRequestId),
         purpose=body.purpose,
         request_time_zone=body.timeZone,
+        expected_quote_version=body.expectedQuoteVersion,
     )
+
+
+@router.get("/pricing")
+async def owner_pricing(owner: Owner = Depends(_owner)):
+    return await _call("owner_pricing", owner=owner)
+
+
+@router.put("/pricing")
+async def update_owner_pricing(body: OwnerPricingRequest, owner: Owner = Depends(_owner)):
+    return await _call(
+        "update_owner_pricing",
+        owner=owner,
+        enabled=body.enabled,
+        amount_cents=body.amountCents,
+        expected_version=body.expectedVersion,
+    )
+
+
+@router.get("/quote")
+async def request_quote(ownerPersonRef: UUID, owner: Owner = Depends(_owner)):
+    owner_user_id = await _person_target(owner, ownerPersonRef)
+    return await _call("request_quote", owner=owner, owner_user_id=owner_user_id)
 
 
 @router.get("/requests")
@@ -957,6 +1003,18 @@ async def decline(request_id: UUID, body: DecisionRequest, owner: Owner = Depend
         request_id=str(request_id),
         revision=body.revision,
         decision="declined",
+    )
+
+
+@router.post("/requests/{request_id}/allow", status_code=202)
+async def allow(request_id: UUID, body: AllowRequest, owner: Owner = Depends(_owner)):
+    """A allows one request outside the Trusted circle; the automatic search runs next."""
+    return await _call(
+        "allow",
+        owner=owner,
+        request_id=str(request_id),
+        revision=body.revision,
+        amount_cents=body.amountCents,
     )
 
 

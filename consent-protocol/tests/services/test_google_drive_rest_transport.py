@@ -412,6 +412,30 @@ async def test_a_connection_change_during_the_read_releases_nothing(monkeypatch)
         await drive.read_tool(user_id="owner", tool_name="search_files", arguments={"query": "x"})
 
 
+async def test_pooled_search_checks_credentials_and_revocation_on_every_page(monkeypatch):
+    listing = AsyncMock(return_value={"files": []})
+    drive = transport(adapter=SimpleNamespace(list_files=listing), monkeypatch=monkeypatch)
+    drive._oauth.current_credential.side_effect = [
+        (row(), {"accessToken": "synthetic-first"}),
+        (row(), {"accessToken": "synthetic-refreshed"}),
+        DriveOAuthError("reconnect_required", status_code=401),
+    ]
+    async with drive.owner_search_session():
+        for _ in range(2):
+            await drive.read_owner_search_page(
+                user_id="owner", tool_name="search_files", arguments={"query": "x"}
+            )
+        with pytest.raises(DriveOAuthError, match="reconnect_required"):
+            await drive.read_owner_search_page(
+                user_id="owner", tool_name="search_files", arguments={"query": "x"}
+            )
+    assert [call.kwargs["access_token"] for call in listing.await_args_list] == [
+        "synthetic-first",
+        "synthetic-refreshed",
+    ]
+    assert drive._oauth.lifecycle.read.await_count == 2
+
+
 async def test_the_connect_probe_is_one_bounded_rest_search():
     listing = AsyncMock(return_value={})
     drive = rest.GoogleDriveRestTransport(

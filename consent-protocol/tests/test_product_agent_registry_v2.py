@@ -52,6 +52,28 @@ def test_generated_product_agent_registry_is_current() -> None:
     assert all(len(agent["system_instruction_sha256"]) == 64 for agent in registry["agents"])
 
 
+def test_registry_writer_uses_platform_independent_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "registry_writer", ROOT / "scripts" / "generate_product_agent_registry.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    registry = module.build_registry()
+    monkeypatch.setattr(module, "build_registry", lambda: registry)
+    output = tmp_path / "registry.json"
+    monkeypatch.setattr(module, "OUTPUTS", (output,))
+    monkeypatch.setattr(module, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["generate_product_agent_registry.py"])
+    assert module.main() == 0
+    assert output.read_bytes() == module.render(module.build_registry()).encode("utf-8")
+    assert b"\r\n" not in output.read_bytes()
+
+
 def test_agent_hierarchy_and_action_contracts_are_current() -> None:
     result = subprocess.run(  # noqa: S603 - executes a repository-owned verifier.
         [sys.executable, str(ROOT / "scripts" / "verify_agent_hierarchy_contract.py")],

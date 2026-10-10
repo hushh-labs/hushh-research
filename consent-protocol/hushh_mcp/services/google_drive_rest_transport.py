@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+from contextlib import asynccontextmanager, nullcontext
 from datetime import UTC, datetime
 from typing import Any
 
@@ -21,6 +22,7 @@ from hushh_mcp.services.drive_document_parser import ParseError
 # The live lane parses what the selected lane does, plus CSV (a Google Sheets
 # export or an uploaded .csv). Bound to this name so the read path is unchanged.
 from hushh_mcp.services.drive_document_parser import parse_live_document as parse_document
+from hushh_mcp.services.drive_telemetry import drive_logger, drive_stage
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
@@ -58,6 +60,7 @@ _TITLE = re.compile(r"\btitle (contains|=|!=) ")
 # supported for queries with fullText terms. Results are always in descending
 # relevance order."), so such a search sends no orderBy at all.
 _FULL_TEXT = re.compile(r"\bfullText\b")
+logger = drive_logger(__name__)
 
 
 # Quoted values are opaque: compatibility field translation and operator
@@ -231,6 +234,13 @@ class GoogleDriveRestTransport:
             user_id, tool_name, arguments, _OWNER_SEARCH_OPERATIONS, _MAX_ARGUMENT_BYTES
         )
 
+    @asynccontextmanager
+    async def owner_search_session(self):
+        """Share connections within one bounded search, never credentials or authority."""
+        session = getattr(self.adapter, "read_session", nullcontext)
+        async with session():
+            yield
+
     async def write_tool(
         self,
         *,
@@ -293,9 +303,10 @@ class GoogleDriveRestTransport:
             raise DriveOAuthError("invalid_argument", status_code=400) from None
         if not connector_feature_enabled("google_drive_live", user_id):
             raise DriveOAuthError("connector_unavailable", status_code=403)
-        row, credential = await self._oauth.current_credential(
-            user_id=user_id, required_profile="live"
-        )
+        with drive_stage(logger, "credential"):
+            row, credential = await self._oauth.current_credential(
+                user_id=user_id, required_profile="live"
+            )
         if (
             row["status"] != "connected"
             or row["validation_state"] != "verified"
@@ -309,8 +320,10 @@ class GoogleDriveRestTransport:
         # plus its method; these owner, grant and generation checks wrap every
         # entry without change.
         operation = getattr(self, operations[tool_name])
-        payload: dict = await operation(arguments, credential["accessToken"])
-        current = await self._oauth.lifecycle.read(user_id=user_id, connector_id="google_drive")
+        with drive_stage(logger, "provider"):
+            payload: dict = await operation(arguments, credential["accessToken"])
+        with drive_stage(logger, "connection_recheck"):
+            current = await self._oauth.lifecycle.read(user_id=user_id, connector_id="google_drive")
         if (
             not current
             or current["connection_generation"] != row["connection_generation"]

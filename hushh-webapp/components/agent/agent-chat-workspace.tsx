@@ -259,6 +259,7 @@ import {
   getPkmAutoSaveCards,
   loadAgentPkmContext,
   peekAgentPkmContext,
+  peekReceiptMemoryIndex,
   warmAgentPkmContext,
   type AgentPkmContext,
 } from "@/lib/agent/agent-pkm-memory";
@@ -341,6 +342,7 @@ import {
 } from "@/lib/agent/drive-review-directive-runtime";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import { runCalendarDirective } from "@/lib/agent/calendar-directive-runtime";
+import { runGmailTodoDirective } from "@/lib/agent/gmail-todo-directive-runtime";
 import {
   GMAIL_MAILBOX_ACTION_COPY,
   gmailMailboxAction,
@@ -429,8 +431,12 @@ import {
 import { AgentMessageAttachments } from "@/components/agent/agent-message-attachments";
 import { AgentComposerTextAttachment } from "@/components/agent/agent-text-attachment-editor";
 import {
+  countUnseenTranscriptMessages,
   findPendingAssistantTurn,
+  formatTranscriptMessageCount,
   measureTranscriptReveal,
+  prepareSeenTranscriptMessages,
+  type SeenTranscriptMessages,
   transcriptFollowsLatest,
   transcriptRevealScrollTop,
 } from "@/lib/agent/agent-chat-transcript-scroll";
@@ -2048,6 +2054,7 @@ export function AgentBubble({
   return (
     <div
       data-message-role={message.role}
+      data-message-id={message.id}
       data-message-status={message.status}
       // The time is kept on the row for tooling; the transcript shows it in
       // the centered separator above each group instead of under every bubble.
@@ -6266,6 +6273,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         ].filter(Boolean).join("\n\n") || undefined,
         // Settings style choices ride beside the packet, never inside it.
         communicationPreferences: agentPkmContext.communicationPreferences,
+        // The saved receipt index rides beside the packet too: typed data the
+        // Email receipts read consumes for this turn, never text One reads.
+        receiptMemory: peekReceiptMemoryIndex({ userId }),
         personSelectionHandle: options.personSelectionHandle,
         gmailInformationRequestWorkflowId: options.gmailInformationRequestWorkflowId,
         driveSearchSelection: options.driveSearchSelection,
@@ -7344,7 +7354,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const enqueueReviewedDirective = (
     directive: SpecialistDirectiveEvent,
     options: {
-      scope: "calendar" | "gmail-mailbox";
+      scope: "calendar" | "gmail-mailbox" | "gmail-todo";
       pendingText: string;
       doneText: string;
       failedText: string;
@@ -7413,7 +7423,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       pendingText: "Scheduling…",
       doneText: "Calendar updated.",
       failedText: "The Calendar change could not be completed.",
-      run: () => runCalendarDirective(directive.directive, token, userId),
+      run: () => runCalendarDirective(directive.directive, token, userId, vaultKey),
     });
 
   const enqueueGmailMailboxDirective = (
@@ -7430,6 +7440,26 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       run: () => runGmailMailboxDirective(directive.directive, auth),
     });
   };
+
+  const enqueueGmailTodoDirective = (
+    directive: SpecialistDirectiveEvent,
+    userId: string,
+    vaultKey: string,
+    vaultOwnerToken: string,
+  ) =>
+    enqueueReviewedDirective(directive, {
+      scope: "gmail-todo",
+      pendingText: "Adding to your To-do list…",
+      doneText: "Added to your To-do list.",
+      failedText: "The item couldn’t be added to your To-do list.",
+      run: () =>
+        runGmailTodoDirective(
+          directive.directive,
+          userId,
+          vaultKey,
+          vaultOwnerToken,
+        ),
+    });
 
   // --- Requests this conversation sent: durable waiting and access ended ---
   // Rebuilt from the conversation itself on every load, so a reload, a cold
@@ -8388,21 +8418,20 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (next.open && !isPuppySurface)
       void loadConversationList().catch(() => undefined);
   }, [drawerMode, isHistoryDrawerOpen, isPuppySurface, loadConversationList]);
-  // "N messages" (as in the reference): while the reader is scrolled up, a
-  // pill above the composer counts the messages not yet fully in view below
-  // and jumps back to the latest on a tap.
+  // Seen messages stay acknowledged when the reader returns to older history.
   const [messagesBelow, setMessagesBelow] = useState(0);
   const messagesBelowFrameRef = useRef<number | null>(null);
+  const seenTranscriptMessagesRef = useRef<SeenTranscriptMessages>({
+    scope: "", conversationId: null, ids: new Set(),
+  });
   const countMessagesBelow = useCallback(() => {
     messagesBelowFrameRef.current = null;
+    const scope = JSON.stringify([user?.uid, vaultSessionEpoch]);
+    seenTranscriptMessagesRef.current = prepareSeenTranscriptMessages(
+      seenTranscriptMessagesRef.current, scope, conversationId,
+    );
     const transcript = transcriptRef.current;
-    if (!transcript || isPuppySurface) {
-      setMessagesBelow(0);
-      return;
-    }
-    const distanceFromBottom =
-      transcript.scrollHeight - transcript.clientHeight - transcript.scrollTop;
-    if (distanceFromBottom <= 96) {
+    if (!transcript || isPuppySurface || document.visibilityState === "hidden") {
       setMessagesBelow(0);
       return;
     }
@@ -8412,19 +8441,43 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const overlayRect = overlay?.getBoundingClientRect();
     const visibleBottom = Math.max(transcriptRect.top, Math.min(transcriptRect.bottom,
       overlayRect && overlayRect.height > 0 ? overlayRect.top : transcriptRect.bottom));
-    let count = 0;
-    transcript.querySelectorAll<HTMLElement>("[data-message-role]").forEach((row) => {
-      if (row.getBoundingClientRect().bottom > visibleBottom + 4) count += 1;
+    if (visibleBottom <= transcriptRect.top) {
+      setMessagesBelow(0);
+      return;
+    }
+    const rows = Array.from(transcript.querySelectorAll<HTMLElement>("[data-message-id]"), row => {
+      const rect = row.getBoundingClientRect();
+      return { id: row.dataset.messageId!, top: rect.top, bottom: rect.bottom };
     });
-    setMessagesBelow(count);
-  }, [agentDockFrame, isCanonicalChatRoute, isPuppySurface]);
+    const count = countUnseenTranscriptMessages(rows, visibleBottom, seenTranscriptMessagesRef.current.ids);
+    const end = messagesEndRef.current;
+    if (end) {
+      const endTargetTop = transcriptRevealScrollTop(
+        measureTranscriptReveal(transcript, end, overlay),
+      );
+      if (endTargetTop <= transcript.scrollTop + 4) {
+        setMessagesBelow(0);
+        return;
+      }
+    }
+    setMessagesBelow(current => current === count ? current : count);
+  }, [agentDockFrame, conversationId, isCanonicalChatRoute, isPuppySurface, user?.uid, vaultSessionEpoch]);
+  const countMessagesBelowRef = useRef(countMessagesBelow);
+  useLayoutEffect(() => {
+    countMessagesBelowRef.current = countMessagesBelow;
+  }, [countMessagesBelow]);
   const scheduleMessagesBelowCount = useCallback(() => {
     if (messagesBelowFrameRef.current !== null) return;
-    messagesBelowFrameRef.current = window.requestAnimationFrame(countMessagesBelow);
-  }, [countMessagesBelow]);
+    // A queued frame must use the latest committed conversation/owner scope.
+    messagesBelowFrameRef.current = window.requestAnimationFrame(() => countMessagesBelowRef.current());
+  }, []);
   useEffect(() => {
     scheduleMessagesBelowCount();
-  }, [messages, chatOnboarding.turns.length, scheduleMessagesBelowCount]);
+  }, [messages, chatOnboarding.turns.length, countMessagesBelow, scheduleMessagesBelowCount]);
+  useEffect(() => {
+    document.addEventListener("visibilitychange", scheduleMessagesBelowCount);
+    return () => document.removeEventListener("visibilitychange", scheduleMessagesBelowCount);
+  }, [scheduleMessagesBelowCount]);
   useEffect(() => () => {
     if (messagesBelowFrameRef.current !== null)
       window.cancelAnimationFrame(messagesBelowFrameRef.current);
@@ -8496,6 +8549,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       onOpenConnectors={!isPuppySurface
         ? (trigger) => openConnectorSurface(undefined, trigger)
         : undefined}
+      onOpenTodoList={!isPuppySurface ? () => router.push(ROUTES.ONE_TODOS) : undefined}
       onGetApp={offerGetApp ? openGetApp : undefined}
       getAppOpen={getAppOpen}
       driveActivity={!isPuppySurface
@@ -10072,6 +10126,22 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         runDirectiveConnect("gmail_modify");
                         return;
                       }
+                      if (type === "gmail.create_todos") {
+                        const vaultOwnerToken = getVaultOwnerToken();
+                        if (!vaultOwnerToken || !vaultKey || !user?.uid) {
+                          addErrorMessage(
+                            "Vault access expired. Unlock again to continue.",
+                          );
+                          return;
+                        }
+                        enqueueGmailTodoDirective(
+                          directive,
+                          user.uid,
+                          vaultKey,
+                          vaultOwnerToken,
+                        );
+                        return;
+                      }
                       if (type !== "gmail.execute_mailbox_proposal") {
                         setPendingSpecialistDirective(null);
                         addErrorMessage(
@@ -10378,7 +10448,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   aria-label={`Jump to latest, ${messagesBelow} ${messagesBelow === 1 ? "message" : "messages"} below`}
                   className="pointer-events-auto inline-flex h-9 items-center gap-1.5 rounded-full bg-[color:var(--app-accent)] pl-4 pr-3 text-[14px] font-semibold tabular-nums text-[color:var(--app-accent-fg)] shadow-[0_10px_28px_-12px_var(--app-accent-deep)] transition-colors hover:bg-[color:var(--app-accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--one-chat-canvas)] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1"
                 >
-                  {messagesBelow} {messagesBelow === 1 ? "message" : "messages"}
+                  {formatTranscriptMessageCount(messagesBelow)} {messagesBelow === 1 ? "message" : "messages"}
                   <ChevronDown className="h-4 w-4" aria-hidden="true" />
                 </button>
               </div>

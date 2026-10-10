@@ -13,6 +13,7 @@ import json
 import logging
 import os
 from typing import Annotated, AsyncGenerator, Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, Path, Request
 from sse_starlette.sse import EventSourceResponse
@@ -205,6 +206,8 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
             limit=10,
         )
         for event in recent_events:
+            if event.get("type") in {"document_share_feed_changed", "bank_payout_changed"}:
+                continue
             event_id = _sse_event_id(event)
             if not event_id or event_id in notified_event_ids:
                 continue
@@ -233,6 +236,8 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
                 continue
 
             event_id = _sse_event_id(data)
+            if data.get("type") in {"document_share_feed_changed", "bank_payout_changed"}:
+                continue
             if not event_id or event_id in notified_event_ids:
                 continue
 
@@ -249,6 +254,72 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
         raise
     finally:
         await unsubscribe_consent_queue(user_id, queue)
+
+
+async def document_feed_event_generator(
+    user_id: str, request: Request
+) -> AsyncGenerator[dict, None]:
+    """Stream opaque Drive doorbells, repairing missed changes by snapshot.
+
+    The subscription precedes the reset frame. A commit racing the initial
+    authenticated Feed reread is therefore queued and delivered afterwards.
+    Every reconnect sends a reset; LISTEN/NOTIFY is never treated as durable
+    state or as grant authority.
+    """
+    from api.consent_listener import subscribe_consent_queue, unsubscribe_consent_queue
+
+    queue = await subscribe_consent_queue(user_id)
+    try:
+        yield {"event": "feed_reset", "data": "{}"}
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                data = await asyncio.wait_for(queue.get(), timeout=30)
+            except asyncio.TimeoutError:
+                yield {"event": "heartbeat", "data": "{}"}
+                continue
+            if data.get("type") == "bank_payout_changed":
+                yield {"event": "feed_reset", "data": "{}"}
+                continue
+            if data.get("type") != "document_share_feed_changed":
+                continue
+            try:
+                event_id = str(UUID(str(data.get("event_id") or "")))
+                request_id = str(UUID(str(data.get("request_id") or "")))
+            except (TypeError, ValueError, AttributeError):
+                continue
+            yield {
+                "event": "feed_changed",
+                "id": event_id,
+                "data": json.dumps({"request_id": request_id}),
+            }
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await unsubscribe_consent_queue(user_id, queue)
+
+
+@router.get("/document-feed/{user_id}")
+async def document_feed_events(
+    user_id: _UserId,
+    request: Request,
+    authorization: Optional[str] = Header(None, description="Bearer Firebase ID token"),
+):
+    """Authenticated live wake-ups for document requests.
+
+    Unlike the legacy consent-fallback stream, this endpoint is available
+    alongside FCM. Its reset frame instructs a fresh authenticated snapshot.
+    """
+    _authorize_sse_user(user_id, authorization)
+    return EventSourceResponse(
+        document_feed_event_generator(user_id, request),
+        headers={
+            "Cache-Control": "no-cache, no-store",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/events/{user_id}")

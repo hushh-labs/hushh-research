@@ -42,8 +42,8 @@ class DriveTrustedAutoService:
         )
         if state["status"] == "paid":
             return True
-        # The order and payment-ready event are committed. Prompt the sharing
-        # drain to deliver its notification; the scheduled drain remains backup.
+        # The order is committed. The sharing drain binds a Stripe deadline
+        # before it writes and dispatches the payment-ready notification.
         await self.wake("sharing")
         return False
 

@@ -1,9 +1,12 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Image from "next/image";
 import { WalletCardFace } from "@/components/wallet/wallet-card-face";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
 import type { WalletCardPayload } from "@/lib/services/wallet-card-service";
-import { walletProfileUsername } from "@/lib/wallet/wallet-profile-username";
+import { buildWalletCardSvg, walletCardImageFields, walletCardImageKey, NWS_SAMPLE_DESCRIPTION, type WalletCardImageKind } from "@/lib/wallet/wallet-card-image";
 import styles from "./wallet-demo-cards.module.css";
-import { WalletCardQr } from "@/components/wallet-card/wallet-card-qr";
 
 export type WalletDemoProfile = {
   ownerId?: string;
@@ -39,40 +42,54 @@ export function isAgentWalletCard(cardId: string): boolean {
   return AGENT_CARDS.some((card) => card.id === cardId);
 }
 
-export function WalletDemoCardFace({ summary, profile }: { summary: WalletCardSummary; profile?: WalletDemoProfile | null; onArtworkLoad?: () => void }) {
+export function WalletDemoCardFace({ summary, profile, onArtworkLoad }: { summary: WalletCardSummary; profile?: WalletDemoProfile | null; onArtworkLoad?: () => void }) {
   const card = AGENT_CARDS.find((item) => item.id === summary.cardId);
   if (!card) return <WalletCardFace summary={summary} collection />;
-  const username = profile?.cardPayload?.username || walletProfileUsername(profile?.displayName ?? "");
-  const memberDate = profile?.memberSince ? new Date(profile.memberSince) : null;
-  const memberSince = memberDate && !Number.isNaN(memberDate.getTime()) ? memberDate.getFullYear() : "—";
-  const isNws = card.kind === "NWS";
-  const walletId = profile?.walletId ? profile.walletId.slice(-8).toUpperCase() : "—";
-  const qrUrl = card.kind === "Referral" ? profile?.referralUrl : profile?.shareUrl;
+  return <WalletAgentCardImage kind={card.finish} name={card.name} profile={profile} onArtworkLoad={onArtworkLoad} />;
+}
+
+function WalletAgentCardImage({ kind, name, profile, onArtworkLoad }: {
+  kind: WalletCardImageKind; name: string; profile?: WalletDemoProfile | null; onArtworkLoad?: () => void;
+}) {
+  const requestKey = walletCardImageKey(kind, profile);
+  const [image, setImage] = useState<{ key: string; url: string; loaded: boolean } | null>(null);
+  const [failedKey, setFailedKey] = useState<string | null>(null);
+  const fields = walletCardImageFields(profile);
+  useEffect(() => {
+    const controller = new AbortController();
+    let objectUrl: string | null = null;
+    void buildWalletCardSvg({ kind, profile, signal: controller.signal }).then((svg) => {
+      if (controller.signal.aborted) return;
+      objectUrl = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+      setImage({ key: requestKey, url: objectUrl, loaded: false });
+      setFailedKey(null);
+    }).catch(() => {
+      if (!controller.signal.aborted) setFailedKey(requestKey);
+    });
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+    // requestKey is the complete, immutable projection of visible owner values.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestKey]);
+
+  // A changed owner/link hides the prior image during render, before effects run.
+  const currentImage = image?.key === requestKey ? image : null;
+  const ready = currentImage?.loaded === true;
   return <div className={`@container ${styles.face}`}>
-    <div data-testid="wallet-card-face" data-agent-card={card.finish} data-revealed="false" className={`${styles.artworkFrame} ${styles[card.finish]}`}>
-      {isNws ? <span className="sr-only">Sample NWS score: 900 out of 1000. This is not an evaluated net worth score.</span> : null}
-      <iframe title={`${card.name} artwork`} aria-hidden="true" tabIndex={-1} src={`/wallet/agent-one-card-${card.finish}.html?v=${isNws ? 5 : 4}`} className={styles.artwork} />
-      {!isNws ? qrUrl ? <WalletCardQr value={qrUrl} label={`${card.name} QR code`} className={styles.profileQr} /> : <span className={styles.qrPlaceholder} aria-label="QR unavailable">QR</span> : null}
-      {isNws ? <svg viewBox="0 0 1080 650" preserveAspectRatio="none" aria-hidden="true" className={styles.nwsIdentityFields}>
-        <g fill="#9DBFA9" fontSize="14" fontWeight="500" letterSpacing="4.48">
-          <text x="100" y="449">USERNAME</text>
-          <text x="390" y="449">MEMBER SINCE</text>
-          <text x="640" y="449">WALLET ID</text>
-        </g>
-        <g fill="none" stroke="#3F7A5E" strokeOpacity=".7" strokeWidth="1.5">
-          <line x1="344" y1="428" x2="344" y2="507" />
-          <line x1="594" y1="428" x2="594" y2="507" />
-        </g>
-        <g fill="#F2EFE3" fontWeight="600">
-          <text x="100" y="495" fontSize="28" letterSpacing="4.48" textLength={username.length > 10 ? 220 : undefined} lengthAdjust="spacingAndGlyphs">{username}</text>
-          <text x="390" y="495" fontSize="32" letterSpacing="1.28">{memberSince}</text>
-          <text x="640" y="495" fontSize="32" letterSpacing="1.28">{walletId}</text>
-        </g>
-      </svg> : null}
-      <dl className={isNws ? "sr-only" : styles.identityFields}>
-        <div><dt>Username</dt><dd>{username}</dd></div>
-        <div><dt>Member since</dt><dd>{memberSince}</dd></div>
-        <div><dt>Wallet ID</dt><dd>{walletId}</dd></div>
+    <div data-testid="wallet-card-face" data-agent-card={kind} data-revealed="false" data-artwork-ready={ready} className={`${styles.artworkFrame} ${styles[kind]}`}>
+      {!ready ? <div className={styles.placeholder} aria-hidden="true"><strong>AGENT ONE</strong><span>{kind.toUpperCase()}</span></div> : null}
+      {currentImage ? <Image unoptimized loading="eager" key={currentImage.url} src={currentImage.url} alt={`${name}${kind === "nws" ? ". " + NWS_SAMPLE_DESCRIPTION : ""}`} width="1080" height="681" decoding="sync" draggable={false} className={styles.artwork} style={{ visibility: ready ? "visible" : "hidden" }} onLoad={() => {
+        setImage((value) => value?.url === currentImage.url ? { ...value, loaded: true } : value);
+        onArtworkLoad?.();
+      }} onError={() => setFailedKey(requestKey)} /> : null}
+      {failedKey === requestKey ? <span className="sr-only">The card image could not be loaded. Open details to view your card.</span> : null}
+      {kind === "nws" ? <span className="sr-only">{NWS_SAMPLE_DESCRIPTION}</span> : null}
+      <dl className="sr-only">
+        <div><dt>Username</dt><dd>{fields.username}</dd></div>
+        <div><dt>Member since</dt><dd>{fields.memberSince}</dd></div>
+        <div><dt>Wallet ID</dt><dd>{fields.walletId}</dd></div>
       </dl>
     </div>
   </div>;

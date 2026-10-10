@@ -944,6 +944,17 @@ describe("supported connector catalog", () => {
     expect(await screen.findByRole("region", { name: "Calendar details" })).toBeInTheDocument();
   });
 
+  it.each(["instagram", "linkedin"])("offers %s as a public-link draft without granting a connection", async (id) => {
+    render(<ConnectorsPanel open surface="profile" {...callbacks} />);
+    const name = id === "instagram" ? "Instagram" : "LinkedIn";
+    fireEvent.click(await screen.findByRole("button", { name: `Connect ${name}`, exact: true }));
+    expect(screen.getByText(/Your profile should be a public figure/)).toBeInTheDocument();
+    const input = screen.getByRole("textbox", { name: "Profile link" });
+    fireEvent.change(input, { target: { value: `https://www.${id}.com/example` } });
+    expect(input).toHaveValue(`https://www.${id}.com/example`);
+    expect(state.startOAuthConnect).not.toHaveBeenCalled();
+  });
+
   it("offers explicit Gmail draft permission only for a connected account without it", async () => {
     state.gmailStatus = { connected: true, compose_permission_granted: false };
     render(panel());

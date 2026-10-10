@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiFetch = vi.hoisted(() => vi.fn());
 const apiFetchStream = vi.hoisted(() => vi.fn());
+const clearRead = vi.hoisted(() => vi.fn());
+const activeKey = vi.hoisted(() => vi.fn(() => "fixture-key"));
+vi.mock("@/lib/notifications/preview-keys", () => ({ activeNotificationKeyId: activeKey }));
+vi.mock("@/lib/notifications/chat-system-notifications", () => ({ ChatSystemNotifications: { clearRead } }));
 
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: { apiFetch, apiFetchStream },
@@ -35,6 +39,7 @@ describe("DirectMessagesService", () => {
   beforeEach(() => {
     apiFetch.mockReset();
     apiFetchStream.mockReset();
+    clearRead.mockReset(); activeKey.mockReset().mockReturnValue("fixture-key");
   });
 
   it("loads the authenticated inbox without exposing raw peer ids", async () => {
@@ -219,5 +224,29 @@ describe("DirectMessagesService", () => {
       "/api/one/messages/events",
       expect.objectContaining({ method: "GET", cache: "no-store" }),
     );
+  });
+
+  it("forwards the retry identity and the owner-scoped read boundary without clearing later same-millisecond alerts", async () => {
+    apiFetch.mockResolvedValueOnce(new Response(JSON.stringify({ conversation, message: conversation.latestMessage })));
+    await DirectMessagesService.sendMessage({ idToken: "fixture", recipientPersonRef: "person-public-ref", content: "Hello", clientMessageId: "retry-uuid" });
+    expect(JSON.parse(apiFetch.mock.calls[0]![1].body)).toMatchObject({ clientMessageId: "retry-uuid" });
+    apiFetch.mockResolvedValueOnce(new Response(JSON.stringify({ readCount: 1, readAt: "2026-10-09T10:00:01Z", readThroughCreatedAt: "2026-10-09T10:00:00.123456Z" })));
+    await DirectMessagesService.markConversationRead({ idToken: "fixture", ownerUserId: "alice", conversationId: "conversation-1", throughMessageId: "message-1", throughCreatedAt: "2026-10-09T09:00:00Z" });
+    expect(activeKey).toHaveBeenCalledWith("alice");
+    expect(apiFetch.mock.calls[1]![0]).toBe("/api/one/messages/conversations/conversation-1/read?throughMessageId=message-1");
+    expect(clearRead).toHaveBeenCalledWith({ keyId: "fixture-key", threadId: "conversation-1", messageId: "direct-message:message-1", before: Date.parse("2026-10-09T10:00:00.123Z") - 1 });
+    activeKey.mockReturnValue(null as unknown as string);
+    apiFetch.mockResolvedValueOnce(new Response(JSON.stringify({ readCount: 0 })));
+    await DirectMessagesService.markConversationRead({ idToken: "old-owner", ownerUserId: "alice", conversationId: "conversation-1", throughMessageId: "message-1" });
+    expect(clearRead).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe("encrypted selection navigation", () => {
+  it("puts only the server token in the browser href", async () => {
+    apiFetch.mockResolvedValue(Response.json({ token: "dm1.opaque", kind: "conversation", ref: "internal-id" }));
+    expect(await DirectMessagesService.routeHref({ idToken: "auth", conversationId: "internal-id" })).toBe("/one/messages?token=dm1.opaque");
+    expect(apiFetch).toHaveBeenLastCalledWith("/api/one/messages/route-token", expect.objectContaining({ method: "POST", body: JSON.stringify({ conversationId: "internal-id" }), cache: "no-store" }));
   });
 });

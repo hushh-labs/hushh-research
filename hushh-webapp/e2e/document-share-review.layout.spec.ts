@@ -19,6 +19,25 @@ test.beforeEach(async ({ page }) => {
       }),
     }),
   );
+  // Request creation now requires the owner's current price quote. Keep the
+  // transport synthetic while exercising the production quote/version gate.
+  await page.route(/\/api\/connectors\/google_drive\/sharing\/quote\?/, (route) => {
+    expect(route.request().headers().authorization).toBe(
+      "Bearer synthetic-vault-owner",
+    );
+    expect(new URL(route.request().url()).searchParams.get("ownerPersonRef")).toBe(
+      "33333333-3333-4333-8333-333333333333",
+    );
+    return route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        amountCents: 1000,
+        version: 1,
+        paymentRequired: true,
+        payoutReady: true,
+      }),
+    });
+  });
 });
 test.beforeAll(async () => {
   const root = process.cwd();
@@ -141,6 +160,7 @@ test("relative standup request asks for exact dates before sending", async ({ pa
   await page.addScriptTag({ content: script });
   await page.getByRole("button", { name: "Request files", exact: true }).click();
   const panel = page.getByRole("dialog", { name: "Request files", exact: true });
+  await expect(panel.getByText("Price: $10. Pay only if files are found.")).toBeVisible();
   await panel.getByLabel("What do you need?").fill("last 3 days standup notes");
   await expect(panel.getByText("Choose exact start and end dates before sending this request.")).toBeVisible();
   await expect(panel.getByRole("button", { name: "Send request" })).toBeDisabled();
@@ -157,6 +177,7 @@ test("relative standup request asks for exact dates before sending", async ({ pa
     periodStart: "2026-09-29",
     periodEnd: "2026-10-01",
   });
+  expect(submissions[0].expectedQuoteVersion).toBe(1);
 });
 
 for (const width of [320, 390, 768, 1440])
@@ -281,12 +302,14 @@ for (const width of [320, 390, 768, 1440])
       await panel.evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
     ).toBe(true);
     const submit = panel.getByRole("button", { name: "Send request" });
+    await expect(submit).toBeEnabled();
     await submit.focus();
     await page.keyboard.press("Enter");
     await expect(panel.getByText("Request sent.")).toBeVisible();
     expect(submissions).toHaveLength(1);
     expect(submissions[0]).toMatchObject({
       ownerPersonRef: "33333333-3333-4333-8333-333333333333",
+      expectedQuoteVersion: 1,
       purpose: { purpose, periodStart: "2026-01-01", periodEnd: "2026-06-30" },
     });
     await expect(
@@ -735,6 +758,9 @@ test("progressive 25-file review and automatic Drive setup fit at 390px", async 
         claimedPositions: mode === "preview" ? positions : [],
         aggregateCounts: mode === "preview" ? counts : undefined,
       }),
+    };
+    if (url.pathname.endsWith("/delivery")) result = {
+      requestId: reviewId, status: "pending", files: [], canStopAccess: false,
     };
     if (url.pathname.endsWith("/search/files")) result = { jobId, revision: 3, matched: 25,
       files: positions.map(position => ({ position, id: `drive-${position}`,

@@ -1,0 +1,43 @@
+{
+  "displayName": "[Managed] Agent Stream Failures",
+  "documentation": {
+    "content": "Sustained terminal agent failures inside HTTP-success streams. Inspect redacted one_agent_chat_turn_complete error_class/error_code and provider/database readiness. Client disconnects, planned restarts and chat-key refusals are excluded. Existing backend HTTP 5xx coverage remains independent.",
+    "mimeType": "text/markdown"
+  },
+  "combiner": "OR",
+  "enabled": true,
+  "notificationChannels": [],
+  "userLabels": {
+    "managed_by": "repo_observability",
+    "scope": "ops",
+    "incident_purpose": "actionable"
+  },
+  "conditions": [
+    {
+      "displayName": "Agent stream failure rate > 0.01 turns/s sustained 5m",
+      "conditionThreshold": {
+        "filter": "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/obs_agent_stream_failure_count\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0.01,
+        "duration": "300s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ],
+  "severity": "ERROR",
+  "alertStrategy": {
+    "notificationPrompts": [
+      "OPENED",
+      "CLOSED"
+    ]
+  }
+}

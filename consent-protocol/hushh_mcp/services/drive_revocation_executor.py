@@ -58,8 +58,6 @@ class DriveRevocationExecutor(DrivePermissionExecutor):
                     required_profile="live" if plan.get("source_kind") == "live" else "selected",
                 )
                 issuer = verified_issuer(credentials)
-                if row["connection_generation"] != job["connection_generation"]:
-                    raise DriveSharingError("connection_changed")
                 if issuer != plan["issuer"]:
                     raise DriveSharingError("reconnect_original_account")
                 args = {

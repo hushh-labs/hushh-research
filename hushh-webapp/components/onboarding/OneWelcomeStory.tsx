@@ -4,6 +4,7 @@ import { useId, type CSSProperties, type RefObject } from "react";
 import {
   FigmaHushhLogo,
   FigmaOneLogo,
+  FigmaPrivacyNote,
 } from "./FigmaOnboardingPrimitives";
 import styles from "./IntroStep.module.css";
 
@@ -105,7 +106,7 @@ export function OneWelcomeStory({ headingRef, motionEnabled }: {
 export function OneWelcomePrivacy() {
   return (
     <div className={styles.privacy}>
-      <p className={styles.privacyText}>You choose what to share.</p>
+      <FigmaPrivacyNote>You choose what to share.</FigmaPrivacyNote>
     </div>
   );
 }

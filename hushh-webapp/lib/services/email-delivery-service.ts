@@ -337,14 +337,14 @@ function draftFromPayload(payload: unknown): EmailDraftResult {
 }
 
 export class EmailDeliveryService {
-  /** Read the same reviewed attempt after a lost response; this never sends. */
+  /** Reconcile the same reviewed attempt after a lost response; this never sends. */
   static async sendStatus(input: EmailDeliveryAuth & { actionId: string }): Promise<EmailSendStatus> {
     if (!ACTION_ID_PATTERN.test(input.actionId)) {
       throw new EmailDeliveryError("That mail review is unavailable.", 404, "ACTION_NOT_FOUND");
     }
     const response = await ApiService.apiFetch(
       `/api/one/email/send/status/${encodeURIComponent(input.actionId)}`,
-      { method: "GET", headers: emailHeaders(input) },
+      { method: "POST", headers: emailHeaders(input) },
     );
     if (!response.ok) throw await readFailure(response);
     const record = asRecord(await response.json().catch(() => null));

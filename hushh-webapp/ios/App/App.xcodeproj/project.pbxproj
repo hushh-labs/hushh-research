@@ -65,6 +65,10 @@
 		FC968756EFA54153BC098D3D /* HushhVaultPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB0840347A0D3490156D1D16 /* HushhVaultPlugin.swift */; };
 		FEBC1F9C14F1FB5C3D876D51 /* NativeSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 844A95957616D891DBC4D212 /* NativeSupportTests.swift */; };
 		A11C0A710000000000000092 /* LocationEnvelopeCryptoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A710000000000000091 /* LocationEnvelopeCryptoTests.swift */; };
+		C4A7B9010000000000000002 = {isa = PBXBuildFile; fileRef = C4A7B9010000000000000001; };
+        C4A7B9010000000000000003 = {isa = PBXBuildFile; fileRef = C4A7B9010000000000000001; };
+        C4A7B9010000000000000005 = {isa = PBXBuildFile; fileRef = C4A7B9010000000000000004; };
+        C4A7B9010000000000000007 = {isa = PBXBuildFile; fileRef = C4A7B9010000000000000006; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -82,6 +86,7 @@
 			remoteGlobalIDString = 504EC3031FED79650016851F;
 			remoteInfo = App;
 		};
+        C4A7B901000000000000000E = {isa = PBXContainerItemProxy; containerPortal = 504EC2FC1FED79650016851F; proxyType = 1; remoteGlobalIDString = C4A7B9010000000000000009; remoteInfo = ChatNotificationService; };
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
@@ -147,6 +152,9 @@
 		EE27DFB8DCD94B9C5C0516DD /* HushhSyncPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhSyncPlugin.swift; path = Plugins/HushhSyncPlugin.swift; sourceTree = "<group>"; };
 		FACADE000000000000000001 /* HushhAccountPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhAccountPlugin.swift; path = Plugins/HushhAccountPlugin.swift; sourceTree = "<group>"; };
 		FACADE000000000000000004 /* HushhNotificationsPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhNotificationsPlugin.swift; path = Plugins/HushhNotificationsPlugin.swift; sourceTree = "<group>"; };
+        C4A7B9010000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChatPreviewKeys.swift; path = App/Plugins/ChatPreviewKeys.swift; sourceTree = SOURCE_ROOT; };
+        C4A7B9010000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+        C4A7B9010000000000000006 = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; path = ChatNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -175,7 +183,12 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+        C4A7B901000000000000000B = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+        C4A7B901000000000000000D = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = ""; dstSubfolderSpec = 13; files = (C4A7B9010000000000000007, ); name = "Embed App Extensions"; runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXGroup section */
 		48256E6A000C130E82C635C2 /* AppUITests */ = {
@@ -193,6 +206,7 @@
 		504EC2FB1FED79650016851F = {
 			isa = PBXGroup;
 			children = (
+                C4A7B9010000000000000008,
 				958DCC722DB07C7200EA8C5F /* debug.xcconfig */,
 				958DCC732DB07C7200EA8C5F /* release.xcconfig */,
 				504EC3061FED79650016851F /* App */,
@@ -206,6 +220,7 @@
 		504EC3051FED79650016851F /* Products */ = {
 			isa = PBXGroup;
 			children = (
+                C4A7B9010000000000000006,
 				504EC3041FED79650016851F /* App.app */,
 				E3671E80C56D2FAC01466C11 /* AppTests.xctest */,
 				21773A44233202A79EA4E97B /* AppUITests.xctest */,
@@ -216,6 +231,7 @@
 		504EC3061FED79650016851F /* App */ = {
 			isa = PBXGroup;
 			children = (
+                C4A7B9010000000000000001,
 				A280438C2F21B1FC005B42F3 /* App.entitlements */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
@@ -302,6 +318,7 @@
 			name = iOS;
 			sourceTree = "<group>";
 		};
+        C4A7B9010000000000000008 = {isa = PBXGroup; children = (C4A7B9010000000000000004, ); path = ChatNotificationService; sourceTree = "<group>"; };
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -327,6 +344,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 504EC3161FED79650016851F /* Build configuration list for PBXNativeTarget "App" */;
 			buildPhases = (
+                C4A7B901000000000000000D,
 				504EC3001FED79650016851F /* Sources */,
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
@@ -335,6 +353,7 @@
 			buildRules = (
 			);
 			dependencies = (
+                C4A7B901000000000000000F,
 			);
 			name = App;
 			packageProductDependencies = (
@@ -363,6 +382,7 @@
 			productReference = E3671E80C56D2FAC01466C11 /* AppTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+        C4A7B9010000000000000009 = {isa = PBXNativeTarget; buildConfigurationList = C4A7B9010000000000000012; buildPhases = (C4A7B901000000000000000A, C4A7B901000000000000000B, C4A7B901000000000000000C, ); buildRules = (); dependencies = (); name = ChatNotificationService; productName = ChatNotificationService; productReference = C4A7B9010000000000000006; productType = "com.apple.product-type.app-extension"; };
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -404,6 +424,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+                C4A7B9010000000000000009,
 				504EC3031FED79650016851F /* App */,
 				E3C407F7719D0DC2DBB7AE31 /* AppTests */,
 				3658203A687146DA8239820C /* AppUITests */,
@@ -443,6 +464,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+        C4A7B901000000000000000C = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
@@ -486,6 +508,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+                C4A7B9010000000000000002,
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				A11C0A730000000000000011 /* OneVoiceAppIntent.swift in Sources */,
 				5CE2E0D1A0C0000000000002 /* SceneDelegate.swift in Sources */,
@@ -535,6 +558,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+        C4A7B901000000000000000A = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (C4A7B9010000000000000003, C4A7B9010000000000000005, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -550,6 +574,7 @@
 			target = 504EC3031FED79650016851F /* App */;
 			targetProxy = C88238685A567E8796AE7460 /* PBXContainerItemProxy */;
 		};
+        C4A7B901000000000000000F = {isa = PBXTargetDependency; target = C4A7B9010000000000000009; targetProxy = C4A7B901000000000000000E; };
 /* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
@@ -688,7 +713,8 @@
 			baseConfigurationReference = 958DCC722DB07C7200EA8C5F /* debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
+				HUSSH_APP_ENTITLEMENTS = App/App.entitlements;
+                CODE_SIGN_ENTITLEMENTS = "$(HUSSH_APP_ENTITLEMENTS)";
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 69;
@@ -717,7 +743,8 @@
 			baseConfigurationReference = 958DCC732DB07C7200EA8C5F /* release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
+				HUSSH_APP_ENTITLEMENTS = App/App.entitlements;
+                CODE_SIGN_ENTITLEMENTS = "$(HUSSH_APP_ENTITLEMENTS)";
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 69;
@@ -844,6 +871,8 @@
 			};
 			name = Debug;
 		};
+        C4A7B9010000000000000010 = {isa = XCBuildConfiguration; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_ENTITLEMENTS = ChatNotificationService/ChatNotificationService.entitlements; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 69; DEVELOPMENT_TEAM = WVDK9JW99C; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = ChatNotificationService/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 1.4.0; PRODUCT_BUNDLE_IDENTIFIER = com.hushh.app.ChatNotificationService; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = iphoneos; SKIP_INSTALL = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Debug; };
+        C4A7B9010000000000000011 = {isa = XCBuildConfiguration; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_ENTITLEMENTS = ChatNotificationService/ChatNotificationService.entitlements; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 69; DEVELOPMENT_TEAM = WVDK9JW99C; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = ChatNotificationService/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 1.4.0; PRODUCT_BUNDLE_IDENTIFIER = com.hushh.app.ChatNotificationService; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = iphoneos; SKIP_INSTALL = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Release; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -883,6 +912,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+        C4A7B9010000000000000012 = {isa = XCConfigurationList; buildConfigurations = (C4A7B9010000000000000010, C4A7B9010000000000000011, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */

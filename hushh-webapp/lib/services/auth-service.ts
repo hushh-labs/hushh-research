@@ -1260,8 +1260,13 @@ export class AuthService {
    * Sign out from all platforms
    * Uses @capacitor-firebase/authentication for uniform behavior
    */
-  static async signOut(): Promise<void> {
+  static async signOut(departingUserId?: string | null): Promise<void> {
     this.debugLog("🚪 [AuthService] Signing out...");
+    // Start local preview removal alongside both auth stores. There is no await
+    // between the caller's ownership fence and starting credential teardown.
+    const notificationOwner = departingUserId ?? auth.currentUser?.uid;
+    const localNotificationCleanup = import("@/lib/notifications/fcm-service")
+      .then(({ clearLocalChatNotificationState }) => clearLocalChatNotificationState(notificationOwner));
 
     // Native and Firebase JS auth are independent persistence owners in a
     // Capacitor WebView. Always attempt both; a failure in one must never
@@ -1269,6 +1274,11 @@ export class AuthService {
     const results = await Promise.allSettled([
       HushhAuth.signOut(),
       firebaseSignOut(auth),
+      (async () => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try { await Promise.race([localNotificationCleanup, new Promise<void>((resolve) => { timer = setTimeout(resolve, 2_000); })]); }
+        finally { clearTimeout(timer); }
+      })(),
     ]);
     const failures = results.filter(
       (result): result is PromiseRejectedResult => result.status === "rejected",

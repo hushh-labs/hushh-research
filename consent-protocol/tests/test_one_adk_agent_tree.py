@@ -5928,3 +5928,277 @@ def test_text_agents_fail_over_across_vertex_regions_and_only_live_stays_pinned(
     assert text.count("build_managed_regional_gemini_adk_model(_SPECIALIST_MODEL)") >= 1
     pinned = [line for line in text.splitlines() if "build_managed_gemini_adk_model(" in line]
     assert pinned and all("_ONE_LIVE_LOCATION" in line for line in pinned)
+
+
+# --- Receipts: the owner's saved receipt memory reaches only the Email hop ---
+
+_RECEIPT_INDEX = {
+    "schema": "receipt_canonical_index.v1",
+    "generated_at": "2026-10-08T09:00:00Z",
+    "total_transactions": 1,
+    "truncated": False,
+    "transactions": [
+        {
+            "ref": "txn_" + "a" * 16,
+            "merchant": "Supabase",
+            "amount": 124.01,
+            "currency": "USD",
+            "category": "Cloud & Infra",
+            "status": "overdue",
+            "transaction_date": "2026-10-04",
+            "identifiers": [{"kind": "invoice", "value": "ZSUQHV-00028"}],
+            "detail": None,
+        }
+    ],
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("unlocked", [True, False])
+async def test_route_admits_the_receipt_memory_only_for_an_unlocked_owner_turn(
+    monkeypatch, unlocked
+):
+    from fastapi import HTTPException
+    from starlette.requests import Request
+
+    from api.routes.one import agent_chat
+    from hushh_mcp.one_adk.receipt_memory_turn import STATE_RECEIPT_MEMORY, resolve_receipt_memory
+    from tests.helpers.chat_keys import bound_request_chat_key
+    from tests.test_agui_turn_timing import _input
+
+    vault = AsyncMock(return_value={"user_id": "owner", "token": "synthetic"})
+    if not unlocked:
+        vault.side_effect = HTTPException(status_code=403)
+    monkeypatch.setattr(agent_chat, "require_vault_owner_token", vault)
+    monkeypatch.setattr(agent_chat, "verify_firebase_bearer", lambda _: "owner")
+    monkeypatch.setattr(
+        agent_chat._session_service, "is_legacy_session", AsyncMock(return_value=False)
+    )
+    request = Request({"type": "http", "headers": [(b"authorization", b"Bearer synthetic")]})
+    run = _input()
+    run.forwarded_props = {"receiptMemory": dict(_RECEIPT_INDEX)}
+    with bound_request_chat_key("owner"):
+        state = await agent_chat._extract_state(request, run)
+
+    # Popped before the bridge can copy it; state only ever holds a reference.
+    assert "receiptMemory" not in run.forwarded_props
+    assert "Supabase" not in str(state) and "ZSUQHV" not in str(state)
+    if unlocked:
+        assert state[STATE_RECEIPT_MEMORY].startswith("one_secret_ref:")
+        assert resolve_receipt_memory(state.get)["transactions"][0]["merchant"] == "Supabase"
+    else:
+        assert state[STATE_RECEIPT_MEMORY] == ""
+        assert resolve_receipt_memory(state.get) is None
+
+
+def test_a_malformed_receipt_index_is_absent_and_never_logged(caplog):
+    from hushh_mcp.one_adk.receipt_memory_turn import admit_receipt_memory
+
+    caplog.set_level("INFO")
+    forwarded = {
+        "receiptMemory": {**_RECEIPT_INDEX, "transactions": [{"body": "secret purchase text"}]},
+        "pkmContext": "kept",
+    }
+    assert admit_receipt_memory(forwarded) == ""
+    assert forwarded == {"pkmContext": "kept"}
+    assert "secret purchase text" not in caplog.text
+    assert admit_receipt_memory({}) == ""
+
+
+@pytest.mark.asyncio
+async def test_only_the_email_hop_receives_the_receipt_memory_and_cursor():
+    from hushh_mcp.one_adk.external_read_boundary import STATE_EXECUTION_SURFACE
+    from hushh_mcp.one_adk.receipt_memory_turn import STATE_RECEIPT_MEMORY, admit_receipt_memory
+
+    state = {
+        STATE_USER_ID: "owner",
+        STATE_CONSENT_TOKEN: "opaque",
+        STATE_EXECUTION_SURFACE: "typed_chat",
+        STATE_RECEIPT_MEMORY: admit_receipt_memory({"receiptMemory": dict(_RECEIPT_INDEX)}),
+        _tree.STATE_RECEIPT_CURSOR: '{"v":1}',
+    }
+    context = SimpleNamespace(
+        state=state, user_id="owner", invocation_id="invocation", function_call_id="call"
+    )
+    with patch.object(
+        _tree,
+        "validate_first_party_owner_token",
+        new=AsyncMock(return_value=SimpleNamespace(expires_at=9999999999999)),
+    ):
+        email = await _tree._task_from_context(context, "show my receipts", agent_id="agent_email")
+        documents = await _tree._task_from_context(
+            context, "find a file", agent_id="agent_documents"
+        )
+    assert email.receipt_memory["transactions"][0]["merchant"] == "Supabase"
+    assert email.receipt_cursor == '{"v":1}'
+    assert documents.receipt_memory is None and documents.receipt_cursor is None
+
+
+def _ready_email_availability():
+    from hushh_mcp.one_adk.specialist_availability import SpecialistAvailabilityV1
+
+    return SpecialistAvailabilityV1(
+        specialist_id="agent_email", state="ready", reason_code="ready", context_revision=None
+    )
+
+
+def _receipts_result(continuation=None, directive=None, status="ok"):
+    from hushh_mcp.adk_bridge.contract import SpecialistReadResult
+
+    return SpecialistTurnResult(
+        conversation_id="conversation",
+        text="Found 12 receipts. Here are the newest 10:",
+        directive=directive,
+        is_complete=True,
+        state_changed=False,
+        model="fixture",
+        structured=SpecialistReadResult(connector="mail", status=status),
+        continuation=continuation,
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_receipts_list_position_is_kept_for_show_more_and_cleared_at_the_end():
+    context = _tool_context({STATE_USER_ID: "owner", STATE_CONSENT_TOKEN: "opaque"})
+    with (
+        patch.object(
+            _tree, "resolve_specialist_availability", return_value=_ready_email_availability()
+        ),
+        patch.object(_tree, "_task_from_context", new=AsyncMock(return_value=object())),
+    ):
+        with patch.object(
+            _tree,
+            "dispatch",
+            new=AsyncMock(return_value=_receipts_result({"action": "set", "value": '{"next":10}'})),
+        ):
+            first = await _tree._specialist_turn("agent_email", "show my receipts", context)
+        assert context.state[_tree.STATE_RECEIPT_CURSOR] == '{"next":10}'
+        assert "exactly as written" in first["next_step"]
+        assert "call ask_email_agent again" in first["next_step"]
+
+        with patch.object(
+            _tree,
+            "dispatch",
+            new=AsyncMock(return_value=_receipts_result({"action": "clear", "value": None})),
+        ):
+            last = await _tree._specialist_turn("agent_email", "show more", context)
+        assert context.state[_tree.STATE_RECEIPT_CURSOR] == ""
+        assert "exactly as written" in last["next_step"]
+        assert "call ask_email_agent again" not in last["next_step"]
+
+        # An ambiguous follow-up changes nothing about where the list stopped.
+        context.state[_tree.STATE_RECEIPT_CURSOR] = '{"next":10}'
+        with patch.object(
+            _tree,
+            "dispatch",
+            new=AsyncMock(return_value=_receipts_result({"action": "keep", "value": None})),
+        ):
+            await _tree._specialist_turn("agent_email", "show more paid ones", context)
+        assert context.state[_tree.STATE_RECEIPT_CURSOR] == '{"next":10}'
+
+
+@pytest.mark.asyncio
+async def test_other_specialists_never_write_the_receipts_cursor():
+    context = _tool_context({STATE_USER_ID: "owner", STATE_CONSENT_TOKEN: "opaque"})
+    result = _receipts_result({"action": "set", "value": "x"})
+    with (
+        patch.object(_tree, "_task_from_context", new=AsyncMock(return_value=object())),
+        patch.object(_tree, "dispatch", new=AsyncMock(return_value=result)),
+    ):
+        await _tree._specialist_turn("agent_documents", "find a file", context)
+    assert _tree.STATE_RECEIPT_CURSOR not in context.state
+
+
+@pytest.mark.asyncio
+async def test_not_ready_receipts_park_the_generated_open_receipts_action_and_nothing_else():
+    context = _tool_context({STATE_USER_ID: "owner", STATE_CONSENT_TOKEN: "opaque"})
+    proposal = A2ADirective(
+        kind="action",
+        payload={
+            "type": "receipts_open_proposal",
+            "actionId": "route.profile_receipts",
+            "slots": {},
+        },
+    )
+    result = _receipts_result({"action": "clear", "value": None}, proposal, "input_required")
+    with (
+        patch.object(
+            _tree, "resolve_specialist_availability", return_value=_ready_email_availability()
+        ),
+        patch.object(_tree, "_task_from_context", new=AsyncMock(return_value=object())),
+        patch.object(_tree, "dispatch", new=AsyncMock(return_value=result)),
+    ):
+        # The real governed path, not a stand-in: it parks the exact generated
+        # directive the browser validates against the Action Gateway.
+        response = await _tree._specialist_turn("agent_email", "show my receipts", context)
+    assert response["status"] == "input_required"
+    assert response["open_receipts"] == {"status": "ready_to_run"}
+    assert "directive" not in response and "proposed_action" not in response
+    assert context.state[f"{_STATE_PENDING_DIRECTIVE}:route.profile_receipts"] == {
+        "kind": "action",
+        "payload": {
+            "actionId": "route.profile_receipts",
+            "slots": {},
+            "needsConfirmation": False,
+            "trustedActivationRequired": False,
+        },
+    }
+    # The specialist's own directive channel is never used for this proposal.
+    assert not any(key.endswith("agent_email_specialist") for key in context.state)
+    assert "do not call it yourself" in response["next_step"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"type": "receipts_open_proposal", "actionId": "route.one_location", "slots": {}},
+        {"type": "receipts_open_proposal", "actionId": "route.profile_receipts", "slots": {"a": 1}},
+        {"type": "receipts_open_proposal", "actionId": "route.profile_receipts"},
+        {
+            "type": "receipts_open_proposal",
+            "actionId": "route.profile_receipts",
+            "slots": {},
+            "extra": True,
+        },
+    ],
+)
+async def test_an_email_proposal_for_any_other_action_is_refused_and_not_executed(payload):
+    context = _tool_context({STATE_USER_ID: "owner", STATE_CONSENT_TOKEN: "opaque"})
+    result = _receipts_result(None, A2ADirective(kind="action", payload=payload))
+    with (
+        patch.object(
+            _tree, "resolve_specialist_availability", return_value=_ready_email_availability()
+        ),
+        patch.object(_tree, "_task_from_context", new=AsyncMock(return_value=object())),
+        patch.object(_tree, "dispatch", new=AsyncMock(return_value=result)),
+        patch.object(_tree, "run_app_action", new=AsyncMock()) as execute,
+    ):
+        response = await _tree._specialist_turn("agent_email", "show my receipts", context)
+    execute.assert_not_awaited()
+    assert response["status"] == "invalid_proposal"
+    assert not any(key.startswith(_STATE_PENDING_DIRECTIVE) for key in context.state)
+
+
+def test_one_routes_receipt_questions_to_the_email_specialist_and_keeps_inbox_search_for_mail():
+    enabled = _one_runtime_instruction(
+        SimpleNamespace(
+            state={
+                STATE_USER_ID: "owner",
+                _tree.STATE_VOICE_CONTEXT: {},
+                _tree.STATE_EXECUTION_SURFACE: "typed_chat",
+            }
+        )
+    )
+    assert "MAIL READ ADMISSION: enabled" in enabled
+    assert "saved receipt memory" in enabled
+    assert "do not search the inbox for receipts yourself" in enabled
+    assert "Only a request to find emails that mention receipts is an inbox search" in enabled
+    assert "never receipts or attachments" not in enabled
+    # With Mail chat reads off (voice, signed out), nothing about receipts is promised.
+    disabled = _one_runtime_instruction(
+        SimpleNamespace(state={STATE_USER_ID: "owner", _tree.STATE_VOICE_CONTEXT: {}})
+    )
+    assert "MAIL READ ADMISSION: disabled" in disabled
+    assert "saved receipt memory" not in disabled
+    assert "answered from the person's saved receipt memory" in _tree.ask_email_agent.__doc__

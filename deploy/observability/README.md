@@ -51,3 +51,5 @@ that deliberately triggers on a safe test condition; remove that policy after
 the email arrives. Cloud Monitoring does not provide an email-channel test
 button. Keep that delivery proof separate from reconciliation so routine runs
 cannot create test incidents.
+
+Agent stream failures use the existing redacted terminal-turn telemetry. HTTP-success streams with sustained model, connector, database or execution failures trigger one actionable ERROR policy (0.01 turns/s for five minutes). Refusals, client disconnects and planned restarts do not count. No owner, thread or run identifier becomes a metric label. Both reconcilers preserve existing opening/recovery recipients.

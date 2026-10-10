@@ -26,6 +26,7 @@
     "one_kyc_workflows",
     "drive_bulk_share_files",
     "drive_bulk_share_effects",
+    "drive_request_bulk_removals",
     "drive_request_payment_webhook_events",
     "circle_chat_messages",
     "circle_chat_recipients"
@@ -119,7 +120,8 @@
         "actor_identity_cache",
         "actor_verified_email_aliases",
         "runtime_persona_state",
-        "user_push_tokens"
+        "user_push_tokens",
+        "user_push_installations"
       ],
       "primary_access_path": "account, persona, notification, verified email alias, and identity-cache services",
       "retention_policy": "Retain while account exists; refresh from authoritative identity sources where possible.",
@@ -1083,7 +1085,7 @@
       "primary_access_path": "Default-off owner-protected request/review/approval/delivery/removal routes and finite durable worker entrypoints. One OIDC-protected, default-off bounded UAT sweep sequences indexing, suggestions, permission delivery/reconciliation and notification work; it remains unverified until the scheduler and authenticated acceptance are configured.",
       "retention_policy": "Requests have a 30-day authority lifetime and reviews five minutes; those bounds do not themselves delete records. Encrypted management receipts survive ordinary disconnect/index removal. Hard scheduled retention remains a release prerequisite.",
       "deletion_behavior": "Transactional reset/deletion erases private requests, reviews and app-identity linkage. Recipient erasure preserves only another owner's encrypted exact Google-management facts, not request narratives, filenames, source versions, recipient provider subject or full ACL snapshots. Owner erasure removes those receipts; it never claims to revoke external Google sharing.",
-      "trust_boundary": "DRIVE_SHARING_KEY_V1 is independent of document/OAuth keys. AES-256-GCM envelopes bind owner, resource and purpose. Google IDs, names, live content fingerprints, verified account identity, purpose, coverage, exact approval and permission receipts remain encrypted; only opaque workflow IDs, statuses, source versions and keyed binding digests are plaintext. A confirmation claim and pending work commit atomically before external calls.",
+      "trust_boundary": "DRIVE_SHARING_KEY_V1 is independent of document/OAuth keys. AES-256-GCM envelopes bind owner, resource and purpose. Google IDs, names, live content fingerprints, verified account identity, purpose, coverage, exact approval, the owner's Allow with its price, and permission receipts remain encrypted; only opaque workflow IDs, statuses, source versions, keyed binding digests and workflow timestamps such as owner_allowed_at are plaintext. A confirmation claim and pending work commit atomically before external calls.",
       "plaintext_posture": "encrypted_private_request_approval_and_provider_evidence_with_workflow_metadata",
       "expected_row_growth": "up_to_25_operations_per_review_retention_gate_before_enablement"
     },
@@ -1098,12 +1100,58 @@
         "drive_request_payment_webhook_events",
         "drive_request_payment_refunds"
       ],
-      "primary_access_path": "One $10 USD Stripe Checkout order is created only after a new eligible Trusted Circle Drive request has a nonempty frozen shareable batch. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority.",
+      "primary_access_path": "One USD Stripe Checkout order is created only after an eligible Drive request, from the owner's Trusted circle or explicitly allowed by the owner, has a nonempty frozen shareable batch. New requests lock the owner's effective whole-dollar quote from 100 to 50000 cents at creation; legacy requests retain their original price rule. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority.",
       "retention_policy": "At most one live order and one account-free obligation per request, plus one refund attempt and verified event dedupe receipts. Checkout URLs expire with their Stripe session and are cleared on settlement. The obligation and refund evidence survive request erasure until payment and refund duties are settled under merchant retention policy.",
       "deletion_behavior": "The live order cascades from the request. Before account reset or erasure removes the request, an opaque obligation snapshots delivery state and removes all account linkage; late signed charges and in-flight refunds remain reconcilable. Stripe's own merchant records follow the payment account's retention policy.",
-      "trust_boundary": "The retained obligation has only a random request UUID, payer digest, fixed amount/currency, Stripe provider IDs, status and timestamps. No account ID, email, filename, search term, request purpose, document ID, content or Checkout URL is retained there. The requester-visible Feed event is never written after erasure.",
-      "plaintext_posture": "opaque_payment_identifiers_fixed_price_and_workflow_status_only",
+      "trust_boundary": "The retained obligation has only a random request UUID, payer digest, amount (whole dollars, 100 to 50000 cents) and currency, Stripe provider IDs, status and timestamps. No account ID, email, filename, search term, request purpose, document ID, content or Checkout URL is retained there. The requester-visible Feed event is never written after erasure.",
+      "plaintext_posture": "opaque_payment_identifiers_bounded_price_and_workflow_status_only",
       "expected_row_growth": "one_order_per_eligible_request_plus_verified_event_dedupe_receipts"
+    },
+    {
+      "id": "drive_request_owner_pricing",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "drive_request_owner_pricing"
+      ],
+      "primary_access_path": "An authenticated document owner sets one whole-dollar USD Drive request price in Profile. Request creation locks the effective price and version on the encrypted request; later edits affect future requests only.",
+      "retention_policy": "One active preference row per owner while the account exists. The default price applies when no custom preference is enabled.",
+      "deletion_behavior": "Account reset and erasure remove the preference row. Existing payment obligations retain their original quoted amount without the profile setting.",
+      "trust_boundary": "Only the authenticated owner may read or change the preference. Server-side quote/version checks bind the requester to the price at request creation.",
+      "plaintext_posture": "owner_reference_and_bounded_price_only",
+      "expected_row_growth": "one_per_owner"
+    },
+    {
+      "id": "drive_request_owner_payouts",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "drive_request_owner_payouts"
+      ],
+      "primary_access_path": "New eligible paid Drive orders enroll one owner earning. Signed charge, refund, delivery and Stripe fee evidence determine a 3% platform share and one idempotent Connect transfer after confirmed delivery.",
+      "retention_policy": "Retain unsettled earnings and transfer or reversal evidence through financial reconciliation under the merchant retention policy. Historical orders are not backfilled.",
+      "deletion_behavior": "Account erasure removes live identity joins but retains the opaque obligation and provider settlement identifiers until any earned share, refund or reversal is resolved.",
+      "trust_boundary": "No document name, search term, bank number or user ID is stored in the retained payout row. Stripe account IDs and charge or transfer IDs remain restricted to service-role settlement paths.",
+      "plaintext_posture": "opaque_financial_identifiers_amounts_and_status_only",
+      "expected_row_growth": "one_per_new_eligible_paid_request"
+    },
+    {
+      "id": "stripe_connect_bank_payout_status",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "stripe_connect_bank_payouts",
+        "stripe_connect_bank_payout_events"
+      ],
+      "primary_access_path": "A separately signed connected-account Stripe webhook deduplicates events, verifies the latest provider state and updates aggregate bank-deposit status. The authenticated owner reads recent deposits through their current connected-account mapping.",
+      "retention_policy": "Provider payout and event receipts support settlement, reversal and duplicate-event reconciliation under the merchant retention policy.",
+      "deletion_behavior": "Deleting the owner's connected-account mapping removes their app access to these account-keyed financial receipts; any retained provider evidence remains restricted to settlement operators.",
+      "trust_boundary": "Only Stripe Connect account and payout IDs, amount, status, mode, failure code and timestamps are stored. No bank details or document request ID are present; a deposit may combine several earnings.",
+      "plaintext_posture": "provider_financial_identifiers_and_aggregate_status_only",
+      "expected_row_growth": "one_per_provider_bank_payout_plus_signed_event_receipts"
     },
     {
       "id": "drive_document_trust_rules",
@@ -1543,12 +1591,13 @@
         "drive_bulk_share_files",
         "drive_bulk_share_recipients",
         "drive_bulk_share_effects",
-        "drive_bulk_share_notifications"
+        "drive_bulk_share_notifications",
+        "drive_request_bulk_removals"
       ],
-      "primary_access_path": "Vault-owner preview and explicit approval of a frozen completed Drive search; bounded Drive sharing worker creates or reconciles Google permissions for each exact file and verified Trusted recipient. The owner can stop remaining work. Recipients see only confirmed grants through their authenticated Shared with you collection; one generic push is attempted after their grants settle.",
+      "primary_access_path": "Vault-owner preview and approval of a frozen Drive search; bounded workers create and reconcile Google permissions for exact files, then remove app-created direct permissions after the owner confirms Stop access. Recipients see only confirmed grants through their authenticated Shared with you collection.",
       "retention_policy": "An unapproved review has a 24-hour authority lifetime. Approval and progress extend workflow access for seven days independently of the source search. The timestamps fence reads and worker claims; scheduled physical purging of expired bulk-share rows remains required.",
-      "deletion_behavior": "Owner erasure removes the share and cascades to its frozen files, recipients, effects and notifications. Recipient erasure removes that recipient's rows and effects without deleting another owner's other recipients. Deletion of local records does not revoke already created Google permissions; those require separate provider management.",
-      "trust_boundary": "The source search must be complete under the same live owner Drive generation. Explicit owner approval binds the frozen encrypted file manifest, verified recipient identities, revision and review digest. File metadata and recipient identities are sealed under DRIVE_SHARING_KEY_V1; plaintext contains opaque owner/recipient/workflow references, keyed digests, bounded counts, leases, states and timestamps. The worker rechecks current authority, recipient identity, Trusted membership and live file metadata before each grant. Unknown provider outcomes are reconciled by read and never blindly retried. Google per-file notification emails are suppressed, and recipient links are exposed only after confirmed grants.",
+      "deletion_behavior": "Owner erasure removes the share, frozen files, recipients, effects, notifications, and pending removal plans. Recipient erasure pseudonymizes its app ID in owner-held removal plans so recorded Google access can still be managed. Deletion of local records alone does not revoke Google permissions; confirmed Stop queues verified provider removal first.",
+      "trust_boundary": "Owner approval binds the frozen encrypted file manifest, verified recipient identities, revision and review digest. File metadata, recipient identities, successful permission receipts, and removal plans are sealed under DRIVE_SHARING_KEY_V1. Plaintext contains opaque workflow references, bounded counts, leases, states and timestamps. Grant workers recheck payment and current authority; Stop fences new grants. Removal workers delete only permissions with app-created receipts under the original Google issuer, verify absence, and never blindly repeat an uncertain DELETE. Recipient links are exposed only after confirmed grants and hidden on Stop.",
       "plaintext_posture": "encrypted_frozen_file_and_recipient_metadata_with_opaque_effect_and_notification_state",
       "expected_row_growth": "up_to_10000_files_and_100000_file_recipient_effects_per_approved_search"
     },
@@ -1568,6 +1617,23 @@
       "trust_boundary": "Active ordinary Circle members only, with an envelope matching the current membership joined_at generation. The server relays client ciphertext and recipient public keys; it never receives message or image plaintext.",
       "plaintext_posture": "ciphertext_and_membership_delivery_metadata",
       "expected_row_growth": "high_per_message_and_active_member"
+    },
+    {
+      "id": "chat_push_delivery",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "chat_push_device_deliveries",
+        "direct_message_push_outbox"
+      ],
+      "primary_access_path": "Transactional direct-message outbox and shared Circle/direct device delivery workers; source eligibility is rechecked before FCM acceptance.",
+      "retention_policy": "Message history keeps its existing policy. Push sources expire after one day or five attempts; delivery records deduplicate retries for the source lifetime.",
+      "deletion_behavior": "Source deletion cascades to its outbox and delivery records. Account erasure cascades recipient-owned records; tombstones suppress further sends. Installation unregister removes preview keys and token registrations.",
+      "utilization_policy": "Delivery metadata is used only for eligible recipient alerts and retry deduplication.",
+      "plaintext_posture": "opaque_source_device_and_recipient_delivery_metadata",
+      "expected_row_growth": "one_outbox_per_direct_message_and_one_acceptance_per_recipient_installation",
+      "trust_boundary": "Verified recipient, active connection/current Circle membership, block/mute/read/deletion checks, installation owner/key lifecycle fences. No plaintext message or avatar persists in these tables."
     }
   ]
 }

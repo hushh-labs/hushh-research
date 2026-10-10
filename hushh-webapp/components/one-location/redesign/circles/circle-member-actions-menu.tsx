@@ -1,4 +1,5 @@
 "use client";
+import { DirectMessageLink } from "@/components/direct-messages/direct-message-link";
 
 import Link from "next/link";
 
@@ -402,7 +403,7 @@ export function CircleMemberActionsMenu({
                     <div aria-hidden="true" className="ml-[52px] h-px bg-[color:var(--app-separator)]" />
                   ) : null}
                   {messageHref ? (
-                    <Link
+                    <DirectMessageLink
                       href={messageHref}
                       role="menuitem"
                       className={MEMBER_ACTIONS_SHEET_ITEM_CLASSNAME}
@@ -414,7 +415,7 @@ export function CircleMemberActionsMenu({
                         aria-hidden="true"
                       />
                       Message
-                    </Link>
+                    </DirectMessageLink>
                   ) : null}
                   {messageHref && (canShare || canRemove) ? (
                     <div aria-hidden="true" className="ml-[52px] h-px bg-[color:var(--app-separator)]" />
@@ -518,10 +519,10 @@ export function CircleMemberActionsMenu({
           </DropdownMenuLabel>
           {messageHref ? (
             <DropdownMenuItem asChild className={MEMBER_ACTIONS_MENU_ITEM_CLASSNAME}>
-              <Link href={messageHref} data-testid="circle-member-message">
+              <DirectMessageLink href={messageHref} data-testid="circle-member-message">
                 <MessageCircle className="h-4 w-4 text-current" />
                 Message
-              </Link>
+              </DirectMessageLink>
             </DropdownMenuItem>
           ) : null}
           {canShare ? (

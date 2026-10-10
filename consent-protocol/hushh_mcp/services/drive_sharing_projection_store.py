@@ -16,6 +16,54 @@ from hushh_mcp.services.requester_identity import label_from_identity_row
 
 class DriveSharingProjectionStore(DriveRevocationStore):
     @staticmethod
+    def _access_stop_status(connection, request_id):
+        """One request-wide verdict; only verified owned removals count as done."""
+        bulk = (
+            connection.execute(
+                text("""SELECT
+              count(*) FILTER (WHERE e.state IN ('queued','dispatching','unknown')
+                OR e.state='succeeded' AND e.receipt_envelope IS NOT NULL
+                  AND (removal.removal_id IS NULL
+                    OR removal.state IN ('queued','dispatching','unknown'))) AS pending,
+              count(*) FILTER (WHERE e.state IN ('preexisting','present_unattributed')
+                OR e.state='succeeded' AND e.receipt_envelope IS NULL
+                OR removal.state IN ('needs_review','unavailable')) AS attention
+              FROM drive_bulk_share_effects e
+              JOIN drive_bulk_shares b ON b.share_id=e.share_id
+              LEFT JOIN drive_request_bulk_removals removal
+                ON removal.share_id=e.share_id AND removal.position=e.position
+                  AND removal.recipient_user_id=e.recipient_user_id
+              WHERE b.origin_request_id=:request"""),
+                {"request": request_id},
+            )
+            .mappings()
+            .one()
+        )
+        legacy = (
+            connection.execute(
+                text("""SELECT
+              count(*) FILTER (WHERE grant_operation.state IN ('queued','dispatching','unknown')
+                OR grant_operation.state='succeeded' AND (removal.operation_id IS NULL
+                  OR removal.state IN ('queued','dispatching','unknown'))) AS pending,
+              count(*) FILTER (WHERE grant_operation.state IN ('preexisting','present_unattributed')
+                OR removal.state IN ('needs_review','not_dispatched','rejected')) AS attention
+              FROM drive_share_permission_operations grant_operation
+              LEFT JOIN LATERAL (SELECT operation_id,state
+                FROM drive_share_permission_operations removal
+                WHERE removal.parent_operation_id=grant_operation.operation_id
+                  AND removal.kind='revoke'
+                ORDER BY created_at DESC,operation_id DESC LIMIT 1) removal ON TRUE
+              WHERE grant_operation.request_id=:request AND grant_operation.kind='grant'"""),
+                {"request": request_id},
+            )
+            .mappings()
+            .one()
+        )
+        if bulk["pending"] or legacy["pending"]:
+            return "pending"
+        return "needs_attention" if bulk["attention"] or legacy["attention"] else "removed"
+
+    @staticmethod
     def _chat_request_status(row, *, now: datetime) -> str:
         if row["request_type"] == "files":
             return DriveSharingProjectionStore._summary(row, recipient=True)["status"]
@@ -111,11 +159,26 @@ class DriveSharingProjectionStore(DriveRevocationStore):
             rows = (
                 connection.execute(
                     text("""
-                SELECT request_id,status,revision,created_at,expires_at FROM drive_share_requests
-                WHERE (:outgoing=TRUE AND recipient_user_id=:user)
-                   OR (:outgoing=FALSE AND user_id=:user)
+                SELECT r.request_id,r.status,r.revision,r.created_at,r.expires_at,
+                       r.payment_required,r.quoted_amount_cents,r.quote_version,
+                       p.status AS owner_payout_status,
+                       CASE WHEN r.payment_required=TRUE AND
+                         ((r.status IN ('pending','preparing','review_ready','approved','partial')
+                           AND r.expires_at>clock_timestamp())
+                          OR p.status IN ('awaiting_account','due','awaiting_delivery',
+                            'awaiting_fee','awaiting_refund'))
+                         THEN (COALESCE(account.details_submitted,FALSE)
+                           AND COALESCE(account.payouts_enabled,FALSE))
+                       END AS owner_payout_account_ready
+                FROM drive_share_requests r
+                LEFT JOIN drive_request_owner_payouts p ON p.request_id=r.request_id
+                  AND p.erased_at IS NULL
+                LEFT JOIN pkm_owner_payout_accounts account ON account.user_id=r.user_id
+                WHERE (:outgoing=TRUE AND r.recipient_user_id=:user)
+                   OR (:outgoing=FALSE AND r.user_id=:user)
                 UNION ALL
-                SELECT request_id,'management_only',revocation_revision,created_at,NULL
+                SELECT request_id,'management_only',revocation_revision,created_at,NULL,
+                       NULL,NULL,NULL,NULL,NULL
                 FROM drive_share_management_contexts
                 WHERE :outgoing=FALSE AND user_id=:user AND private_request_erased_at IS NOT NULL
                 ORDER BY created_at DESC,request_id DESC LIMIT :limit OFFSET :offset
@@ -136,6 +199,17 @@ class DriveSharingProjectionStore(DriveRevocationStore):
                         **self._summary(row, recipient=direction == "outgoing"),
                         "createdAt": row["created_at"].isoformat(),
                         "direction": direction,
+                        **(
+                            {"ownerPayoutStatus": row["owner_payout_status"]}
+                            if direction == "incoming" and row["owner_payout_status"] is not None
+                            else {}
+                        ),
+                        **(
+                            {"ownerPayoutAccountReady": row["owner_payout_account_ready"] is True}
+                            if direction == "incoming"
+                            and row["owner_payout_account_ready"] is not None
+                            else {}
+                        ),
                         **(
                             self._payment_metadata(connection, row["request_id"])
                             if direction == "outgoing"
@@ -184,6 +258,15 @@ class DriveSharingProjectionStore(DriveRevocationStore):
                     "recipient_user_id": None,
                 }
             recipient = request["recipient_user_id"] == user_id
+            stop_requested = request.get("access_stop_requested_at") is not None
+            access_stop_status = (
+                self._access_stop_status(connection, request_id) if stop_requested else None
+            )
+            can_stop_access = (
+                not recipient
+                and not stop_requested
+                and self._paid_frozen_batch(connection, user_id=user_id, request_id=request_id)
+            )
             payment = self._payment_metadata(connection, request_id) if recipient else {}
             private = self._open_request(request) if request.get("request_envelope") else None
             grants = (
@@ -285,7 +368,7 @@ class DriveSharingProjectionStore(DriveRevocationStore):
                     "revocationStatus": row["revoke_state"],
                     "otherAccessMayRemain": bool(row["revoke_state"]),
                 }
-                if delivered and not removed:
+                if delivered and not removed and not stop_requested:
                     # Construct an approved original-file link, never a retrieved URL.
                     item["openUrl"] = f"https://drive.google.com/file/d/{file_id}/view"
                 if not recipient:
@@ -305,6 +388,8 @@ class DriveSharingProjectionStore(DriveRevocationStore):
                 "result": {
                     **self._summary(request, recipient=recipient),
                     **payment,
+                    "accessStopStatus": access_stop_status,
+                    "canStopAccess": can_stop_access,
                     "files": [] if bulks else files,
                     **(
                         {
@@ -312,7 +397,7 @@ class DriveSharingProjectionStore(DriveRevocationStore):
                             "progressiveBatch": any(bulk["progressive_batch"] for bulk in bulks),
                             "batchCount": len(bulks),
                             "fileCount": bulk_file_count,
-                            "sharedCount": bulk_shared,
+                            "sharedCount": 0 if recipient and stop_requested else bulk_shared,
                             "sharingStatus": "running"
                             if request["status"] == "pending"
                             else "completed"

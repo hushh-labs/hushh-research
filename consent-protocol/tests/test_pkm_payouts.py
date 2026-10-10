@@ -9,9 +9,13 @@ is never refunded.
 from __future__ import annotations
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
+import api.routes.one.payouts as payouts_routes
+from api.middleware import require_vault_owner_token
 from hushh_mcp.services import pkm_payout_service
-from hushh_mcp.services.pkm_packet_order_service import PkmPacketOrderService
+from hushh_mcp.services.pkm_packet_order_service import PacketOrderError, PkmPacketOrderService
 from hushh_mcp.services.pkm_payout_service import PkmPayoutService
 from tests.test_pkm_credits import _DB
 
@@ -20,6 +24,10 @@ class _Stripe:
     def __init__(self):
         self.accounts, self.links, self.transfers, self.refunds = [], [], [], []
         self.payouts_enabled = False
+        self.transfers_capability = "inactive"
+        self.disabled_reason = None
+        self.country = "US"
+        self.deleted = False
         outer = self
 
         class _Account:
@@ -32,8 +40,12 @@ class _Stripe:
             def retrieve(acct, **_kw):
                 return {
                     "id": acct,
+                    "country": outer.country,
+                    "deleted": outer.deleted,
                     "details_submitted": True,
                     "payouts_enabled": outer.payouts_enabled,
+                    "capabilities": {"transfers": outer.transfers_capability},
+                    "requirements": {"disabled_reason": outer.disabled_reason},
                 }
 
         class _AccountLink:
@@ -119,6 +131,128 @@ async def test_onboarding_creates_one_express_account(world):
     assert len(fake.accounts) == 1 and fake.accounts[0]["type"] == "express"
     assert fake.links[0]["return_url"] == "https://uat.one.hushh.ai/one/marketplace?payouts=done"
     assert db.tables["pkm_owner_payout_accounts"][0]["stripe_account_id"] == "acct_1"
+
+
+async def test_document_onboarding_reuses_packet_account_with_separate_return_path(world):
+    svc, db, fake = world
+    await svc.onboarding_link(user_id="owner")
+    document = await svc.onboarding_link(user_id="owner", surface="documents")
+    assert document == {"url": "https://connect.stripe.com/setup/x"}
+    assert len(fake.accounts) == 1
+    assert (
+        fake.links[1]["account"] == db.tables["pkm_owner_payout_accounts"][0]["stripe_account_id"]
+    )
+    assert fake.links[1]["refresh_url"] == (
+        "https://uat.one.hushh.ai/one/profile/my-data?documentPayouts=refresh"
+    )
+    assert fake.links[1]["return_url"] == (
+        "https://uat.one.hushh.ai/one/profile/my-data?documentPayouts=done"
+    )
+
+
+async def test_document_onboarding_first_is_reused_for_packet_payouts(world):
+    svc, _db, fake = world
+    await svc.onboarding_link(user_id="owner", surface="documents")
+    await svc.onboarding_link(user_id="owner")
+    assert len(fake.accounts) == 1
+    assert {link["account"] for link in fake.links} == {"acct_1"}
+
+
+async def test_document_status_requires_live_transfer_and_payout_readiness(world):
+    svc, _db, fake = world
+    assert await svc.account_status(user_id="owner") == {"account": None}
+    await svc.onboarding_link(user_id="owner", surface="documents")
+    initial = (await svc.account_status(user_id="owner"))["account"]
+    assert initial == {
+        "detailsSubmitted": True,
+        "transfersEnabled": False,
+        "payoutsEnabled": False,
+        "ready": False,
+        "status": "onboarding_required",
+    }
+
+    fake.payouts_enabled = True
+    fake.transfers_capability = "active"
+    ready = (await svc.account_status(user_id="owner"))["account"]
+    assert ready["ready"] is True and ready["status"] == "ready"
+    assert "stripe_account_id" not in ready
+
+    fake.disabled_reason = "requirements.past_due"
+    restricted = (await svc.account_status(user_id="owner"))["account"]
+    assert restricted["ready"] is False and restricted["status"] == "restricted"
+
+
+async def test_deleted_or_non_us_mapped_account_is_never_replaced(world):
+    svc, _db, fake = world
+    await svc.onboarding_link(user_id="owner", surface="documents")
+    fake.deleted = True
+    assert (await svc.account_status(user_id="owner"))["account"]["status"] == "restricted"
+    with pytest.raises(PacketOrderError, match="needs support"):
+        await svc.onboarding_link(user_id="owner", surface="documents")
+    fake.deleted = False
+    fake.country = "CA"
+    assert (await svc.account_status(user_id="owner"))["account"]["ready"] is False
+    with pytest.raises(PacketOrderError, match="needs support"):
+        await svc.onboarding_link(user_id="owner", surface="documents")
+    assert len(fake.accounts) == 1
+
+
+async def test_concurrent_mapping_insert_reuses_existing_stripe_account(world, monkeypatch):
+    svc, db, fake = world
+    original_rows = svc._rows
+
+    async def concurrent_insert(query):
+        if query.op == "insert" and query.store is db.tables["pkm_owner_payout_accounts"]:
+            query.store.append({"user_id": "owner", "stripe_account_id": "acct_1"})
+            raise RuntimeError("unique constraint")
+        return await original_rows(query)
+
+    monkeypatch.setattr(svc, "_rows", concurrent_insert)
+    await svc.onboarding_link(user_id="owner", surface="documents")
+    assert len(fake.accounts) == 1
+    assert len(db.tables["pkm_owner_payout_accounts"]) == 1
+    assert fake.links[0]["account"] == "acct_1"
+
+
+async def test_stripe_failure_is_sanitized_and_does_not_create_second_account(world):
+    svc, db, fake = world
+    await svc.onboarding_link(user_id="owner", surface="documents")
+
+    def fail_retrieve(*_args, **_kwargs):
+        raise RuntimeError("sk_test_fake_secret from Stripe")
+
+    fake.Account.retrieve = fail_retrieve
+    with pytest.raises(PacketOrderError) as exc:
+        await svc.account_status(user_id="owner")
+    assert exc.value.code == "PAYOUT_UNAVAILABLE"
+    assert "sk_test" not in str(exc.value)
+    assert len(fake.accounts) == 1
+    assert len(db.tables["pkm_owner_payout_accounts"]) == 1
+
+
+def test_document_account_routes_are_owner_scoped_and_exclude_packet_sales(world, monkeypatch):
+    svc, _db, fake = world
+    monkeypatch.setattr(payouts_routes, "_service", lambda: svc)
+    app = FastAPI()
+    app.include_router(payouts_routes.router)
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner"}
+    client = TestClient(app)
+
+    setup = client.post("/api/one/payouts/account/onboard")
+    assert setup.status_code == 200
+    assert setup.headers["Cache-Control"] == "private, no-store"
+    assert setup.json() == {"url": "https://connect.stripe.com/setup/x"}
+    assert fake.links[0]["return_url"].endswith("?documentPayouts=done")
+
+    status = client.get("/api/one/payouts/account")
+    assert status.status_code == 200
+    assert status.headers["Cache-Control"] == "private, no-store"
+    assert set(status.json()) == {"account"}
+    assert "earningsCents" not in status.text
+    assert "acct_" not in status.text
+
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "other"}
+    assert client.get("/api/one/payouts/account").json() == {"account": None}
 
 
 async def test_only_delivered_orders_become_due_and_pay_once_payouts_enabled(world):

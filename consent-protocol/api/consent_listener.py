@@ -32,6 +32,7 @@ from hushh_mcp.services.consent_request_links import (
     build_consent_request_path,
     build_consent_request_url,
 )
+from hushh_mcp.services.push_tokens_service import PUSH_TOKENS_FOR_USER_SQL, remove_stale_push_token
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,11 @@ _USER_STATE_NOTIFY_MAX_BYTES = 7_500
 
 def _is_user_state_event_type(event_type: str) -> bool:
     return event_type.startswith("location_circle_") or event_type in {
+        # A committed Drive outbox event wakes authenticated readers. Its
+        # payload contains only opaque ids; the Feed and Consent Center remain
+        # the authorities for the current request state.
+        "document_share_feed_changed",
+        "bank_payout_changed",
         "location_settings_changed",
         "location_pkm_changed",
         "connection_request",
@@ -644,7 +650,8 @@ async def _enrich_notify_payload(data: Dict[str, Any]) -> Dict[str, Any]:
 
         db = get_db()
         if request_id:
-            result = db.execute_raw(
+            result = await asyncio.to_thread(
+                db.execute_raw,
                 """
                 SELECT scope_description, metadata, poll_timeout_at, expires_at, agent_id
                 FROM consent_audit
@@ -656,7 +663,8 @@ async def _enrich_notify_payload(data: Dict[str, Any]) -> Dict[str, Any]:
                 {"user_id": user_id, "request_id": request_id},
             )
         else:
-            result = db.execute_raw(
+            result = await asyncio.to_thread(
+                db.execute_raw,
                 """
                 SELECT scope_description, metadata, poll_timeout_at, expires_at, agent_id
                 FROM consent_audit
@@ -873,6 +881,10 @@ def build_consent_push_content(
 
 
 async def _send_fcm_for_user(user_id: str, data: Dict[str, Any]):
+    await asyncio.to_thread(_send_fcm_for_user_sync, user_id, data)
+
+
+def _send_fcm_for_user_sync(user_id: str, data: Dict[str, Any]):
     """Fetch tokens from user_push_tokens and send FCM data message."""
     try:
         from db.db_client import get_db
@@ -880,8 +892,8 @@ async def _send_fcm_for_user(user_id: str, data: Dict[str, Any]):
         db = get_db()
         # Sync query via raw SQL (user_push_tokens may not exist yet if migration not run)
         result = db.execute_raw(
-            "SELECT token, platform FROM user_push_tokens WHERE user_id = :uid",
-            {"uid": user_id},
+            PUSH_TOKENS_FOR_USER_SQL,
+            {"user_id": user_id},
         )
         if result.error or not result.data:
             logger.info("FCM skipped: no push tokens for user_id=%s", user_id)
@@ -926,10 +938,7 @@ async def _send_fcm_for_user(user_id: str, data: Dict[str, Any]):
                 # Token is stale/invalid -- remove it
                 logger.warning("FCM stale token for user %s, deleting", user_id)
                 try:
-                    db.execute_raw(
-                        "DELETE FROM user_push_tokens WHERE token = :token",
-                        {"token": token},
-                    )
+                    remove_stale_push_token(db, user_id, token)
                 except Exception as del_err:
                     logger.warning("Failed to delete stale token: %s", del_err)
             except Exception as e:

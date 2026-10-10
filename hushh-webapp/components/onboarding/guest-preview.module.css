@@ -635,6 +635,9 @@
 @media (max-height: 600px) and (max-width: 767px) {
   /* At compact phone heights the title and microphone already explain this
      scene. Give the complete exchange and invitation priority over a tagline. */
+  /* The agent grid and selected explanation already describe this scene.
+     Reserve room for the action when WebKit uses a narrower scrollport. */
+  .content[data-step="2"] .subtitle,
   .content[data-step="3"] .subtitle {
     display: none;
   }

@@ -432,6 +432,12 @@ class PkmUpgradeService:
             getattr(index, "model_version", None),
             CURRENT_PKM_MODEL_VERSION,
         )
+        if domain_manifests is None and manifest_headers is None and available_domains:
+            # Standalone status uses the same bounded batch as metadata reads,
+            # not three SQL round trips per domain on every app-entry check.
+            manifests_by_domain = await self.pkm_service.get_domain_manifests(
+                user_id, available_domains, raise_on_error=True
+            )
         domain_states: list[dict[str, Any]] = []
         domain_summaries = index.domain_summaries if index else {}
         for domain in sorted(available_domains):
@@ -442,7 +448,7 @@ class PkmUpgradeService:
             )
             manifest = manifests_by_domain.get(domain)
             if manifest is None:
-                manifest = await self.pkm_service.get_domain_manifest(user_id, domain) or {}
+                manifest = {}
             summary_projection = (
                 manifest.get("summary_projection") if isinstance(manifest, dict) else {}
             )
@@ -830,7 +836,8 @@ class PkmUpgradeService:
 
     async def _list_runs_for_run_id(self, run_id: str) -> list[dict[str, Any]]:
         try:
-            result = self.db.table("pkm_upgrade_runs").select("*").eq("run_id", run_id).execute()
+            query = self.db.table("pkm_upgrade_runs").select("*").eq("run_id", run_id)
+            result = await asyncio.to_thread(query.execute)
             return self._sort_runs(result.data or [])
         except Exception as exc:
             logger.error("Failed to fetch PKM upgrade run %s: %s", run_id, exc)

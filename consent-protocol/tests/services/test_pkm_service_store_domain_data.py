@@ -1,5 +1,6 @@
 import json
 import re
+import threading
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -101,6 +102,27 @@ def test_pkm_rpc_payload_unwraps_direct_postgres_and_db_shapes():
         PersonalKnowledgeModelService._unwrap_rpc_payload(db, "get_pkm_domain_snapshot_v1")
         == payload
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("lazy", [False, True])
+async def test_rpc_invocation_and_lazy_execution_do_not_block_api_loop(lazy):
+    loop_thread = threading.get_ident()
+    response = SimpleNamespace(data=[{"synthetic": True}])
+    executions = []
+
+    def execute():
+        executions.append(threading.get_ident())
+        return response
+
+    def rpc(_name, _params):
+        executions.append(threading.get_ident())
+        return SimpleNamespace(execute=execute) if lazy else response
+
+    service = PersonalKnowledgeModelService()
+    service._db = SimpleNamespace(rpc=rpc)
+    assert await service._run_rpc("synthetic_function", {}) is response
+    assert executions and all(thread != loop_thread for thread in executions)
 
 
 def _confirmed_create_plan(*, user_id: str, domain: str, scope: str = "portfolio") -> dict:
@@ -1164,6 +1186,21 @@ async def test_get_domain_manifests_batches_paths_and_scope_registry_reads():
     assert sorted(manifests) == ["financial", "professional"]
     assert manifests["professional"]["paths"][0]["json_path"] == "profile.title"
     assert manifests["financial"]["scope_registry"][0]["scope_handle"] == "financial-portfolio"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("table", ["pkm_manifests", "pkm_manifest_paths", "pkm_scope_registry"])
+async def test_manifest_batch_strict_reads_keep_unavailable_distinct_from_absent(table):
+    service = PersonalKnowledgeModelService()
+    service._db = _StubDb()
+    assert (
+        await service.get_domain_manifests("synthetic-owner", ["professional"], raise_on_error=True)
+        == {}
+    )
+    service._db.tables[table].execute = lambda: (_ for _ in ()).throw(RuntimeError("unavailable"))
+    assert await service.get_domain_manifests("synthetic-owner", ["professional"]) == {}
+    with pytest.raises(RuntimeError, match="unavailable"):
+        await service.get_domain_manifests("synthetic-owner", ["professional"], raise_on_error=True)
 
 
 @pytest.mark.asyncio

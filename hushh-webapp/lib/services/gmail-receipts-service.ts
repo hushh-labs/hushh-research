@@ -390,6 +390,24 @@ export function isRetryableReceiptScanPageError(
   );
 }
 
+// The saved Mail login was rejected (revoked, expired or removed), or reading
+// was never granted. Reading again can never succeed, so these are never
+// retried: the owner has to reconnect Mail first.
+const RECONNECT_RECEIPT_SCAN_CODES = new Set([
+  "GMAIL_REAUTH_REQUIRED",
+  "GMAIL_NOT_CONNECTED",
+  "GMAIL_READ_PERMISSION_REQUIRED",
+]);
+
+export function isReceiptConnectionLostError(
+  error: unknown,
+): error is GmailReceiptRequestError {
+  return (
+    error instanceof GmailReceiptRequestError &&
+    RECONNECT_RECEIPT_SCAN_CODES.has(String(error.code))
+  );
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

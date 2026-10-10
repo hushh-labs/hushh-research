@@ -18,6 +18,7 @@ from sqlalchemy import text
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
+from hushh_mcp.services.drive_owner_allowed import automatic_recipient_current
 from hushh_mcp.services.drive_sharing_contract import (
     DriveSharingCipher,
     DriveSharingError,
@@ -294,11 +295,15 @@ class DriveBulkShareStore(DriveLivePreferences):
         request = self._row(
             connection,
             """SELECT recipient_user_id,status,revision,expires_at,request_envelope,
-            preparation_error_code
+            preparation_error_code,access_stop_requested_at
             FROM drive_share_requests WHERE request_id=:request AND user_id=:owner""",
             {"request": share["origin_request_id"], "owner": owner},
         )
-        if not request or request["recipient_user_id"] != recipient:
+        if (
+            not request
+            or request["recipient_user_id"] != recipient
+            or request["access_stop_requested_at"] is not None
+        ):
             return False
         allowed_status = (
             share["progressive_batch"] is True
@@ -320,25 +325,24 @@ class DriveBulkShareStore(DriveLivePreferences):
             return False
         approval_source = share["approval_source"]
         if approval_source == "trusted_auto":
-            # The request marker only records eligibility at creation. The
-            # immutable batch approval is the grant authority; an owner may
-            # explicitly approve another batch after Trusted access changes.
+            # The request marker only records eligibility at creation or at
+            # the owner's Allow. The immutable batch approval is the grant
+            # authority; an owner may explicitly approve another batch after
+            # Trusted access changes.
             if (
                 private.get("trusted_auto") is not True
                 or not share["progressive_batch"]
                 or request["preparation_error_code"] == "manual_search_active"
             ):
                 return False
-            from hushh_mcp.services.drive_sharing_store import DriveSharingStore
-
             try:
                 self.background_current(
                     connection, user_id=owner, generation=share["connection_generation"]
                 )
             except DriveReadError:
                 return False
-            recipient_current = DriveSharingStore._trusted_recipient_current(
-                connection, owner, recipient
+            recipient_current = automatic_recipient_current(
+                connection, owner, recipient, private, request_id=share["origin_request_id"]
             )
         elif approval_source == "owner":
             recipient_current = self._request_recipient_current(connection, owner, recipient)
@@ -490,6 +494,14 @@ class DriveBulkShareStore(DriveLivePreferences):
             try:
                 self._require_paid_for_origin(connection, row["origin_request_id"])
             except DriveSharingError:
+                retry_origin_current = False
+            finalized_payout = self._row(
+                connection,
+                """SELECT finalized_at FROM drive_request_owner_payouts
+                   WHERE request_id=:request""",
+                {"request": row["origin_request_id"]},
+            )
+            if finalized_payout and finalized_payout["finalized_at"] is not None:
                 retry_origin_current = False
             retry_origin_current = retry_origin_current and all(
                 self._share_recipient_current(
@@ -678,6 +690,20 @@ class DriveBulkShareStore(DriveLivePreferences):
             )
             if source is None:
                 raise DriveSharingError("search_not_found")
+            checkpoint = self._open(
+                source["checkpoint_envelope"],
+                user_id=user_id,
+                resource_id=search,
+                purpose="owner-search-checkpoint",
+            )
+            # A bounded newest-N request is one global selection across all
+            # corpora. Intermediate positions may change during final ranking;
+            # neither owner review nor automatic checkout can freeze them.
+            if checkpoint.get("request_result_limit") is not None and (
+                source["status"] != "completed"
+                or checkpoint.get("request_results_finalized") is not True
+            ):
+                raise DriveSharingError("search_in_progress")
             if not progressive and source["status"] in {"queued", "running"}:
                 raise DriveSharingError("search_in_progress")
             if (
@@ -701,6 +727,7 @@ class DriveBulkShareStore(DriveLivePreferences):
                     request_row is None
                     or request_row["bulk_search_started_at"] is None
                     or request_row["status"] != "pending"
+                    or request_row["access_stop_requested_at"] is not None
                     or request_row["expires_at"]
                     <= connection.execute(text("SELECT clock_timestamp()")).scalar_one()
                     or len(cleaned) != 1
@@ -726,12 +753,6 @@ class DriveBulkShareStore(DriveLivePreferences):
             if not 1 <= source["matched"] <= 10000:
                 raise DriveSharingError("invalid_argument")
             if progressive:
-                checkpoint = self._open(
-                    source["checkpoint_envelope"],
-                    user_id=user_id,
-                    resource_id=search,
-                    purpose="owner-search-checkpoint",
-                )
                 if (
                     checkpoint.get("request_origin_id") != origin
                     or checkpoint.get("request_revision") != request_row["revision"]
@@ -1111,7 +1132,11 @@ class DriveBulkShareStore(DriveLivePreferences):
                   AND expires_at>clock_timestamp()""",
                 {"request": request, "user": user_id},
             )
-            if origin is None or origin["status"] != "pending":
+            if (
+                origin is None
+                or origin["status"] != "pending"
+                or origin["access_stop_requested_at"] is not None
+            ):
                 raise DriveSharingError("request_changed")
             source = self._row(
                 connection,
@@ -1132,6 +1157,11 @@ class DriveBulkShareStore(DriveLivePreferences):
                 resource_id=str(source["job_id"]),
                 purpose="owner-search-checkpoint",
             )
+            if checkpoint.get("request_result_limit") is not None and (
+                source["status"] != "completed"
+                or checkpoint.get("request_results_finalized") is not True
+            ):
+                return []
             if (
                 checkpoint.get("request_origin_id") != request
                 or checkpoint.get("request_revision") != origin["revision"]
@@ -1363,6 +1393,7 @@ class DriveBulkShareStore(DriveLivePreferences):
                 if (
                     origin is None
                     or origin["status"] != "pending"
+                    or origin["access_stop_requested_at"] is not None
                     or origin["revision"] != row["origin_request_revision"]
                     or origin["expires_at"]
                     <= connection.execute(text("SELECT clock_timestamp()")).scalar_one()
@@ -1440,16 +1471,18 @@ class DriveBulkShareStore(DriveLivePreferences):
                     raise DriveSharingError("trusted_request_unavailable")
                 if private.get("trusted_auto") is not True:
                     raise DriveSharingError("trusted_request_unavailable")
-                from hushh_mcp.services.drive_sharing_store import DriveSharingStore
-
                 try:
                     self.background_current(
                         connection, user_id=user_id, generation=row["connection_generation"]
                     )
                 except DriveReadError as error:
                     raise DriveSharingError("trusted_request_unavailable") from error
-                if not DriveSharingStore._trusted_recipient_current(
-                    connection, user_id, recipients[0]["user_id"]
+                if not automatic_recipient_current(
+                    connection,
+                    user_id,
+                    recipients[0]["user_id"],
+                    private,
+                    request_id=origin["request_id"],
                 ):
                     raise DriveSharingError("trusted_request_unavailable")
             self._assert_no_overlapping_share(
@@ -1479,6 +1512,22 @@ class DriveBulkShareStore(DriveLivePreferences):
                 updated_at=clock_timestamp() WHERE share_id=:share RETURNING *""",
                 {"share": share, "approval_source": approval_source},
             )
+            if (
+                origin is not None
+                and row["progressive_batch"]
+                and approval_source == "owner"
+                and private.get("trusted_auto") is not True
+                and row["file_count"] > 0
+            ):
+                # Progressive requests remain pending while later batches are
+                # reviewed. This approved batch, not the request-wide status,
+                # is the payment authority. Commit the one order and Feed
+                # event atomically with its explicit owner approval.
+                from hushh_mcp.services.drive_request_payment_store import (
+                    DriveRequestPaymentStore,
+                )
+
+                DriveRequestPaymentStore.ensure_order_for_approved_request(connection, origin)
             if origin is not None and not row["progressive_batch"]:
                 request = origin
                 request = self._row(
@@ -1546,6 +1595,7 @@ class DriveBulkShareStore(DriveLivePreferences):
                 )
                 if (
                     origin is None
+                    or origin["access_stop_requested_at"] is not None
                     or origin["status"]
                     not in ({"pending", "partial"} if row["progressive_batch"] else {"partial"})
                     or origin["revision"] != row["origin_request_revision"]
@@ -1554,6 +1604,18 @@ class DriveBulkShareStore(DriveLivePreferences):
                 ):
                     raise DriveSharingError("request_changed")
                 self._require_paid_for_origin(connection, origin["request_id"])
+                # Once an enrolled owner's delivered-file count is frozen for
+                # prorated refund and payout, retrying an undelivered file
+                # would share it without charging or paying for that file.
+                # Lock the payout after the request in the settlement order.
+                payout = self._row(
+                    connection,
+                    """SELECT finalized_at FROM drive_request_owner_payouts
+                       WHERE request_id=:request FOR UPDATE""",
+                    {"request": origin["request_id"]},
+                )
+                if payout and payout["finalized_at"] is not None:
+                    raise DriveSharingError("bulk_changed")
             recipients = self._recipients(connection, row)
             if len(recipients) != row["recipient_count"] or any(
                 not (
@@ -1791,7 +1853,11 @@ class DriveBulkShareStore(DriveLivePreferences):
             WHERE request_id=:request FOR UPDATE""",
             {"request": request_id},
         )
-        if request is None or request["status"] != "pending":
+        if (
+            request is None
+            or request["status"] != "pending"
+            or request["access_stop_requested_at"] is not None
+        ):
             return
         source = self._row(
             connection,
@@ -1800,6 +1866,21 @@ class DriveBulkShareStore(DriveLivePreferences):
             {"user": request["user_id"], "request": request_id},
         )
         if source is None or source["status"] != "completed" or source["incomplete_search"]:
+            return
+        checkpoint = self._open(
+            source["checkpoint_envelope"],
+            user_id=request["user_id"],
+            resource_id=str(source["job_id"]),
+            purpose="owner-search-checkpoint",
+        )
+        if (
+            checkpoint.get("request_origin_id") != str(request_id)
+            or checkpoint.get("request_revision") != request["revision"]
+            or checkpoint.get("request_shareability_version") != 1
+        ):
+            # A client ID alone does not bind a search to this request's
+            # current scope. Mirror the review/claim fence before publishing
+            # any terminal result, especially an empty stale search's no_match.
             return
         legacy = connection.execute(
             text("""SELECT EXISTS(SELECT 1 FROM drive_bulk_shares
@@ -2025,16 +2106,25 @@ class DriveBulkShareStore(DriveLivePreferences):
                     connection, user_id=user_id, generation=row["connection_generation"]
                 )
             except DriveReadError:
+                # A provider POST may have succeeded just before the issuer
+                # disconnected. Preserve that uncertainty for reconciliation;
+                # calling it failed would incorrectly allow a no-delivery refund.
                 connection.execute(
                     text("""UPDATE drive_bulk_share_effects SET state=:state,
-                    safe_error_code='connection_changed',lease_id=NULL,lease_expires_at=NULL,
+                    safe_error_code=:error_code,lease_id=NULL,lease_expires_at=NULL,
+                    next_at=clock_timestamp()+INTERVAL '1 minute',
                     updated_at=clock_timestamp()
                     WHERE share_id=:share AND position=:position AND recipient_user_id=:recipient"""),
                     {
                         "share": share,
                         "position": position,
                         "recipient": recipient_user_id,
-                        "state": "failed" if effect["state"] != "queued" else "skipped",
+                        "state": "unknown" if effect["state"] != "queued" else "skipped",
+                        "error_code": (
+                            "permission_outcome_unknown"
+                            if effect["state"] != "queued"
+                            else "connection_changed"
+                        ),
                     },
                 )
                 self._finalize(connection, share)

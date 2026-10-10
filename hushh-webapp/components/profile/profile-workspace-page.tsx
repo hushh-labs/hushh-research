@@ -103,6 +103,8 @@ import {
   PkmDomainDetailPanel,
 } from "@/components/profile/pkm-data-manager";
 import { SharedWithYouGroup } from "@/components/profile/shared-with-you-group";
+import { DocumentBankPayoutStatusCard, DocumentPayoutAccountCard } from "@/components/consent/document-payout-account";
+import { DocumentRequestPricingCard } from "@/components/consent/document-request-pricing-card";
 import { SecretsListGroup } from "@/components/secrets/secrets-list-group";
 import {
   ProfileStackNavigator,
@@ -198,6 +200,7 @@ import { Icon } from "@/lib/morphy-ux/ui";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { AppleIcon, GoogleIcon } from "@/lib/morphy-ux/social-icons";
+import { EmailIdentityMark } from "@/components/app-ui/email-identity-mark";
 import { shouldUseGoogleBrandMark } from "@/lib/profile/profile-auth-provider-presentation";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { cn } from "@/lib/utils";
@@ -2775,7 +2778,10 @@ function ProfilePageContent({
     if (!profileRouteRequiresUnlockedVault(activePanel, activeDetail)) {
       return;
     }
-    if (activePanel) {
+    // Stripe returns to Memory with a short callback marker. Keep that route
+    // while the owner unlocks so an expired Connect link can be refreshed.
+    const documentPayoutReturn = searchParams.get("documentPayouts");
+    if (activePanel && documentPayoutReturn !== "refresh" && documentPayoutReturn !== "done") {
       setPendingProfileTarget({
         panel: activePanel,
         detail: activeDetail ?? null,
@@ -3355,6 +3361,9 @@ function ProfilePageContent({
           )
         }
       />
+      {isVaultUnlocked ? <DocumentRequestPricingCard /> : null}
+      {isVaultUnlocked ? <DocumentPayoutAccountCard handleReturn /> : null}
+      {isVaultUnlocked ? <DocumentBankPayoutStatusCard /> : null}
       {isVaultUnlocked ? <SharedWithYouGroup vaultOwnerToken={vaultOwnerToken} /> : null}
       {isVaultUnlocked ? <SecretsListGroup onUnlock={() => undefined} /> : null}
     </div>
@@ -4582,7 +4591,7 @@ function ProfilePageContent({
               className="profile-home-meta flex w-full min-w-0 items-center justify-start gap-1.5 text-xs font-normal text-muted-foreground"
               title={provider.name}
             >
-              <ProviderIcon providerId={provider.id} email={user.email} />
+              <EmailIdentityMark email={user.email} providerId={provider.id} />
               <span className="[overflow-wrap:anywhere]">
                 {user.email || "Not available"}
               </span>
@@ -4646,12 +4655,7 @@ function ProfilePageContent({
                 voiceActionId="route.profile_referrals_panel"
                 voiceLabel={PROFILE_LABELS.referrals}
                 voicePurpose="Opens your referral link and referral status."
-                onClick={() =>
-                  updateProfileView(
-                    { panel: "referrals", detail: null },
-                    "push",
-                  )
-                }
+                onClick={() => router.push(ROUTES.ONE_REFERRALS)}
               />
               <SettingsRow
                 icon={isPanePresentation ? ProfilePaneHelpIcon : SupportProfileIcon}

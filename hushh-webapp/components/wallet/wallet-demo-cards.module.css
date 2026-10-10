@@ -1,14 +1,10 @@
 .face { width:100%; }
-.artworkFrame { position:relative; isolation:isolate; width:100%; aspect-ratio:85.6/53.98; overflow:hidden; border-radius:4.2cqw; box-shadow:var(--app-shadow-product); color:#d4b980; }
-.artwork { display:block; width:100%; height:100%; border:0; pointer-events:none; user-select:none; }
-.referral { color:#302513; }
-.nws { color:#f2efe3; }
-.profileQr,.qrPlaceholder { position:absolute; display:block; left:9.25%; top:36.15%; width:20.4%; aspect-ratio:1; background:#fff; color:#333; border-radius:1cqw; padding:1cqw; }
-.qrPlaceholder { display:flex; align-items:center; justify-content:center; opacity:.7; font-size:4cqw; }
-.identityFields { position:absolute; left:37%; top:40%; width:41%; display:grid; grid-template-columns:1fr 1fr; gap:5cqw 5cqw; min-width:0; margin:0; }
-.identityFields > div:first-child { grid-column:1/-1; }
-.identityFields dt { text-transform:uppercase; font-size:1.65cqw; letter-spacing:.1em; opacity:.9; line-height:1.4; }
-.identityFields dd { margin:1.4cqw 0 0; font-size:2.8cqw; line-height:1.25; font-weight:650; overflow-wrap:anywhere; }
+.artworkFrame { position:relative; isolation:isolate; width:100%; aspect-ratio:85.6/53.98; overflow:hidden; border-radius:4.2cqw; box-shadow:var(--app-shadow-product); background:#111; color:#d4b980; }
+.artwork { position:absolute; inset:0; display:block; width:100%; height:100%; pointer-events:none; user-select:none; }
+.profile { background:#111; }
+.referral { background:#c49a52; color:#302513; }
+.nws { background:#10332a; color:#f2efe3; }
+.placeholder { position:absolute; inset:0; padding:8cqw 9.25cqw; }
+.placeholder strong { display:block; font-size:5.55cqw; line-height:1.2; letter-spacing:.2em; }
+.placeholder span { display:block; margin-top:2cqw; font-size:2.2cqw; letter-spacing:.35em; }
 .details { padding:1.25rem; border:1px solid var(--border); border-radius:1.25rem; background:var(--card); color:var(--card-foreground); }
-
-.nwsIdentityFields { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; font-family:"Lexend",system-ui,-apple-system,sans-serif; font-variant-numeric:tabular-nums lining-nums; font-feature-settings:"tnum" 1,"lnum" 1; }

@@ -401,6 +401,19 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     return screen.findByTestId("memory-recently-learned-row");
   }
 
+  it("does not announce an empty Memory while metadata is still loading", async () => {
+    let finish!: (value: ReturnType<typeof baseMetadata>) => void;
+    vi.mocked(PersonalKnowledgeModelService.getMetadata).mockImplementationOnce(
+      () => new Promise(resolve => { finish = resolve; }),
+    );
+    render(<PkmNaturalPanel view="home" />);
+    await screen.findByText("Opening Memory…");
+    expect(screen.queryByText("One hasn’t saved anything yet.")).toBeNull();
+    await act(async () => finish(baseMetadata()));
+    await screen.findByTestId("memory-recently-learned-row");
+    expect(screen.queryByText("One hasn’t saved anything yet.")).toBeNull();
+  });
+
   it("shows search, one Recently learned row into its route, and Categories", async () => {
     await openMainScreen();
 

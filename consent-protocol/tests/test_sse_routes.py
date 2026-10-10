@@ -4,12 +4,93 @@ from types import SimpleNamespace
 import pytest
 
 from api import consent_listener
+from api.routes import sse as sse_routes
 from api.routes.sse import (
     _sse_event_id,
     _sse_payload_from_event_payload,
     consent_event_generator,
+    document_feed_event_generator,
 )
 from hushh_mcp.services.consent_db import ConsentDBService
+
+
+@pytest.mark.asyncio
+async def test_document_feed_stream_rejects_another_users_token(monkeypatch):
+    from fastapi import HTTPException
+
+    monkeypatch.setattr(sse_routes, "verify_firebase_bearer", lambda _authorization: "other")
+    with pytest.raises(HTTPException) as exc:
+        await sse_routes.document_feed_events(
+            "requester", SimpleNamespace(), authorization="Bearer token"
+        )
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_document_feed_stream_resets_then_sends_only_opaque_committed_doorbell(monkeypatch):
+    import asyncio
+
+    request_id = "11111111-2222-4333-8444-555555555555"
+    event_id = "22222222-3333-4444-8555-666666666666"
+    queue: asyncio.Queue = asyncio.Queue()
+    unsubscribed = []
+
+    async def subscribe(_user_id):
+        return queue
+
+    async def unsubscribe(user_id, subscribed):
+        unsubscribed.append((user_id, subscribed))
+
+    monkeypatch.setattr(consent_listener, "subscribe_consent_queue", subscribe)
+    monkeypatch.setattr(consent_listener, "unsubscribe_consent_queue", unsubscribe)
+    request = SimpleNamespace(is_disconnected=lambda: asyncio.sleep(0, result=False))
+    stream = document_feed_event_generator("requester", request)
+    assert (await anext(stream))["event"] == "feed_reset"
+
+    queue.put_nowait({"type": "location_settings_changed", "setting": "auto_approve"})
+    queue.put_nowait(
+        {
+            "type": "document_share_feed_changed",
+            "event_id": event_id,
+            "request_id": request_id,
+            "file_name": "private.pdf",
+            "provider_token": "never-send-this",
+        }
+    )
+    changed = await asyncio.wait_for(anext(stream), timeout=1)
+    assert changed == {
+        "event": "feed_changed",
+        "id": event_id,
+        "data": json.dumps({"request_id": request_id}),
+    }
+    await stream.aclose()
+    assert unsubscribed == [("requester", queue)]
+
+
+@pytest.mark.asyncio
+async def test_bank_payout_doorbell_resets_owner_feed_without_request_attribution(monkeypatch):
+    import asyncio
+
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def subscribe(_user_id):
+        return queue
+
+    async def unsubscribe(_user_id, _queue):
+        return None
+
+    monkeypatch.setattr(consent_listener, "subscribe_consent_queue", subscribe)
+    monkeypatch.setattr(consent_listener, "unsubscribe_consent_queue", unsubscribe)
+    assert consent_listener._is_user_state_event_type("bank_payout_changed")
+    request = SimpleNamespace(is_disconnected=lambda: asyncio.sleep(0, result=False))
+    stream = document_feed_event_generator("owner", request)
+    assert (await anext(stream)) == {"event": "feed_reset", "data": "{}"}
+    queue.put_nowait({"type": "bank_payout_changed", "user_id": "owner"})
+    assert await asyncio.wait_for(anext(stream), timeout=1) == {
+        "event": "feed_reset",
+        "data": "{}",
+    }
+    await stream.aclose()
 
 
 def test_sse_payload_includes_enriched_request_fields():

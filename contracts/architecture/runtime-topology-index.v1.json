@@ -680,7 +680,8 @@
         "actor_identity_cache",
         "actor_verified_email_aliases",
         "runtime_persona_state",
-        "user_push_tokens"
+        "user_push_tokens",
+        "user_push_installations"
       ],
       "id": "actor_identity_state",
       "lifecycle_status": "current",
@@ -699,6 +700,17 @@
       "lifecycle_status": "current",
       "owner": "backend-agents-operons",
       "primary_access_path": "AG-UI Agent One text chat, encrypted ADK session restore, encrypted legacy chat history restore, and LLM context assembly"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "chat_push_device_deliveries",
+        "direct_message_push_outbox"
+      ],
+      "id": "chat_push_delivery",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Transactional direct-message outbox and shared Circle/direct device delivery workers; source eligibility is rechecked before FCM acceptance."
     },
     {
       "data_class": "personal_encrypted",
@@ -847,12 +859,13 @@
         "drive_bulk_share_files",
         "drive_bulk_share_recipients",
         "drive_bulk_share_effects",
-        "drive_bulk_share_notifications"
+        "drive_bulk_share_notifications",
+        "drive_request_bulk_removals"
       ],
       "id": "drive_bulk_share",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Vault-owner preview and explicit approval of a frozen completed Drive search; bounded Drive sharing worker creates or reconciles Google permissions for each exact file and verified Trusted recipient. The owner can stop remaining work. Recipients see only confirmed grants through their authenticated Shared with you collection; one generic push is attempted after their grants settle."
+      "primary_access_path": "Vault-owner preview and approval of a frozen Drive search; bounded workers create and reconcile Google permissions for exact files, then remove app-created direct permissions after the owner confirms Stop access. Recipients see only confirmed grants through their authenticated Shared with you collection."
     },
     {
       "data_class": "personal_encrypted",
@@ -954,6 +967,26 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
+        "drive_request_owner_payouts"
+      ],
+      "id": "drive_request_owner_payouts",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "New eligible paid Drive orders enroll one owner earning. Signed charge, refund, delivery and Stripe fee evidence determine a 3% platform share and one idempotent Connect transfer after confirmed delivery."
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "drive_request_owner_pricing"
+      ],
+      "id": "drive_request_owner_pricing",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "An authenticated document owner sets one whole-dollar USD Drive request price in Profile. Request creation locks the effective price and version on the encrypted request; later edits affect future requests only."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
         "drive_request_payment_orders",
         "drive_request_payment_obligations",
         "drive_request_payment_webhook_events",
@@ -962,7 +995,7 @@
       "id": "drive_request_payment_authority",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "One $10 USD Stripe Checkout order is created only after a new eligible Trusted Circle Drive request has a nonempty frozen shareable batch. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority."
+      "primary_access_path": "One USD Stripe Checkout order is created only after an eligible Drive request, from the owner's Trusted circle or explicitly allowed by the owner, has a nonempty frozen shareable batch. New requests lock the owner's effective whole-dollar quote from 100 to 50000 cents at creation; legacy requests retain their original price rule. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority."
     },
     {
       "data_class": "reference",
@@ -1572,6 +1605,17 @@
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
       "primary_access_path": "Owner-authenticated selection/management and durable connection-first ingestion leases. Atomic versioned publication via drive_ingestion_store.py; no global vector search or client database access."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "stripe_connect_bank_payouts",
+        "stripe_connect_bank_payout_events"
+      ],
+      "id": "stripe_connect_bank_payout_status",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "A separately signed connected-account Stripe webhook deduplicates events, verifies the latest provider state and updates aggregate bank-deposit status. The authenticated owner reads recent deposits through their current connected-account mapping."
     },
     {
       "data_class": "personal_metadata",
@@ -2668,6 +2712,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "calendar.read",
           "consent.chat.turn",
           "location.chat.turn",
           "route.one_agents",
@@ -2720,7 +2765,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "calendar.read"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.calendar"
       }
@@ -4625,25 +4672,23 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
-        "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "policy": "none",
+        "refresh_trigger": "none",
         "resource_classes": [
           "unknown"
         ]
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-profile",
+      "native_surface_id": "native-route-one-referrals",
       "page_file": "app/one/profile/referrals/page.tsx",
       "pathname": "/one/profile/referrals",
-      "route_mode": "standard",
+      "route_mode": "redirect",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [
-          "route.profile_referrals_panel"
-        ],
+        "action_ids": [],
         "delegate_agent_ids": [],
-        "playbook_id": "route.profile.support"
+        "playbook_id": "route.profile.referrals.redirect"
       }
     },
     {
@@ -4863,6 +4908,47 @@
         "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.puppy"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [
+        {
+          "backend_endpoint_family": "/api/one/referrals/*",
+          "native_transport": "Direct backend via ApiService.apiFetch; authenticated owner-scoped reads.",
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "service_file": "lib/services/referral-service.ts",
+          "service_methods": [
+            "getSummary",
+            "getPoints",
+            "getChallenge",
+            "getMilestones",
+            "getEngagement",
+            "getLeaderboard",
+            "getCircleLeaderboard",
+            "getCircleSelection"
+          ]
+        }
+      ],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-referrals",
+      "page_file": "app/one/referrals/page.tsx",
+      "pathname": "/one/referrals",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.referrals"
       }
     },
     {
@@ -5195,6 +5281,30 @@
         ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.setup.ria"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "secure-resource",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "pkm_projection",
+          "calendar_events"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-todos",
+      "page_file": "app/one/todos/page.tsx",
+      "pathname": "/one/todos",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.todos"
       }
     },
     {
@@ -5940,28 +6050,28 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
-    "action_gateway": "1ee009f01d2951294d7f3a7dd31d29142a68bc600225a32d407128012ccf9a72",
-    "agent_registry": "d5b9f001a88245b6b0a643a59e045280e6da0af2692ba79958882300a4d6bab1",
-    "cache_manifest": "a6f8f117fa4683cbb28bb247a7d12a4ae144c12b036118fcfb663d829958174b",
-    "data_plane": "55176c9459055fc96549a92343dab8c7399d26e498cc00eb9d08efa3e15498b1",
+    "action_gateway": "05273c47c17aeaed1c58fbe7aeb66395d49b78a9d5adcaad37d1edd45acb9443",
+    "agent_registry": "01b1ae85c91c4e85dd879f023bdc41a3878b473107342bc63528de0b0c453d2e",
+    "cache_manifest": "5eff3c647e67b8c7f2a50fdc079673ef4bb2282806b0d99276857309c0d9db8f",
+    "data_plane": "ec47f24f824c94f80eeb514c986c8e8923c21e8ed315221a05e1f4a8fbc18421",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "3dc81d307ef8cf9932ca3f80c2d54915515161968d0303feccea401e8afebce9",
-    "route_index": "666164d521beccc0a5f6c1cd04bf60133ea1e4a8a73ffb28a7f3bc364b690ac0",
-    "route_layout": "a2a0b7a9b975f2a95652725e20c820965b8565f811e4c86912d38fab4f77b12d",
-    "surface_map": "f4f66948b7ed911441ef3dcbb59579521e3c6d0b9e6e238d05524b703c7dae15",
+    "route_index": "740c274455698cc75c68a10c465fe3b6ced440c546f3ecac57d2b16cf35d2c80",
+    "route_layout": "a31ad26d32b62fe2a233353af39d56438c7fd8add53bfdfd548a57c49bb5d4be",
+    "surface_map": "8db452112082401366157c8d40113737413bc979f199f82439046b100e781694",
     "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 226,
+    "actions": 227,
     "agents": 19,
     "aliases": 4,
     "decision_required": 2,
     "in_process_specialists": 5,
     "one_specialist_tools": 6,
-    "physical_routes": 145,
+    "physical_routes": 147,
     "semantic_routes": 14,
-    "table_families": 89
+    "table_families": 93
   }
 }

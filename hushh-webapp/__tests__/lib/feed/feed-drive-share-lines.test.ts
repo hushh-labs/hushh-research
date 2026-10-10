@@ -79,7 +79,7 @@ describe("Drive rows in the Feed", () => {
     ).toBe("No matching files found; nothing was shared");
   });
 
-  it("announces an approved share before it finishes, and a decline", () => {
+  it("announces consent without claiming pre-payment sharing, and a decline", () => {
     expect(
       presentFeedItem(
         item("document_share_decided", {
@@ -87,7 +87,7 @@ describe("Drive rows in the Feed", () => {
           user_facing_status: "approved",
         }),
       ).description,
-    ).toBe("Is sharing Drive files with you");
+    ).toBe("Approved your document request");
     expect(
       presentFeedItem(
         item("document_share_decided", {
@@ -99,6 +99,9 @@ describe("Drive rows in the Feed", () => {
   });
 
   it("tells the owner about a request, and about their finished share", () => {
+    expect(presentFeedItem(item("document_share_request_sent", recipient)).description).toBe(
+      "Request sent",
+    );
     expect(presentFeedItem(item("document_share_request")).description).toBe(
       "Document request received",
     );
@@ -118,7 +121,7 @@ describe("Drive rows in the Feed", () => {
     const ready = presentFeedItem(item("document_share_payment_ready", {
       file_names: ["private.pdf"],
     }));
-    expect(ready.description).toBe("Pay $10 to continue your document request");
+    expect(ready.description).toBe("Payment due for your document request");
     expect(ready.href).toBe("/one/feed");
     expect(JSON.stringify(ready)).not.toContain("private.pdf");
     expect(presentFeedItem(item("document_share_payment_confirmed")).description)
@@ -126,6 +129,34 @@ describe("Drive rows in the Feed", () => {
     const refunded = presentFeedItem(item("document_share_payment_refunded"));
     expect(refunded.description).toBe("Payment refunded for your document request");
     expect(refunded.href).toBe("/one/feed");
+  });
+
+  it("renders current payment state instead of an obsolete Pay instruction", () => {
+    expect(presentFeedItem(item("document_share_payment_ready", {
+      current_payment_status: "paid",
+    })).description).toBe("Payment confirmed");
+    expect(presentFeedItem(item("document_share_payment_ready", {
+      current_payment_status: "refunded",
+    })).description).toBe("Payment refunded");
+    expect(presentFeedItem(item("document_share_payment_ready", {
+      current_payment_status: "checkout_open",
+      current_checkout_expired: true,
+    })).description).toBe("Payment link expired");
+    expect(presentFeedItem(item("document_share_payment_ready", {
+      current_payment_status: "checkout_open",
+      current_request_expired: true,
+    })).description).toBe("Document request expired");
+    expect(presentFeedItem(item("document_share_payment_ready", {
+      current_payment_status: "unavailable",
+    })).description).toBe("Check document request");
+    expect(presentFeedItem(item("document_share_payment_ready", {
+      current_payment_status: "checkout_open",
+      current_owner_payout_account_ready: false,
+    })).description).toBe("Waiting for owner payout setup");
+    expect(presentFeedItem(item("document_share_payment_ready", {
+      current_payment_status: "checkout_open",
+      current_owner_payout_account_ready: true,
+    })).description).toBe("Payment due for your document request");
   });
 
   it("opens the Drive question card for question rows", () => {

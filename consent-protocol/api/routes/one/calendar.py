@@ -76,7 +76,11 @@ def _http(exc: Exception) -> HTTPException:
     if isinstance(exc, GoogleConnectionError):
         return HTTPException(
             status_code=exc.status_code,
-            detail={"code": "GOOGLE_CALENDAR_ERROR", "message": str(exc)},
+            detail={
+                "code": "GOOGLE_CALENDAR_ERROR",
+                "message": str(exc),
+                **({"reason_code": exc.reason_code} if exc.reason_code else {}),
+            },
         )
     logger.exception("one.calendar.unexpected_error")
     return HTTPException(

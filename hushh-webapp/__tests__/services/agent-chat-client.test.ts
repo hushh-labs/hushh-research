@@ -1060,6 +1060,28 @@ describe("AG-UI Agent One client", () => {
     );
   });
 
+  it("carries the saved receipt index only on a turn that has one", async () => {
+    const receiptMemory = {
+      schema: "receipt_canonical_index.v1" as const,
+      generated_at: "2026-10-09T10:00:00Z",
+      total_transactions: 0,
+      truncated: false,
+      transactions: [],
+    };
+    const turn = { vaultKey: TEST_VAULT_KEY, userId: "user-1", conversationId: "thread-1",
+      vaultOwnerToken: "owner-token", handlers: {} };
+
+    await streamAgentChat({ ...turn, message: "Show my receipts", receiptMemory });
+    await streamAgentChat({ ...turn, message: "What is on my calendar?", receiptMemory: null });
+    await streamAgentChat({ ...turn, message: "Hello" });
+
+    expect(mockTransport.runAgent.mock.calls[0]?.[0].forwardedProps.receiptMemory).toEqual(receiptMemory);
+    expect(mockTransport.runAgent.mock.calls[1]?.[0].forwardedProps).not.toHaveProperty("receiptMemory");
+    expect(mockTransport.runAgent.mock.calls[2]?.[0].forwardedProps).not.toHaveProperty("receiptMemory");
+    // Typed data beside the turn, never inside the memory packet One reads as text.
+    expect(mockTransport.runAgent.mock.calls[0]?.[0].forwardedProps.pkmContext ?? "").not.toContain("receipt_canonical_index");
+  });
+
   it("uses the same AG-UI endpoint before vault unlock", async () => {
     await expect(streamAgentIntro({ message: "What is Hussh?" })).resolves.toMatchObject({
       text: "Hello",

@@ -11,6 +11,7 @@ const packageJson = JSON.parse(
 const scripts = new Set(Object.keys(packageJson.scripts || {}));
 
 const docsToScan = [
+  "../docs/reference/architecture/ui-contract-contributor-guide.md",
   "README.md",
   "components/README.md",
   "components/app-ui/README.md",

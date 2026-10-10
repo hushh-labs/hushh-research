@@ -9,6 +9,8 @@ import {
   ListIcon,
   SearchIcon,
 } from "@/components/icons/ui";
+import { AGENT_ICON_MAP } from "@/components/icons/agents";
+import { MessageSquareIcon } from "@/components/icons/ui";
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
@@ -89,14 +91,14 @@ const AGENT_ROSTER_VIEW_STORAGE_KEY = "hushh:one-agent-roster-view";
  * `/one`.
  */
 function readPersistedRosterView(): AgentRosterView {
-  if (typeof window === "undefined") return "list";
+  if (typeof window === "undefined") return "grid";
   try {
     const persisted = window.localStorage.getItem(
       AGENT_ROSTER_VIEW_STORAGE_KEY,
     );
-    return persisted === "grid" ? "grid" : "list";
+    return persisted === "list" ? "list" : "grid";
   } catch {
-    return "list";
+    return "grid";
   }
 }
 
@@ -265,15 +267,26 @@ function useCachedAgentMetrics(
 }
 
 const ROSTER_DISPLAY_ORDER: readonly string[] = [
+  "finance",
+  "wallet",
+  "location",
+  "ria",
   "gmail",
   "calendar",
-  "location",
-  "finance",
-  "ria",
-  "wallet",
   "pkm",
   "consent",
 ];
+
+// Outline icons belong to the One roster only; other surfaces keep their defaults.
+function rosterIcon(mode: OneAgentMode): OneCapabilityIcon {
+  const Icon = AGENT_ICON_MAP[mode.id as keyof typeof AGENT_ICON_MAP];
+  return {
+    kind: "custom",
+    component: (props) => Icon
+      ? <Icon {...props} weight="regular" color={mode.id === "location" ? "#FF3B30" : undefined} />
+      : <MessageSquareIcon {...props} weight="regular" color="var(--app-accent)" />,
+  };
+}
 
 function buildModes(
   statusById: Record<string, CapabilityStatus>,
@@ -530,14 +543,14 @@ function AgentGridItem({
     >
       <AgentSectionIcon
         id={mode.id}
-        icon={mode.icon}
+        icon={rosterIcon(mode)}
         tone={mode.tone}
         paletteIndex={mode.paletteIndex}
         // Greyscale-until-onboarded is reverted for now -- see isOnboarded's
         // own comment. Icons stay full color regardless of setup state.
         isActive
         size="roster-lg"
-        treatment="app"
+        treatment="profile"
         glyphContrast="default"
         className="relative z-10"
       />
@@ -573,12 +586,12 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       <span className="relative z-10 flex items-center justify-center">
         <AgentSectionIcon
           id={mode.id}
-          icon={mode.icon}
+          icon={rosterIcon(mode)}
           tone={mode.tone}
           paletteIndex={mode.paletteIndex}
           isActive
           size="roster"
-          treatment="app"
+          treatment="profile"
           glyphContrast="default"
         />
       </span>

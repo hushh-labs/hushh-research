@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   status: vi.fn(),
+  apiFetch: vi.fn(),
   dispatchConsentStateChanged: vi.fn(),
   user: { getIdToken: async () => "firebase-token" },
 }));
@@ -13,6 +14,9 @@ vi.mock("@/hooks/use-auth", () => ({
 vi.mock("@/lib/services/drive-request-payment-service", () => ({
   DriveRequestPaymentService: { status: mocks.status },
 }));
+vi.mock("@/lib/services/api-service", () => ({
+  ApiService: { apiFetch: mocks.apiFetch },
+}));
 vi.mock("@/lib/consent/consent-events", () => ({
   dispatchConsentStateChanged: mocks.dispatchConsentStateChanged,
 }));
@@ -22,6 +26,7 @@ import { FeedPaymentReturnNotice } from "@/components/feed/feed-payment-return-n
 afterEach(() => {
   vi.useRealTimers();
   mocks.status.mockReset();
+  mocks.apiFetch.mockReset();
   mocks.dispatchConsentStateChanged.mockReset();
   window.history.replaceState({}, "", "/one/feed");
 });
@@ -52,11 +57,26 @@ describe("Feed payment return", () => {
     expect(screen.getByRole("status")).not.toHaveTextContent("Sharing will continue");
   });
 
+  it("confirms an owner-priced payment through the real amount check", async () => {
+    const actual = await vi.importActual<typeof import("@/lib/services/drive-request-payment-service")>(
+      "@/lib/services/drive-request-payment-service",
+    );
+    mocks.status.mockImplementation(actual.DriveRequestPaymentService.status);
+    mocks.apiFetch.mockResolvedValueOnce(new Response(JSON.stringify({ status: "paid", amountCents: 2000, currency: "usd" })));
+    window.history.replaceState({}, "", "/one/feed?paymentRequestId=11111111-1111-4111-8111-111111111111&checkout=success");
+    render(<FeedPaymentReturnNotice />);
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Payment confirmed"));
+    expect(mocks.apiFetch).toHaveBeenCalledOnce();
+    expect(mocks.dispatchConsentStateChanged).toHaveBeenCalledWith({ source: "drive_payment_confirmed" });
+  });
+
   it("explains when the Stripe payment link expired", async () => {
     window.history.replaceState({}, "", "/one/feed?paymentRequestId=11111111-1111-4111-8111-111111111111&checkout=success");
     mocks.status.mockResolvedValueOnce({ status: "expired", amountCents: 1000, currency: "usd" });
     render(<FeedPaymentReturnNotice />);
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("payment link expired"));
+    expect(screen.getByRole("status")).toHaveTextContent("Send a new document request");
+    expect(screen.getByRole("status")).not.toHaveTextContent("create a new link");
     expect(mocks.dispatchConsentStateChanged).toHaveBeenCalledWith({ source: "drive_payment_expired" });
   });
 });

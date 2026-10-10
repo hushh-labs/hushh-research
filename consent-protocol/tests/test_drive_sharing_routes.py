@@ -34,10 +34,14 @@ def setup(monkeypatch):
                 "review",
                 "delivery",
                 "approve",
+                "allow",
                 "decide",
                 "retry_preparation",
                 "prepare_revocation",
                 "revoke",
+                "owner_pricing",
+                "update_owner_pricing",
+                "request_quote",
             )
         }
     )
@@ -54,6 +58,69 @@ def unlock(app, uid="recipient"):
         "user_id": uid,
         "token": "synthetic-owner",
     }
+
+
+@pytest.mark.parametrize(
+    "method,path,body",
+    [
+        ("get", "/pricing", None),
+        ("put", "/pricing", {"enabled": True, "amountCents": 2500, "expectedVersion": 0}),
+        ("get", f"/quote?ownerPersonRef={REQUEST_ID}", None),
+    ],
+)
+def test_pricing_routes_require_owner(setup, method, path, body):
+    client, _, service, _ = setup
+    response = client.request(method, "/api/connectors/google_drive/sharing" + path, json=body)
+    assert response.status_code == 401
+    assert "no-store" in response.headers["Cache-Control"]
+    assert all(not value.called for value in vars(service).values())
+
+
+def test_pricing_routes_bind_authenticated_owner_and_validate_price(setup, monkeypatch):
+    client, app, service, _ = setup
+    unlock(app)
+    base = "/api/connectors/google_drive/sharing"
+    service.owner_pricing.return_value = {"enabled": False, "amountCents": 1000, "version": 0}
+    response = client.get(base + "/pricing")
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, no-store"
+    service.owner_pricing.assert_awaited_once_with(user_id="recipient")
+
+    response = client.put(
+        base + "/pricing",
+        json={
+            "enabled": True,
+            "amountCents": 2500,
+            "expectedVersion": 0,
+        },
+    )
+    assert response.status_code == 200
+    service.update_owner_pricing.assert_awaited_once_with(
+        user_id="recipient", enabled=True, amount_cents=2500, expected_version=0
+    )
+    for invalid in (2050, 0, 50100, True):
+        response = client.put(
+            base + "/pricing",
+            json={
+                "enabled": True,
+                "amountCents": invalid,
+                "expectedVersion": 0,
+            },
+        )
+        assert response.status_code == 422
+    assert service.update_owner_pricing.await_count == 1
+
+    monkeypatch.setattr(routes, "_person_target", AsyncMock(return_value="owner"))
+    service.request_quote.return_value = {
+        "amountCents": 2500,
+        "version": 1,
+        "paymentRequired": True,
+        "payoutReady": False,
+    }
+    response = client.get(base + f"/quote?ownerPersonRef={REQUEST_ID}")
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, no-store"
+    service.request_quote.assert_awaited_once_with(user_id="recipient", owner_user_id="owner")
 
 
 @pytest.mark.parametrize(
@@ -89,6 +156,7 @@ def unlock(app, uid="recipient"):
                 "confirmed": True,
             },
         ),
+        ("post", f"/{REQUEST_ID}/allow", {"revision": 0, "confirmed": True}),
         ("post", f"/{REQUEST_ID}/decline", {"revision": 0}),
         ("post", f"/{REQUEST_ID}/cancel", {"revision": 0}),
         ("post", f"/{REQUEST_ID}/review/refresh", {"revision": 0}),
@@ -222,6 +290,66 @@ def test_approval_only_acknowledges_pending_work(setup):
     )
     assert response.status_code == 202
     assert response.json() == {"status": "approved", "sharingStatus": "pending"}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"revision": 0},
+        {"revision": 0, "confirmed": False},
+        {"revision": 0, "confirmed": 1},
+        {"revision": 0, "confirmed": "true"},
+        {"revision": 0, "confirmed": True, "amountCents": 0},
+        {"revision": 0, "confirmed": True, "amountCents": 2050},
+        {"revision": 0, "confirmed": True, "amountCents": 50100},
+        {"revision": 0, "confirmed": True, "amountCents": 2000.0},
+        {"revision": 0, "confirmed": True, "amountCents": "2000"},
+        {"revision": 0, "confirmed": True, "amountCents": True},
+        {"revision": 0, "confirmed": True, "trustedAuto": True},
+    ],
+)
+def test_allow_needs_explicit_confirmation_and_a_whole_dollar_price(setup, body):
+    client, app, service, _ = setup
+    unlock(app)
+    response = client.post(BASE + f"/{REQUEST_ID}/allow", json=body)
+    assert response.status_code == 422
+    assert "no-store" in response.headers["Cache-Control"]
+    service.allow.assert_not_called()
+
+
+def test_allow_forwards_the_owners_price_and_reports_refusals(setup):
+    client, app, service, current = setup
+    unlock(app)
+    service.allow.return_value = {
+        "requestId": REQUEST_ID,
+        "status": "pending",
+        "revision": 3,
+        "ownerAllowed": True,
+        "amountCents": 2000,
+    }
+    response = client.post(
+        BASE + f"/{REQUEST_ID}/allow",
+        json={"revision": 3, "amountCents": 2000, "confirmed": True},
+    )
+    assert response.status_code == 202
+    assert response.json() == service.allow.return_value
+    service.allow.assert_awaited_once_with(
+        user_id="recipient", request_id=REQUEST_ID, revision=3, amount_cents=2000
+    )
+    assert current.await_count == 2
+
+    response = client.post(BASE + f"/{REQUEST_ID}/allow", json={"revision": 3, "confirmed": True})
+    assert response.status_code == 202
+    assert service.allow.await_args.kwargs["amount_cents"] is None
+
+    for code, status in (("invalid_payment_amount", 422), ("request_already_decided", 409)):
+        service.allow.side_effect = DriveSharingError(code)
+        response = client.post(
+            BASE + f"/{REQUEST_ID}/allow", json={"revision": 3, "confirmed": True}
+        )
+        assert response.status_code == status
+        assert response.json()["detail"]["code"] == code
+        assert "no-store" in response.headers["Cache-Control"]
 
 
 @pytest.mark.parametrize(

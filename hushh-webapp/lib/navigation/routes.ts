@@ -173,6 +173,8 @@ export const ROUTES = {
   GMAIL: "/one/gmail",
   EMAIL_AGENT: "/one/email",
   CALENDAR: "/one/calendar",
+  /** Owner's to-do items and safe read-only Calendar agenda. */
+  ONE_TODOS: "/one/todos",
   PKM: "/one/pkm",
   PKM_RECENT: "/one/pkm/recent",
   PKM_LOCATION: "/one/pkm/location",
@@ -202,6 +204,8 @@ export const ROUTES = {
   /** Retired mailbox-KYC compatibility target; personal Gmail KYC lives in Email. */
   ONE_KYC: "/one/email",
   ONE_CAREER: "/one/career",
+  /** Dedicated full-page weekly referral dashboard. `/one/profile/referrals` redirects here. */
+  ONE_REFERRALS: "/one/referrals",
   ONE_LOCATION: "/one/location",
   /** Immersive, consented multi-person Location map. */
   ONE_LOCATION_MAP: "/one/location/map",

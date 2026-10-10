@@ -71,9 +71,20 @@ tests/services/test_drive_live_query.py
 tests/services/test_drive_owner_share.py
 tests/services/test_drive_owner_search_postgres.py
 tests/services/test_drive_request_search_unit.py
+tests/services/test_drive_bounded_search_unit.py
+tests/services/test_drive_search_performance_proof.py
 tests/services/test_drive_request_bulk_postgres.py
 tests/services/test_drive_trusted_auto.py
 tests/services/test_drive_request_payment.py
+tests/test_drive_request_owner_payouts.py
+tests/test_stripe_connect_bank_payouts.py
+# Owner Allow for requests from outside the Trusted circle: migration 291 bounds
+# the owner price, replays without waiting behind live writers and refuses a
+# rollback that would strand an owner-priced payment. The Consent Center keeps
+# the owner's Allow/Deny decision and the automatic progress after Allow.
+tests/test_drive_request_owner_allowed_migration.py
+tests/services/test_drive_sharing_center.py
+tests/services/test_drive_feed_projection.py
 tests/services/test_google_drive_mcp_service.py
 tests/services/test_drive_bulk_share_postgres.py
 tests/services/test_drive_bulk_share_service.py
@@ -87,6 +98,7 @@ tests/services/test_connector_feature_admission.py
 tests/test_external_connector_oauth_routes.py
 tests/services/test_gmail_metadata_reader.py
 tests/services/test_email_delegated_read.py
+tests/services/test_receipt_memory_read.py
 tests/test_email_agent_a2a.py
 tests/test_adk_specialist_chat_services.py
 tests/test_one_external_read_boundary.py
@@ -650,6 +662,9 @@ tests/services/test_scheduled_mail_drain.py
 tests/test_scheduled_mail_drain_routes.py
 tests/test_scheduled_mail_scheduler_contract.py
 tests/test_business_suggestions.py
+tests/test_business_runtime_reliability.py
+tests/test_consent_listener_asyncio.py
+tests/services/test_consent_db_refresh_jobs.py
 
 # Gmail drafts by voice: list/open/send by position, the send gate and the
 # drafts grant, one ledger row per send, and the draft open route.

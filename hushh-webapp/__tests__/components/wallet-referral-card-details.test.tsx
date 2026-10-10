@@ -2,14 +2,19 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { WalletReferralCardDetails } from "@/components/wallet/wallet-referral-card-details";
 import { WalletCardService } from "@/lib/services/wallet-card-service";
-import { copyWalletCardLink, shareWalletCardLink } from "@/components/wallet-card/wallet-card-share";
+import { copyWalletCardLink } from "@/components/wallet-card/wallet-card-share";
+import { createWalletCardImageFile } from "@/lib/wallet/wallet-card-image";
+import { shareFile } from "@/lib/share/share-file";
 import type { ReferralSummary } from "@/lib/services/referral-service";
 
 vi.mock("@/components/wallet-card/wallet-card-share", () => ({
   copyWalletCardLink: vi.fn().mockResolvedValue(true),
-  shareWalletCardLink: vi.fn().mockResolvedValue("web-share"),
   isShareAbortError: () => false,
 }));
+
+vi.mock("@/lib/wallet/wallet-card-image", () => ({ createWalletCardImageFile: vi.fn(async () => new File(["png"], "referral.png", { type: "image/png" })) }));
+vi.mock("@/lib/share/share-file", () => ({ shareFile: vi.fn(async () => "web-share") }));
+const profile = { ownerId: "owner", displayName: "Ada", shareUrl: "https://example.test/c/profile", referralUrl: "https://example.test/r/stale" };
 
 const summary: ReferralSummary = {
   slug: "ada-1234",
@@ -48,11 +53,13 @@ describe("Wallet referral card details", () => {
     expect(screen.getByRole("link", { name: "Preview referral page" }).getAttribute("href")).toBe(summary.link);
   });
 
-  it("shares the referral link and requests the referral pass variant", async () => {
+  it("shares a card image using the current referral URL and requests the referral pass variant", async () => {
     const addPass = vi.spyOn(WalletCardService, "addToAppleWallet").mockResolvedValue({ state: "opened", url: "https://example.com/pass" });
-    render(<WalletReferralCardDetails summary={summary} shareToken="test-wallet-token" />);
+    render(<WalletReferralCardDetails summary={summary} shareToken="test-wallet-token" profile={profile} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Share card" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Share card" }));
-    await waitFor(() => expect(shareWalletCardLink).toHaveBeenCalledWith(expect.objectContaining({ url: summary.link })));
+    await waitFor(() => expect(shareFile).toHaveBeenCalledWith(expect.objectContaining({ file: expect.any(File) })));
+    expect(createWalletCardImageFile).toHaveBeenCalledWith(expect.objectContaining({ kind: "referral", profile: expect.objectContaining({ referralUrl: summary.link }) }));
     fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
     await waitFor(() => expect(copyWalletCardLink).toHaveBeenCalledWith(summary.link));
     fireEvent.click(screen.getByRole("button", { name: "Add to Apple Wallet" }));

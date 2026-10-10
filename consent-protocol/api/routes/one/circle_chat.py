@@ -24,7 +24,7 @@ from hushh_mcp.services.one_location_circle_service import (
 )
 
 logger = logging.getLogger(__name__)
-MAX_REQUEST_BYTES = 7_250_000
+MAX_REQUEST_BYTES = 9_000_000
 # Authenticated automatic reads: 4 sessions x 4 coalesced refreshes/sec x
 # 60 seconds = 960, plus manual pagination/roster headroom. Write/image abuse
 # budgets remain independent; every read still authorizes membership.
@@ -110,9 +110,30 @@ class SendMessage(StrictModel):
     )
     imageIv: str | None = Field(default=None, min_length=16, max_length=16, pattern=_B64)
     recipients: list[Recipient] = Field(min_length=1, max_length=100)
+    notificationPreviews: dict[UUID, Annotated[str, Field(max_length=2600)]] = Field(
+        default_factory=dict, max_length=500
+    )
 
     @model_validator(mode="after")
     def attachment_pair(self):
+        import json
+
+        from cryptography.hazmat.primitives.asymmetric.ec import SECP256R1, EllipticCurvePublicKey
+
+        for key_id, sealed in self.notificationPreviews.items():
+            envelope = json.loads(sealed)
+            if not isinstance(envelope, list) or len(envelope) != 4 or envelope[0] != str(key_id):
+                raise ValueError("Invalid preview envelope")
+            for value in envelope[1:]:
+                if not isinstance(value, str):
+                    raise ValueError("Invalid preview encoding")
+                raw = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+                if base64.urlsafe_b64encode(raw).decode().rstrip("=") != value:
+                    raise ValueError("Invalid preview encoding")
+            point = base64.urlsafe_b64decode(envelope[1] + "=")
+            EllipticCurvePublicKey.from_encoded_point(SECP256R1(), point)
+            if len(envelope[2]) != 16 or not 22 <= len(envelope[3]) <= 2422:
+                raise ValueError("Invalid preview size")
         if (self.imageCiphertext is None) != (self.imageIv is None):
             raise ValueError("Image ciphertext and IV must be supplied together.")
         for value in [self.ciphertext, self.imageCiphertext]:
