@@ -1,9 +1,14 @@
 {
   "generated_at": "2026-10-10",
-  "total_routes": 130,
+  "total_routes": 131,
   "native_required_routes": 109,
-  "excluded_routes": 21,
+  "excluded_routes": 22,
   "routes": [
+    {
+      "route": "/wallet/open",
+      "classification": "excluded-web-only",
+      "reason": "Anonymous browser reader for externally shared encrypted files; no app installation or signed-in native route is required."
+    },
     {
       "route": "/",
       "classification": "native-required-functional",

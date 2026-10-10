@@ -2,6 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 
 import { WalletWorkspace } from "../../components/wallet/wallet-workspace";
+import { WalletEncryptedCardViewer } from "../../components/wallet/wallet-encrypted-card-viewer";
 import { AppPageShell, AppPageContentRegion } from "../../components/app-ui/app-page-shell";
 import { PageHeader } from "../../components/app-ui/page-sections";
 import { TopShellTabs } from "../../components/app-ui/top-shell-tabs";
@@ -34,7 +35,7 @@ function ArtworkGallery() {
 const root = createRoot(document.getElementById("root")!);
 let revision = 0;
 window.__walletRemount = () => root.render(<WalletWorkspace key={++revision} />);
-root.render(window.__walletScenario?.artworkGallery ? <ArtworkGallery /> : reference ? (
+root.render((window as unknown as { __encryptedCardReader?: boolean }).__encryptedCardReader ? <WalletEncryptedCardViewer /> : window.__walletScenario?.artworkGallery ? <ArtworkGallery /> : reference ? (
   <AppPageShell width="agent" fitContent className="relative isolate [--app-page-content-bottom-gap:0px]">
     <AppPageContentRegion className="min-w-0 space-y-4 overflow-x-hidden">
       <div data-location-hub className={reference.hubClass}>

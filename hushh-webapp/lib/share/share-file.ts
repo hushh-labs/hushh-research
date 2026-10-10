@@ -31,5 +31,5 @@ export async function shareFile({ file, title }: { file: File; title: string }):
     }
   }
   if (await downloadBlobFile(file, file.name, file.type)) return "download";
-  throw new Error("The card image could not be shared.");
+  throw new Error("The file could not be shared.");
 }

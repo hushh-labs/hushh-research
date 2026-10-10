@@ -5,8 +5,8 @@
  * `public/brand/cards/`, it is rendered unmodified in a transparent cell, the
  * same handling the runtime provider marks follow
  * (docs/reference/one/runtime-provider-brand-inventory.md). Until an asset is
- * recorded in `CARD_MARK_ASSETS`, the brand falls back to a plain lettermark
- * tile that is Hussh's own and claims to be nobody's logo.
+ * recorded in `CARD_MARK_ASSETS`, the brand falls back to a generic card icon
+ * with an accessible network name. The RuPay reference was supplied by the user.
  *
  * The asset map is the only thing that changes when artwork arrives: drop the
  * file into `public/brand/cards/`, add one line here, record the source in
@@ -19,6 +19,7 @@
  */
 
 import Image from "next/image";
+import { CreditCard } from "@/components/icons";
 
 import { cn } from "@/lib/utils";
 import type { CardBrand } from "@/lib/wallet/card-validation";
@@ -34,11 +35,15 @@ type NetworkStyle = {
 };
 
 /**
- * Official artwork, once recorded. Empty entries fall back to the lettermark.
+ * Recorded network artwork. Empty entries fall back to a generic card icon.
  * Every entry here must have a matching row in the card network brand
  * inventory naming where the file came from.
  */
-const CARD_MARK_ASSETS: Partial<Record<CardBrand, string>> = {};
+const CARD_MARK_ASSETS: Partial<Record<CardBrand, string>> = {
+  amex: "/brand/cards/amex.svg", discover: "/brand/cards/discover.svg",
+  diners: "/brand/cards/diners.svg", jcb: "/brand/cards/jcb.svg", rupay: "/brand/cards/rupay.png",
+  unionpay: "/brand/cards/unionpay.png",
+};
 
 const NETWORKS: Readonly<Record<CardBrand, NetworkStyle>> = {
   visa: { short: "VISA", label: "Visa", background: "#1a1f71", foreground: "#ffffff" },
@@ -119,7 +124,7 @@ export function CardNetworkWordmark({
         data-testid={`card-network-wordmark-${key}`}
         className={cn("inline-flex h-5 w-11 shrink-0 items-center justify-end", className)}
       >
-        <Image src={asset} alt="" width={44} height={20} className="h-auto w-full object-contain" />
+        <Image src={asset} alt="" width={88} height={40} className="h-full w-full object-contain" />
       </span>
     );
   }
@@ -134,7 +139,7 @@ export function CardNetworkWordmark({
         className,
       )}
     >
-      {network.short}
+      <CreditCard className="inline-block size-4 align-middle" aria-hidden="true" /> <span>{network.short}</span>
     </span>
   );
 }
@@ -168,7 +173,7 @@ export function CardNetworkMark({
           alt=""
           width={44}
           height={28}
-          className="h-auto w-full object-contain"
+          className="h-full w-full object-contain"
         />
       </span>
     );
@@ -186,7 +191,7 @@ export function CardNetworkMark({
       )}
       style={{ backgroundColor: network.background, color: network.foreground }}
     >
-      {network.short}
+      <CreditCard className="size-5" aria-hidden="true" />
     </span>
   );
 }
