@@ -1253,6 +1253,17 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     }
     case "direct_message_received": {
       const hasWho = who !== "Someone";
+      const cardGrant = metadataString(item.metadata, "wallet_card_grant_id");
+      if (cardGrant && /^[a-f0-9-]{36}$/i.test(cardGrant)) {
+        return {
+          icon: ShieldCheck,
+          domainLabel: "Wallet",
+          label: `${who} shared their card with you`,
+          person: counterpartPerson(item.metadata, who),
+          description: "View card",
+          href: directMessageFeedHref(item.metadata),
+        };
+      }
       const preview = metadataString(item.metadata, "message_preview");
       const unread = Number(item.metadata.chat_unread_count) || 0;
       return {

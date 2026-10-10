@@ -14,6 +14,12 @@ const authMock = vi.hoisted(() => ({
 const trackEventMock = vi.hoisted(() => vi.fn());
 const vaultMock = vi.hoisted(() => ({ locked: false }));
 
+vi.mock("@/lib/services/wallet-card-access-service", () => ({
+  WalletCardAccessService: {
+    state: vi.fn().mockResolvedValue({ eligible: false, grants: [] }),
+  },
+}));
+
 vi.mock("next/navigation", () => ({
   usePathname: () => navigationMock.pathname,
   useRouter: () => ({ replace: navigationMock.replace, push: vi.fn() }),
@@ -31,8 +37,8 @@ vi.mock("@/lib/observability/client", () => ({
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () =>
     vaultMock.locked
-      ? { vaultKey: null, getVaultOwnerToken: () => null }
-      : { vaultKey: "vault_key", getVaultOwnerToken: () => "owner_token" },
+      ? { vaultKey: null, vaultOwnerToken: null, getVaultOwnerToken: () => null }
+      : { vaultKey: "vault_key", vaultOwnerToken: "owner_token", getVaultOwnerToken: () => "owner_token" },
 }));
 
 vi.mock("@/components/vault/vault-unlock-dialog", () => ({
@@ -165,7 +171,9 @@ describe("Wallet visit introduction", () => {
     expect(await details.findByText("4242 4242 4242 1000")).toBeVisible();
     expect(details.getByText("Test Cardholder")).toBeVisible();
     expect(details.getByText("Visa")).toBeVisible();
-    expect(await screen.findByText("Not shared with anyone yet")).toBeVisible();
+    expect(await screen.findByText("No active shares")).toBeVisible();
+    expect(screen.getByRole("button", { name: /Share card/ })).toBeEnabled();
+    expect(screen.queryByText(/origin must be verified/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Show card details" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Reveal saved details" })).toBeNull();
     expect(serviceMock.getCard).toHaveBeenCalledWith({ userId: "user_1", vaultOwnerToken: "owner_token", vaultKey: "vault_key", cardId: "card_0" });
@@ -193,7 +201,7 @@ describe("Wallet visit introduction", () => {
     expect(screen.getByRole("button", { name: "All (4)" })).toBeEnabled();
     expect(screen.queryByTestId("wallet-preview-collection")).toBeNull();
     expect(await within(screen.getByRole("region", { name: "Saved card details" })).findByText("4242 4242 4242 4242")).toBeVisible();
-    expect(await screen.findByText("Not shared with anyone yet")).toBeVisible();
+    expect(await screen.findByText("No active shares")).toBeVisible();
     expect(serviceMock.getCard).toHaveBeenCalledWith({ userId: "user_1", vaultOwnerToken: "owner_token", vaultKey: "vault_key", cardId: "saved" });
   });
   it("removes the form and card details when the vault locks", async () => {

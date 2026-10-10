@@ -220,14 +220,29 @@ whitespace-only PIN input is omitted before validation and saving.
 The Cards overview presents one full card above a compact lower stack. Vertical scrolling unfolds the remaining cards; reduced-motion users receive a static, fully unfolded list. A left drag or horizontal trackpad scroll opens card-local summary controls; selecting a card opens its details. The first-use swipe hint is scoped to the account and device through OnboardingLocalService. The overview swipe panel shows identity fields or masked payment metadata, using the Profile row styling. It contains no second View details button and never decrypts payment secrets.
 
 
-### Saved payment card numbers and encrypted Chat copies
+### Saved payment card numbers and temporary sharing
 
 Selecting a saved payment card in an unlocked Wallet displays its full number
 on that face and in Card details. The collection remains a metadata projection.
 Owner, key, tab, selection, visibility and unmount changes invalidate delayed
 number reads and clear the selected number. CVV and PIN remain hidden.
 
-The Hussh Chat share option requires choosing one person and confirming the selected card.
+Share is available on every owner-entered payment card without a separate
+card-verification step. A confirmed Wallet write registers saved cards automatically;
+sharing an older card refreshes its encrypted metadata without changing its details.
+Sharing uses selected active connections and individual 5/10/15-minute server
+grants. Default identity cards and other owners' cards are excluded. The shared
+view contains masked details only. Each
+successful share creates a Messages reference and a Feed notice reading
+“[Sender name] shared their card with you.” Explicit Trusted Circle recipients
+can open it directly; other connections must complete fresh identity verification.
+Owners can revoke access under Shared with. See the
+[temporary sharing API contract](../architecture/api-contracts.md#wallet-profile-lifecycle)
+for rollout requirements and browser/native limits.
+
+### Legacy encrypted Chat copies (read compatibility)
+
+The previous Hussh Chat share option required choosing one person and confirming the selected card.
 Canonical direct-message permission must allow sending, and the recipient must
 have a registered secure key. The device encrypts only PAN, cardholder name,
 network, expiry and region with a random AES-GCM key, wrapped separately for the
@@ -243,11 +258,11 @@ Existing Wallet-wide grants are labelled Wallet access separately. These are
 snapshot copies: deleting the saved card or disconnecting cannot recall a copy
 already received. If a required private key is unavailable, ask for a new share.
 
-### Password-protected copies for anyone
+### Legacy password-protected copies (read compatibility)
 
-Share card opens an 820px panel with the same 20px/28px gutters and compact
-typography as Wallet Add. Anyone is the default method; Hussh Chat remains a
-separate connected-recipient method. The owner chooses and confirms a password
+The current Share card panel creates temporary grants only; it no longer offers
+new password-protected copies. Existing files remain readable. The previous
+flow used an 820px panel with Wallet typography. The owner chose and confirmed a password
 of at least 12 characters, then prepares an encrypted file before a separate
 Share encrypted file click. The shared file helper uses the system sheet where
 available and downloads the same file otherwise. Cancellation never claims

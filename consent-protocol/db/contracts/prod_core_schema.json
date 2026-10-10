@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 301,
+  "expected_migration_version": 302,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -72,7 +72,10 @@
     "guard_hashcoin_direct_transfer",
     "reject_hashcoin_ledger_mutation",
     "detach_hashcoin_wallet_owner",
-    "guard_hashcoin_redemption"
+    "guard_hashcoin_redemption",
+    "activate_reserved_wallet_cards",
+    "remove_wallet_card_registrations",
+    "guard_wallet_card_access_grant"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -2782,6 +2785,30 @@
       "onboarding_journey_updated_at",
       "created_at",
       "updated_at"
+    ],
+    "wallet_card_access_audit": [
+      "id",
+      "grant_id",
+      "event_type"
+    ],
+    "wallet_card_access_grants": [
+      "id",
+      "recipient_user_id",
+      "message_id",
+      "revoked_at"
+    ],
+    "wallet_card_registrations": [
+      "owner_user_id",
+      "card_id",
+      "state",
+      "source_commit_id",
+      "source_projection",
+      "source_projection_revision"
+    ],
+    "wallet_card_share_requests": [
+      "owner_user_id",
+      "request_id",
+      "expires_at"
     ]
   }
 }
