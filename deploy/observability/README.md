@@ -31,10 +31,13 @@ reconciler. Unprofiled projects and mismatched SQL instances fail before any
 cloud call. Production warning/critical thresholds are 280/340, with warning
 remaining diagnostic only; UAT remains 700/850.
 
-Before a production release, retire obsolete zero-traffic tags with the existing
-healthy-release retention helper, preserving serving and rollback revisions.
+Before a production release, retire obsolete zero-traffic tags and revisions with
+the existing healthy-release retention helper, preserving serving and rollback
+revisions. Deletion must wait for its recorded request-timeout drain deadline;
+tag removal alone does not prove that admitted requests have stopped.
 The capacity check still requires an explicit live SQL flag matching the profile,
-and counts serving, rollback, candidate, workers and overlapping jobs. With the
+and counts every retained database revision, candidate, workers and overlapping
+jobs in both environments. With the
 current production pools, three backend revisions, one worker candidate and the
 readiness job require 292 connections including reserve. Additional reachable
 revisions or jobs can block admission and must not be ignored.

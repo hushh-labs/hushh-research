@@ -111,12 +111,16 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
             revision("app-recent-drain"),
             revision("app-older-drain"),
         ]
-        settings = {**SETTINGS, "count_retained_revisions": True}
-        rows = budget.service_budget("app", settings, service, revisions, CONNECTION)
-        self.assertEqual(
-            {row["name"] for row in rows}, {r["metadata"]["name"] for r in revisions}
-        )
-        self.assertEqual(sum(row["connections"] for row in rows), 210)
+        profile = json.loads(budget.DEFAULT_PROFILE.read_text())
+        for environment in ("uat", "production"):
+            for configured in profile["environments"][environment]["services"].values():
+                with self.subTest(environment=environment, container=configured["container"]):
+                    settings = {**SETTINGS, "count_retained_revisions": configured.get("count_retained_revisions")}
+                    rows = budget.service_budget("app", settings, service, revisions, CONNECTION)
+                    self.assertEqual(
+                        {row["name"] for row in rows}, {r["metadata"]["name"] for r in revisions}
+                    )
+                    self.assertEqual(sum(row["connections"] for row in rows), 210)
         # Negative control: the legacy policy reserves only one unreferenced revision.
         legacy = budget.service_budget("app", SETTINGS, service, revisions, CONNECTION)
         self.assertEqual(sum(row["connections"] for row in legacy), 140)
