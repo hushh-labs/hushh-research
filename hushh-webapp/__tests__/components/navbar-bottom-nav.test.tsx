@@ -128,7 +128,7 @@ describe("Navbar bottom utilities", () => {
   it.each([
     [ROUTES.HOME, "Chat"],
     [ROUTES.ONE_HOME, "One"],
-    [ROUTES.ONE_MESSAGES, "One"],
+    [ROUTES.ONE_MESSAGES, "Chat"],
   ])("selects %s under the %s primary tab", (pathname, activeLabel) => {
     navigationMock.pathname = pathname;
     render(<Navbar />);

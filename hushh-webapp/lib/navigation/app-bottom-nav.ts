@@ -96,10 +96,10 @@ export function resolveOneNavSlot(
 ): OneNavKey {
   const normalizedPathname = normalizeBottomNavPathname(pathname);
   if (normalizedPathname === ROUTES.HOME) return "chat";
-  if (
-    normalizedPathname === ROUTES.ONE_HOME ||
-    isBottomNavRoute(normalizedPathname, ROUTES.ONE_MESSAGES)
-  ) {
+  if (isBottomNavRoute(normalizedPathname, ROUTES.ONE_MESSAGES)) {
+    return "chat";
+  }
+  if (normalizedPathname === ROUTES.ONE_HOME) {
     return "dashboard";
   }
   if (isBottomNavRoute(normalizedPathname, ROUTES.CONNECT)) {
@@ -245,11 +245,12 @@ export function resolveBottomNavActiveKey(
   if (isKaiCommandBarOpen(searchParams)) return "search";
   const normalizedPathname = normalizeBottomNavPathname(pathname);
   if (normalizedPathname === ROUTES.HOME) return "chat";
-  // The Message agent is nested inside One; the Chat tab opens One's landing.
-  if (
-    normalizedPathname === ROUTES.ONE_HOME ||
-    isBottomNavRoute(normalizedPathname, ROUTES.ONE_MESSAGES)
-  ) {
+  // Direct messages are Chat: keep their visible bottom-tab state in sync
+  // with the conversation surface rather than highlighting the One dashboard.
+  if (isBottomNavRoute(normalizedPathname, ROUTES.ONE_MESSAGES)) {
+    return "chat";
+  }
+  if (normalizedPathname === ROUTES.ONE_HOME) {
     return "dashboard";
   }
   if (isBottomNavRoute(normalizedPathname, ROUTES.CONNECT)) {

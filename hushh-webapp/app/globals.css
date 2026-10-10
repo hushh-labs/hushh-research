@@ -6336,6 +6336,39 @@ html.kb-open.kb-resizes [data-agent-dock-chat] [data-bottom-shell-navigation-slo
     0 0 0 3px color-mix(in oklab, var(--app-accent) 18%, transparent) !important;
 }
 
+/* The canonical chat composer is embedded in the shared dock rather than the
+   route tree. The embedded reset above keeps voice chrome plain, but must not
+   cancel the text composer's material while it overlaps the transcript. */
+[data-agent-dock-embedded][data-agent-dock-surface="text"].agent-chat-composer-surface {
+  border-color: var(--agent-composer-rim) !important;
+  background: var(--agent-composer-material) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--background) 72%, white),
+    0 10px 30px -8px color-mix(in oklab, var(--foreground) 15%, transparent),
+    0 1px 3px color-mix(in oklab, var(--foreground) 8%, transparent) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(28px) saturate(180%);
+}
+
+[data-agent-dock-embedded][data-agent-dock-surface="text"].agent-chat-composer-surface:focus-within {
+  border-color: color-mix(in oklab, var(--app-accent) 55%, transparent) !important;
+  background: var(--agent-composer-material) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--background) 72%, white),
+    0 10px 30px -8px color-mix(in oklab, var(--foreground) 15%, transparent),
+    0 1px 3px color-mix(in oklab, var(--foreground) 8%, transparent),
+    0 0 0 3px color-mix(in oklab, var(--app-accent) 18%, transparent) !important;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  [data-agent-dock-embedded][data-agent-dock-surface="text"].agent-chat-composer-surface,
+  [data-agent-dock-embedded][data-agent-dock-surface="text"].agent-chat-composer-surface:focus-within {
+    background: var(--background) !important;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
 /* Copy / like / dislike on a settled answer. With a fine pointer on a wide
    screen they sit beside the bubble, vertically centred, and appear on hover
    or keyboard focus (as in the reference); touch screens keep the always-on
