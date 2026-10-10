@@ -114,6 +114,7 @@ describe("FeedActionableRow", () => {
     render(
       <FeedActionableRow
         item={actionable({
+          id: "connection:request-1",
           actions: [
             {
               key: "accept",
@@ -146,6 +147,14 @@ describe("FeedActionableRow", () => {
       expect(button).toHaveClass("w-auto", "min-w-[5.5rem]");
       expect(button).not.toHaveClass("w-full");
     }
+
+    // Connection decisions deliberately occupy their own phone line: the
+    // person's name and request stay legible above the paired actions.
+    expect(
+      screen
+        .getByTestId("feed-actionable-connection:request-1")
+        .querySelector('[data-slot="settings-row-trailing"]'),
+    ).toHaveClass("w-full", "pt-1");
   });
 
   it("keeps the requested duration visible in compact mobile decision labels", () => {
