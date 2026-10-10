@@ -3944,7 +3944,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/one/profile/payouts",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fpayouts",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -3961,7 +3961,6 @@
         "native_beacon": false
       },
       "findings": [
-        "review native route beacon coverage",
         "no local cache primitive detected in page/contract source"
       ]
     },
@@ -4522,7 +4521,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/one/profile/request-pricing",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Frequest-pricing",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -4539,7 +4538,6 @@
         "native_beacon": false
       },
       "findings": [
-        "review native route beacon coverage",
         "no local cache primitive detected in page/contract source"
       ]
     },
@@ -6693,5 +6691,5 @@
       ]
     }
   ],
-  "content_sha256": "cc56ebf380b45178a3f319f342ab6aa040c363012aac6a29dcaf565e708c5184"
+  "content_sha256": "027b3e646f42a450aa212c829d7d4f7f8990685680af33b62eb3b0fd7ac973e4"
 }

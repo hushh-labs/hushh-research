@@ -13,7 +13,6 @@ import {
   Plus,
   Search,
   Share2,
-  ShieldCheck,
   Trash2,
   UsersRound,
 } from "@/components/icons";
@@ -1324,8 +1323,20 @@ function CircleMemberRow({
   );
 }
 
+function CircleMembersLoading() {
+  return <div role="status" aria-label="Loading circle members" className="space-y-3 rounded-[18px] border border-border bg-card p-4">
+    <span className="sr-only">Loading circle members…</span>
+    {[0, 1, 2].map((row) => <div key={row} aria-hidden="true" className="flex min-h-14 items-center gap-3">
+      <div className="size-10 shrink-0 rounded-full bg-muted animate-pulse motion-reduce:animate-none" />
+      <div className="flex-1 space-y-2"><div className="h-3 w-1/2 rounded bg-muted animate-pulse motion-reduce:animate-none" /><div className="h-2 w-1/3 rounded bg-muted" /></div>
+    </div>)}
+  </div>;
+}
+
 export function CircleDetailFlow({
   circleId,
+  initialCircleSummary,
+  sessionScope,
   currentUserId,
   busy,
   onBack,
@@ -1356,6 +1367,10 @@ export function CircleDetailFlow({
   onPhotoUpdate,
 }: {
   circleId: string;
+  /** Display identity only; fresh detail remains the sole authority for actions. */
+  initialCircleSummary?: Pick<OneLocationCircleSummary, "id" | "name" | "memberCount">;
+  /** In-memory unlock identity; never serialized or used as an access grant. */
+  sessionScope?: unknown;
   renderChat?: (circle: OneLocationCircleOverview, options: { active: boolean; readingBlocked: boolean }) => ReactNode;
   chatIntent?: boolean;
   /** Creation enters the existing inline member flow; a reload retains it. */
@@ -1453,6 +1468,9 @@ export function CircleDetailFlow({
     setDetailView("chat");
   }, [chatIntent]);
   const [memberRows, setMemberRows] = useState<OneLocationCircleMember[]>([]);
+  const [membersLoading, setMembersLoading] = useState(true);
+  const [membersLoaded, setMembersLoaded] = useState(false);
+  const loadedScopeRef = useRef({ currentUserId, sessionScope });
   const [orbitMembers, setOrbitMembers] = useState<OneLocationCircleMember[]>([]);
   const [memberPage, setMemberPage] = useState(1);
   const [memberHasMore, setMemberHasMore] = useState(false);
@@ -1503,11 +1521,23 @@ export function CircleDetailFlow({
 
   const usesPagedMembers = Boolean(onLoadOverview && onLoadMembersPage);
 
+  const applyOverview = (overview: OneLocationCircleOverview) => {
+    loadedScopeRef.current = { currentUserId, sessionScope };
+    setCircle(overview); setCircleName(overview.name);
+    setInviteCode(overview.activeInviteCode ?? null);
+    if (!(overview.viewerCapabilities?.canInviteMembers ?? overview.role === "owner")) {
+      setPeopleSheetOpen(false);
+      setSelectedConnections(new Map());
+      peopleRequestRef.current += 1;
+    }
+  };
+
   const reload = async (): Promise<
     OneLocationCircleDetail | OneLocationCircleOverview | null
   > => {
     const requestId = ++loadRequestRef.current;
     setLoadError(null);
+    setMembersLoading(true);
     if (!circleId) {
       setCircle(null);
       setLoadError("This Circle link is incomplete.");
@@ -1516,7 +1546,12 @@ export function CircleDetailFlow({
     try {
       const [nextCircle, nextMembersPage] = usesPagedMembers
         ? await Promise.all([
-            onLoadOverview!(circleId),
+            onLoadOverview!(circleId).then((overview) => {
+              if (requestId === loadRequestRef.current) {
+                applyOverview(overview);
+              }
+              return overview;
+            }),
             onLoadMembersPage!(circleId, {
               page: 1,
               limit: 50,
@@ -1525,7 +1560,9 @@ export function CircleDetailFlow({
           ])
         : [await onLoad(circleId), null];
       if (requestId !== loadRequestRef.current) return null;
-      setCircle(nextCircle);
+      applyOverview(nextCircle);
+      setMembersLoading(false);
+      setMembersLoaded(true);
       if (nextMembersPage) {
         setMemberRows(nextMembersPage.items);
         if (!memberSearch.trim()) setOrbitMembers(nextMembersPage.items);
@@ -1540,18 +1577,10 @@ export function CircleDetailFlow({
         setMemberHasMore(false);
         setMemberTotalCount(completeMembers.length);
       }
-      setCircleName(nextCircle.name);
-      setInviteCode(nextCircle.activeInviteCode ?? null);
-      const nextCanInvite =
-        nextCircle.viewerCapabilities?.canInviteMembers ??
-        nextCircle.role === "owner";
-      if (!nextCanInvite) {
-        setPeopleSheetOpen(false);
-        peopleRequestRef.current += 1;
-      }
       return nextCircle;
     } catch (error) {
       if (requestId !== loadRequestRef.current) return null;
+      setMembersLoading(false);
       setLoadError(
         error instanceof Error ? error.message : "Could not load this Circle.",
       );
@@ -1562,6 +1591,7 @@ export function CircleDetailFlow({
   useEffect(() => {
     setCircle(null);
     setMemberRows([]);
+    setMembersLoaded(false);
     setOrbitMembers([]);
     setInviteCode(null);
     setPeopleSheetOpen(false);
@@ -1574,15 +1604,15 @@ export function CircleDetailFlow({
     setSavingName(false);
     peopleRequestRef.current += 1;
     void reload();
-    // `onLoad` is a stable page callback. Reload only when the selected id
-    // changes; unrelated page refreshes must not refetch the focused detail.
+    // Reset on selection, owner or unlock changes. Unrelated page refreshes
+    // must not refetch the focused detail.
     return () => {
       loadRequestRef.current += 1;
       memberRequestRef.current += 1;
       peopleRequestRef.current += 1;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [circleId]);
+  }, [circleId, currentUserId, sessionScope]);
 
   // A re-read the caller asked for. Unlike the effect above it resets nothing:
   // the sheet stays open, the search keeps its text, the selection survives.
@@ -1596,7 +1626,9 @@ export function CircleDetailFlow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadSignal]);
 
-  const circle = loadedCircle?.id === circleId ? loadedCircle : null;
+  const scopeMatches = loadedScopeRef.current.currentUserId === currentUserId && loadedScopeRef.current.sessionScope === sessionScope;
+  const circle = scopeMatches && loadedCircle?.id === circleId ? loadedCircle : null;
+  const summary = initialCircleSummary?.id === circleId ? initialCircleSummary : null;
   const isOwner = circle?.role === "owner";
   const hasChat = Boolean(livingCircleExperience && renderChat && circle && !circle.isSystem && circle.systemKind == null);
   // Stated by the server rather than inferred here.
@@ -1711,6 +1743,7 @@ export function CircleDetailFlow({
         .then((result) => {
           if (requestId !== memberRequestRef.current) return;
           setMemberRows(result.items);
+          setMembersLoaded(true);
           if (!memberSearch.trim()) setOrbitMembers(result.items);
           setMemberPage(result.page);
           setMemberHasMore(result.hasMore);
@@ -1933,6 +1966,7 @@ export function CircleDetailFlow({
   const sendMemberInvites = async () => {
     if (
       !circle ||
+      !canInviteMembers ||
       peopleSubmitInFlightRef.current ||
       !selectedConnections.size
     ) {
@@ -2126,7 +2160,10 @@ export function CircleDetailFlow({
     // one above "Members" -- was also the largest.
     <Tabs value={hasChat ? detailView : "members"} onValueChange={changeDetailView} className="gap-5" data-testid="one-location-circle-detail-flow">
       {!circle ? (
-        <TaskFlowHeader title="Circle" description="Loading Circle…" />
+        <>
+          <TaskFlowHeader title={summary?.name ?? "Circle"} description={summary ? circleDetailMemberCountLabel(summary.memberCount) : "Getting members ready…"} />
+          {!loadError ? <CircleMembersLoading /> : null}
+        </>
       ) : null}
 
       {loadError ? (
@@ -2808,6 +2845,7 @@ export function CircleDetailFlow({
                   type="button"
                   size="prominent"
                   disabled={
+                    !canInviteMembers ||
                     !selectedConnections.size ||
                     peopleLoading ||
                     peopleSubmitting ||
@@ -2875,7 +2913,7 @@ export function CircleDetailFlow({
               </label>
             ) : null}
 
-            {filteredMembers.length ? (
+            {!membersLoaded && loadError ? null : membersLoading && !members.length ? <CircleMembersLoading /> : filteredMembers.length ? (
               <SettingsGroup
                 testId="one-location-circle-members"
                 // A synced Circle can hold up to 100 members (migration 158).
@@ -3058,10 +3096,6 @@ export function CircleDetailFlow({
           ) : null}
           </TabsContent>
         </>
-      ) : !loadError ? (
-        <div className="flex min-h-40 items-center justify-center rounded-[var(--app-card-radius-standard,24px)] bg-muted/35">
-          <ShieldCheck className="h-8 w-8 animate-pulse text-muted-foreground" />
-        </div>
       ) : null}
     </Tabs>
   );

@@ -164,6 +164,31 @@ for (const width of [320, 393, 1440]) {
   });
 }
 
+test("shows a sent photo immediately through slow preparation and upload without downloading it again", async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 852 });
+  await mount(page, false, true);
+  await expect(page.getByRole("button", { name: "Open shared image" })).toBeVisible();
+  await page.evaluate(() => Object.assign((window as any).chatFixture, { prepareDelayMs: 1500, sendDelayMs: 1500 }));
+  await page.locator('input[type="file"]').setInputFiles({ name: "meetup.webp", mimeType: "image/webp", buffer: fs.readFileSync(path.join(process.cwd(), "public/one-location/onboarding/orbit-office.webp")) });
+  await expect(page.getByRole("img", { name: "Image ready to send" })).toBeVisible();
+  const started = Date.now();
+  await page.getByRole("button", { name: "Send message" }).click();
+  const pending = page.locator('[data-chat-message]').filter({ has: page.getByText("Sending…", { exact: true }) });
+  await expect(pending.getByRole("img", { name: "Image shared in circle" })).toBeVisible({ timeout: 1000 });
+  expect(Date.now() - started).toBeLessThan(1500);
+  const source = await pending.getByRole("img").getAttribute("src");
+  expect(source).toMatch(/^blob:/);
+  const ready = await page.evaluate(() => (window as any).chatFixture.sends.length);
+  expect(ready).toBe(0);
+  await pending.getByRole("button", { name: "Open shared image" }).click();
+  await expect(page.getByRole("dialog", { name: "Shared image" })).toBeVisible();
+  await expect(page.getByText("Sending…", { exact: true })).toHaveCount(0, { timeout: 6000 });
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  const sentId = await page.locator('[data-chat-message]').last().getAttribute("data-chat-message");
+  expect(await page.evaluate(() => (window as any).chatFixture.imageMessageIds)).not.toContain(sentId);
+  expect(await page.getByRole("img", { name: "Image shared in circle" }).last().getAttribute("src")).toBe(source);
+});
+
 test("incoming messages preserve reading position and your reply returns to the latest message", async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 844 }); await mount(page);
   const list = page.getByLabel("Circle messages", { exact: true });
