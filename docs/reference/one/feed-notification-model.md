@@ -99,24 +99,24 @@ human-readable line can be rendered from client-side (see
 ## Write paths (six domains, two mechanisms)
 
 **Trigger-based** (existing durable per-domain event table, near-zero app
-code â€” mirrors the established `consent_audit` NOTIFY-trigger pattern from
+code — mirrors the established `consent_audit` NOTIFY-trigger pattern from
 `011_consent_audit_notify_trigger.sql`):
 
-- **Consent** â€” a trigger on `consent_audit` INSERT fans out `REQUESTED` /
+- **Consent** — a trigger on `consent_audit` INSERT fans out `REQUESTED` /
   `CONSENT_GRANTED` / `REVOKED` rows.
-- **Location** â€” a trigger on `one_location_events` INSERT fans out
+- **Location** — a trigger on `one_location_events` INSERT fans out
   share/access lifecycle events, owner-scoped.
-- **Connected Systems** â€” a trigger on `connected_system_audit_events` INSERT
+- **Connected Systems** — a trigger on `connected_system_audit_events` INSERT
   fans out terminal statuses (`approved`, `connected`, `rejected`, `failed`).
 
-**App-level writes** (no existing durable event table to hook â€” this is new
+**App-level writes** (no existing durable event table to hook — this is new
 tracking, added alongside each domain's existing mutation):
 
-- **Kai** â€” analysis and import managers, after canonical terminal selection;
+- **Kai** — analysis and import managers, after canonical terminal selection;
   success also requires actual local terminal delivery. Analysis history is
   saved by the client, not inferred from the server status. The completion row
   carries only ticker and opaque run ID.
-- **Connections** â€” `consent-protocol/hushh_mcp/services/connections_service.py`,
+- **Connections** — `consent-protocol/hushh_mcp/services/connections_service.py`,
   at `accept_request` / `reject_request` / `remove_connection`.
 
 Provider outcome projections use `FeedService.record_event` or best-effort SQL
@@ -126,13 +126,13 @@ mutation and retains that existing atomic policy.
 
 ## Read/unread and pagination
 
-- `GET /api/one/feed?cursor=&limit=` â€” keyset pagination (`id` cursor, not
+- `GET /api/one/feed?cursor=&limit=` — keyset pagination (`id` cursor, not
   page numbers) because a live-growing append-only feed drifts under
   page-number pagination. Returns `{items, next_cursor, unread_count}`.
-- `GET /api/one/feed/unread-count` â€” lightweight, polled by the bottom-nav
+- `GET /api/one/feed/unread-count` — lightweight, polled by the bottom-nav
   tab badge (`hushh-webapp/lib/feed/use-feed-unread-count.ts`, 45s interval +
   an immediate refresh on `FEED_STATE_CHANGED_EVENT`).
-- `POST /api/one/feed/read` â€” marks unread rows read up to a given `id`.
+- `POST /api/one/feed/read` — marks unread rows read up to a given `id`.
   Fired once when the Feed page opens (Instagram/Twitter's "opening the tab
   clears the badge" convention), not per item.
 
@@ -157,18 +157,18 @@ The actionable and history mechanisms remain distinct:
 
 1. **"Needs you" (live + actionable).** A `useFeedActionables`
    (`hushh-webapp/lib/feed/use-feed-actionables.ts`) hook aggregates the live
-   domain stores/services â€” not the `feed_events` log â€” so each action is real
+   domain stores/services — not the `feed_events` log — so each action is real
    and current:
-   - pending consent â†’ **Review** (deep-links to the consent manager; the feed
+   - pending consent → **Review** (deep-links to the consent manager; the feed
      never one-tap-approves because approval requires the BYOK export-key
      ceremony that lives there),
-   - pending location-access requests â†’ inline **Approve** (1h) / **Deny**
+   - pending location-access requests → inline **Approve** (1h) / **Deny**
      (`OneLocationService`),
-   - incoming connection requests â†’ inline **Confirm** / **Decline**
+   - incoming connection requests → inline **Confirm** / **Decline**
      (`ConnectionsService`),
-   - running Kai debates â†’ **Resume** (reconnects the stream via
-     `analysis?focus=active&run_id=â€¦`) + **Cancel**, and running background
-     tasks â†’ **Open** / **Cancel** (`DebateRunManagerService`,
+   - running Kai debates → **Resume** (reconnects the stream via
+     `analysis?focus=active&run_id=…`) + **Cancel**, and running background
+     tasks → **Open** / **Cancel** (`DebateRunManagerService`,
      `AppBackgroundTaskService`).
    Vault-gated actions disable cleanly when the vault is locked.
 2. **History.** The `feed_events` log, day-grouped
@@ -223,7 +223,7 @@ be resolved during a rolling migration. Legacy sources already purged before
 the identity link existed cannot be reconstructed; their rows keep initials
 or a domain icon, never another person's guessed photo.
 
-Migrations 203â€“204 remove the Location audit-table scan from identity resolution.
+Migrations 203–204 remove the Location audit-table scan from identity resolution.
 Grant keys use the existing grant index; numeric audit keys retain their primary-key
 lookup. Request, referral, and arbitrary legacy metadata keys inspect only the
 viewer's owner/recipient events through indexes, then apply the original exact
@@ -334,7 +334,7 @@ page through `useStaleResource` under `CACHE_KEYS.FEED_LIST(userId)`
 (`CACHE_TTL.SHORT`), so a revisit renders the last-known page instantly while
 a background refresh runs, matching every other cache-coherent route.
 Pagination beyond the first page ("load more") stays a live, uncached fetch
-appended to local state â€” only the first page needs an instant warm render.
+appended to local state — only the first page needs an instant warm render.
 On refresh, row reuse compares the presentation metadata as well as the domain,
 event, actor, timestamp, and read state. Consent bundles can update their details
 under the same event ID, and counterpart photos are resolved at read time; those
