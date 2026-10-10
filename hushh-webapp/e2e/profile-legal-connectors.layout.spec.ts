@@ -103,9 +103,9 @@ test.beforeAll(async () => {
 
 async function mount(
   page: Page,
-  options: { width?: number; theme?: "light" | "dark"; at?: string } = {},
+  options: { width?: number; theme?: "light" | "dark"; at?: string; regions?: { top: number; bottom: number; fullWindow?: boolean } } = {},
 ) {
-  const { width = 393, theme = "light", at = "/" } = options;
+  const { width = 393, theme = "light", at = "/", regions } = options;
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.setViewportSize({ width, height: 852 });
@@ -121,7 +121,7 @@ async function mount(
   await page.route(/^http:\/\/localhost\/(?!api\/|icons\/)/, (route) =>
     route.fulfill({
       contentType: "text/html",
-      body: `<!doctype html><html class="${theme === "dark" ? "dark" : ""}"><head><title>Profile Legal and Connectors</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+      body: `<!doctype html><html class="${theme === "dark" ? "dark" : ""} ${regions ? "native-reserved-chrome" : ""} ${regions?.fullWindow ? "native-full-window-overlays" : ""}" ${regions ? `style="--native-overlay-top:${regions.fullWindow ? 0 : regions.top}px;--native-overlay-bottom:${regions.fullWindow ? 0 : regions.bottom}px"` : ""} ${regions?.fullWindow ? "data-native-full-window-covered" : ""}><head><title>Profile Legal and Connectors</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
     }),
   );
   await page.emulateMedia({ reducedMotion: "reduce", colorScheme: theme });
@@ -134,10 +134,14 @@ async function mount(
 const pane = (page: Page) => page.getByTestId("profile-pane");
 const paneTitle = (page: Page) => pane(page).locator("h2").first();
 
-test("stationary Profile chrome and Preferences keep their grid while only the body follows a pull", async ({ page }) => {
+test("Profile header, Preferences and body follow one whole-panel pull without replaying entrance", async ({ page }) => {
   await mount(page, { at: "/one?profile_pane=1&profile_panel=preferences" });
-  const preferences = pane(page).locator("[data-profile-stationary-preferences]");
+  const preferences = pane(page).locator("[data-profile-stack-active='true']");
   await expect(preferences.getByText("Appearance", { exact: true })).toBeVisible();
+  await expect.poll(async () => {
+    const box = await pane(page).boundingBox();
+    return box ? Math.abs(box.x + box.width - page.viewportSize()!.width) : Number.POSITIVE_INFINITY;
+  }).toBeLessThanOrEqual(1);
   const controlEdges = await preferences.evaluate(node => {
     const appearance = node.querySelector('[role="radiogroup"]')!.getBoundingClientRect();
     const accent = node.querySelector('[role="combobox"]')!.getBoundingClientRect();
@@ -146,9 +150,9 @@ test("stationary Profile chrome and Preferences keep their grid while only the b
   expect(Math.abs(controlEdges.appearance - controlEdges.accent)).toBeLessThanOrEqual(1);
   const measured = await page.evaluate(() => {
     const frame = document.querySelector<HTMLElement>('[data-testid="profile-pane"]')!;
-    const body = frame.querySelector<HTMLElement>('[data-side-panel-body="right"]')!;
+    const body = frame.querySelector<HTMLElement>('[data-profile-pane-scroll-root="true"]')!;
     const title = frame.querySelector("h2")!;
-    const controls = frame.querySelector("[data-profile-stationary-preferences]")!;
+    const controls = frame.querySelector("[data-profile-stack-active='true']")!;
     const before = [title.getBoundingClientRect().x, controls.getBoundingClientRect().x, body.getBoundingClientRect().x];
     const dispatch = (type: string, x: number, time: number) => {
       const point = { identifier: 1, clientX: x, clientY: 320 };
@@ -158,27 +162,28 @@ test("stationary Profile chrome and Preferences keep their grid while only the b
     };
     dispatch("touchstart", 120, 100); dispatch("touchmove", 170, 220);
     const after = [title.getBoundingClientRect().x, controls.getBoundingClientRect().x, body.getBoundingClientRect().x];
+    const frameTransform = frame.style.transform;
     dispatch("touchcancel", 170, 240);
-    return { before, after, frameTransform: frame.style.transform, hasDuplicatedAppearance: frame.querySelectorAll('[data-profile-stationary-preferences]').length };
+    return { before, after, frameTransform, appearanceCount: frame.querySelectorAll('[role="radiogroup"][aria-label="Theme"]').length };
   });
-  expect(Math.abs(measured.after[0]! - measured.before[0]!)).toBeLessThanOrEqual(1);
-  expect(Math.abs(measured.after[1]! - measured.before[1]!)).toBeLessThanOrEqual(1);
+  expect(measured.after[0]! - measured.before[0]!).toBeCloseTo(50, 0);
+  expect(measured.after[1]! - measured.before[1]!).toBeCloseTo(50, 0);
   expect(measured.after[2]! - measured.before[2]!).toBeCloseTo(50, 0);
-  expect(measured.frameTransform).toBe("");
-  expect(measured.hasDuplicatedAppearance).toBe(1);
+  expect(measured.frameTransform).toBe("translate3d(50px, 0px, 0px)");
+  expect(measured.appearanceCount).toBe(1);
   await expect(pane(page)).toBeVisible(); // Cancellation never commits dismissal.
   // Observe settlement cleanup, where removing animation suppression used to
   // replay the entire opening slide. A settled screenshot cannot catch it.
   const afterCancellation = await pane(page).evaluate(async frame => {
-    const body = frame.querySelector<HTMLElement>('[data-side-panel-body="right"]')!;
+    const parentRight = frame.parentElement!.getBoundingClientRect().right;
     let worstSettledOffset = 0;
     const started = performance.now();
     while (performance.now() - started < 550) {
       await new Promise(requestAnimationFrame);
-      if (!body.style.transform) worstSettledOffset = Math.max(worstSettledOffset,
-        Math.abs(body.getBoundingClientRect().x - frame.getBoundingClientRect().x));
+      if (!frame.style.transform) worstSettledOffset = Math.max(worstSettledOffset,
+        Math.abs(frame.getBoundingClientRect().right - parentRight));
     }
-    return { worstSettledOffset, inlineTransform: body.style.transform };
+    return { worstSettledOffset, inlineTransform: frame.style.transform };
   });
   expect(afterCancellation.inlineTransform).toBe("");
   expect(afterCancellation.worstSettledOffset).toBeLessThanOrEqual(1);
@@ -219,14 +224,22 @@ function query(page: Page) {
 }
 
 test("Profile root and nested screens share one gutter", async ({ page }) => {
-  for (const width of [320, 393, 768]) {
-    await mount(page, { width, at: "/one?profile_pane=1" });
+  for (const options of [{ width: 320 }, { width: 393 }, { width: 768 },
+    { width: 393, regions: { top: 120, bottom: 280 } },
+    { width: 393, regions: { top: 120, bottom: 280, fullWindow: true } }]) {
+    const { width, regions } = options;
+    await mount(page, { ...options, at: "/one?profile_pane=1" });
     // A visible sheet can still be travelling in from the right. Measure
     // only its settled grid, not the opening animation's translated frame.
     await expect.poll(async () => {
       const frame = await pane(page).boundingBox();
       return frame ? Math.abs(frame.x + frame.width - width) : Number.POSITIVE_INFINITY;
     }).toBeLessThanOrEqual(0.5);
+    if (regions) {
+      const box = (await pane(page).boundingBox())!;
+      expect(box.y).toBeCloseTo(regions.fullWindow ? 0 : regions.top, 0);
+      expect(box.y + box.height).toBeCloseTo(regions.fullWindow ? 852 : 852 - regions.bottom, 0);
+    }
     const cardEdges = () => pane(page).locator("[data-profile-stack-active='true'] [data-slot='settings-group-shell']").first().evaluate(node => {
       const box = node.getBoundingClientRect();
       return { left: box.left, right: box.right };

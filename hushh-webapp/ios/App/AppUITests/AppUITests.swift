@@ -1089,7 +1089,7 @@ final class AppUITests: XCTestCase {
 
     func testLocalSessionNativeMaterialFoundationContainsReactOverlays() throws {
         guard ProcessInfo.processInfo.environment["HUSHH_RUN_NATIVE_MATERIAL_SMOKE"] == "true" else {
-            throw XCTSkip("Opt-in reserved-region native material continuity")
+            throw XCTSkip("Opt-in retained native coverage and full-height drawer proof")
         }
         print("NATIVE_MATERIAL_TEST_BODY_ENTERED")
         let app = XCUIApplication()
@@ -1124,6 +1124,9 @@ final class AppUITests: XCTestCase {
         let history = app.buttons["chat-history-toggle"].firstMatch
         let profileClose = app.buttons["Close Profile"].firstMatch
         let historyClose = app.buttons["Close chat history"].firstMatch
+        let selector = app.segmentedControls["chat-agent-surface"].firstMatch
+        XCTAssertTrue(waitForAdmittedControl(selector), "NATIVE_MATERIAL_AGENT_SELECTOR_NOT_ADMITTED")
+        let selectorFrame = selector.frame
         defer {
             if profileClose.exists && profileClose.isHittable { profileClose.tap() }
             if historyClose.exists && historyClose.isHittable { historyClose.tap() }
@@ -1134,21 +1137,43 @@ final class AppUITests: XCTestCase {
                 opener.tap()
                 XCTAssertTrue(waitForAdmittedControl(close), "NATIVE_MATERIAL_REACT_CLOSE_NOT_ADMITTED")
                 let covered = packet()
-                XCTAssertEqual(covered?["visible"] as? Bool, true, "NATIVE_MATERIAL_DISAPPEARED_DURING_DRAWER")
+                XCTAssertEqual(covered?["covered"] as? Bool, true, "NATIVE_MATERIAL_FULL_HEIGHT_COVER_MISSING")
+                XCTAssertEqual(covered?["planeVisible"] as? Bool, false, "NATIVE_MATERIAL_PAINTED_OVER_DRAWER")
+                XCTAssertEqual(covered?["retained"] as? Bool, true, "NATIVE_MATERIAL_HOST_REMOVED_DURING_DRAWER")
                 XCTAssertEqual(covered?["interactive"] as? Bool, false, "NATIVE_MATERIAL_COVERED_ACTION_ADMITTED")
                 XCTAssertEqual(covered?["accessibilityHidden"] as? Bool, true)
                 XCTAssertFalse(editor.exists && editor.isHittable, "NATIVE_MATERIAL_COVERED_EDITOR_ADMITTED")
+                XCTAssertFalse(selector.exists && selector.isHittable, "NATIVE_MATERIAL_COVERED_SELECTOR_ADMITTED")
+                let panel = web.otherElements[family == "profile" ? "Profile" : "Agent chat history"].firstMatch
+                guard panel.exists else { XCTFail("NATIVE_MATERIAL_DRAWER_FRAME_UNAVAILABLE"); return }
+                XCTAssertEqual(panel.frame.minY, web.frame.minY, accuracy: 1, "NATIVE_MATERIAL_DRAWER_TOP_NOT_EDGE_TO_EDGE")
+                XCTAssertEqual(panel.frame.maxY, web.frame.maxY, accuracy: 1, "NATIVE_MATERIAL_DRAWER_BOTTOM_NOT_EDGE_TO_EDGE")
                 close.tap()
                 let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                    admitted() && editor.exists && editor.isHittable && opener.exists && opener.isHittable
+                    admitted() && editor.exists && editor.isHittable && opener.exists && opener.isHittable &&
+                      selector.exists && selector.isHittable && packet()?["planeVisible"] as? Bool == true
                 }, object: probe)
                 XCTAssertEqual(XCTWaiter.wait(for: [returned], timeout: 10), .completed, "NATIVE_MATERIAL_WARM_RETURN_FAILED")
                 XCTAssertEqual(hosts.count, 1)
+                XCTAssertEqual(selector.frame, selectorFrame, "NATIVE_MATERIAL_SELECTOR_SLOT_SHIFTED")
                 XCTAssertFalse(web.textViews["Message One"].firstMatch.isHittable)
+                XCTAssertFalse(web.buttons["One, your cloud agent"].firstMatch.isHittable,
+                    "NATIVE_MATERIAL_INTERACTIVE_WEB_SELECTOR_DUPLICATE")
                 print("NATIVE_MATERIAL_CYCLE family=\(family) completed=\(cycle + 1)")
             }
         }
-        print("NATIVE_MATERIAL_CONTAINMENT_CONFIRMED")
+        let cloud = selector.buttons["One, your cloud agent"].firstMatch
+        let puppy = selector.buttons["Puppy One, on your machine, with its own conversation"].firstMatch
+        for cycle in 0..<10 {
+            guard waitForAdmittedControl(puppy) else { XCTFail("NATIVE_MATERIAL_PUPPY_SEGMENT_UNAVAILABLE"); return }
+            puppy.tap()
+            XCTAssertTrue(waitForAdmittedControl(cloud), "NATIVE_MATERIAL_CLOUD_SEGMENT_UNAVAILABLE")
+            cloud.tap()
+            XCTAssertTrue(waitForAdmittedControl(editor), "NATIVE_MATERIAL_SELECTOR_WARM_RETURN_FAILED")
+            XCTAssertEqual(hosts.count, 1)
+            print("NATIVE_MATERIAL_CYCLE family=agent_selector completed=\(cycle + 1)")
+        }
+        print("NATIVE_MATERIAL_RETAINED_COVER_CONFIRMED")
     }
 
     func testLocalSessionNativeNavigationDrawerContinuity() throws {
@@ -2091,6 +2116,7 @@ final class AppUITests: XCTestCase {
             print("NATIVE_THEME_RESTORED original_preference_unlocked_chat=true")
         }
         app.buttons["Close Profile"].firstMatch.tap()
+        var hadBackAuditFailure = false
         for theme in ["Light", "Dark"] {
             openPreferences()
             selectTheme(theme)
@@ -2132,75 +2158,48 @@ final class AppUITests: XCTestCase {
             // Bounded native-control audit, not an app-wide accessibility pass.
             // Ignore only issues explicitly attributed to other controls;
             // unattributed issues remain failures rather than disappearing.
-            try app.performAccessibilityAudit(for: [.contrast, .hitRegion, .sufficientElementDescription, .trait]) { issue in
-                guard let element = issue.element else { return false }
-                print("NATIVE_BACK_AUDIT_ISSUE identified=\(!element.identifier.isEmpty) overlaps_back=\(element.frame.intersects(back.frame)) type=\(issue.auditType.rawValue)")
-                let publicControls = ["Open Profile", "Add card", "Done", "Search cards", "Go back", "One.", "Chat", "One", "Connect", "Feed", "Search", "Top of screen", "Scroll to top", "Status bar", "Back", "Skip to main content", "Notifications alt+T", "Notifications", "Wallet", "Hussh One", "Breadcrumb", "Main"]
-                let publicIndex = publicControls.firstIndex(of: element.label) ?? -1
-                print("NATIVE_AUDIT_GEOMETRY public_control=\(publicIndex) x=\(Int(element.frame.minX)) y=\(Int(element.frame.minY)) width=\(Int(element.frame.width)) height=\(Int(element.frame.height))")
-                print("NATIVE_AUDIT_ELEMENT type=\(element.elementType.rawValue) label_empty=\(element.label.isEmpty)")
-                // Classify only public accessibility vocabulary; never emit
-                // the label itself or the protected page's hierarchy.
-                let vocabulary = element.label.lowercased()
-                print("NATIVE_AUDIT_ROLE scroll=\(vocabulary.contains("scroll")) top=\(vocabulary.contains("top")) status=\(vocabulary.contains("status")) web=\(vocabulary.contains("web"))")
-                // Attribute only exact source-authored public copy. Coordinates
-                // alone cannot identify an issue, and a matched passive label
-                // does not waive it. Unknown labels/hierarchies stay in memory.
-                let publicCopy = [
-                    ("cards_manage", "Manage the cards available to your Wallet."),
-                    ("cards_empty", "No cards added yet."),
-                    ("example_caption", "Example cards"),
-                    ("add_scan", "Scan a card or enter its details below."),
-                    ("add_encryption", "Encrypted on this device. Never enters chat."),
-                    ("sharing_control", "You choose who can access your Wallet information."),
-                    ("sharing_caption", "Illustrative card · Your saved details stay private"),
-                    ("artwork_caption", "Agent One — Profile · Referral · NWS"),
-                    ("artwork_title", "Agent One Cards"),
-                    ("cards_heading", "Your cards"),
-                ]
-                for (candidate, copy) in publicCopy {
-                    let matches = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", copy))
-                    let count = matches.count
-                    let labelMatches = element.label == copy
-                    print("NATIVE_AUDIT_PUBLIC_COPY candidate=\(candidate) count=\(min(count, 2)) issue_matches=\(labelMatches)")
-                    guard count == 1 else { continue }
-                    let match = matches.firstMatch
-                    guard match.exists else { continue }
-                    let frame = match.frame
-                    guard [frame.minX, frame.minY, frame.width, frame.height].allSatisfy({ $0.isFinite && abs($0) <= 100000 }),
-                          frame.width > 0, frame.height > 0 else { continue }
-                    let issueFrame = element.frame
-                    let frameMatches = abs(frame.minX - issueFrame.minX) <= 1 &&
-                        abs(frame.minY - issueFrame.minY) <= 1 &&
-                        abs(frame.width - issueFrame.width) <= 1 &&
-                        abs(frame.height - issueFrame.height) <= 1
-                    print("NATIVE_AUDIT_PUBLIC_COPY_FRAME candidate=\(candidate) frame_matches=\(frameMatches) hittable=\(match.isHittable) x=\(Int(frame.minX)) y=\(Int(frame.minY)) width=\(Int(frame.width)) height=\(Int(frame.height))")
+            // XCTest records audit failures independently of Swift's error.
+            // Continue only this audit so Dark still runs; all issues remain
+            // failures in the result, not caught-and-waived acceptance.
+            continueAfterFailure = true
+            var rejectedBackAuditIssue = false
+            do {
+                try app.performAccessibilityAudit(for: [.contrast, .hitRegion, .sufficientElementDescription, .trait]) { issue in
+                    guard let element = issue.element else { rejectedBackAuditIssue = true; return false }
+                    print("NATIVE_BACK_AUDIT_ISSUE identified=\(!element.identifier.isEmpty) overlaps_back=\(element.frame.intersects(back.frame)) type=\(issue.auditType.rawValue)")
+                    let publicControls = ["Open Profile", "Add card", "Done", "Search cards", "Go back", "One.", "Chat", "One", "Connect", "Feed", "Search", "Top of screen", "Scroll to top", "Status bar", "Back", "Skip to main content", "Notifications alt+T", "Notifications", "Wallet", "Hussh One", "Breadcrumb", "Main"]
+                    let publicIndex = publicControls.firstIndex(of: element.label) ?? -1
+                    print("NATIVE_AUDIT_GEOMETRY public_control=\(publicIndex) x=\(Int(element.frame.minX)) y=\(Int(element.frame.minY)) width=\(Int(element.frame.width)) height=\(Int(element.frame.height))")
+                    print("NATIVE_AUDIT_ELEMENT type=\(element.elementType.rawValue) label_empty=\(element.label.isEmpty)")
+                    // Classify only public accessibility vocabulary; never emit
+                    // the label itself or the protected page's hierarchy.
+                    let vocabulary = element.label.lowercased()
+                    print("NATIVE_AUDIT_ROLE scroll=\(vocabulary.contains("scroll")) top=\(vocabulary.contains("top")) status=\(vocabulary.contains("status")) web=\(vocabulary.contains("web"))")
+                    print("NATIVE_AUDIT_DIAGNOSTIC status_format=\(element.label.hasPrefix("route=") && element.label.contains(";auth=")) continuity_format=\(element.label.hasPrefix("{"))")
+                    // Repeated full-tree searches did not attribute the reported
+                    // issue. Keep bounded metadata, not dozens of snapshot queries
+                    // per failure; unknown labels still fail rather than waive.
+                    let attributedElsewhere = !element.identifier.isEmpty && element.identifier != "top-shell-back" &&
+                        !element.frame.intersects(back.frame)
+                    if !attributedElsewhere { rejectedBackAuditIssue = true }
+                    return attributedElsewhere
                 }
-                let publicCandidates: [(String, XCUIElementQuery)] = [
-                    ("native_status", app.descendants(matching: .any).matching(identifier: "native-test-status")),
-                    ("native_layout", app.descendants(matching: .any).matching(identifier: "native-vault-layout")),
-                    ("page_loading", web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Page loading"))),
-                    ("page_loaded", web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Page loaded."))),
-                    ("notifications", web.descendants(matching: .any).matching(NSPredicate(format: "label IN %@", ["Notifications", "Notifications alt+T"]))),
-                ]
-                for (candidate, matches) in publicCandidates {
-                    let count = matches.count
-                    print("NATIVE_AUDIT_CANDIDATE candidate=\(candidate) count=\(min(count, 2))")
-                    guard count == 1 else { continue }
-                    let match = matches.firstMatch, frame = match.frame, issueFrame = element.frame
-                    guard [frame.minX, frame.minY, frame.width, frame.height].allSatisfy({ $0.isFinite && abs($0) <= 100000 }) else { continue }
-                    let frameMatches = abs(frame.minX - issueFrame.minX) <= 1 && abs(frame.minY - issueFrame.minY) <= 1 &&
-                        abs(frame.width - issueFrame.width) <= 1 && abs(frame.height - issueFrame.height) <= 1
-                    print("NATIVE_AUDIT_CANDIDATE_MATCH candidate=\(candidate) label_matches=\(match.label == element.label) type_matches=\(match.elementType == element.elementType) frame_matches=\(frameMatches)")
+                if rejectedBackAuditIssue {
+                    hadBackAuditFailure = true
+                    print("NATIVE_BACK_ACCESSIBILITY_FAILED theme=\(theme)")
+                } else {
+                    print("NATIVE_BACK_ACCESSIBILITY theme=\(theme) contrast_hit_description_traits=true")
                 }
-                return !element.identifier.isEmpty && element.identifier != "top-shell-back" &&
-                    !element.frame.intersects(back.frame)
+            } catch {
+                hadBackAuditFailure = true
+                print("NATIVE_BACK_ACCESSIBILITY_FAILED theme=\(theme)")
             }
-            print("NATIVE_BACK_ACCESSIBILITY theme=\(theme) contrast_hit_description_traits=true")
+            continueAfterFailure = false
             back.tap()
             XCTAssertTrue(wallet.waitForExistence(timeout: 10), "THEME_BACK_RETURN_FAILED")
             print("NATIVE_THEME_BACK theme=\(theme) warm_return=true")
         }
+        XCTAssertFalse(hadBackAuditFailure, "NATIVE_BACK_ACCESSIBILITY_FAILED")
     }
 
     private func assertStatusCanvasMatchesHeader(expectedDark: Bool? = nil) {
@@ -2279,14 +2278,32 @@ final class AppUITests: XCTestCase {
         func row(_ label: String) -> XCUIElement {
             web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", label)).firstMatch
         }
+        func scrollProfile(up: Bool) {
+            // A full-WebView swipe begins near its bottom, which is an
+            // intentionally isolated native seat in the compositor. Keep the
+            // whole gesture in the Profile reading region below its header.
+            let origin = app.coordinate(withNormalizedOffset: .zero)
+            let x = web.frame.midX - app.frame.minX
+            let lower = origin.withOffset(CGVector(dx: x, dy: app.frame.midY - app.frame.minY))
+            let upper = origin.withOffset(CGVector(dx: x, dy: close.frame.maxY + 44 - app.frame.minY))
+            (up ? lower : upper).press(forDuration: 0.01, thenDragTo: up ? upper : lower)
+        }
+        func rowCenterIsVisible(_ entry: XCUIElement) -> Bool {
+            guard entry.exists, entry.isHittable else { return false }
+            // WebKit's AX hit admission does not account for native reserved
+            // seats above it. Scroll the tap target into the central reading
+            // region rather than tapping a partly exposed row at the dock.
+            let frame = entry.frame
+            return frame.minY >= close.frame.maxY && frame.maxY <= app.frame.minY + app.frame.height * 2 / 3
+        }
         func returnToRoot() {
             for _ in 0..<4 {
-                if row("Your account").exists { break }
+                if row("Your account").exists && row("Your account").isHittable { break }
                 let back = app.buttons["Back in Profile"].firstMatch
-                XCTAssertTrue(back.waitForExistence(timeout: 10) && back.isHittable)
-                back.tap()
+                if back.exists { XCTAssertTrue(waitForAdmittedControl(back)); back.tap() }
+                else { scrollProfile(up: false) }
             }
-            XCTAssertTrue(row("Your account").waitForExistence(timeout: 10), "PROFILE_STACK_ROOT_NOT_RESTORED")
+            XCTAssertTrue(waitForAdmittedControl(row("Your account")), "PROFILE_STACK_ROOT_NOT_RESTORED")
         }
         func assertBack() {
             let back = app.buttons["Back in Profile"].firstMatch
@@ -2295,7 +2312,7 @@ final class AppUITests: XCTestCase {
                 let unlocked = !web.buttons["Unlock"].exists
                 print("PROFILE_BACK_ADMISSION exists=\(back.exists) hittable=\(back.isHittable) close=\(close.exists) unlocked=\(unlocked)")
             }
-            XCTAssertTrue(admitted, "PROFILE_BACK_UNAVAILABLE")
+            guard admitted else { XCTFail("PROFILE_BACK_UNAVAILABLE"); return }
             XCTAssertEqual(back.frame.width, 44, accuracy: 1)
             XCTAssertEqual(back.frame.height, 44, accuracy: 1)
             let native = app.buttons["profile-back"].firstMatch
@@ -2308,14 +2325,31 @@ final class AppUITests: XCTestCase {
             }
         }
         returnToRoot()
-        for label in ["Your account", "Appearance & preferences", "Security & privacy", "Help & feedback"] {
+        let remainingOnly = ProcessInfo.processInfo.environment["HUSHH_PROFILE_REMAINING_FAMILIES"] == "true"
+        let families = remainingOnly
+            ? ["Trusted devices", "Connectors", "Invite friends", "Help & feedback"]
+            : ["Your account", "Appearance & preferences", "Security & privacy", "Trusted devices", "Connectors", "Invite friends", "Help & feedback"]
+        for label in families {
             let entry = row(label)
-            for _ in 0..<3 { if entry.isHittable { break }; web.swipeUp() }
-            XCTAssertTrue(entry.isHittable, "PROFILE_STACK_ENTRY_UNAVAILABLE")
+            let family = ["Your account": "account", "Appearance & preferences": "preferences",
+                          "Security & privacy": "security", "Trusted devices": "trusted_devices",
+                          "Connectors": "connectors", "Invite friends": "referrals", "Help & feedback": "support"][label]!
+            print("PROFILE_NAV_REQUEST target=\(family)")
+            for _ in 0..<4 {
+                if rowCenterIsVisible(entry) { break }
+                if entry.exists && entry.frame.minY < close.frame.maxY { scrollProfile(up: false) }
+                else { scrollProfile(up: true) }
+            }
+            guard rowCenterIsVisible(entry) else {
+                if entry.exists { print("PROFILE_ENTRY_REJECTED target=\(family) y=\(Int(entry.frame.minY)) height=\(Int(entry.frame.height)) hittable=\(entry.isHittable)") }
+                XCTFail("PROFILE_STACK_ENTRY_UNAVAILABLE"); return
+            }
+            let entryFrame = entry.frame
+            // Covered navigation is correctly absent from accessibility. Its
+            // frame must not be queried through AX during a modal journey.
+            print("PROFILE_ENTRY_GEOMETRY target=\(family) y=\(Int(entryFrame.minY)) height=\(Int(entryFrame.height)) center_in_window=\(app.frame.contains(CGPoint(x: entryFrame.midX, y: entryFrame.midY)))")
             entry.tap()
             assertBack()
-            let family = ["Your account": "account", "Appearance & preferences": "preferences",
-                          "Security & privacy": "security", "Help & feedback": "support"][label]!
             print("PROFILE_SCREEN_ADMISSION family=\(family) back=true")
             if label == "Security & privacy" {
                 let vault = row("Vault methods")
@@ -2348,12 +2382,33 @@ final class AppUITests: XCTestCase {
                     print("PROFILE_BACK_REPLACEMENT_CONTINUITY inner_stack_retained_host_observed_frames")
                 }
             }
+            if label == "Help & feedback" {
+                let names = ["Problem, report something that is not working", "Help, get help using One",
+                             "Feedback, share an idea or improvement"]
+                func choice(_ name: String) -> XCUIElement {
+                    web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", name)).firstMatch
+                }
+                func chosen(_ name: String) -> Bool {
+                    let item = choice(name)
+                    return item.exists && (item.isSelected || (item.value as? String) == "1")
+                }
+                guard let original = names.first(where: chosen) else { XCTFail("PROFILE_SUPPORT_SELECTION_UNAVAILABLE"); return }
+                for name in names + [original] {
+                    let item = choice(name)
+                    XCTAssertTrue(waitForAdmittedControl(item), "PROFILE_SUPPORT_CHOICE_NOT_ADMITTED")
+                    if !chosen(name) { item.tap() }
+                    let selected = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in chosen(name) }, object: web)
+                    XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 5), .completed,
+                                   "PROFILE_SUPPORT_SELECTION_NOT_ACKNOWLEDGED")
+                }
+                print("PROFILE_SUPPORT_CHOICES choices=3 original_restored=true submitted=false")
+            }
             app.buttons["Back in Profile"].firstMatch.tap()
             returnToRoot()
             XCTAssertFalse(web.buttons["Unlock"].exists, "Profile stack navigation lost vault admission")
             XCTAssertEqual(hosts.count, 1)
         }
-        print("PROFILE_STACK_CONTINUITY account_preferences_security_vault_support_warm_single_host")
+        print("PROFILE_STACK_CONTINUITY screens=\(families.count) warm=true single_host=true")
     }
 
     func testLocalSessionWorkspaceFamiliesKeepDraftAndAuthoritativeSelection() throws {

@@ -1,6 +1,7 @@
 import { act, render, renderHook, waitFor } from "@testing-library/react";
+import { createRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useNativeNavigation, useNativeNavigationOverlayRef, useNativeNavigationBottomInset, useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
+import { useNativeNavigation, useNativeNavigationOverlayRef, useNativeNavigationBottomInset, useNativeNavigationBlocked, useNativeNavigationBlockedUntilSettled } from "@/lib/capacitor/native-navigation";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
 const bridge = vi.hoisted(() => ({
@@ -15,6 +16,7 @@ vi.mock("@/lib/capacitor/native-presentation-regions", () => ({
   setNativePresentationRegionIsolation: vi.fn(),
   useNativeOverlayCollisionPadding: (padding: unknown) => padding,
   useNativePresentationRegionRevision: () => 0,
+  nativePresentationAdmission: () => ({}),
 }));
 vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => bridge.platform !== "web", getPlatform: () => bridge.platform },
@@ -65,6 +67,26 @@ describe("native navigation presentation boundary", () => {
     await waitFor(() => expect(bridge.getCapabilities).toHaveBeenCalled());
     expect(view.result.current.ready).toBe(false);
     expect(bridge.setState).not.toHaveBeenCalled();
+    view.unmount();
+  });
+  it("holds History coverage through actual exit and ignores a cancelled close after reopen", async () => {
+    const ref = createRef<HTMLDivElement>(); ref.current = document.createElement("div");
+    let finish: () => void = () => undefined;
+    const finished = new Promise<void>(resolve => { finish = resolve; });
+    ref.current.getAnimations = () => [{ effect: { target: ref.current, getComputedTiming: () => ({ iterations: 1 }) }, finished } as unknown as Animation];
+    const view = renderHook(({ open }) => {
+      useNativeNavigationBlockedUntilSettled(open, "chat-history", ref);
+      return useNativeNavigation({ ...options, onSelect: vi.fn() });
+    }, { initialProps: { open: true } });
+    await waitFor(() => expect(view.result.current.ready).toBe(true));
+    view.rerender({ open: false });
+    await act(async () => { await new Promise(requestAnimationFrame); });
+    expect(lastState().interactionEnabled).toBe(false);
+    view.rerender({ open: true });
+    await act(async () => { finish(); });
+    expect(lastState().interactionEnabled).toBe(false);
+    view.rerender({ open: false });
+    await waitFor(() => expect(lastState().interactionEnabled).toBe(true));
     view.unmount();
   });
   it("retains the web bar when a wrapper cannot acknowledge the themed contract", async () => {

@@ -58,17 +58,24 @@ final class NativePresentationContainer: UIView {
     private var controls: [String: (view: UIView, group: String?, admitted: Bool)] = [:]
     private var regionDocument: String?
     private var regionRevision = -1
+    private var regionPrivacyGeneration: Int?
     private(set) var overlayTop: CGFloat = 0
     private(set) var overlayBottom: CGFloat = 0
     private(set) var overlayIsolated = false
+    private(set) var fullWindowCovered = false
+    private var privacyConcealed = false
 
-    func setRegions(document: String, revision: Int, viewport: CGSize, top: CGFloat, bottom: CGFloat, isolated: Bool) -> Bool {
+    func setRegions(document: String, revision: Int, viewport: CGSize, top: CGFloat, bottom: CGFloat, isolated: Bool, covered: Bool = false, privacyGeneration: Int? = nil) -> Bool {
         guard contentBackedPresentation, viewport == bounds.size,
               revision >= 0, regionDocument != document || revision > regionRevision,
               top.isFinite, bottom.isFinite, top >= 0, bottom >= 0,
-              top + bottom < viewport.height else { return false }
+              top + bottom < viewport.height, !covered || isolated && privacyGeneration != nil,
+              regionDocument != document || regionPrivacyGeneration == nil || privacyGeneration != nil else { return false }
         regionDocument = document; regionRevision = revision
+        regionPrivacyGeneration = privacyGeneration
         overlayTop = top; overlayBottom = bottom; overlayIsolated = isolated
+        fullWindowCovered = covered
+        reconcileBaseVisibility()
         if isolated {
             for id in Array(controls.keys) { setAdmission(id, admitted: false) }
         }
@@ -78,6 +85,11 @@ final class NativePresentationContainer: UIView {
     func containsStationaryControl(_ frame: CGRect, document: String) -> Bool {
         guard contentBackedPresentation, regionDocument == document, bounds.contains(frame) else { return false }
         return frame.maxY <= overlayTop || frame.minY >= bounds.height - overlayBottom
+    }
+    func acceptsPresentationRevision(_ revision: Int?, privacyGeneration: Int?) -> Bool {
+        regionPrivacyGeneration == nil ||
+            (revision == regionRevision && privacyGeneration == regionPrivacyGeneration &&
+                privacyGeneration == HushhSessionPrivacyShield.shared.snapshot().generation)
     }
     #if DEBUG
     private var continuity: NativePanelContinuityProbe?
@@ -129,9 +141,10 @@ final class NativePresentationContainer: UIView {
         controls[id] = (view, group, false)
     }
 
-    func setAdmission(_ id: String, admitted: Bool) {
+    func setAdmission(_ id: String, admitted: Bool, presentationRegionRevision: Int? = nil, privacyGeneration: Int? = nil) {
         guard var control = controls[id] else { return }
-        let admitted = admitted && !(contentBackedPresentation && overlayIsolated)
+        let currentRegion = acceptsPresentationRevision(presentationRegionRevision, privacyGeneration: privacyGeneration)
+        let admitted = admitted && currentRegion && !privacyConcealed && !(contentBackedPresentation && overlayIsolated)
         control.admitted = admitted
         controls[id] = control
         control.view.isUserInteractionEnabled = admitted
@@ -176,12 +189,24 @@ final class NativePresentationContainer: UIView {
         #if DEBUG
         continuity?.discard()
         #endif
-        underlay.isHidden = true
+        privacyConcealed = true
+        reconcileBaseVisibility()
         groups.values.forEach { $0.isHidden = true }
         for id in Array(controls.keys) { setAdmission(id, admitted: false) }
     }
 
-    func revealUnderlay() { underlay.isHidden = false }
+    func revealUnderlay(presentationRegionRevision: Int? = nil, privacyGeneration: Int? = nil) {
+        let privacy = HushhSessionPrivacyShield.shared.snapshot()
+        guard privacy.appIsActive, !privacy.shielded,
+              acceptsPresentationRevision(presentationRegionRevision, privacyGeneration: privacyGeneration) else { return }
+        privacyConcealed = false
+        reconcileBaseVisibility()
+    }
+
+    private func reconcileBaseVisibility() {
+        // Retain hosts, models and the editor; coverage never means retirement.
+        underlay.isHidden = privacyConcealed || fullWindowCovered
+    }
 
     func resetGroups() {
         #if DEBUG
@@ -222,7 +247,7 @@ final class NativePresentationContainer: UIView {
         }
         // An isolated reserved strip must not pass a tap to underlying DOM
         // controls. The central region still reaches its React modal owner.
-        if contentBackedPresentation && overlayIsolated &&
+        if contentBackedPresentation && overlayIsolated && !fullWindowCovered &&
             (point.y < overlayTop || point.y >= bounds.height - overlayBottom) { return self }
         return webView.hitTest(webView.convert(point, from: self), with: event)
     }

@@ -1,8 +1,8 @@
 "use client";
 
-import { useLayoutEffect, useSyncExternalStore, type RefObject } from "react";
+import { useLayoutEffect, useState, useSyncExternalStore, type RefObject } from "react";
 import { getNativeChromeCapabilities, peekNativeChromeCapabilities, nativeChrome } from "./native-chrome";
-import { nativeDocumentId } from "./session-privacy";
+import { getNativeSessionPrivacyState, nativeDocumentId } from "./session-privacy";
 
 export type NativePresentationRegions = {
   documentId: string;
@@ -11,12 +11,15 @@ export type NativePresentationRegions = {
   top: number;
   bottom: number;
   isolated: boolean;
+  covered?: boolean;
+  privacyGeneration?: number;
 };
 
 let revision = 0;
 let accepted: NativePresentationRegions | undefined;
 let pending: { key: string; promise: Promise<boolean> } | undefined;
 let isolated = false;
+let covered = false;
 const isolatedSeats = new Map<HTMLElement, boolean>();
 const listeners = new Set<() => void>();
 let dockFrame: { documentId: string; revision: number; y: number } | undefined;
@@ -38,8 +41,9 @@ function isolateSeats() {
   }
 }
 
-export function setNativePresentationRegionIsolation(active: boolean) {
+export function setNativePresentationRegionIsolation(active: boolean, cover = false) {
   isolated = active;
+  covered = active && cover;
   isolateSeats();
   if (!peekNativeChromeCapabilities()?.reservedPresentationRegions) return;
   void syncNativePresentationRegions().catch(() => undefined);
@@ -67,10 +71,12 @@ function measureRegions(): Omit<NativePresentationRegions, "revision"> {
 export async function syncNativePresentationRegions(): Promise<boolean> {
   const capability = await getNativeChromeCapabilities();
   if (!capability?.reservedPresentationRegions) return false;
-  const measured = measureRegions();
+  const privacy = capability.fullWindowOverlays ? await getNativeSessionPrivacyState() : undefined;
+  const measured = { ...measureRegions(), ...(privacy ? { covered, privacyGeneration: privacy.generation } : {}) };
   const key = JSON.stringify(measured);
   if (!pending && accepted && JSON.stringify({ documentId: accepted.documentId, viewport: accepted.viewport,
-    top: accepted.top, bottom: accepted.bottom, isolated: accepted.isolated }) === key) { isolateSeats(); return true; }
+    top: accepted.top, bottom: accepted.bottom, isolated: accepted.isolated,
+    ...(accepted.covered !== undefined ? { covered: accepted.covered, privacyGeneration: accepted.privacyGeneration } : {}) }) === key) { isolateSeats(); return true; }
   if (pending?.key === key) return pending.promise;
   const projection = { ...measured, revision: ++revision };
   const promise = (async () => {
@@ -80,21 +86,31 @@ export async function syncNativePresentationRegions(): Promise<boolean> {
       .finally(() => clearTimeout(timeout));
     if (receipt.documentId !== projection.documentId || receipt.revision !== projection.revision ||
         receipt.top !== projection.top || receipt.bottom !== projection.bottom || receipt.isolated !== projection.isolated ||
+        receipt.covered !== projection.covered || receipt.privacyGeneration !== projection.privacyGeneration ||
         receipt.viewport.width !== projection.viewport.width || receipt.viewport.height !== projection.viewport.height) {
       throw new Error("NATIVE_REGIONS_ACK_UNCONFIRMED");
     }
+    if (projection.revision !== revision || projection.documentId !== nativeDocumentId() ||
+        projection.covered !== undefined && (projection.covered !== covered || projection.isolated !== isolated ||
+          (await getNativeSessionPrivacyState()).generation !== projection.privacyGeneration)) return false;
+    // Privacy readback is asynchronous; a newer cover request can arrive while
+    // it is in flight even when the earlier revision check already passed.
     if (projection.revision !== revision || projection.documentId !== nativeDocumentId()) return false;
     accepted = projection;
     const root = document.documentElement;
-    if (root.style.getPropertyValue("--native-overlay-top") !== `${projection.top}px`) {
+    const top = projection.covered ? 0 : projection.top;
+    const bottom = projection.covered ? 0 : projection.bottom;
+    if (root.style.getPropertyValue("--native-overlay-top") !== `${top}px`) {
       // perf-lint: allow root-custom-property-write -- Acknowledged shell resize only; never a gesture, scroll or stream frame.
-      root.style.setProperty("--native-overlay-top", `${projection.top}px`);
+      root.style.setProperty("--native-overlay-top", `${top}px`);
     }
-    if (root.style.getPropertyValue("--native-overlay-bottom") !== `${projection.bottom}px`) {
+    if (root.style.getPropertyValue("--native-overlay-bottom") !== `${bottom}px`) {
       // perf-lint: allow root-custom-property-write -- Acknowledged shell/keyboard geometry only; no per-frame bridge writer.
-      root.style.setProperty("--native-overlay-bottom", `${projection.bottom}px`);
+      root.style.setProperty("--native-overlay-bottom", `${bottom}px`);
     }
     root.classList.add("native-reserved-chrome");
+    root.classList.toggle("native-full-window-overlays", capability.fullWindowOverlays === true);
+    root.toggleAttribute("data-native-full-window-covered", projection.covered === true);
     isolateSeats();
     listeners.forEach(listener => listener());
     return true;
@@ -128,8 +144,27 @@ export function useNativeOverlayCollisionPadding(padding: number | Partial<Recor
   const regions = useSyncExternalStore(listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
     () => accepted, () => undefined);
   const existing = typeof padding === "number" ? { top: padding, right: padding, bottom: padding, left: padding } : padding;
+  if (regions?.covered) return existing;
   return { ...existing, top: Math.max(existing.top ?? 0, regions?.top ?? 0),
     bottom: Math.max(existing.bottom ?? 0, regions?.bottom ?? 0) };
+}
+
+/** Full-height modal admission is independent of its requested open state. */
+export function useNativeFullWindowOverlayReady(active: boolean) {
+  const ready = useSyncExternalStore(listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    () => !active || !peekNativeChromeCapabilities()?.fullWindowOverlays ||
+      accepted?.documentId === nativeDocumentId() && accepted.covered === true && accepted.isolated &&
+      covered && isolated && accepted.revision === revision, () => true);
+  const [entry, setEntry] = useState({ active, admitted: ready });
+  if (entry.active !== active || ready && !entry.admitted) setEntry({ active, admitted: ready });
+  // A newer geometry receipt must not remount an already admitted open pane.
+  return !active || ready || entry.active === active && entry.admitted;
+}
+
+/** Optional ordered admission fence for wrappers supporting full-window cover. */
+export function nativePresentationAdmission() {
+  return accepted?.documentId === nativeDocumentId() && accepted.privacyGeneration !== undefined
+    ? { presentationRegionRevision: accepted.revision, privacyGeneration: accepted.privacyGeneration } : {};
 }
 
 /** Reconcile a current presentation after another shell owner supersedes its

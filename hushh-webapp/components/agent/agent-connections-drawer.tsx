@@ -12,7 +12,8 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
-import { useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
+import { useNativeNavigationBlockedUntilSettled } from "@/lib/capacitor/native-navigation";
+import { useNativeFullWindowOverlayReady } from "@/lib/capacitor/native-presentation-regions";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -89,10 +90,12 @@ export function AgentConnectionsDrawer({
     if (node && connectorHost) node.appendChild(connectorHost);
   }, [connectorHost]);
   const historyOpen = open && mode === "chats";
+  const historyReady = useNativeFullWindowOverlayReady(historyOpen);
+  const historyDisplayed = historyOpen && historyReady;
   const attachNativePanel = useNativePanelPresentation("history", presentationKey ?? null, drawer, historyOpen);
   const historyActive = useRef(historyOpen);
   useLayoutEffect(() => { historyActive.current = historyOpen; }, [historyOpen]);
-  useNativeNavigationBlocked(historyOpen, "chat-history");
+  useNativeNavigationBlockedUntilSettled(historyOpen, "chat-history", drawer);
   const connectorsOpen = open && mode === "connections";
   const connectorActive = useRef(connectorsOpen);
   useLayoutEffect(() => { connectorActive.current = connectorsOpen; }, [connectorsOpen]);
@@ -141,7 +144,7 @@ export function AgentConnectionsDrawer({
     returnFocus.current = null;
   }, [open, restoreFocus, onRestoreHistoryFocus]);
   useEffect(() => {
-    if (!historyOpen || modalActive.current) return;
+    if (!historyDisplayed || modalActive.current) return;
     let current = true;
     const initialFocus = document.activeElement;
     const frame = requestAnimationFrame(() => {
@@ -149,7 +152,7 @@ export function AgentConnectionsDrawer({
       // The whole panel translates. Focusing its footer while clipped can
       // be refused (or scroll the panel).
       // Only finite entry motion owns this wait, never child loading spinners.
-      const entry = body?.getAnimations().filter(animation =>
+      const entry = body?.getAnimations?.().filter(animation =>
         (animation.effect as KeyframeEffect | null)?.target === body &&
         animation.effect?.getComputedTiming().iterations !== Infinity,
       ) ?? [];
@@ -161,7 +164,7 @@ export function AgentConnectionsDrawer({
       });
     });
     return () => { current = false; cancelAnimationFrame(frame); };
-  }, [mode, historyOpen]);
+  }, [mode, historyDisplayed]);
   useEffect(() => {
     if (!historyOpen) return;
     const escape = (event: globalThis.KeyboardEvent) => {
@@ -275,7 +278,7 @@ export function AgentConnectionsDrawer({
               // no backdrop filter stays composited while the drawer is shut.
               "z-(--z-sheet-overlay) touch-none bg-[color:var(--app-scrim-color)] [backdrop-filter:var(--app-scrim-filter)] [-webkit-backdrop-filter:var(--app-scrim-filter)]",
               "transition-[opacity,visibility] motion-reduce:transition-none",
-              historyOpen
+              historyDisplayed
                 ? "pointer-events-auto visible opacity-100 duration-(--motion-sheet-enter-duration) ease-(--motion-sheet-enter-ease)"
                 : "pointer-events-none invisible opacity-0 duration-(--motion-sheet-exit-duration) ease-(--motion-sheet-exit-ease)",
             )}
@@ -290,8 +293,8 @@ export function AgentConnectionsDrawer({
             data-native-panel-group="history"
             aria-modal={externalModalOpen ? undefined : true}
             aria-label="Agent chat history"
-            aria-hidden={!historyOpen || externalModalOpen}
-            inert={!historyOpen || externalModalOpen}
+            aria-hidden={!historyDisplayed || externalModalOpen}
+            inert={!historyDisplayed || externalModalOpen}
             onKeyDown={keyDown}
             className={cn(
               // Full height, flush to the leading edge, on the sheet tier: the panel
@@ -302,7 +305,7 @@ export function AgentConnectionsDrawer({
               // clears its own shadow. Motion uses the shared sheet tier.
               "pointer-events-none fixed inset-y-0 left-0 z-(--z-sheet) touch-pan-y transform-gpu transition-[transform,visibility] motion-reduce:transition-none",
               "w-[min(88vw,360px)] md:w-[336px]",
-              historyOpen
+              historyDisplayed
                 ? "visible translate-x-0 duration-(--motion-sheet-enter-duration) ease-(--motion-sheet-enter-ease)"
                 : "invisible -translate-x-full duration-(--motion-sheet-exit-duration) ease-(--motion-sheet-exit-ease)",
             )}

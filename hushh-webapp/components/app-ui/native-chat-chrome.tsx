@@ -601,6 +601,7 @@ export function NativeChatChrome(props: Props) {
     if (!prepared || !hidden) return;
     reportRehearsal("activate", "pending");
     void prepared.activate().then(() => {
+      if (!prepared.admissionReady) return;
       if (lease.current === prepared) {
         reportRehearsal("activate", "acknowledged");
         if (!inPlaceUpdates) void restoreNativeFocus(prepared);

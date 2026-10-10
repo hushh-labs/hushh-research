@@ -75,6 +75,8 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         CAPPluginMethod(name: "confirmSelection", returnType: CAPPluginReturnPromise),
     ]
     private var state = HushhNativeNavigationState()
+    private var admissionRegionRevision: Int?
+    private var admissionPrivacyGeneration: Int?
     private var tabBar: UITabBar?
     private var observers = [NSObjectProtocol]()
     private var keyboardVisible = false
@@ -118,6 +120,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
                               "underlayPresentation": self.compositor != nil && self.compositor?.contentBackedPresentation != true,
                               "contentBackedPresentation": self.compositor?.contentBackedPresentation == true,
                               "reservedPresentationRegions": self.compositor?.contentBackedPresentation == true,
+                              "fullWindowOverlays": self.compositor?.contentBackedPresentation == true,
                               "supported": self.navigationItems != nil,
                               "contentHeight": self.contentHeight, "bottomInset": self.bottomInset])
             } else {
@@ -142,11 +145,21 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             let shield = HushhSessionPrivacyShield.shared
             self.updatePresentation() // Consume pending restart retirement before observing the replacement.
             shield.observeDocument(document)
-            guard shield.acceptsDocument(document), self.state.apply(document: document, revision: revision,
+            guard shield.acceptsDocument(document) else {
+                call.reject("NATIVE_NAVIGATION_STALE_STATE"); return
+            }
+            guard self.compositor?.acceptsPresentationRevision(call.getInt("presentationRegionRevision"),
+                privacyGeneration: call.getInt("privacyGeneration")) != false else {
+                call.resolve(["supported": true, "contentHeight": self.contentHeight,
+                    "bottomInset": self.bottomInset, "presentationApplied": false]); return
+            }
+            guard self.state.apply(document: document, revision: revision,
                       visible: visible, selected: selected, interactionEpoch: epoch,
                       interactionEnabled: call.getBool("interactionEnabled") ?? visible) else {
                 call.reject("NATIVE_NAVIGATION_STALE_STATE"); return
             }
+            self.admissionRegionRevision = call.getInt("presentationRegionRevision")
+            self.admissionPrivacyGeneration = call.getInt("privacyGeneration")
             self.installIfNeeded()
             if let feed = self.tabBar?.items?.first(where: { $0.tag == 3 }) {
                 feed.badgeValue = call.getBool("feedAttention") == true ? " " : nil
@@ -239,8 +252,9 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         tabBar?.isHidden = !show
         tabBar?.isUserInteractionEnabled = interactive
         tabBar?.accessibilityElementsHidden = !interactive
-        if show { compositor?.revealUnderlay() }
-        compositor?.setAdmission("bottom-navigation", admitted: interactive)
+        if show { compositor?.revealUnderlay(presentationRegionRevision: admissionRegionRevision, privacyGeneration: admissionPrivacyGeneration) }
+        compositor?.setAdmission("bottom-navigation", admitted: interactive,
+            presentationRegionRevision: admissionRegionRevision, privacyGeneration: admissionPrivacyGeneration)
         tabBar?.selectedItem = tabBar?.items?.first(where: {
             HushhNativeNavigationState.tabs[$0.tag] == state.selected
         })
@@ -265,7 +279,12 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
                                     "underlay": compositor.map { bar.superview === $0.underlay && $0.underlay.layer.zPosition < $0.webView.layer.zPosition } ?? false,
                                     "x": bar.frame.minX, "y": bar.frame.minY,
                                     "width": bar.frame.width, "height": bar.frame.height]
-        if compositor?.contentBackedPresentation == true { fields["contentBacked"] = true }
+        if let compositor, compositor.contentBackedPresentation {
+            fields["contentBacked"] = true
+            fields["covered"] = compositor.fullWindowCovered
+            fields["planeVisible"] = !compositor.underlay.isHidden
+            fields["retained"] = bar.superview === compositor.underlay
+        }
         if let data = try? JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys]),
            let status = String(data: data, encoding: .utf8) { probe.update(status: status) }
         #endif

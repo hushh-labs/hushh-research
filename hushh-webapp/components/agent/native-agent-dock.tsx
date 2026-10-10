@@ -13,7 +13,7 @@ import { useAgentDockState } from "./agent-dock";
 import { useNativeDockPorts } from "./native-dock-port";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { setNativeBaseAperture, removeNativeBaseAperture } from "@/lib/capacitor/native-base-apertures";
-import { syncNativePresentationRegions, setNativeDockPresentationFrame, useNativePresentationRegionRevision } from "@/lib/capacitor/native-presentation-regions";
+import { nativePresentationAdmission, syncNativePresentationRegions, setNativeDockPresentationFrame, useNativePresentationRegionRevision } from "@/lib/capacitor/native-presentation-regions";
 
 let presentationOwner: symbol | null = null;
 async function retireDock(identity: DockIdentity & { preserveDraft?: boolean }) {
@@ -296,8 +296,9 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
       if (privacy.shielded || !privacy.appIsActive || identity.current !== lease || failed.current ||
           sequence !== update.current || applyGeneration !== generation.current) return;
       if (reservedRegions.current && !await syncNativePresentationRegions()) return;
-      const ack = await boundedDock(nativeDock.apply({ ...snapshot, privacyGeneration: privacy.generation }));
+      const ack = await boundedDock(nativeDock.apply({ ...snapshot, ...nativePresentationAdmission(), privacyGeneration: privacy.generation }));
       if (!sameDock(lease, ack) || ack.updateSequence !== sequence || ack.phase !== "active") throw new Error("NATIVE_DOCK_ACK_UNCONFIRMED");
+      if (ack.presentationApplied === false) return;
       if (underlay.current && ack.layout && sequence === update.current && applyGeneration === generation.current) {
         setNativeBaseAperture("agent-dock", lease.revision, ack.layout.frame);
       }

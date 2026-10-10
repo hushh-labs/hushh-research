@@ -13,7 +13,7 @@ import { DockEventFence, type DockEvent, type DockState } from "@/lib/capacitor/
 import { NativeAgentDock } from "@/components/agent/native-agent-dock";
 import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
 import { NativePanelPoseWriter, type NativePanelPose } from "@/lib/capacitor/native-panel-presentation";
-import { syncNativePresentationRegions, type NativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
+import { nativePresentationAdmission, syncNativePresentationRegions, useNativeFullWindowOverlayReady, type NativePresentationRegions } from "@/lib/capacitor/native-presentation-regions";
 import { AgentDockProvider, useAgentDockState } from "@/components/agent/agent-dock";
 import { useNativeDockPort, useNativeDockPorts, type NativeDockPort } from "@/components/agent/native-dock-port";
 
@@ -352,6 +352,40 @@ describe("native chrome presentation lease", () => {
       retireNativeChrome("owner-a", undefined, controlId as ChromeProjection["controlId"])));
   });
   afterEach(async () => { cleanup(); await act(async () => { await Promise.resolve(); }); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+  it("admits full-height panes only after current coverage and rejects an open-close-reopen receipt", async () => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history", "agent-surface"],
+      independentControls: true, reservedPresentationRegions: true, fullWindowOverlays: true });
+    const seat = document.createElement("div"); seat.dataset.appTopBar = "true";
+    document.body.appendChild(seat);
+    vi.spyOn(seat, "getBoundingClientRect").mockReturnValue({ bottom: 100 } as DOMRect);
+    function Cover({ active }: { active: boolean }) {
+      useNativeNavigationBlocked(active, "profile-pane");
+      const ready = useNativeFullWindowOverlayReady(active);
+      return <span data-testid="cover-state">{!active ? "closed" : ready ? "admitted" : "waiting"}</span>;
+    }
+    try {
+      expect(await syncNativePresentationRegions()).toBe(true);
+      const delayed = deferred<NativePresentationRegions>();
+      bridge.setPresentationRegions.mockReturnValueOnce(delayed.promise);
+      const view = render(<Cover active />);
+      await waitFor(() => expect(bridge.setPresentationRegions).toHaveBeenCalledTimes(2));
+      const obsolete = bridge.setPresentationRegions.mock.calls[1][0];
+      expect(view.getByTestId("cover-state").textContent).toBe("waiting");
+      expect(obsolete).toEqual(expect.objectContaining({ covered: true, isolated: true, privacyGeneration: 0, top: 100 }));
+      view.rerender(<Cover active={false} />);
+      await waitFor(() => expect(bridge.setPresentationRegions).toHaveBeenCalledTimes(3));
+      await waitFor(() => expect(nativePresentationAdmission().presentationRegionRevision).toBeGreaterThan(obsolete.revision));
+      await waitFor(() => expect(document.documentElement.hasAttribute("data-native-full-window-covered")).toBe(false));
+      view.rerender(<Cover active />);
+      await waitFor(() => expect(view.getByTestId("cover-state").textContent).toBe("admitted"));
+      const admission = nativePresentationAdmission();
+      await act(async () => { delayed.resolve(obsolete); });
+      expect(nativePresentationAdmission()).toEqual(admission);
+      expect(admission.presentationRegionRevision).toBeGreaterThan(obsolete.revision);
+      expect(document.documentElement.style.getPropertyValue("--native-overlay-top")).toBe("0px");
+      expect(document.documentElement.hasAttribute("data-native-full-window-covered")).toBe(true);
+    } finally { seat.remove(); }
+  });
   it("rejects stale region acknowledgments even when returning to the previously accepted layout", async () => {
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["back"], independentControls: true, reservedPresentationRegions: true });
     const seat = document.createElement("div"); seat.dataset.appTopBar = "true";
@@ -372,6 +406,22 @@ describe("native chrome presentation lease", () => {
       expect(await changing).toBe(false);
       expect(document.documentElement.style.getPropertyValue("--native-overlay-top")).toBe("80px");
     } finally { seat.remove(); }
+  });
+  it("retains preparation after superseded admission without authorizing or replaying a choice", async () => {
+    const lease = new NativeChromeLease(projection, "owner-a");
+    await lease.prepare();
+    const retireCount = bridge.retire.mock.calls.length;
+    bridge.activate.mockResolvedValueOnce({ ...lease.projection, phase: "active", presentationApplied: false });
+    await lease.activate();
+    expect(lease.admissionReady).toBe(false);
+    expect(lease.ownsInstallation).toBe(true);
+    const action = vi.fn();
+    await lease.choose(choice(lease), () => true, action);
+    expect(action).not.toHaveBeenCalled();
+    expect(bridge.retire).toHaveBeenCalledTimes(retireCount);
+    await lease.activate();
+    expect(lease.admissionReady).toBe(true);
+    expect(action).not.toHaveBeenCalled();
   });
   it.each([false, true])("reconciles superseded shell preparation without reviving a cancelled lease (%s)", async cancelled => {
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["back"], independentControls: true, reservedPresentationRegions: true });

@@ -6,7 +6,8 @@ import { appHaptic } from "@/lib/capacitor/app-haptics";
 import { useNativePanelPresentation } from "@/lib/capacitor/native-panel-presentation";
 import { NativeChatChrome } from "@/components/app-ui/native-chat-chrome";
 import { presentationMotionDuration, renderedDrawerOffset } from "@/components/app-ui/drawer-motion";
-import { nativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
+import { nativeShellOverlayBlocked, useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
+import { useNativeFullWindowOverlayReady } from "@/lib/capacitor/native-presentation-regions";
 
 import {
   ArrowLeftIcon as ArrowLeft,
@@ -173,6 +174,11 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
   const backRef = useRef<HTMLButtonElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const { isVaultUnlocked } = useVault();
+  const [previewing, setPreviewing] = useState(false);
+  useNativeNavigationBlocked(open && isVaultUnlocked, "profile-pane");
+  useNativeNavigationBlocked(previewing && !open && isVaultUnlocked, "profile-drag");
+  const presentationReady = useNativeFullWindowOverlayReady(open && isVaultUnlocked);
+  useLayoutEffect(() => { if (open || !isVaultUnlocked) setPreviewing(false); }, [open, isVaultUnlocked]);
   const attachNativePanel = useNativePanelPresentation("profile", owner ?? null, panelRef, open && isVaultUnlocked);
   const attachPanel = useCallback((node: HTMLDivElement | null) => {
     semanticRef.current = node;
@@ -199,6 +205,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
     let dragOrigin: number | null = null;
     const clear = () => {
       preview.hidden = true; scrim.hidden = true; previewOffset.current = null; dragOrigin = null;
+      setPreviewing(false);
     };
     const onPreview = (event: Event) => {
       const detail = (event as CustomEvent<ProfilePanePreview>).detail;
@@ -206,6 +213,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
       window.clearTimeout(timer);
       const current = ++generation;
       if (detail.phase === "drag") {
+        setPreviewing(true);
         committed = false;
         const wasHidden = preview.hidden;
         preview.hidden = false; scrim.hidden = false;
@@ -310,7 +318,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
         <ProfilePaneShell />
       </div>
     </> : null}
-    <Sheet open={open} onOpenChange={onOpenChange} modal>
+    <Sheet open={open && presentationReady} onOpenChange={onOpenChange} modal>
       <SheetContent
         nativeLayer="profile-pane"
         side="right"

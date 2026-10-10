@@ -28,6 +28,13 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(container.hitTest(CGPoint(x: 20, y: 20), with: nil) === control)
         XCTAssertTrue(container.setRegions(document: "synthetic", revision: 1,
             viewport: container.bounds.size, top: 100, bottom: 150, isolated: true))
+        XCTAssertEqual(HushhNativeChromePlugin.stationaryChatControlIds["agent-surface"], "chat-agent-surface",
+            "The stationary Chat selector must not disappear from the content-backed capability contract")
+        XCTAssertNil(HushhNativeChromePlugin.stationaryChatControlIds["profile-back"],
+            "Admitting the stationary selector must not adopt moving Profile controls")
+        XCTAssertFalse(container.containsStationaryControl(CGRect(x: 280, y: 60, width: 88, height: 44), document: "synthetic"),
+            "A selector crossing the reserved header boundary cannot be admitted")
+        XCTAssertTrue(container.containsStationaryControl(CGRect(x: 280, y: 50, width: 88, height: 44), document: "synthetic"))
         XCTAssertFalse(control.isHidden, "Overlay isolation must retain the visible material")
         XCTAssertTrue(control.accessibilityElementsHidden)
         XCTAssertTrue(container.hitTest(CGPoint(x: 20, y: 20), with: nil) === container,
@@ -43,7 +50,28 @@ final class NativeSupportTests: XCTestCase {
         container.setAdmission("chat-history-toggle", admitted: true)
         XCTAssertTrue(container.hitTest(CGPoint(x: 20, y: 20), with: nil) === control)
         let retained = control.superview
+        let privacy = HushhSessionPrivacyShield.shared.snapshot().generation
+        XCTAssertTrue(container.setRegions(document: "synthetic", revision: 3,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: true, covered: true, privacyGeneration: privacy))
+        container.revealUnderlay() // A delayed normal control update cannot uncover the drawer.
+        XCTAssertTrue(container.underlay.isHidden)
+        XCTAssertTrue(control.superview === retained)
+        XCTAssertTrue(control.accessibilityElementsHidden)
+        XCTAssertFalse(container.hitTest(CGPoint(x: 20, y: 20), with: nil) === container,
+            "Full-height drawer edge controls must reach WK, not the old reserved-strip interceptor")
+        XCTAssertFalse(container.setRegions(document: "synthetic", revision: 2,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: false))
+        XCTAssertTrue(container.fullWindowCovered)
+        XCTAssertTrue(container.setRegions(document: "synthetic", revision: 4,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: false, privacyGeneration: privacy))
+        container.setAdmission("chat-history-toggle", admitted: true, presentationRegionRevision: 2, privacyGeneration: privacy)
+        XCTAssertFalse(control.isUserInteractionEnabled, "A pre-cover admission must not revive after dismissal")
+        container.setAdmission("chat-history-toggle", admitted: true, presentationRegionRevision: 4, privacyGeneration: privacy)
+        XCTAssertTrue(control.isUserInteractionEnabled)
         container.conceal()
+        XCTAssertTrue(container.setRegions(document: "synthetic", revision: 5,
+            viewport: container.bounds.size, top: 100, bottom: 150, isolated: false, privacyGeneration: privacy))
+        XCTAssertTrue(container.underlay.isHidden, "Ordinary coverage release is not privacy validation")
         XCTAssertTrue(control.superview === retained)
         XCTAssertTrue(control.accessibilityElementsHidden)
         XCTAssertFalse(container.hitTest(CGPoint(x: 20, y: 20), with: nil) === control)

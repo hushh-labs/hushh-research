@@ -31,6 +31,7 @@ export type DockState = DockIdentity & NativeControlAppearance & DockProjection 
   updateSequence: number;
   acknowledgedEdit: number;
   privacyGeneration: number;
+  presentationRegionRevision?: number;
   settledConsumption: number;
   visible: boolean;
   interactionEnabled?: boolean;
@@ -42,6 +43,7 @@ export type DockLayout = DockIdentity & {
   frame: DockState["frame"]; viewport: DockState["viewport"];
 };
 export type DockAcknowledgement = DockIdentity & { updateSequence: number; phase: "active" | "retired"; height: number;
+  presentationApplied?: boolean;
   layout?: DockLayout;
   recovery?: { text: string; context: string; editorRevision: number; consumed: boolean };
 };
@@ -59,7 +61,7 @@ export type DockEvent = DockIdentity & {
   action?: DockAction;
   attachmentId?: string;
 };
-export type NativeDockCapabilities = { contractVersion: number; supported: boolean; underlayPresentation?: boolean; contentBackedPresentation?: boolean; reservedPresentationRegions?: boolean };
+export type NativeDockCapabilities = { contractVersion: number; supported: boolean; underlayPresentation?: boolean; contentBackedPresentation?: boolean; reservedPresentationRegions?: boolean; fullWindowOverlays?: boolean };
 export interface HushhNativeDockPlugin {
   getCapabilities(): Promise<NativeDockCapabilities>;
   apply(options: DockState): Promise<DockAcknowledgement>;

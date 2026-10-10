@@ -13,12 +13,59 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
-### Reserved-region candidate — 2026-10-09
+### Full-height retained-coverage candidate — 2026-10-09
+
+The owner selected full-height Profile/History drawers rather than the shorter
+reserved central area. This replaces that geometry on negotiated iPhone wrappers;
+older wrappers keep their existing contract. Source baseline: `cc93c35bea`.
+
+The existing overlay registry owns coverage across preview, modal and exit.
+NativeChrome's ordered region receipt adds optional `covered` and
+`privacyGeneration`; its existing revision is also the admission fence for
+Chrome, Navigation and Dock. No second cover-generation counter is introduced.
+Full-height modal paint/focus waits for acknowledged coverage. History holds its
+token through actual exit animations; cancelled/reopened exits cannot release it.
+Moving headers, Close, Back and Preferences remain React, including safe areas.
+
+The retained native plane is concealed while these drawers cover it, and the
+old strip interceptor releases edge touches to WK. Hosts/editor remain mounted;
+ordinary coverage release neither restores old actions nor clears privacy.
+Queued Navigation work rechecks its owner at execution. Superseded native
+presentation requests return `presentationApplied=false` without mutating a
+newer presentation or triggering an operation retry or renderer fallback.
+
+The stationary One/Puppy selector now shares one capability/preparation policy
+with the other stationary Chat controls. Its prior flat rendering was an explicit
+content-backed capability exclusion, not a missing React value or missing flag.
+
+The focused web contracts pass 146 cases. Two negative controls demonstrate
+failures when ordered cover fencing or History's exit retention is removed;
+both fixes were restored. Three targeted WebKit cases pass whole-panel motion,
+shared gutters/full-height geometry and repeated Accent reopen behavior.
+Typecheck, changed-file lint, design, native/plugin, documentation and governance
+checks pass. Native build and exact-candidate physical evidence remain separate.
+
+The newer root Back/Search generator instructions are not implemented as npm
+scripts on this branch. Existing action reachability remains unchanged and the
+owning surface/Siri/plugin checks pass; that is not a substitute for the missing
+generator gates. Resolve branch/tooling freshness before any release transition.
+
+This is **retained concealment/recovery**, not proof that partially exposed glass
+remains visible beneath a moving React drawer. Transition pixels and physical
+performance remain release gates. Do not promote this capability beyond Debug
+iPhone rehearsal solely because ordering, layout or installed-app checks pass.
+
+The obsolete `com.hushh.app.scopecommerce.sandbox` and its matching XCUI runner
+were removed from the iPhone after explicit confirmation. `com.hushh.app` and its
+session were kept; backend/Firebase accounts were not erased.
+
+### Historical reserved-region candidate — 2026-10-09
 
 This supersedes the foreground overlay-concealment pilot below. Baseline:
 `2f0ce572d6` on `feat/adk-orchestration-runtime`; implementation commit
 `d1504db62f`, followed by ordered-receipt reconciliation, shared selectors and
-owner-fenced draft continuity through candidate `020c50ddac`. New families remain
+owner-fenced draft continuity and shared-family admission through candidate
+`cc93c35bea1a940ef953ac989daa28d8f94c7e11`. New families remain
 opt-in Debug/iPhone, not Release or iPad.
 
 One content-backed native plane sits above the existing WKWebView. The shared
@@ -60,7 +107,65 @@ The native-owned voice seat retains its geometry but has no web pill material,
 touch or accessibility admission. A newer acknowledged shell layout reconciles
 the retained dock/navigation instead of stranding a superseded preparation.
 
-### Candidate receipts and remaining gates
+### App-wide coverage ledger — 2026-10-09
+
+Inventory coverage is not runtime acceptance. The authored layout contract has
+145 route keys (75 standard, 47 redirect, 17 hidden, six flow); the native audit
+inventory has 126 entries (102 required, 24 excluded). Redirects, aliases and
+guarded flows are not 145 independent interactive screens. Reuse those inventories
+rather than maintaining another route catalog here.
+
+| Surface family | Source/control review | Latest warm iPhone evidence | Remaining qualification |
+|---|---|---|---|
+| Chat / One / Agent Dock | One editor, guarded React submission, listener admission, retained History attention badge | Ten Chat/One cycles, Unicode/multiline draft, software keyboard and one WebView passed | IME, attachments/refusal, voice completion, transition pixels and Release timing |
+| Profile / nested settings | Account, Preferences, Security/Vault, Connectors, Support, referrals and Legal; moving controls remain React | Account/Preferences/Security/Vault/Support passed; remaining-only Trusted devices/Connectors/Invite friends/Support passed, including all three Support choices with the original restored and no submission | Fixture-specific rich details, nested overlays and full accessibility |
+| Appearance / Accent | Shared finite-radio semantics, authored icons, 44px admission, complete Blue/Molten Gold React menu | Light and Dark Chat/One/Connect/Feed canvas matching and Wallet Back passed; the audit fails in both themes on an unidentified hit-region element | Attribute/fix the accessibility failure; System, both accents and system accessibility settings on device |
+| Mail / Calendar / Email | Authored route/connector and pager owners inspected | Mail Overview/KYC/Receipts taps/swipes, keyboard and draft continuity passed | Calendar/Email provider fixture journeys, loading/late-response states |
+| Memory / Marketplace | Existing pager, scope and protected-information owners retained | Saved → Add → Sharing and return passed | Actual save/review, rich dialogs and conditional Marketplace fixture |
+| Connect / people / circles / messages | Existing route tabs, person boundaries and gesture owners retained | Connections/Circles and return to Chat passed | Person/Circle detail and invitation fixtures; background notification journeys |
+| Finance / Wallet / Consent / Feed | Existing query tabs, bounded choices, rich tables/cards and owner guards | Finance Portfolio/Analysis/Market, Wallet Cards/Add/Sharing, Consent Active/History/Connections/Requests passed; draft retained | Rich details, secure forms, consent decisions and conditional holdings fixtures |
+| Location / Connected Systems / Puppy / Career | Source inventory and existing contracts; bounded controls distinguished from route pagers | Not physically accepted in this batch | Fixture-specific native capability, selector and consent journeys |
+| Public / authentication / setup / RIA / callbacks | Route/redirect/flow inventory reviewed; canonical Profile deep-link projection tested | Not counted as warm signed-in passes | Separate anonymous/cold/recovery and qualified identity fixtures; no reset to inflate warm coverage |
+
+Candidate: Debug iPhone 1.4.0 (69), UAT runtime, source `cc93c35bea1a940ef953ac989daa28d8f94c7e11`.
+Executable SHA-256 `88a0ef7a56194152ca8d8eec857c9968e38bf5fc3c2e7e7eab3ced9336c6e1d1`;
+packaged index `8320446f93933e0a5f63be9eee895776d373d1813471cd164c95d87a8df0a2ed`.
+Install/unlock were preparation, not warm-navigation proof. Runner-only harness
+updates retain this product executable identity.
+
+- 175 focused web tests, typecheck, lint and design/brand/performance contracts
+  passed. Admission/badge negative controls failed on the deliberately broken
+  implementation and passed after restoration. Six existing synthetic WebKit
+  Wallet layout cases passed; they do not qualify all Wallet interactions.
+- Canonical core passed at the exact implementation SHA in 238 seconds. No
+  exact-head GitHub CI, push, merge or deployment is inferred from that receipt.
+- The six-family attach-only physical batch finished four passed, two failed,
+  zero skipped. A remaining-only Profile rerun subsequently passed. Its original
+  missing-Back failure was a harness tap near a covered native strip: WebKit AX
+  hittability alone did not prove compositor touch admission, and a whole-WebView
+  swipe could start outside the pane. The corrected in-region gesture moved
+  Support from y=665 to y=315, admitted its Back and retained the warm session.
+  Do not describe that harness correction as a product Back implementation fix.
+- The remaining-only theme run completed both Light and Dark canvas/Back journeys
+  but still failed accessibility in each. An unidentified `Other` element with a
+  390×10pt frame at the top does not overlap Back and is not an attributed status
+  probe. Coordinates alone do not authorize a waiver. The test collects both
+  themes without converting an audit failure into a passing receipt.
+- The Profile layout harness still described the superseded stationary header
+  and Preferences portal. It now uses the real whole-panel owner and checks
+  header/control/body translation, cancelled settlement and no entrance replay.
+  All 17 functional WebKit Profile cases passed. The gutter case also passed
+  with synthetic acknowledged top/bottom reservations and internally scrolling
+  nested content. Four optional screenshot-export cases were not enabled.
+- Source gaps remain separately owned: disabled duration variants, route-absence
+  retirement versus temporary suspension, unbounded navigation capability/state
+  acknowledgements, and special Profile compatibility routes outside the canonical
+  pane resolver. They are not physical passes or permission to bypass auth flows.
+- More/date/bounded-selection bridge capabilities do not establish production
+  adoption without an authored caller and its evidence. Moving/scrolling controls
+  and complex multiselects deliberately remain React.
+
+### Earlier reserved-region receipts and remaining gates
 
 - Candidate: iPhone Debug 1.4.0 (69), UAT runtime, source `020c50ddac`.
   Executable SHA-256 `dd818bd3d8b008fe945b5f6e38a08d9b788f7d501bf4c08a7d5f441b557a0f5d`;
@@ -109,7 +214,7 @@ replacing every tab-looking control with one new routing component.
 
 | Interaction family | Shared implementation | Authority and adoption boundary |
 |---|---|---|
-| Bounded radio choice: One/Puppy, Appearance | Morphy `SegmentedControl`; one SwiftUI `NativeFiniteSegmentedPicker` for eligible stationary hosts | React owns value and validation; shared roving focus, authored icons and no-op repeated choices. Appearance's sliding web thumb preserves its existing geometry. |
+| Bounded radio choice: One/Puppy, Appearance, Support type, portfolio source, Wallet contact and Nearby filters | Morphy `SegmentedControl`; one SwiftUI `NativeFiniteSegmentedPicker` for eligible stationary hosts | React owns value and validation; shared roving focus, authored icons, disabled admission and no-op repeated choices. Appearance's sliding web thumb preserves its track geometry with 44px hit regions; Wallet retains its two-column phone layout. |
 | Route/query tabs: Connect, Memory, Mail, Finance | `TopShellTabs` and existing tab registry / `SwipeViews` | Existing route/pager owns taps, swipes and URL. Continuous moving indicators remain React. |
 | Local content tabs | Existing `SegmentedTabs` / feature pager | Feature owns panel selection, accessibility associations and swipe reconciliation. |
 | Bottom navigation | Standard native `UITabBar`; existing web navigation | React navigation authority remains; no new router or selector draft. |

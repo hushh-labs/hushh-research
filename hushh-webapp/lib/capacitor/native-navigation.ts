@@ -1,16 +1,16 @@
 "use client";
 
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type Ref } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type Ref, type RefObject } from "react";
 import { nativeDocumentId, subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
 import { NATIVE_CONTROL_CONTRACT_VERSION, type NativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { setNativeBaseAperture, removeNativeBaseAperture } from "./native-base-apertures";
 import type { ChromeFrame } from "./native-chrome";
-import { setNativePresentationRegionIsolation, syncNativePresentationRegions, useNativePresentationRegionRevision } from "./native-presentation-regions";
+import { nativePresentationAdmission, setNativePresentationRegionIsolation, syncNativePresentationRegions, useNativePresentationRegionRevision } from "./native-presentation-regions";
 
 export const NATIVE_NAVIGATION_TABS = ["chat", "dashboard", "connect", "feed", "search"] as const;
 export type NativeNavigationTab = typeof NATIVE_NAVIGATION_TABS[number];
-type Geometry = { supported: boolean; contentHeight: number; bottomInset: number; frame?: ChromeFrame };
+type Geometry = { supported: boolean; contentHeight: number; bottomInset: number; frame?: ChromeFrame; presentationApplied?: boolean };
 type Selection = { documentId: string; interactionEpoch: number; privacyGeneration: number; sequence: number; tab: NativeNavigationTab };
 type NavigationState = NativeControlAppearance & {
   documentId: string;
@@ -20,10 +20,12 @@ type NavigationState = NativeControlAppearance & {
   interactionEnabled: boolean;
   selected: NativeNavigationTab;
   feedAttention: boolean;
+  presentationRegionRevision?: number;
+  privacyGeneration?: number;
 };
 
 export interface HushhNativeNavigationPlugin {
-  getCapabilities(): Promise<Geometry & { contractVersion: number; interactionIsolation?: boolean; underlayPresentation?: boolean; contentBackedPresentation?: boolean; reservedPresentationRegions?: boolean }>;
+  getCapabilities(): Promise<Geometry & { contractVersion: number; interactionIsolation?: boolean; underlayPresentation?: boolean; contentBackedPresentation?: boolean; reservedPresentationRegions?: boolean; fullWindowOverlays?: boolean }>;
   setState(options: NavigationState): Promise<Geometry>;
   confirmSelection(options: Selection): Promise<{ valid: boolean }>;
   addListener(eventName: "selectionRequested", listener: (event: Selection) => void): Promise<PluginListenerHandle>;
@@ -43,7 +45,12 @@ const subscribe = (listener: () => void) => {
   subscribers.add(listener);
   return () => { subscribers.delete(listener); };
 };
-function publish() { setNativePresentationRegionIsolation(overlays.size > 0); subscribers.forEach((listener) => listener()); }
+function publish() {
+  const cover = [...overlays.values()].some(layer =>
+    layer === "profile-pane" || layer === "profile-drag" || layer === "chat-history" || layer === "history-drag");
+  setNativePresentationRegionIsolation(overlays.size > 0, cover);
+  subscribers.forEach((listener) => listener());
+}
 function isNativeIOS() { return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios"; }
 // Shared isolation authority for native shell controls. Do not create another
 // overlay registry in individual plugins or feature components.
@@ -58,8 +65,8 @@ function setInstalled(next: boolean) {
   installed = next;
   publish();
 }
-function sendState(state: NavigationState) {
-  const operation = operationQueue.catch(() => undefined).then(() => nativeNavigation.setState(state));
+function sendState(state: NavigationState, current: () => boolean = () => true) {
+  const operation = operationQueue.catch(() => undefined).then(() => current() ? nativeNavigation.setState(state) : undefined);
   operationQueue = operation;
   return operation;
 }
@@ -86,6 +93,28 @@ export function useNativeNavigationBlocked(active: boolean, owningLayer?: string
     publish();
     return () => { if (overlays.delete(blocker)) publish(); };
   }, [active, owningLayer]);
+}
+
+/** Keep the existing overlay token through the actual panel exit, including
+ * interrupted/reopened transitions. Descendant loading animations do not own it. */
+export function useNativeNavigationBlockedUntilSettled(active: boolean, owningLayer: string, ref: RefObject<HTMLElement | null>) {
+  const [retained, setRetained] = useState(active);
+  useNativeNavigationBlocked(active || retained, owningLayer);
+  useLayoutEffect(() => {
+    if (active) { setRetained(true); return; }
+    if (!retained) return;
+    let current = true;
+    const frame = requestAnimationFrame(() => {
+      const panel = ref.current;
+      const animations = panel?.getAnimations?.().filter(animation =>
+        (animation.effect as KeyframeEffect | null)?.target === panel &&
+        animation.effect?.getComputedTiming().iterations !== Infinity) ?? [];
+      void Promise.allSettled(animations.map(animation => animation.finished)).then(() => {
+        if (current) setRetained(false);
+      });
+    });
+    return () => { current = false; cancelAnimationFrame(frame); };
+  }, [active, retained, ref]);
 }
 
 /** Native controls are outside the DOM: authored overlay mounts must isolate them too. */
@@ -229,9 +258,9 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
     let cancelled = false;
     void (reservedRegions.current ? syncNativePresentationRegions() : Promise.resolve(true)).then((confirmed) => {
       if (!confirmed || cancelled || current.current !== state) return undefined;
-      return sendState(state);
+      return sendState({ ...state, ...nativePresentationAdmission() }, () => !cancelled && current.current === state);
     }).then((result) => {
-      if (!result) return;
+      if (!result || result.presentationApplied === false) return;
       if (cancelled || current.current !== state || !result.supported) return;
       setHeight(checkedHeight(result.contentHeight));
       nativeBottomInset = checkedHeight(result.bottomInset);

@@ -455,7 +455,8 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
         call.resolve(["contractVersion": 1, "supported": admitted,
                       "underlayPresentation": compositor != nil && compositor?.contentBackedPresentation != true,
                       "contentBackedPresentation": compositor?.contentBackedPresentation == true,
-                      "reservedPresentationRegions": compositor?.contentBackedPresentation == true])
+                      "reservedPresentationRegions": compositor?.contentBackedPresentation == true,
+                      "fullWindowOverlays": compositor?.contentBackedPresentation == true])
     }
     @objc func apply(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
@@ -481,6 +482,12 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
             let privacy = shield.snapshot()
             guard shield.acceptsDocument(identity.document), privacy.appIsActive, !privacy.shielded,
                   call.getInt("privacyGeneration") == privacy.generation else { call.reject("NATIVE_DOCK_DOCUMENT_RETIRED"); return }
+            guard self.compositor?.acceptsPresentationRevision(call.getInt("presentationRegionRevision"),
+                privacyGeneration: call.getInt("privacyGeneration")) != false else {
+                call.resolve(["documentId": identity.document, "ownerEpoch": identity.owner,
+                    "revision": identity.revision, "updateSequence": sequence, "phase": "active",
+                    "height": self.hosting?.view.bounds.height ?? 0, "presentationApplied": false]); return
+            }
             let replacing = self.fence.identity != identity
             let changingEditor = mode == "text" && self.editorContext != context
             let replacingText = mode == "text" && self.editorRevision != editorRevision
@@ -543,8 +550,10 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
             self.hosting?.view.isHidden = !self.requestedVisible || !self.safe
             self.hosting?.view.isUserInteractionEnabled = self.model.visible
             self.hosting?.view.accessibilityElementsHidden = !self.model.visible
-            if self.model.visible { self.compositor?.revealUnderlay() }
-            self.compositor?.setAdmission("agent-dock", admitted: self.model.visible)
+            if self.model.visible { self.compositor?.revealUnderlay(presentationRegionRevision: call.getInt("presentationRegionRevision"),
+                privacyGeneration: call.getInt("privacyGeneration")) }
+            self.compositor?.setAdmission("agent-dock", admitted: self.model.visible,
+                presentationRegionRevision: call.getInt("presentationRegionRevision"), privacyGeneration: call.getInt("privacyGeneration"))
             self.layoutDock()
             // Commit actual native layout before transferring the web input.
             parent.view.layoutIfNeeded()

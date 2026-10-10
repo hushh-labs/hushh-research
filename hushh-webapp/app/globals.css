@@ -6860,19 +6860,35 @@ html.native-reserved-chrome:not([data-session-check-active]) [data-slot="sheet-c
   top: var(--native-overlay-top, 0px);
   max-height: calc(100dvh - var(--native-overlay-top, 0px) - var(--native-overlay-bottom, 0px));
 }
-html.native-reserved-chrome:not([data-session-check-active]) [data-testid="profile-pane"] > [data-slot="sheet-header"] {
+html.native-reserved-chrome:not(.native-full-window-overlays):not([data-session-check-active]) [data-testid="profile-pane"] > [data-slot="sheet-header"] {
   padding-top: 1rem;
 }
-html.native-reserved-chrome:not([data-session-check-active]) [data-testid="profile-pane"] > [data-native-chrome-slot="profile-close"] {
+html.native-reserved-chrome:not(.native-full-window-overlays):not([data-session-check-active]) [data-testid="profile-pane"] > [data-native-chrome-slot="profile-close"] {
   top: 1rem;
 }
 /* The reserved chrome already owns the safe areas. Do not inset the moving
    panel again, which left a second gap and misaligned Profile and History. */
-html.native-reserved-chrome:not([data-session-check-active]) :is(
+html.native-reserved-chrome:not(.native-full-window-overlays):not([data-session-check-active]) :is(
   [data-testid="profile-pane"], [data-agent-history-sidebar="drawer"]
 ) {
   padding-top: 0;
   padding-bottom: 0;
+}
+
+/* New wrappers acknowledge retained native coverage before admitting the
+ * full-height React modal. Older wrappers keep the reserved-region contract. */
+html.native-full-window-overlays:not([data-session-check-active]) :is(
+  [data-testid="profile-pane"], [data-profile-preview], [data-agent-history-drawer]
+) {
+  top: 0;
+  bottom: 0;
+  height: auto;
+}
+html.native-full-window-overlays:not([data-native-full-window-covered]) :is(
+  [data-profile-preview], [data-profile-preview-scrim],
+  [data-agent-history-drawer][aria-hidden="true"], [data-agent-history-scrim]
+) {
+  visibility: hidden !important;
 }
 
 /* Opt-in stationary chrome: Radix still observes the semantic frame's
