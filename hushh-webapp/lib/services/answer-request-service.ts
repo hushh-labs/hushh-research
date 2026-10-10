@@ -130,6 +130,29 @@ export interface AnswerableWork {
 }
 
 export class AnswerRequestService {
+  /**
+   * Whether this environment offers paid answers.
+   *
+   * The lane ships disabled, so the Request scope CTA asks before it appears
+   * rather than rendering a button that 503s on submit.
+   */
+  static async available(firebaseIdToken: string): Promise<boolean> {
+    if (!firebaseIdToken) return false;
+    try {
+      const response = await ApiService.apiFetch("/api/one/answer-requests/availability", {
+        method: "GET",
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${firebaseIdToken}` },
+      });
+      if (!response.ok) return false;
+      const value = await readJson(response);
+      return value.enabled === true;
+    } catch {
+      // Unreachable means unavailable. Never assume on.
+      return false;
+    }
+  }
+
   /** Questions this owner has been asked and has not yet answered or refused. */
   static async inbox(firebaseIdToken: string): Promise<PendingAnswerRequest[]> {
     if (!firebaseIdToken) return [];
@@ -205,6 +228,45 @@ export class AnswerRequestService {
       (row: AnswerableWork) =>
         row?.recipientKey?.keyId && row?.recipientKey?.publicKeyJwk && Array.isArray(row.approvedScopes),
     ) as AnswerableWork[];
+  }
+
+  /**
+   * Have the answer written from the projection this device just built.
+   *
+   * The projection is the approved scopes and dates only, and nothing is
+   * persisted server-side. A model failure returns answerMode 'projection',
+   * which the caller must carry through rather than presenting the projection
+   * as a written answer.
+   */
+  static async compose(
+    firebaseIdToken: string,
+    requestId: string,
+    projection: Record<string, unknown>,
+  ): Promise<{ answerMode: "agent" | "projection"; answer: string | null; covers?: string[]; gaps?: string[] }> {
+    if (!firebaseIdToken) throw new Error("Sign in to compose this answer");
+    const response = await ApiService.apiFetch(`${requestPath(requestId)}/compose`, {
+      method: "POST",
+      cache: "no-store",
+      headers: {
+        Authorization: `Bearer ${firebaseIdToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ projection }),
+    });
+    if (!response.ok) return { answerMode: "projection", answer: null };
+    const value = await readJson(response);
+    const mode = value.answerMode === "agent" ? "agent" : "projection";
+    const answer = typeof value.answer === "string" && value.answer.trim() ? value.answer : null;
+    // An 'agent' mode with no answer is not an agent answer.
+    if (mode === "agent" && answer) {
+      return {
+        answerMode: "agent",
+        answer,
+        covers: Array.isArray(value.covers) ? (value.covers as string[]) : [],
+        gaps: Array.isArray(value.gaps) ? (value.gaps as string[]) : [],
+      };
+    }
+    return { answerMode: "projection", answer: null };
   }
 
   /** Post the sealed answer. Ciphertext only; the server cannot read it. */

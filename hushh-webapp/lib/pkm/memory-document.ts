@@ -26,6 +26,7 @@
  */
 
 import { reservedEntryFor } from "@/lib/pkm/reserved-branches";
+import { collectDomainRows, type DomainRows } from "@/lib/pkm/memory-complete-rows";
 import {
   shouldSkipPkmAgentContextKey,
   shouldSkipPkmMemoryKey,
@@ -50,6 +51,10 @@ export interface MemoryDomainFreshness {
   cardCount: number;
   /** Set only when `status` is `unavailable`: why the section could not be built. */
   reason?: string;
+  /** True when a traversal bound stopped the walk before the domain finished. */
+  truncated?: boolean;
+  /** Branches withheld by an exclusion rule, so the omission is visible. */
+  withheld?: string[];
 }
 
 export interface MemoryDocumentSourceDomain {
@@ -80,6 +85,15 @@ export interface MemoryAccountIdentity {
 
 export interface BuildMemoryDocumentParams {
   snapshot: PkmMemorySnapshot;
+  /**
+   * The decrypted domain objects, keyed by domain.
+   *
+   * When supplied, each section is built by walking this completely rather
+   * than from `snapshot`, whose per-domain cap, overall cap and 180-character
+   * value clip are display concerns. A record of what One holds must not be a
+   * truncated summary that reports itself complete.
+   */
+  domainData?: Record<string, unknown>;
   /** Account-level identity. Omitted entirely when the caller has none. */
   account?: MemoryAccountIdentity | null;
   /**
@@ -98,7 +112,10 @@ export interface MemoryDocument {
   freshness: MemoryDomainFreshness[];
   /** Domains withheld by the audience's exclusion rule, so the omission is visible rather than silent. */
   excludedDomains: string[];
-  /** True when every listed domain rendered successfully. */
+  /**
+   * True only when every listed domain rendered AND nothing was truncated.
+   * A truncated section is not a complete record.
+   */
   complete: boolean;
 }
 
@@ -213,6 +230,16 @@ function renderAccount(account: MemoryAccountIdentity | null | undefined): strin
   ];
 }
 
+/** Every value in the section, in full. */
+function renderCompleteRows(section: DomainRows): string[] {
+  if (section.rows.length === 0) return ["_Nothing recorded._"];
+  const lines = ["| Detail | Value |", "| --- | --- |"];
+  for (const row of section.rows) {
+    lines.push(`| ${escapeTableCell(row.label)} | ${escapeTableCell(row.value)} |`);
+  }
+  return lines;
+}
+
 function renderInsight(insight: PkmDomainInsight | undefined): string[] {
   if (!insight) return [];
   const lines: string[] = [];
@@ -234,7 +261,7 @@ function renderInsight(insight: PkmDomainInsight | undefined): string[] {
  * `sources` with an `unavailableReason` so they appear honestly.
  */
 export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDocument {
-  const { snapshot, sources, audience, builtAt, account } = params;
+  const { snapshot, sources, audience, builtAt, account, domainData } = params;
 
   const insightByDomain = new Map<string, PkmDomainInsight>();
   for (const insight of snapshot.domainInsights || []) {
@@ -303,26 +330,52 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
       typeof source?.contentRevision === "number" ? source.contentRevision : null;
     const updatedAt = newestUpdatedAt(cards);
 
+    const completeForFreshness: DomainRows | null =
+      domainData && domain in domainData
+        ? collectDomainRows({ domain, domainData: domainData[domain], audience })
+        : null;
     freshness.push({
       domain,
       title,
       status: "current",
       contentRevision,
       updatedAt,
-      cardCount: cards.length,
+      cardCount: completeForFreshness ? completeForFreshness.rows.length : cards.length,
+      ...(completeForFreshness?.truncated ? { truncated: true } : {}),
+      ...(completeForFreshness && completeForFreshness.withheld.length
+        ? { withheld: completeForFreshness.withheld }
+        : {}),
     });
+
+    // Prefer the complete walk. `cards` is the browsing projection and is
+    // capped and clipped; a record of what One holds must not be either.
+    const complete: DomainRows | null =
+      domainData && domain in domainData
+        ? collectDomainRows({ domain, domainData: domainData[domain], audience })
+        : null;
 
     body.push(`## ${title}`, "");
     body.push(
       `_Revision ${contentRevision ?? "unknown"} · updated ${updatedAt || "unknown"}._`,
       "",
     );
+    if (complete?.truncated) {
+      body.push(
+        "> **Truncated.** This section hit a traversal bound and is not a complete record.",
+        "",
+      );
+    }
+    if (complete && complete.withheld.length > 0) {
+      body.push(`> ${EXCLUDED_NOTE} Withheld here: ${complete.withheld.join(", ")}.`, "");
+    }
     body.push(...renderInsight(insight));
-    body.push(...renderSectionBody(cards), "");
+    body.push(...(complete ? renderCompleteRows(complete) : renderSectionBody(cards)), "");
   }
 
   const unavailable = freshness.filter((entry) => entry.status === "unavailable");
-  const complete = unavailable.length === 0;
+  const truncatedSections = freshness.filter((entry) => entry.truncated);
+  // A truncated section is not a complete record, even though it rendered.
+  const complete = unavailable.length === 0 && truncatedSections.length === 0;
 
   const header: string[] = [
     "# Memory",
@@ -331,10 +384,17 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
     "",
   ];
 
-  if (!complete) {
+  if (unavailable.length > 0) {
     header.push(
       `> **Partial.** ${unavailable.length} of ${freshness.length} sections could not be read, ` +
         "so this document is not a complete picture.",
+      "",
+    );
+  }
+  if (truncatedSections.length > 0) {
+    header.push(
+      `> **Truncated.** ${truncatedSections.length} section(s) hit a traversal bound. ` +
+        "This document is not a complete record of what is held.",
       "",
     );
   }

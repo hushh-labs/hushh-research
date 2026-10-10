@@ -128,6 +128,9 @@ export async function refreshMemoryDocument(
   const builtAt = new Date().toISOString();
   const document = buildMemoryDocument({
     snapshot: buildPkmMemorySnapshot({ metadata: null, fullBlob }),
+    // The decrypted domains themselves, so each section is a complete record
+    // rather than the capped, clipped browsing projection.
+    domainData: fullBlob,
     sources,
     audience: "self",
     builtAt,

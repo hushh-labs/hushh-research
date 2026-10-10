@@ -24,7 +24,7 @@
  * the whole gate, matching the existing request lanes.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 
 import { AuthService } from "@/lib/services/auth-service";
@@ -70,6 +70,22 @@ export function RequestScopeButton({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<string | null>(null);
+  // The lane ships disabled. Ask before offering the CTA at all, so an
+  // environment without it never shows a button that refuses on submit.
+  const [enabled, setEnabled] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const token = await AuthService.getIdToken().catch(() => null);
+      if (!token) return;
+      const available = await AnswerRequestService.available(token);
+      if (!cancelled) setEnabled(available);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const periodStart = hasPeriod ? start || null : null;
   const periodEnd = hasPeriod ? end || null : null;
@@ -114,6 +130,8 @@ export function RequestScopeButton({
       setBusy(false);
     }
   };
+
+  if (!enabled) return null;
 
   return (
     <Dialog

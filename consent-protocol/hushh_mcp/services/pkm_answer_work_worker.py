@@ -22,7 +22,7 @@ closed `safe_error_code` set.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Mapping
 
 import stripe
 from sqlalchemy import text
@@ -35,11 +35,49 @@ from hushh_mcp.services.pkm_answer_payment_service import answer_payments_enable
 
 logger = logging.getLogger(__name__)
 
+#: The named stages this lane's own scheduler can invoke. Each gets its own
+#: Cloud Scheduler job, so a slow provider on one cannot consume another's
+#: budget — and none of them rides the Drive drain.
+ANSWER_DRAIN_STAGES: frozenset[str] = frozenset({"timeouts", "refunds", "payouts"})
+
+#: Per-stage job bounds. Deliberately small: this lane settles money, so a
+#: sweep that falls behind is preferable to one that runs long.
+STAGE_MAX_JOBS = {"timeouts": 10, "refunds": 5, "payouts": 5}
+
+#: Counts the monitoring surface is allowed to report, per stage. Anything a
+#: worker returns that is not listed here is dropped rather than echoed, so a
+#: provider message or an identifier can never reach a dashboard.
+_SAFE_OUTCOME_KEYS = {
+    "timeouts": frozenset({"expired", "refunds_filed", "disabled"}),
+    "refunds": frozenset({"succeeded", "retried", "manual_review", "disabled"}),
+    "payouts": frozenset({"transferred", "retried", "awaiting_account", "disabled"}),
+}
+
 LEASE_SECONDS = 90
 RETRY_BACKOFF_SECONDS = 300
 MAX_REFUND_ATTEMPTS = 8
 MAX_PAYOUT_ATTEMPTS = 8
 COMMISSION_BPS = 300
+
+
+def safe_answer_drain_result(stage: str, outcomes: object) -> dict[str, Any]:
+    """Shape one sweep into a counts-only monitoring record.
+
+    Only known keys with integer values survive. A question, a scope, an
+    answer, an identifier or a provider message cannot reach the response even
+    if a worker were changed to return one.
+    """
+    allowed = _SAFE_OUTCOME_KEYS.get(stage, frozenset())
+    counts: dict[str, int] = {}
+    if isinstance(outcomes, Mapping):
+        for key, value in outcomes.items():
+            if key in allowed and type(value) is int and 0 <= value <= 1_000_000:
+                counts[str(key)] = value
+    return {
+        "schema_version": "pkm.answer_work_drain.v1",
+        "stage": stage,
+        "outcomes": counts,
+    }
 
 
 def _owner_earning_cents(gross: int) -> int:
@@ -51,6 +89,17 @@ class PkmAnswerWorkWorker(ExternalConnectorLifecycleStore):
     def __init__(self, db=None, *, stripe_api=None):
         super().__init__(db)
         self.stripe_api = stripe_api or stripe
+
+    async def run_stage(self, stage: str) -> dict[str, int]:
+        """Run one named stage with its own bound. Unknown stages are refused."""
+        if stage not in ANSWER_DRAIN_STAGES:
+            raise ValueError("invalid answer work stage")
+        max_jobs = STAGE_MAX_JOBS[stage]
+        if stage == "timeouts":
+            return await self.run_timeouts(max_jobs=max_jobs)
+        if stage == "refunds":
+            return await self.run_refunds(max_jobs=max_jobs)
+        return await self.run_payouts(max_jobs=max_jobs)
 
     # -------------------------------------------------------------- timeouts
 
@@ -423,4 +472,10 @@ def _safe_payout_error(error: Exception) -> str:
     return "provider_unavailable"
 
 
-__all__ = ["PkmAnswerWorkWorker", "file_refund"]
+__all__ = [
+    "ANSWER_DRAIN_STAGES",
+    "STAGE_MAX_JOBS",
+    "PkmAnswerWorkWorker",
+    "file_refund",
+    "safe_answer_drain_result",
+]

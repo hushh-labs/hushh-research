@@ -28,6 +28,7 @@ from uuid import UUID
 from fastapi import APIRouter, Body, Depends, HTTPException, Response
 
 from api.middleware import require_firebase_auth, require_firebase_auth_read_only
+from hushh_mcp.services.answer_composer import AnswerComposer, AnswerComposerError
 from hushh_mcp.services.answer_scope_resolver import AnswerScopeResolver
 from hushh_mcp.services.pkm_answer_payment_service import (
     AnswerPaymentError,
@@ -105,6 +106,20 @@ def _require_enabled() -> None:
         )
 
 
+@router.get("/availability")
+async def answer_requests_available(
+    response: Response,
+    _user_id: str = Depends(require_firebase_auth_read_only),
+) -> dict[str, bool]:
+    """Whether this environment offers paid answers at all.
+
+    The lane ships disabled, so the Request scope CTA asks before it appears.
+    A dead button that 503s on submit is worse than no button.
+    """
+    response.headers["Cache-Control"] = "private, no-store"
+    return {"enabled": answer_payments_enabled()}
+
+
 @router.post("")
 async def create_answer_request(
     response: Response,
@@ -117,12 +132,14 @@ async def create_answer_request(
     if not owner_user_id:
         raise HTTPException(status_code=422, detail="Choose who to ask.")
     try:
-        return await _requests().create(
-            requester_user_id=requester_user_id,
-            owner_user_id=owner_user_id,
-            question=str(body.get("question") or ""),
-            period_start=(body.get("periodStart") or None),
-            period_end=(body.get("periodEnd") or None),
+        return dict(
+            await _requests().create(
+                requester_user_id=requester_user_id,
+                owner_user_id=owner_user_id,
+                question=str(body.get("question") or ""),
+                period_start=(body.get("periodStart") or None),
+                period_end=(body.get("periodEnd") or None),
+            )
         )
     except Exception as error:
         raise _http(error) from None
@@ -154,11 +171,13 @@ async def approve_answer_request(
     if not isinstance(scopes, list):
         raise HTTPException(status_code=422, detail="Choose the information to share.")
     try:
-        return await _requests().approve(
-            owner_user_id=owner_user_id,
-            request_id=str(request_id),
-            scopes=[str(scope) for scope in scopes],
-            amount_cents=body.get("amountCents"),
+        return dict(
+            await _requests().approve(
+                owner_user_id=owner_user_id,
+                request_id=str(request_id),
+                scopes=[str(scope) for scope in scopes],
+                amount_cents=body.get("amountCents"),
+            )
         )
     except Exception as error:
         raise _http(error) from None
@@ -173,7 +192,9 @@ async def decline_answer_request(
     _require_enabled()
     response.headers["Cache-Control"] = "private, no-store"
     try:
-        return await _requests().decline(owner_user_id=owner_user_id, request_id=str(request_id))
+        return dict(
+            await _requests().decline(owner_user_id=owner_user_id, request_id=str(request_id))
+        )
     except Exception as error:
         raise _http(error) from None
 
@@ -187,8 +208,10 @@ async def cancel_answer_request(
     _require_enabled()
     response.headers["Cache-Control"] = "private, no-store"
     try:
-        return await _requests().cancel(
-            requester_user_id=requester_user_id, request_id=str(request_id)
+        return dict(
+            await _requests().cancel(
+                requester_user_id=requester_user_id, request_id=str(request_id)
+            )
         )
     except Exception as error:
         raise _http(error) from None
@@ -203,8 +226,10 @@ async def get_answer_payment(
     _require_enabled()
     response.headers["Cache-Control"] = "private, no-store"
     try:
-        return await _payments().get_payment(
-            requester_user_id=requester_user_id, request_id=str(request_id)
+        return dict(
+            await _payments().get_payment(
+                requester_user_id=requester_user_id, request_id=str(request_id)
+            )
         )
     except Exception as error:
         raise _http(error) from None
@@ -219,8 +244,10 @@ async def create_answer_checkout(
     _require_enabled()
     response.headers["Cache-Control"] = "private, no-store"
     try:
-        return await _payments().checkout(
-            requester_user_id=requester_user_id, request_id=str(request_id)
+        return dict(
+            await _payments().checkout(
+                requester_user_id=requester_user_id, request_id=str(request_id)
+            )
         )
     except Exception as error:
         raise _http(error) from None
@@ -244,6 +271,49 @@ async def answerable_for_owner(
         raise _http(error) from None
 
 
+@router.post("/{request_id}/compose")
+async def compose_answer(
+    request_id: UUID,
+    response: Response,
+    body: dict[str, Any] = Body(...),
+    owner_user_id: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    """Write the answer from the projection the owner's device just built.
+
+    Owner-only, and bound to a request that is actually paid and answerable:
+    the gate runs first, so this cannot be used as a free model endpoint.
+
+    Nothing is persisted. The projection exists for this request only and the
+    written answer goes straight back to the device, which seals it. The
+    backend decrypts nothing here -- the device had already decrypted its own
+    PKM and chose what to send.
+    """
+    _require_enabled()
+    response.headers["Cache-Control"] = "private, no-store"
+    projection = body.get("projection")
+    if not isinstance(projection, dict) or not projection:
+        raise HTTPException(status_code=422, detail="Check the request details.")
+    try:
+        work = await _requests().assert_answerable(
+            owner_user_id=owner_user_id, request_id=str(request_id)
+        )
+    except Exception as error:
+        raise _http(error) from None
+    try:
+        written = await AnswerComposer().compose(
+            question=work["question"],
+            projection=projection,
+            period=work.get("period"),
+            user_id=owner_user_id,
+        )
+    except AnswerComposerError:
+        # A model FAILURE is reported as such. The device then delivers the
+        # approved projection labelled answer_mode='projection' rather than
+        # passing anything off as a written answer.
+        return {"answerMode": "projection", "answer": None}
+    return {"answerMode": "agent", **written}
+
+
 @router.post("/{request_id}/deliver")
 async def deliver_answer(
     request_id: UUID,
@@ -258,12 +328,14 @@ async def deliver_answer(
         raise HTTPException(status_code=422, detail="Check the request details.")
     source_revisions = body.get("sourceRevisions")
     try:
-        return await _requests().deliver(
-            owner_user_id=owner_user_id,
-            request_id=str(request_id),
-            envelope=envelope,
-            source_revisions=source_revisions if isinstance(source_revisions, dict) else None,
-            has_content=bool(body.get("hasContent", True)),
+        return dict(
+            await _requests().deliver(
+                owner_user_id=owner_user_id,
+                request_id=str(request_id),
+                envelope=envelope,
+                source_revisions=source_revisions if isinstance(source_revisions, dict) else None,
+                has_content=bool(body.get("hasContent", True)),
+            )
         )
     except Exception as error:
         raise _http(error) from None
@@ -278,8 +350,10 @@ async def get_answer(
     _require_enabled()
     response.headers["Cache-Control"] = "private, no-store"
     try:
-        return await _requests().fetch_answer(
-            requester_user_id=requester_user_id, request_id=str(request_id)
+        return dict(
+            await _requests().fetch_answer(
+                requester_user_id=requester_user_id, request_id=str(request_id)
+            )
         )
     except Exception as error:
         raise _http(error) from None

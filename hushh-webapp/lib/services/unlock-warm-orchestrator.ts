@@ -958,12 +958,17 @@ export class UnlockWarmOrchestrator {
         vaultKey: params.vaultKey,
         vaultOwnerToken: params.vaultOwnerToken,
       });
-      // Keep the owner's own memory.md current for this session.
-      this.queueMemoryRefresh({
-        userId: params.userId,
-        vaultKey: params.vaultKey,
-        vaultOwnerToken: params.vaultOwnerToken,
-      });
+      // Keep the owner's own memory.md current for this session, but only
+      // where the workspace that shows it is being warmed anyway. memory.md
+      // reads PKM metadata, and the canonical Chat unlock path is contracted
+      // to stay free of unrelated workspace warmups -- it is the hot path.
+      if (shouldWarmMetadata) {
+        this.queueMemoryRefresh({
+          userId: params.userId,
+          vaultKey: params.vaultKey,
+          vaultOwnerToken: params.vaultOwnerToken,
+        });
+      }
       this.queueVaultPlaidRefresh({
         userId: params.userId,
         vaultKey: params.vaultKey,

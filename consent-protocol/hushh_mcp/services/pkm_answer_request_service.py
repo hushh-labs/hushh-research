@@ -565,6 +565,42 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
 
         return await self._transaction(read)
 
+    async def assert_answerable(self, *, owner_user_id: str, request_id: str) -> dict[str, Any]:
+        """Confirm this owner may answer this request right now, and return it.
+
+        The same gate as delivery, run before any model work, so the compose
+        endpoint cannot be used as a free model call on an unpaid, cancelled
+        or someone else's request.
+        """
+
+        def read(connection):
+            request = self._row(
+                connection,
+                """SELECT request_id, owner_user_id, status, question, terms_digest,
+                          period_start, period_end
+                   FROM pkm_answer_requests WHERE request_id = :request FOR SHARE""",
+                {"request": request_id},
+            )
+            if request is None or request["owner_user_id"] != owner_user_id:
+                raise AnswerRequestError("request_unavailable")
+            if request["status"] != "answering":
+                raise AnswerRequestError("request_not_answerable")
+            PkmAnswerPaymentService.require_paid_answer(connection, request)
+            return {
+                "requestId": str(request["request_id"]),
+                "question": request["question"],
+                "period": (
+                    {
+                        "start": request["period_start"].isoformat(),
+                        "end": request["period_end"].isoformat(),
+                    }
+                    if request["period_start"] and request["period_end"]
+                    else None
+                ),
+            }
+
+        return await self._transaction(read)
+
     async def deliver(
         self,
         *,

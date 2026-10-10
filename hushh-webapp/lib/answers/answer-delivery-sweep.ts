@@ -54,10 +54,20 @@ export interface AnswerSweepResult {
 export interface AnswerPayload {
   version: 1;
   question: string;
+  /**
+   * 'agent' means the answer field was written by the answer gene from the
+   * approved projection. 'projection' means it was not, and `answer` is null:
+   * the requester receives the approved information itself, labelled as such.
+   * A projection is never presented as a written answer.
+   */
+  answerMode: "agent" | "projection";
+  answer: string | null;
+  covers: string[];
+  gaps: string[];
   period: { start: string; end: string } | null;
   approvedScopes: string[];
-  /** Approved projections only, keyed by scope. */
-  answer: Record<string, unknown>;
+  /** The approved projections themselves, keyed by scope. Supporting evidence. */
+  approvedInformation: Record<string, unknown>;
   sourceRevisions: Record<string, number | null>;
   excludedByPeriod: number;
   /** Scopes that yielded nothing, so a partial answer cannot read as complete. */
@@ -74,6 +84,7 @@ export interface AnswerPayload {
 export async function buildAnswerPayload(
   work: AnswerableWork,
   params: Pick<AnswerSweepParams, "userId" | "vaultKey" | "vaultOwnerToken">,
+  firebaseIdToken?: string,
 ): Promise<{ payload: AnswerPayload; hasContent: boolean }> {
   const projections: ScopeProjection[] = [];
   const unavailableScopes: string[] = [];
@@ -109,13 +120,31 @@ export async function buildAnswerPayload(
     period,
   });
 
+  // Have the answer written from exactly this projection. A failure is
+  // carried through as 'projection', never dressed up as a written answer.
+  let written: { answerMode: "agent" | "projection"; answer: string | null; covers?: string[]; gaps?: string[] } = {
+    answerMode: "projection",
+    answer: null,
+  };
+  if (firebaseIdToken && projected.hasContent) {
+    written = await AnswerRequestService.compose(
+      firebaseIdToken,
+      work.requestId,
+      projected.byScope,
+    ).catch(() => ({ answerMode: "projection" as const, answer: null }));
+  }
+
   return {
     payload: {
       version: 1,
       question: work.question,
+      answerMode: written.answerMode,
+      answer: written.answer,
+      covers: written.covers ?? [],
+      gaps: written.gaps ?? [],
       period,
       approvedScopes: [...work.approvedScopes],
-      answer: projected.byScope,
+      approvedInformation: projected.byScope,
       sourceRevisions: projected.sourceRevisions,
       excludedByPeriod: projected.excludedByPeriod,
       unavailableScopes,
@@ -146,7 +175,11 @@ export async function runAnswerDeliverySweep(
 
   for (const work of queue) {
     try {
-      const { payload, hasContent } = await buildAnswerPayload(work, params);
+      const { payload, hasContent } = await buildAnswerPayload(
+        work,
+        params,
+        params.firebaseIdToken,
+      );
       const envelope = await encryptSliceForRecipient({
         payload,
         recipientPublicKeyJwk: work.recipientKey.publicKeyJwk,

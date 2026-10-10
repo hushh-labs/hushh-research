@@ -53,7 +53,7 @@ describe("an approved field cannot expose another field in the same domain", () 
     // The whole-domain read path is never touched. This is the regression:
     // reading `travel` wholesale is what leaked siblings.
     expect(getStaleFirst).not.toHaveBeenCalled();
-    expect(Object.keys(payload.answer)).toEqual(["attr.travel.trips"]);
+    expect(Object.keys(payload.approvedInformation)).toEqual(["attr.travel.trips"]);
   });
 
   it("drops a sibling projection the owner never approved", async () => {
@@ -86,7 +86,7 @@ describe("an approved field cannot expose another field in the same domain", () 
       params,
     );
 
-    expect(Object.keys(payload.answer)).toEqual(["attr.travel.trips"]);
+    expect(Object.keys(payload.approvedInformation)).toEqual(["attr.travel.trips"]);
     expect(payload.unavailableScopes).toEqual(["attr.preferences.food"]);
   });
 
@@ -115,7 +115,7 @@ describe("the requested period is applied before the answer is sealed", () => {
       params,
     );
 
-    const trips = (payload.answer["attr.travel.trips"] as { trips: { city: string }[] }).trips;
+    const trips = (payload.approvedInformation["attr.travel.trips"] as { trips: { city: string }[] }).trips;
     expect(trips.map((trip) => trip.city)).toEqual(["Tokyo"]);
     expect(payload.excludedByPeriod).toBe(2);
     expect(payload.period).toEqual({ start: "2026-01-01", end: "2026-12-31" });
@@ -134,7 +134,7 @@ describe("the requested period is applied before the answer is sealed", () => {
       params,
     );
 
-    const trips = (payload.answer["attr.travel.trips"] as { trips: { city: string }[] }).trips;
+    const trips = (payload.approvedInformation["attr.travel.trips"] as { trips: { city: string }[] }).trips;
     expect(trips.map((trip) => trip.city)).toEqual(["Tokyo"]);
     expect(payload.excludedByPeriod).toBe(1);
   });
@@ -145,7 +145,7 @@ describe("the requested period is applied before the answer is sealed", () => {
       sourceContentRevision: 7,
     });
     const { payload } = await buildAnswerPayload(work(), params);
-    const trips = (payload.answer["attr.travel.trips"] as { trips: { city: string }[] }).trips;
+    const trips = (payload.approvedInformation["attr.travel.trips"] as { trips: { city: string }[] }).trips;
     expect(trips).toHaveLength(1);
     expect(payload.excludedByPeriod).toBe(0);
   });
