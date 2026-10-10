@@ -275,6 +275,7 @@ export class VaultMethodService {
   static async changePassphrase(params: {
     userId: string;
     currentVaultKey: string;
+    currentPassphrase?: string;
     newPassphrase: string;
     keepPrimaryMethod?: boolean;
   }): Promise<{ primaryMethod: VaultMethod; passphraseUpdated: true }> {
@@ -286,6 +287,25 @@ export class VaultMethodService {
       if (state.vaultKeyHash && state.vaultKeyHash !== vaultKeyHash) {
         throw new Error("Key mismatch detected. Unlock again.");
       }
+
+      const existingPassphraseWrapper = VaultService.getWrapperByMethod(state, "passphrase");
+      if (existingPassphraseWrapper && params.currentPassphrase !== undefined) {
+        const currentPassphrase = params.currentPassphrase.trim();
+        if (!currentPassphrase) {
+          throw new Error("Please enter your current passphrase.");
+        }
+        const verifiedVaultKey = await unlockVaultWithPassphrase(
+          currentPassphrase,
+          existingPassphraseWrapper.encryptedVaultKey,
+          existingPassphraseWrapper.salt,
+          existingPassphraseWrapper.iv
+        ).catch(() => null);
+
+        if (!verifiedVaultKey || ensureVaultKeyHex(verifiedVaultKey) !== canonicalVaultKey) {
+          throw new Error("Current passphrase is incorrect.");
+        }
+      }
+
       const { token: vaultOwnerToken } = await VaultService.getOrIssueVaultOwnerToken(params.userId);
 
       const nextPassphrase = params.newPassphrase.trim();

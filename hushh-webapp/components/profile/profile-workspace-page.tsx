@@ -13,6 +13,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   WarningIcon as AlertTriangle,
   BriefcaseIcon as BriefcaseBusiness,
+  EyeIcon as Eye,
+  EyeSlashIcon as EyeOff,
   SpinnerGapIcon as Loader2,
   ArrowsClockwiseIcon as RefreshCw,
   UserCircleIcon as User,
@@ -736,8 +738,12 @@ function ProfilePageContent({
   const [passphraseDialogOpen, setPassphraseDialogOpen] = useState(false);
   const [passkeyRemovalTarget, setPasskeyRemovalTarget] =
     useState<VaultWrapper | null>(null);
+  const [currentPassphrase, setCurrentPassphrase] = useState("");
   const [newPassphrase, setNewPassphrase] = useState("");
   const [confirmPassphrase, setConfirmPassphrase] = useState("");
+  const [showCurrentPassphrase, setShowCurrentPassphrase] = useState(false);
+  const [showNewPassphrase, setShowNewPassphrase] = useState(false);
+  const [showConfirmPassphrase, setShowConfirmPassphrase] = useState(false);
   const [marketplaceOptIn, setMarketplaceOptIn] = useState(false);
   const [loadingMarketplaceOptIn, setLoadingMarketplaceOptIn] = useState(true);
   const [savingMarketplaceOptIn, setSavingMarketplaceOptIn] = useState(false);
@@ -2147,6 +2153,7 @@ function ProfilePageContent({
       const result = await VaultMethodService.changePassphrase({
         userId: user.uid,
         currentVaultKey: vaultKey,
+        currentPassphrase,
         newPassphrase,
         keepPrimaryMethod: true,
       });
@@ -2154,8 +2161,12 @@ function ProfilePageContent({
       toast.success("Passphrase updated successfully.");
       await refreshVaultMethodState(user.uid);
       setPassphraseDialogOpen(false);
+      setCurrentPassphrase("");
       setNewPassphrase("");
       setConfirmPassphrase("");
+      setShowCurrentPassphrase(false);
+      setShowNewPassphrase(false);
+      setShowConfirmPassphrase(false);
     } catch (error) {
       console.error("[ProfilePage] Failed to update passphrase:", error);
       toast.error(
@@ -4937,7 +4948,17 @@ function ProfilePageContent({
 
       <Dialog
         open={passphraseDialogOpen}
-        onOpenChange={setPassphraseDialogOpen}
+        onOpenChange={(open) => {
+          setPassphraseDialogOpen(open);
+          if (!open) {
+            setCurrentPassphrase("");
+            setNewPassphrase("");
+            setConfirmPassphrase("");
+            setShowCurrentPassphrase(false);
+            setShowNewPassphrase(false);
+            setShowConfirmPassphrase(false);
+          }
+        }}
       >
         <DialogContent className="w-[calc(100%-1rem)] max-h-[calc(100svh-1rem)] overflow-y-auto sm:max-w-md">
           <DialogTitle>Change passphrase</DialogTitle>
@@ -4946,20 +4967,78 @@ function ProfilePageContent({
             methods stay active.
           </DialogDescription>
           <div className="space-y-3 pt-2">
-            <Input
-              type="password"
-              placeholder="New passphrase (min 8 characters)"
-              autoComplete="new-password"
-              value={newPassphrase}
-              onChange={(event) => setNewPassphrase(event.target.value)}
-            />
-            <Input
-              type="password"
-              placeholder="Confirm passphrase"
-              autoComplete="new-password"
-              value={confirmPassphrase}
-              onChange={(event) => setConfirmPassphrase(event.target.value)}
-            />
+            <div className="relative flex items-center">
+              <Input
+                type={showCurrentPassphrase ? "text" : "password"}
+                placeholder="Current passphrase"
+                autoComplete="off"
+                name="current-passphrase-no-autofill"
+                value={currentPassphrase}
+                onChange={(event) => setCurrentPassphrase(event.target.value)}
+                className="pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowCurrentPassphrase((prev) => !prev)}
+                className="absolute right-3 text-muted-foreground hover:text-foreground transition-colors focus:outline-none"
+                aria-label={showCurrentPassphrase ? "Hide current passphrase" : "Show current passphrase"}
+                title={showCurrentPassphrase ? "Hide current passphrase" : "Show current passphrase"}
+              >
+                {showCurrentPassphrase ? (
+                  <EyeOff className="h-4 w-4" aria-hidden />
+                ) : (
+                  <Eye className="h-4 w-4" aria-hidden />
+                )}
+              </button>
+            </div>
+
+            <div className="relative flex items-center">
+              <Input
+                type={showNewPassphrase ? "text" : "password"}
+                placeholder="New passphrase (min 8 characters)"
+                autoComplete="new-password"
+                value={newPassphrase}
+                onChange={(event) => setNewPassphrase(event.target.value)}
+                className="pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowNewPassphrase((prev) => !prev)}
+                className="absolute right-3 text-muted-foreground hover:text-foreground transition-colors focus:outline-none"
+                aria-label={showNewPassphrase ? "Hide new passphrase" : "Show new passphrase"}
+                title={showNewPassphrase ? "Hide new passphrase" : "Show new passphrase"}
+              >
+                {showNewPassphrase ? (
+                  <EyeOff className="h-4 w-4" aria-hidden />
+                ) : (
+                  <Eye className="h-4 w-4" aria-hidden />
+                )}
+              </button>
+            </div>
+
+            <div className="relative flex items-center">
+              <Input
+                type={showConfirmPassphrase ? "text" : "password"}
+                placeholder="Confirm passphrase"
+                autoComplete="new-password"
+                value={confirmPassphrase}
+                onChange={(event) => setConfirmPassphrase(event.target.value)}
+                className="pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassphrase((prev) => !prev)}
+                className="absolute right-3 text-muted-foreground hover:text-foreground transition-colors focus:outline-none"
+                aria-label={showConfirmPassphrase ? "Hide confirm passphrase" : "Show confirm passphrase"}
+                title={showConfirmPassphrase ? "Hide confirm passphrase" : "Show confirm passphrase"}
+              >
+                {showConfirmPassphrase ? (
+                  <EyeOff className="h-4 w-4" aria-hidden />
+                ) : (
+                  <Eye className="h-4 w-4" aria-hidden />
+                )}
+              </button>
+            </div>
             <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:items-center sm:justify-end">
               <Button
                 variant="none"
@@ -4976,6 +5055,7 @@ function ProfilePageContent({
                 className="w-full sm:w-auto"
                 disabled={
                   switchingVaultMethod ||
+                  (Boolean(passphraseWrapper) && !currentPassphrase.trim()) ||
                   newPassphrase.length < 8 ||
                   newPassphrase !== confirmPassphrase
                 }
