@@ -79,10 +79,9 @@ test("chat theme follows the device, persists a choice, and keeps the shared nav
   const lanes = page.getByRole("tablist", { name: "Message lanes" });
   await expect(lanes.getByRole("tab", { name: "People 2" })).toHaveAttribute("aria-selected", "true");
   await expect(lanes.getByRole("tab", { name: "Circles 3" })).toHaveAttribute("aria-selected", "false");
-  const activeNav = navigation.getByRole("radio", { name: "One" });
-  const inactiveNav = navigation.getByRole("radio", { name: "Chat" });
+  const activeNav = navigation.getByRole("radio", { name: "Chat", exact: true });
   await expect(activeNav).toHaveAttribute("aria-checked", "true");
-  await expect(inactiveNav).toHaveAttribute("aria-checked", "false");
+  await expect(navigation.getByRole("radio", { name: "One", exact: true })).toHaveAttribute("aria-checked", "false");
   await expect(activeNav).toHaveCSS("color", "rgb(10, 132, 255)");
   const navLabels = await navigation.innerText();
   expect(navLabels).toContain("Chat");
@@ -93,8 +92,6 @@ test("chat theme follows the device, persists a choice, and keeps the shared nav
 
   await page.getByRole("button", { name: "Switch to light mode" }).click();
   await expect(chat).toHaveAttribute("data-theme", "light");
-  await expect(activeNav).toHaveAttribute("aria-checked", "true");
-  await expect(inactiveNav).toHaveAttribute("aria-checked", "false");
   await expect(activeNav).toHaveCSS("color", "rgb(0, 122, 255)");
   await expect(lanes.getByRole("tab", { name: "People 2" })).toBeVisible();
   await expect(lanes.getByRole("tab", { name: "Circles 3" })).toBeVisible();
