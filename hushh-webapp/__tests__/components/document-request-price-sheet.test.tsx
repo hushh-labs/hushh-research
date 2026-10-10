@@ -6,6 +6,10 @@ import {
   type DocumentRequestPriceSheetProps,
 } from "@/components/consent/document-request-price-sheet";
 
+vi.mock("@/components/consent/document-payout-account", () => ({
+  DocumentPayoutAccountCard: () => null,
+}));
+
 /**
  * The owner's price for a request from outside the Trusted circle. The server
  * enforces the same whole-dollar $1 to $500 rule; this sheet must never offer
@@ -94,6 +98,15 @@ describe("DocumentRequestPriceSheet", () => {
       fireEvent.keyDown(input, { key: "Enter" });
     }
     expect(props.onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a new request's sent quote fixed when the owner allows it", () => {
+    const { props } = renderSheet({ lockedAmountCents: 2500 });
+    expect(screen.getByLabelText("Locked document request quote")).toHaveTextContent("$25");
+    expect(screen.queryByRole("group", { name: "Price" })).toBeNull();
+    expect(screen.queryByLabelText("Custom price")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Allow · $25" }));
+    expect(props.onSubmit).toHaveBeenCalledExactlyOnceWith(2500);
   });
 
   it("shows what Allow grants, and holds Allow until those terms have loaded", () => {

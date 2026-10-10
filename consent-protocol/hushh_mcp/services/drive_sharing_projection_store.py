@@ -159,11 +159,26 @@ class DriveSharingProjectionStore(DriveRevocationStore):
             rows = (
                 connection.execute(
                     text("""
-                SELECT request_id,status,revision,created_at,expires_at FROM drive_share_requests
-                WHERE (:outgoing=TRUE AND recipient_user_id=:user)
-                   OR (:outgoing=FALSE AND user_id=:user)
+                SELECT r.request_id,r.status,r.revision,r.created_at,r.expires_at,
+                       r.payment_required,r.quoted_amount_cents,r.quote_version,
+                       p.status AS owner_payout_status,
+                       CASE WHEN r.payment_required=TRUE AND
+                         ((r.status IN ('pending','preparing','review_ready','approved','partial')
+                           AND r.expires_at>clock_timestamp())
+                          OR p.status IN ('awaiting_account','due','awaiting_delivery',
+                            'awaiting_fee','awaiting_refund'))
+                         THEN (COALESCE(account.details_submitted,FALSE)
+                           AND COALESCE(account.payouts_enabled,FALSE))
+                       END AS owner_payout_account_ready
+                FROM drive_share_requests r
+                LEFT JOIN drive_request_owner_payouts p ON p.request_id=r.request_id
+                  AND p.erased_at IS NULL
+                LEFT JOIN pkm_owner_payout_accounts account ON account.user_id=r.user_id
+                WHERE (:outgoing=TRUE AND r.recipient_user_id=:user)
+                   OR (:outgoing=FALSE AND r.user_id=:user)
                 UNION ALL
-                SELECT request_id,'management_only',revocation_revision,created_at,NULL
+                SELECT request_id,'management_only',revocation_revision,created_at,NULL,
+                       NULL,NULL,NULL,NULL,NULL
                 FROM drive_share_management_contexts
                 WHERE :outgoing=FALSE AND user_id=:user AND private_request_erased_at IS NOT NULL
                 ORDER BY created_at DESC,request_id DESC LIMIT :limit OFFSET :offset
@@ -184,6 +199,17 @@ class DriveSharingProjectionStore(DriveRevocationStore):
                         **self._summary(row, recipient=direction == "outgoing"),
                         "createdAt": row["created_at"].isoformat(),
                         "direction": direction,
+                        **(
+                            {"ownerPayoutStatus": row["owner_payout_status"]}
+                            if direction == "incoming" and row["owner_payout_status"] is not None
+                            else {}
+                        ),
+                        **(
+                            {"ownerPayoutAccountReady": row["owner_payout_account_ready"] is True}
+                            if direction == "incoming"
+                            and row["owner_payout_account_ready"] is not None
+                            else {}
+                        ),
                         **(
                             self._payment_metadata(connection, row["request_id"])
                             if direction == "outgoing"

@@ -8,7 +8,7 @@ import {
 import type { ConsentCenterEntry } from "@/lib/services/consent-center-service";
 import type { SharingRequestContext } from "@/lib/services/drive-sharing-service";
 
-export type FeedDrivePaymentStatus = "ready" | "link_expired" | "expired";
+export type FeedDrivePaymentStatus = "ready" | "waiting_owner_setup" | "link_expired" | "expired";
 
 export interface FeedDrivePayment {
   requestId: string;
@@ -106,6 +106,9 @@ function paymentState(entry: ConsentCenterEntry, now = Date.now()): FeedDrivePay
   );
   const isOpenRequest = entry.kind === "outgoing_request" && requestStatus === "pending";
   if (!isOpenRequest) return null;
+  // Only a payout-enrolled order projects an explicit false. Legacy orders
+  // have no readiness marker and retain their existing Checkout behavior.
+  if (metadata.ownerPayoutAccountReady === false) return "waiting_owner_setup";
   // A completed/refunded order can retain the original Checkout expiry for
   // audit history. Never turn that historical timestamp back into a payment
   // action while the request projection is catching up.
@@ -192,9 +195,12 @@ function paymentCopy(
   if (subject) {
     return {
       title: status === "expired" ? "Document request expired"
-        : status === "link_expired" ? "Payment link expired" : `Pay ${price} · ${subject}`,
+        : status === "link_expired" ? "Payment link expired"
+          : status === "waiting_owner_setup" ? "Waiting for owner payout setup"
+            : `Pay ${price} · ${subject}`,
       description: [
         status === "ready" ? null : subject,
+        status === "waiting_owner_setup" ? `Quote ${price}` : null,
         owner ? `From ${owner}` : null,
         requestPeriod(context!),
         deadline,
@@ -206,8 +212,10 @@ function paymentCopy(
     return {
       title: status === "expired" ? "Document request expired"
         : status === "link_expired" ? "Payment link expired"
+          : status === "waiting_owner_setup" ? "Waiting for owner payout setup"
           : owner ? `Pay ${price} for files from ${owner}` : `Pay ${price} for your document request`,
-      description: [status !== "ready" && owner ? `From ${owner}` : null, requested, deadline]
+      description: [status === "waiting_owner_setup" ? `Quote ${price}` : null,
+        status !== "ready" && owner ? `From ${owner}` : null, requested, deadline]
         .filter(Boolean).join(" · "),
     };
   }
@@ -232,6 +240,12 @@ function paymentCopy(
           title: "Payment link expired",
           description: `The ${price} link expired.`,
         };
+  }
+  if (status === "waiting_owner_setup") {
+    return {
+      title: "Waiting for owner payout setup",
+      description: owner ? `Quote ${price} · ${owner} is setting up payouts.` : `Quote ${price} · Owner payout setup pending.`,
+    };
   }
   return owner
     ? {
@@ -314,11 +328,11 @@ export function projectFeedDrivePayments(entries: ConsentCenterEntry[], now = Da
       ownerLabel,
       expiresAt,
       href:
-        effectiveStatus === "expired" || effectiveStatus === "link_expired"
+        effectiveStatus === "expired" || effectiveStatus === "link_expired" || effectiveStatus === "waiting_owner_setup"
           ? buildConsentCenterHref(effectiveStatus === "expired" ? "previous" : "pending", {
               requestId: entry.id,
               from: "/one/feed",
-              requestView: effectiveStatus === "link_expired" ? "sent" : undefined,
+              requestView: effectiveStatus === "link_expired" || effectiveStatus === "waiting_owner_setup" ? "sent" : undefined,
             })
           : undefined,
     });

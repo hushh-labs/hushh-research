@@ -103,6 +103,8 @@ import {
   PkmDomainDetailPanel,
 } from "@/components/profile/pkm-data-manager";
 import { SharedWithYouGroup } from "@/components/profile/shared-with-you-group";
+import { DocumentBankPayoutStatusCard, DocumentPayoutAccountCard } from "@/components/consent/document-payout-account";
+import { DocumentRequestPricingCard } from "@/components/consent/document-request-pricing-card";
 import { SecretsListGroup } from "@/components/secrets/secrets-list-group";
 import {
   ProfileStackNavigator,
@@ -2776,7 +2778,10 @@ function ProfilePageContent({
     if (!profileRouteRequiresUnlockedVault(activePanel, activeDetail)) {
       return;
     }
-    if (activePanel) {
+    // Stripe returns to Memory with a short callback marker. Keep that route
+    // while the owner unlocks so an expired Connect link can be refreshed.
+    const documentPayoutReturn = searchParams.get("documentPayouts");
+    if (activePanel && documentPayoutReturn !== "refresh" && documentPayoutReturn !== "done") {
       setPendingProfileTarget({
         panel: activePanel,
         detail: activeDetail ?? null,
@@ -3356,6 +3361,9 @@ function ProfilePageContent({
           )
         }
       />
+      {isVaultUnlocked ? <DocumentRequestPricingCard /> : null}
+      {isVaultUnlocked ? <DocumentPayoutAccountCard handleReturn /> : null}
+      {isVaultUnlocked ? <DocumentBankPayoutStatusCard /> : null}
       {isVaultUnlocked ? <SharedWithYouGroup vaultOwnerToken={vaultOwnerToken} /> : null}
       {isVaultUnlocked ? <SecretsListGroup onUnlock={() => undefined} /> : null}
     </div>
