@@ -28,7 +28,7 @@ its BIN, and the mark simply reflects what it found.
 | Mastercard | _not yet recorded_ | [Mastercard brand centre](https://brand.mastercard.com/brandcenter/mastercard-brand-mark.html) |
 | American Express | `hushh-webapp/public/brand/cards/amex.svg` | [American Express static logo](https://www.aexp-static.com/cdaas/one/statics/axp-static-assets/1.8.0/package/dist/img/logos/dls-logo-bluebox-solid.svg), linked by its merchant site |
 | Discover | `hushh-webapp/public/brand/cards/discover.svg` | [Discover Global Network logo](https://www.discoverglobalnetwork.com/content/dam/discover/en_us/dgn/images/global/logos/discover-network-logo.svg) |
-| RuPay | `hushh-webapp/public/brand/cards/rupay.png` | User-supplied RuPay reference, 2026-10-10 (`codex-clipboard-4aa9c7eb-cc2f-4edb-ade3-1c6cb340a832.png`), used unchanged at the user's request |
+| RuPay | `hushh-webapp/public/brand/cards/rupay-transparent.png` | User-supplied RuPay reference, 2026-10-10 (`codex-clipboard-4aa9c7eb-cc2f-4edb-ade3-1c6cb340a832.png`); white background removed with ImageGen at the user's request on 2026-10-11 |
 | JCB | `hushh-webapp/public/brand/cards/jcb.svg` | [JCB emblem](https://www.global.jcb/en/common/images/svg/jcb_emblem_logo.svg) |
 | UnionPay | `hushh-webapp/public/brand/cards/unionpay.png` | [UnionPay International logo](https://www.unionpayintl.com/imp_file/global/en/static/images/logo.png) |
 | Mir | _not yet recorded_ | [NSPK Mir brand](https://mironline.ru/) |

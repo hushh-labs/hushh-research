@@ -843,9 +843,13 @@ def test_card_share_notice_requires_authoritative_recipient_grant():
     row = {
         "id": 22,
         "event_type": "direct_message_received",
+        "actor_label": "Test sender",
+        "_direct_message_preview": f"[wallet-access:{grant_id}]",
         "metadata": {"wallet_card_grant_id": grant_id},
     }
     assert "wallet_card_grant_id" not in FeedService._to_item(row)["metadata"]
     verified = FeedService._to_item({**row, "_wallet_card_grant_id": grant_id})
     assert verified["metadata"]["wallet_card_grant_id"] == grant_id
-    assert "message_preview" not in verified["metadata"]
+    assert verified["metadata"]["message_preview"] == "Test sender shared their card with you"
+    assert feed_service_module._direct_message_preview(f"[wallet-access:{grant_id}]") == "Shared payment card"
+    assert feed_service_module._direct_message_preview("Ordinary message") == "Ordinary message"

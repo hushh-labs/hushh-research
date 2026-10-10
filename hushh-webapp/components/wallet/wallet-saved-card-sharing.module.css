@@ -1,10 +1,33 @@
 .accessSurface {
+  --type-navigation-title-size: 20px;
+  --type-row-description-size: 12px;
   --type-input-value-size: 12px;
   --type-button-label-size: 13px;
   font-family: var(--font-app-body);
   font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - var(--kb-height, 0px) - 32px);
+  width: min(580px, calc(100% - 24px));
+  margin-inline: auto;
+  overflow: hidden;
 }
 .accessSurface input { font-size: 12px; }
+@layer base {
+  .accessSurface button { font-size: 13px !important; }
+  .accessSurface :global(.ui-text-navigation-title) {
+    font-size: 20px !important;
+    line-height: 1.15 !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.025em !important;
+  }
+  .accessSurface :global(.ui-text-row-description) { font-size: 12px !important; line-height: 18px !important; }
+  .accessSurface :global(.morphy-theme-content) {
+    --type-button-label-size: 13px;
+    --type-input-value-size: 12px;
+  }
+}
+.accessBody { min-height: 0; overflow-y: auto; padding: 16px !important; }
 
 .dialog {
   --type-card-title-size: 18px;

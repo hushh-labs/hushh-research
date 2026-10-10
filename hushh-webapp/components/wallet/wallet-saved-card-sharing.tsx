@@ -122,7 +122,7 @@ export function WalletSavedCardSharing({ card, getContext, disabled }: {
           description="Sent copy · cannot be recalled" trailing={new Date(receipt.sentAt).toLocaleDateString()} />)}
       </SettingsGroup> : null}
       <SettingsDetailPanel open={open} onOpenChange={value => { if (!value) close(); }} title="Share card" description="Share masked card details with your connections."
-        mobilePresentation="sheet" desktopMaxWidth="820px" surfaceClassName={`${profileStyles.walletContent} ${styles.accessSurface}`}
+        mobilePresentation="sheet" desktopMaxWidth="580px" desktopMaxWidthClassName="sm:!max-w-[580px]" surfaceClassName={styles.accessSurface} bodyClassName={styles.accessBody}
         footer={<Button className="w-full" disabled={busy || !Object.keys(selected).length} onClick={() => void send()}>{busy ? "Sharing…" : `Share with ${Object.keys(selected).length}`}</Button>}>
         <div className="space-y-4">
           <Input aria-label="Search connections" placeholder="Search connections" value={query} disabled={busy} onChange={event => setQuery(event.target.value)} />

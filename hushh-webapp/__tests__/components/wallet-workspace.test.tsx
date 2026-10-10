@@ -258,6 +258,22 @@ describe("WalletWorkspace at scale", () => {
     expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(1);
   });
 
+  it("returns to the overview after leaving a saved card and switching tabs", async () => {
+    serviceMock.listCardSummaries.mockResolvedValue(makeCards(1));
+    render(<WalletWorkspace />);
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
+    await screen.findByTestId("wallet-add-collection");
+    fireEvent.click(screen.getByRole("button", { name: "View details for Card 0" }));
+    await screen.findByTestId("wallet-selected-card");
+    fireEvent.click(screen.getByRole("button", { name: "All cards", exact: true }));
+    for (const tab of ["Add", "Sharing"]) {
+      fireEvent.click(screen.getByRole("tab", { name: tab }));
+      fireEvent.click(screen.getByRole("tab", { name: "Cards" }));
+      await screen.findByTestId("wallet-add-collection");
+      expect(screen.queryByTestId("wallet-selected-card")).toBeNull();
+    }
+  });
+
   it("retains a failed save draft and rejects a late save after vault lock", async () => {
     serviceMock.addCard.mockRejectedValueOnce(new Error("Could not save"));
     const workspace = render(<WalletWorkspace />);

@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Copy, RefreshCw } from "@/components/icons";
+import { Check, RefreshCw } from "@/components/icons";
 import {
   ProfilePaneAccountIcon,
   ProfilePaneCalendarIcon,
   ProfilePaneCardIcon,
+  ProfilePaneCopyIcon,
   ProfilePaneCardNetworkIcon,
   ProfilePaneDeleteIcon,
   ProfilePaneGlobeIcon,
@@ -77,7 +78,7 @@ export function WalletSavedCardDetails({ card, name, pan, numberUnavailable = fa
               disabled={disabled || copying !== null}
               onClick={() => void copy(row)}
             >
-              {copied === row.label ? <Check className="size-4" aria-hidden="true" /> : <Copy className="size-4" aria-hidden="true" />}
+              {copied === row.label ? <Check className="size-4" aria-hidden="true" /> : <ProfilePaneCopyIcon className="size-4" />}
             </button> : <span className="-my-0.5 size-11 shrink-0" aria-hidden="true" />}
           </span>
         } />)}

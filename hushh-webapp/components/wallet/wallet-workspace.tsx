@@ -301,6 +301,7 @@ export function WalletWorkspace() {
     // Drop revealed values and reject an in-flight reveal when leaving Cards.
     dispatch({ type: "unfocus" });
     dispatch({ type: "close_add" });
+    setSelectedDeckCardId(null);
     setTab(value as WalletTab);
     if (value === "cards") {
       // Add and Sharing can be much taller than the deck. Restore the card
@@ -912,7 +913,7 @@ export function WalletWorkspace() {
               selectedCardId={selectedDeckCardId}
               selectedCardNumber={displayedNumber}
               onSelect={selectCard}
-              onOverview={() => dispatch({ type: "unfocus" })}
+              onOverview={() => { setSelectedDeckCardId(null); dispatch({ type: "unfocus" }); }}
               onAdd={() => { dispatch({ type: "unfocus" }); dispatch({ type: "open_add" }); }}
               details={cardDetails}
               dockHost={cardDockHost}

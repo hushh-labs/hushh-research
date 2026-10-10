@@ -45,8 +45,8 @@ export function WalletCardBrowser({ cards, cardholderNames = {}, selectedCardId,
     if (selectedCardId) { setMode("card"); setAgentCardId(selectedCardId); }
   }, [selectedCardId]);
   useEffect(() => {
-    if (active && !selectedCardId) setMode("all");
-  }, [active, selectedCardId]);
+    if (!active) { setMode("all"); setAgentCardId(null); }
+  }, [active]);
   const content = useRef<HTMLDivElement>(null);
   const automaticScrollUntil = useRef(0);
   const gesture = useRef<{ x: number; y: number } | null>(null);
