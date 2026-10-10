@@ -218,6 +218,7 @@ async def clear_ai_selection(log: Any, *, hushh_id: str) -> None:
 
 _ACTIVE: Optional[AiSelection] = None
 _LOAD_FAILED = False
+_REVISION = 0
 _LAST_FAILURE: Optional[dict[str, Any]] = None
 
 
@@ -243,9 +244,15 @@ def owner_ai_in_force() -> bool:
 
 
 def set_active_ai_selection(selection: Optional[AiSelection]) -> None:
-    global _ACTIVE, _LOAD_FAILED
+    global _ACTIVE, _LOAD_FAILED, _REVISION
     _ACTIVE = selection
     _LOAD_FAILED = False
+    _REVISION += 1
+
+
+def ai_selection_revision() -> int:
+    """Process-local cache/admission fence, including clear-and-reselect changes."""
+    return _REVISION
 
 
 def note_ai_selection_failure(code: Optional[str]) -> None:
@@ -322,6 +329,7 @@ __all__ = [
     "AiSelectionStoreMissing",
     "AiSelectionUnavailable",
     "active_ai_selection",
+    "ai_selection_revision",
     "ai_selection_load_failed",
     "clear_ai_selection",
     "current_ai_selection",

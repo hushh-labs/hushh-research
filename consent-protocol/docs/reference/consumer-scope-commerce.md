@@ -1988,3 +1988,50 @@ another authorized session's environment-enrollment migration 295, which is not
 yet deployed. Current Dev's parked migration history still requires genuine
 current-source baseline qualification; restore/suffix receipts alone do not
 establish an authenticated commercial release head.
+
+### Shared Dev provider maintenance and private Memory preparation — 2026-10-09
+
+[Dev release 38007611500](https://github.com/hushh-labs/hushh-research/actions/runs/38007611500)
+passed provenance, runtime parity, schema and semantic gates. Source
+`2349b160907fa91bc6adc48951b6cce91fc875a1` serves through backend
+`consent-protocol-00154-mjh` and frontend `hushh-webapp-00132-7mn`.
+The release contains the Connect environment-enrollment migration 295 and the
+independent Azure repair changes. Schema admission does not establish an
+authenticated release-manifest baseline. New paid admission and live activity
+remain off; reconciliation remains enabled.
+
+Before this release, the dedicated scheduler's authenticated execution succeeded.
+Monitoring readback showed fresh worker and verified provider timestamps, with
+zero unbalanced journals, backing shortfalls and receipt failures. Unsigned
+webhooks and unauthenticated drains were rejected. These empty-ledger observations
+do not prove signed funding settlement, a purchase, refund, withdrawal or payout.
+
+Headless owner-bound reads found primary hosting `unplaced`, without a vault,
+and counterpart hosting active `byoc`. Both reviewers must use their own clouds,
+as explicitly selected by the owner. Historical vault preferences cannot override
+current placement; existing owner assignments and information are preserved.
+The managed-provider readiness probe now passes, but private processing does not
+use that as permission to select Shared hosting.
+
+Source now routes private Memory preparation to the exact app-session door
+`POST /api/one/pod/memory/proposals`. Unresolved placement refuses before sending
+information; Shared owners retain the hub path. The pod reuses the authored
+structure/reconciliation agents with an explicit owner model, held-incarnation
+and app-role checks, bounded admission, cancellation and AI-revision fences.
+It imports no hub handler and has no commit or database authority. Provider
+failure refuses preparation without a managed fallback. The browser obtains
+exact-section sharing metadata through the existing owner-authorized metadata
+API; missing or malformed metadata refuses review, and active recipients require
+confirmation. The existing save flow still encrypts locally and rechecks sharing.
+
+Focused source checks passed 61 frontend and 102 backend tests plus TypeScript.
+The source-bound core, hosted CI and deployment of this private Memory extension
+remain to be completed. The preceding exact-source
+[CI 38006822318](https://github.com/hushh-labs/hushh-research/actions/runs/38006822318)
+passed, including browser, iOS and Android checks, at
+`6e1f53e4a2c7d0fd8a70fdc0bd2357f6038c1315`. Its later warm navigation changes
+and this private Memory extension are not in the serving release above.
+Publishing a pod image does not update an existing owner's pod: installation and
+owner admission must be verified separately through the existing update workflow.
+Reviewer encrypted fixtures, financial acceptance, authenticated Stripe MCP reads
+and current-source migration-baseline qualification remain incomplete.

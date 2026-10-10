@@ -3,10 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const apiFetchMock = vi.fn();
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
-    apiFetch: (...args: unknown[]) => apiFetchMock(...args),
+    apiFetch: (...args: unknown[]) => apiFetchMock(...args), getPersonalAgentStatus: async () => ({ hostingMode: "shared" }),
   },
 }));
-
+vi.mock("@/lib/services/auth-service", () => ({ AuthService: { getCurrentUser: () => ({ uid: "user_1" }) } }));
 const pkmGetMetadataMock = vi.fn();
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
   PersonalKnowledgeModelService: {

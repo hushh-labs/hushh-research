@@ -68,6 +68,7 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         # Worker verifies a dedicated queue identity; it gains no machine-route access.
         "/api/one/pod/commands/transcriptions",
         "/api/one/pod/commands/assess",
+        "/api/one/pod/memory/proposals",
         "/api/one/pod/files/worker",
         "/api/one/pod/files/jobs",
         "/api/one/pod/files/repair-index",

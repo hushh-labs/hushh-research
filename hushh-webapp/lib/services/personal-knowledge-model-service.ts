@@ -15,6 +15,7 @@
  * Caching: uses CacheService for in-memory caching with TTL to reduce API calls.
  */
 
+import { parsePkmSharingImpact } from "@/lib/personal-knowledge-model/sharing-impact";
 import { mergeWithSupersedeHistory } from "@/lib/pkm/pkm-supersede-merge";
 import type { LocationPkmFinalizeAuthorizationV1 } from "@/lib/services/one-location-onboarding-run-client";
 import { locationFinalizeWire } from "@/lib/one-location/pkm-finalize-authorization";
@@ -2594,24 +2595,7 @@ export class PersonalKnowledgeModelService {
     if (!response.ok) {
       throw new Error("Current sharing could not be verified. Refresh and try again.");
     }
-    const payload = (await response.json()) as Record<string, unknown>;
-    return {
-      activeRecipientCount: Math.max(0, Number(payload.active_recipient_count) || 0),
-      recipientLabels: Array.isArray(payload.recipient_labels)
-        ? payload.recipient_labels.map(String).filter(Boolean)
-        : [],
-      entersNextExportRevision: payload.enters_next_export_revision === true,
-      summary:
-        typeof payload.summary === "string" && payload.summary.trim()
-          ? payload.summary.trim()
-          : "No active recipients are affected.",
-      affectedGrantIds: Array.isArray(payload.affected_grant_ids)
-        ? payload.affected_grant_ids.map(String).filter(Boolean)
-        : [],
-      affectedExportIds: Array.isArray(payload.affected_export_ids)
-        ? payload.affected_export_ids.map(String).filter(Boolean)
-        : [],
-    };
+    return parsePkmSharingImpact(await response.json());
   }
 
   static async getDomainManifest(

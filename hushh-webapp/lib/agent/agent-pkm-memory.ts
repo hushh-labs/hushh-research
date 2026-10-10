@@ -1,11 +1,10 @@
 "use client";
 
+import { requestPkmMemoryPreparation, enrichPrivateMemorySharingImpact, type AgentPkmPreparationInput } from "@/lib/agent/agent-pkm-memory-preparation";
 import { isReservedRefusalHint } from "@/lib/pkm/reserved-branches";
 import type { AgentPkmReservedOffer } from "@/lib/pkm/reserved-offer";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { buildReadablePkmMetadata } from "@/lib/personal-knowledge-model/natural-language";
-import { ApiService } from "@/lib/services/api-service";
-import { assertNoUnguardedSecrets } from "@/lib/pkm/secret-span-guard";
 import {
   PersonalKnowledgeModelService,
   type PersonalKnowledgeModelMetadata,
@@ -22,7 +21,6 @@ import {
 import {
   AgentPkmContextStore,
   type AgentPkmContextCoverage,
-  type PkmReconciliationCandidate,
 } from "@/lib/agent/agent-pkm-context-store";
 import type { OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
 import { isDegradedPreviewCard } from "@/lib/profile/pkm-agent-lab-preview";
@@ -318,88 +316,22 @@ export function isAgentPkmDependentRequest(message: string): boolean {
   );
 }
 
-export async function previewAgentPkmMemory(params: {
-  userId: string;
-  message: string;
-  currentDomains: string[];
-  /** Existing domain manifests: with them the structurer lands facts in scopes that already exist. */
-  currentManifests?: unknown[];
-  vaultOwnerToken: string;
-  ingestionId?: string;
-  chunkIndex?: number;
-  memoryProfile?: "general" | "kyc_identity_v1";
-  /** Existing details the merge agent may extend or correct (explicit saves). */
-  reconciliationCandidates?: readonly PkmReconciliationCandidate[];
-  signal?: AbortSignal;
-  isEffectCurrent?: () => boolean;
-}): Promise<AgentPkmPreviewResponse & { cards: AgentPkmPreviewCard[] }> {
-  // Last line before a memory proposal: the text was guarded on the device and
-  // carries placeholders only. A raw secret here is refused, never sent; the
-  // server's own net (secret_patterns.py) stays behind this one.
-  assertNoUnguardedSecrets([
-    params.message,
-    ...(params.reconciliationCandidates ?? []).map((candidate) => candidate.message),
-  ]);
-  const response = await ApiService.apiFetch("/api/pkm/memory/proposals", {
-    method: "POST",
-    signal: params.signal,
-    isEffectCurrent: params.isEffectCurrent,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${params.vaultOwnerToken}`,
-      ...(params.ingestionId
-        ? { "X-PKM-Ingestion-Id": params.ingestionId }
-        : {}),
-      ...(typeof params.chunkIndex === "number"
-        ? { "X-PKM-Chunk-Index": String(params.chunkIndex) }
-        : {}),
-    },
-    body: JSON.stringify({
-      user_id: params.userId,
-      message: params.message,
-      current_domains: params.currentDomains,
-      current_manifests: (params.currentManifests || []).filter(Boolean).slice(0, 256),
-      memory_profile: params.memoryProfile || "general",
-      ...(params.reconciliationCandidates?.length
-        ? { simulated_state: { memories: params.reconciliationCandidates.slice(0, 10) } }
-        : {}),
-    }),
-  });
-
-  if (!response.ok) {
-    let errorCode = `http_${response.status}`;
-    try {
-      const payload = await response.json() as {
-        detail?: { type?: unknown; code?: unknown } | Array<{ type?: unknown; code?: unknown }>;
-      };
-      const detail = Array.isArray(payload?.detail) ? payload.detail[0] : payload?.detail;
-      if (detail && typeof detail === "object") {
-        const candidate = detail.code || detail.type;
-        if (typeof candidate === "string" && candidate.trim()) {
-          errorCode = candidate.trim();
-        }
-      }
-    } catch {
-      // Error bodies can contain the rejected source text. Never surface or log them.
-    }
-    console.error("[PKM_INGEST] proposal_failed", {
-      ingestion_id: params.ingestionId || "none",
-      chunk_index: params.chunkIndex ?? 0,
-      status: response.status,
-      error_code: errorCode,
-    });
-    throw new Error(`Memory preparation failed (${errorCode}). Please try again.`);
-  }
-
-  const payload = (await response.json()) as AgentPkmPreviewResponse;
-  return {
-    ...payload,
-    cards: normalizePreviewCards(payload).map((card, index) => ({
-      ...card,
-      card_id: card.card_id || `agent_pkm_preview_${index + 1}`,
-      source_text: card.source_text || toPlainMemoryText(params.message),
-    })),
-  };
+export async function previewAgentPkmMemory(
+  params: AgentPkmPreparationInput,
+): Promise<AgentPkmPreviewResponse & { cards: AgentPkmPreviewCard[] }> {
+  const { payload, privateOwner } = await requestPkmMemoryPreparation(params);
+  const cards = normalizePreviewCards(payload).map((card, index) => ({
+    ...card,
+    card_id: card.card_id || `agent_pkm_preview_${index + 1}`,
+    source_text: card.source_text || toPlainMemoryText(params.message),
+  }));
+  if (privateOwner) await enrichPrivateMemorySharingImpact(params, cards);
+  return { ...payload, cards, ...(privateOwner ? { preview_summary: {
+    ...payload.preview_summary,
+    can_save_count: cards.filter((card) => card.write_mode === "can_save").length,
+    confirm_first_count: cards.filter((card) => card.write_mode === "confirm_first").length,
+    primary_write_mode: (cards.find((card) => card.write_mode !== "do_not_save") || cards[0])?.write_mode,
+  } } : {}) };
 }
 
 /** The domain `addToPKM` writes a card to; the commit id is derived from it. */

@@ -70,6 +70,7 @@ from api.routes.one.pod_maintenance import (
 )
 from api.routes.one.pod_memory import router as pod_memory_router  # noqa: E402
 from api.routes.one.pod_migration import router as pod_migration_router  # noqa: E402
+from api.routes.one.pod_pkm_preparation import router as pod_pkm_preparation_router
 from api.routes.one.pod_puppy_relay import router as pod_puppy_relay_router  # noqa: E402
 from api.routes.one.pod_session import router as pod_session_router  # noqa: E402
 from api.routes.one.pod_sync import router as pod_sync_router  # noqa: E402
@@ -157,6 +158,7 @@ _POD_ROUTERS = (
     pod_session_router,
     pod_files_router,
     pod_commands_router,
+    pod_pkm_preparation_router,
     # The device door: Puppy One dials THIS pod with a device-role session and
     # answers inference over sealed frames. The hub broker stays for UAT and
     # production; an owner pod brokers its own device. See pod_puppy_relay.py.

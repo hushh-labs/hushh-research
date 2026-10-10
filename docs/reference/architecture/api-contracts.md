@@ -134,6 +134,24 @@ owns the wire families, exact scope binding, hosted return, configuration,
 financial lifecycle and verification limits. The Next proxy preserves the same
 snake-case contract; native transport uses the existing direct backend service.
 
+## Private Memory preparation
+
+An admitted app-role session can call `POST /api/one/pod/memory/proposals`
+with the existing PKM preparation request and response shapes. The exact ingress
+entry requires `pkm.read`, the current held incarnation and a matching owner ID.
+The pod runs the existing authored structure and reconciliation agents against
+its owner's selected model, with bounded admission and disconnect cancellation.
+AI selection changes invalidate preparation and process-memory continuation
+reuse. Failed provider preparation refuses rather than selecting managed inference.
+
+The owner app routes private notes directly to this door; unplaced or unresolved
+hosting refuses before transmission. The browser separately fetches authorized
+exact-section sharing metadata from the hub and requires review for affected
+recipients. Missing or malformed metadata blocks preparation. Information stays
+in the owner runtime and browser; encryption and confirmed commits retain their
+existing authority. Older pods require the governed owner update flow; no hub
+fallback is available for private notes.
+
 ## Direct Puppy turn cancellation
 
 An admitted app-role pod session can call

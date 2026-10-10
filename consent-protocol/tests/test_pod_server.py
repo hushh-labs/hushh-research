@@ -398,6 +398,7 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/agent-chat/history/{conversation_id}",
         "/api/one/pod/commands/transcriptions",
         "/api/one/pod/commands/assess",
+        "/api/one/pod/memory/proposals",
         "/api/one/pod/files/jobs",
         "/api/one/pod/files/repair-index",
         "/api/one/pod/files/usage",

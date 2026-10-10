@@ -12,19 +12,21 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const HUB_CONTENT = /^\/api\/(?:one\/(?:agent-chat|email|location|information|kai|action-proposals)|kai)(?:[/?]|$)/;
+const HUB_CONTENT = /^\/api\/(?:one\/(?:agent-chat|email|location|information|kai|action-proposals)|kai|pkm\/memory\/proposals)(?:[/?]|$)/;
 
 const calls = vi.hoisted(() => ({
   hub: [] as string[],
   direct: [] as Array<{ route: string; init: RequestInit }>,
   hosting: { hostingMode: "byoc" as string },
   directReply: (route: string): unknown => ({ route }),
+  hubReply: (_path: string): unknown => ({}),
+  hubStatus: 200,
 }));
 
 const record = vi.hoisted(() => ({
   hubFetch: async (path: string) => {
     calls.hub.push(path);
-    return new Response(JSON.stringify({}), { status: 200 });
+    return new Response(JSON.stringify(calls.hubReply(path)), { status: calls.hubStatus });
   },
 }));
 
@@ -87,6 +89,8 @@ beforeEach(() => {
   calls.direct.length = 0;
   calls.hosting = { hostingMode: "byoc" };
   calls.directReply = (route: string) => ({ route });
+  calls.hubReply = () => ({});
+  calls.hubStatus = 200;
   streamAgentChat.mockClear();
   vi.stubGlobal("fetch", async (url: string) => {
     calls.hub.push(String(url));
@@ -134,6 +138,49 @@ describe("an own-cloud owner's chat controls reach their agent", () => {
 });
 
 describe("the specialist tabs ask the owner's agent with a closed focus", () => {
+  it.each(["pending", "unknown"])("keeps a %s owner's Memory proposal off the hub", async (hostingMode) => {
+    calls.hosting = { hostingMode };
+    const { previewAgentPkmMemory } = await import("@/lib/agent/agent-pkm-memory");
+    await expect(previewAgentPkmMemory({
+      userId: "owner-a", message: "Synthetic notebook preference", currentDomains: [],
+      vaultOwnerToken: "vault-owner-token",
+    })).rejects.toThrow("Nothing was saved.");
+    expect(calls.hub).toEqual([]);
+    expect(calls.direct).toEqual([]);
+  });
+
+  it("prepares a private owner's note on their agent with no vault-owner token couriered", async () => {
+    const { previewAgentPkmMemory } = await import("@/lib/agent/agent-pkm-memory");
+    calls.directReply = () => ({ preview_cards: [] });
+    await previewAgentPkmMemory({ userId: "owner-a", message: "Synthetic notebook preference",
+      currentDomains: [], vaultOwnerToken: "vault-owner-token" });
+    expect(calls.hub).toEqual([]);
+    expect(calls.direct.map((call) => call.route)).toEqual(["memory/proposals"]);
+    expect(new Headers(calls.direct[0].init.headers).has("Authorization")).toBe(false);
+    expect(JSON.parse(calls.direct[0].init.body as string)).toMatchObject({ user_id: "owner-a" });
+  });
+
+  it("uses verified sharing metadata to require review of a private preparation", async () => {
+    const { previewAgentPkmMemory } = await import("@/lib/agent/agent-pkm-memory");
+    calls.directReply = () => ({ preview_cards: [{ card_id: "synthetic-card", source_text: "Synthetic preference",
+      target_domain: "professional", target_entity_scope: "notebook_preference", write_mode: "can_save" }] });
+    calls.hubReply = () => ({ active_recipient_count: 1, recipient_labels: ["Synthetic recipient"],
+      enters_next_export_revision: true, summary: "One recipient is affected.",
+      affected_grant_ids: ["synthetic-grant"], affected_export_ids: [] });
+    const result = await previewAgentPkmMemory({ userId: "owner-a", message: "Synthetic preference",
+      currentDomains: [], vaultOwnerToken: "vault-owner-token" });
+    expect(calls.hub).toEqual(["/api/pkm/memory/mutation-impact/owner-a/professional?scope_path=notebook_preference"]);
+    expect(result.cards[0]).toMatchObject({ write_mode: "confirm_first", requires_confirmation: true,
+      sharing_impact: { active_recipient_count: 1 } });
+    expect(result.preview_summary).toMatchObject({ can_save_count: 0, confirm_first_count: 1 });
+    calls.hubReply = () => ({ active_recipient_count: "unknown" });
+    await expect(previewAgentPkmMemory({ userId: "owner-a", message: "Synthetic preference",
+      currentDomains: [], vaultOwnerToken: "vault-owner-token" })).rejects.toThrow("Current sharing could not be verified");
+    calls.hubStatus = 503;
+    await expect(previewAgentPkmMemory({ userId: "owner-a", message: "Synthetic preference",
+      currentDomains: [], vaultOwnerToken: "vault-owner-token" })).rejects.toThrow("Current sharing could not be verified");
+  });
+
   it.each([
     ["email", async () => (await import("@/lib/services/email-chat-service")).EmailChatService.chat],
     ["location", async () => {
@@ -167,11 +214,14 @@ describe("the specialist tabs ask the owner's agent with a closed focus", () => 
     expect(ownerPodTurnErrorMessage("x", "AGENT_PRIVATE_RUNTIME_REQUIRED:hussh_pods")).toContain("paused");
   });
 
-  it("still lets a Shared owner use the hub tab", async () => {
+  it("still lets a Shared owner use the hub tab and Memory preparation", async () => {
     calls.hosting = { hostingMode: "shared" };
     const { EmailChatService } = await import("@/lib/services/email-chat-service");
     await EmailChatService.chat({ vaultOwnerToken: "t", vaultKey: VAULT_KEY, message: "hi" });
-    expect(calls.hub).toEqual(["/api/one/email/chat"]);
+    const { previewAgentPkmMemory } = await import("@/lib/agent/agent-pkm-memory");
+    await previewAgentPkmMemory({ userId: "owner-a", message: "Synthetic notebook preference",
+      currentDomains: [], vaultOwnerToken: "vault-owner-token" });
+    expect(calls.hub).toEqual(["/api/one/email/chat", "/api/pkm/memory/proposals"]);
     calls.hub.length = 0; // the afterEach guard is for private owners
   });
 });

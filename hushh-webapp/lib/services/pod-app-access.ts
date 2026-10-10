@@ -26,6 +26,7 @@ const OWNER_POD_ROUTES = new Set([
   "files/repair-index",
   "commands/transcriptions",
   "commands/assess",
+  "memory/proposals",
   "turn/stream",
   "turn/cancel",
   "puppy/models",

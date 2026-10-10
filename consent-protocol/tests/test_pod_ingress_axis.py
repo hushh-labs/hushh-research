@@ -220,3 +220,11 @@ def test_private_mcp_preview_is_admitted_but_machine_and_confirmation_paths_are_
         "/api/one/pod/mcp-approval/consume",
     ):
         assert not is_app_surface(path)
+
+
+def test_memory_preparation_opens_only_its_named_app_door():
+    from api.middlewares.pod_ingress import is_app_surface
+
+    assert is_app_surface("/api/one/pod/memory/proposals")
+    for path in ("/api/one/pod/memory", "/api/one/pod/memory/commit", "/api/pkm/memory/proposals"):
+        assert not is_app_surface(path)

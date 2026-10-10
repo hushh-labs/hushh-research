@@ -1836,30 +1836,26 @@ def test_the_memory_doors_are_on_the_app_surface_and_the_wall_no_longer_covers_t
     Google identity token from it. The relay still SENDS that token on all four
     (``pod_relay``); the pod simply stops checking it, so each route's own
     admission is the entire defence. That is the precedent ``/api/one/pod/turn``
-    set. A fifth memory path added to the surface fails this test until whoever
-    adds it names it here and re-reads why the other four are there.
+    set. Preparation uses held app-session authority with `pkm.read`; its exact
+    door must be named here too. Unnamed memory paths remain outside admission.
     """
     from api.middlewares.pod_ingress import APP_SURFACE_EXACT, is_app_surface
 
-    doors = (
-        "/api/one/pod/conversation/abc/close",
+    memory_doors = {
         "/api/one/pod/memory/status",
-        "/api/one/pod/memory/revoke",
-        "/api/one/pod/memory/provider-consent",
-    )
-    for path in doors:
-        assert is_app_surface(path), path
-    # Exactly these memory paths and no others: the set is named one at a time
-    # rather than by a `/memory/` prefix for precisely this reason.
-    assert {p for p in APP_SURFACE_EXACT if "/memory/" in p} == {
-        "/api/one/pod/memory/status",
+        "/api/one/pod/memory/proposals",
         "/api/one/pod/memory/revoke",
         "/api/one/pod/memory/provider-consent",
     }
+    for path in ("/api/one/pod/conversation/abc/close", *memory_doors):
+        assert is_app_surface(path), path
+    # Exactly these memory paths and no others: the set is named one at a time
+    # rather than by a `/memory/` prefix for precisely this reason.
+    assert {p for p in APP_SURFACE_EXACT if "/memory/" in p} == memory_doors
     # And the wall still covers a memory-adjacent path nobody named.
     assert not is_app_surface("/api/one/pod/memory/export")
-    # The consequence, stated as a pin: every door above must therefore extract a
-    # credential of its own. `_owner_door` is the only thing left standing.
+    # Existing recovery doors extract both credentials through `_owner_door`.
+    # Preparation instead requires the verified app session and held incarnation.
     declared = {
         route.path: {param.alias.lower() for param in route.dependant.header_params}
         for route in pod_memory.router.routes
