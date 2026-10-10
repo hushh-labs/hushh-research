@@ -40,6 +40,7 @@ from hushh_mcp.services.direct_messages_service import (
     DirectMessagesError,
 )
 from hushh_mcp.services.requester_identity import label_from_identity_row
+from hushh_mcp.services.stripe_mode import configured_stripe_mode
 
 logger = logging.getLogger(__name__)
 
@@ -422,7 +423,8 @@ class FeedService:
                            r.expires_at AS current_request_expires_at,
                            (r.expires_at <= clock_timestamp()) AS current_request_expired,
                            (r.access_stop_requested_at IS NOT NULL) AS current_access_stopped,
-                           o.status AS current_payment_status,
+                           CASE WHEN o.stripe_mode<>:stripe_mode AND o.status IN ('awaiting_payment','checkout_open')
+                             THEN 'expired' ELSE o.status END AS current_payment_status,
                            (o.stripe_checkout_session_id IS NOT NULL AND
                             o.stripe_checkout_expires_at IS NOT NULL AND
                             o.stripe_checkout_expires_at <= clock_timestamp()) AS current_checkout_expired,
@@ -451,8 +453,8 @@ class FeedService:
                     LEFT JOIN drive_request_payment_orders o ON o.request_id=r.request_id
                     LEFT JOIN drive_request_owner_payouts p
                       ON p.request_id=r.request_id AND p.erased_at IS NULL
-                    LEFT JOIN pkm_owner_payout_accounts a
-                      ON a.user_id=r.user_id AND r.payment_required
+                    LEFT JOIN stripe_owner_payout_accounts a
+                      ON a.user_id=r.user_id AND r.payment_required AND a.stripe_mode=:stripe_mode
                     LEFT JOIN drive_request_payment_refunds f ON f.request_id=r.request_id
                     WHERE r.recipient_user_id=:user_id OR r.user_id=:user_id
                     """,
@@ -460,6 +462,7 @@ class FeedService:
                         "user_id": user_id,
                         "request_ids_json": json.dumps(sorted(request_ids)),
                         "payout_rollout": payout_enabled(),
+                        "stripe_mode": configured_stripe_mode(),
                     },
                 )
                 .data
