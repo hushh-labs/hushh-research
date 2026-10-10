@@ -1,44 +1,123 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ token: "owner-token" as string | null, owner: vi.fn(), save: vi.fn() }));
+const state = vi.hoisted(() => ({ token: "owner-token" as string | null, epoch: 1, owner: vi.fn(), save: vi.fn() }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: state.token }) }));
+vi.mock("@/lib/vault/session-epoch", () => ({
+  snapshotVaultSessionEpoch: () => state.epoch,
+  isVaultSessionEpochCurrent: (epoch: number) => epoch === state.epoch,
+}));
 vi.mock("@/lib/services/drive-request-pricing-service", () => ({
   DriveRequestPricingService: { owner: state.owner, save: state.save },
 }));
 
 import { DocumentRequestPricingCard } from "@/components/consent/document-request-pricing-card";
+import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { ApiError } from "@/lib/services/api-client";
+
+const enterPrice = (value: string) => fireEvent.change(screen.getByLabelText("Default price (USD)"), { target: { value } });
+const save = () => fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
 describe("owner Drive request price", () => {
   beforeEach(() => {
     state.token = "owner-token";
+    state.epoch = 1;
     state.owner.mockReset().mockResolvedValue({ enabled: false, amountCents: 1000, version: 4 });
     state.save.mockReset().mockResolvedValue({ enabled: true, amountCents: 2500, version: 5 });
   });
 
-  it("uses the $10 default until the owner saves a future-request price", async () => {
-    render(<DocumentRequestPricingCard />);
-    expect(await screen.findByText(/Requests use the platform price of \$10/)).toBeVisible();
-    fireEvent.click(screen.getByRole("switch", { name: "Use my Drive request price" }));
-    fireEvent.change(screen.getByLabelText("Price in US dollars"), { target: { value: "25" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save request price" }));
-    await waitFor(() => expect(state.save).toHaveBeenCalledExactlyOnceWith("owner-token", {
-      enabled: true, amountCents: 2500, expectedVersion: 4,
-    }));
-    expect(await screen.findByText(/Existing quotes stay the same/)).toBeVisible();
+  it("starts unset, validates the amount, and saves a default with state invalidation", async () => {
+    const reconcile = vi.fn();
+    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, reconcile);
+    try {
+      render(<DocumentRequestPricingCard />);
+      expect(await screen.findByLabelText("Default price (USD)")).toHaveValue("");
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+      expect(screen.queryByRole("switch")).toBeNull();
+      enterPrice("0");
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+      enterPrice("25.50");
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+      enterPrice("25");
+      save();
+      await waitFor(() => expect(state.save).toHaveBeenCalledExactlyOnceWith("owner-token", {
+        enabled: true, amountCents: 2500, expectedVersion: 4,
+      }));
+      expect(await screen.findByText("Default price saved.")).toBeVisible();
+      expect(reconcile).toHaveBeenCalledOnce();
+    } finally {
+      window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, reconcile);
+    }
   });
 
-  it("reloads a changed price instead of silently overwriting it", async () => {
+  it("refreshes a changed price while keeping the draft for explicit review", async () => {
     state.save.mockRejectedValueOnce(new ApiError("Price changed", 409, { detail: { code: "price_changed" } }));
     state.owner.mockResolvedValueOnce({ enabled: false, amountCents: 1000, version: 4 })
       .mockResolvedValueOnce({ enabled: true, amountCents: 3500, version: 5 });
     render(<DocumentRequestPricingCard />);
-    await screen.findByRole("switch");
-    fireEvent.click(screen.getByRole("switch"));
-    fireEvent.change(screen.getByLabelText("Price in US dollars"), { target: { value: "25" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save request price" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("changed elsewhere");
-    expect(screen.getByLabelText("Price in US dollars")).toHaveValue("35");
+    await screen.findByLabelText("Default price (USD)");
+    enterPrice("25");
+    save();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Changed elsewhere to $35");
+    expect(screen.getByLabelText("Default price (USD)")).toHaveValue("25");
+    expect(state.save).toHaveBeenCalledTimes(1);
+    save();
+    await waitFor(() => expect(state.save).toHaveBeenLastCalledWith("owner-token", {
+      enabled: true, amountCents: 2500, expectedVersion: 5,
+    }));
+  });
+
+  it("turns off automatic pricing without applying an unsaved draft", async () => {
+    state.owner.mockResolvedValueOnce({ enabled: true, amountCents: 2500, version: 4 });
+    state.save.mockResolvedValueOnce({ enabled: false, amountCents: 2500, version: 5 });
+    render(<DocumentRequestPricingCard />);
+    await screen.findByLabelText("Default price (USD)");
+    enterPrice("invalid");
+    fireEvent.click(screen.getByRole("button", { name: "Ask each time" }));
+    await waitFor(() => expect(state.save).toHaveBeenCalledExactlyOnceWith("owner-token", {
+      enabled: false, amountCents: 2500, expectedVersion: 4,
+    }));
+    expect(await screen.findByText("You'll set a price for each request.")).toBeVisible();
+    expect(screen.getByLabelText("Default price (USD)")).toHaveValue("");
+  });
+
+  it("ignores an old owner's save after the account changes", async () => {
+    let finish!: (value: unknown) => void;
+    state.save.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const reconcile = vi.fn();
+    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, reconcile);
+    try {
+      const view = render(<DocumentRequestPricingCard />);
+      await screen.findByLabelText("Default price (USD)");
+      enterPrice("25");
+      save();
+      await waitFor(() => expect(state.save).toHaveBeenCalledOnce());
+      state.token = "new-owner";
+      state.epoch++;
+      state.owner.mockResolvedValueOnce({ enabled: true, amountCents: 500, version: 1 });
+      view.rerender(<DocumentRequestPricingCard />);
+      await waitFor(() => expect(screen.getByLabelText("Default price (USD)")).toHaveValue("5"));
+      await act(async () => { finish({ enabled: true, amountCents: 2500, version: 5 }); });
+      expect(screen.getByLabelText("Default price (USD)")).toHaveValue("5");
+      expect(screen.queryByText("Default price saved.")).toBeNull();
+      expect(reconcile).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, reconcile);
+    }
+  });
+
+  it("ignores an old owner's load and lets a failed load retry", async () => {
+    let finish!: (value: unknown) => void;
+    state.owner.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const view = render(<DocumentRequestPricingCard />);
+    state.token = "new-owner";
+    state.epoch++;
+    state.owner.mockRejectedValueOnce(new Error("private upstream"));
+    view.rerender(<DocumentRequestPricingCard />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't load your price");
+    await act(async () => { finish({ enabled: true, amountCents: 2500, version: 5 }); });
+    expect(screen.queryByLabelText("Default price (USD)")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByLabelText("Default price (USD)")).toHaveValue("");
   });
 });

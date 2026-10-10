@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import type { DriveRequestQuote } from "../lib/services/drive-request-pricing-service";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -34,8 +35,10 @@ test.beforeEach(async ({ page }) => {
         amountCents: 1000,
         version: 1,
         paymentRequired: true,
+        priceReady: true,
         payoutReady: true,
-      }),
+        paymentsReady: true,
+      } satisfies DriveRequestQuote),
     });
   });
 });

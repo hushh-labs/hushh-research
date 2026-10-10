@@ -172,6 +172,8 @@ export function resolveSmsContactsBackAction(
 function profilePanelLabel(panel: ProfilePanel | null): string | null {
   if (panel === "account") return "Account";
   if (panel === "my-data") return "Memory";
+  if (panel === "payouts") return "Payouts";
+  if (panel === "request-pricing") return "Request pricing";
   if (panel === "connected-systems") return "Connected Systems";
   if (panel === "connectors") return "Connectors";
   if (panel === "preferences") return "Preferences";

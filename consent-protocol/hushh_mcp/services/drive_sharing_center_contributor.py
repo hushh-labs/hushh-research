@@ -56,7 +56,8 @@ WITH participants AS (
     {owner_allowed} AS owner_allowed,
     {quoted_amount_cents} AS quoted_amount_cents,
     {quote_version} AS quote_version,
-    {owner_payout_account_ready} AS owner_payout_account_ready
+    {owner_payout_account_ready} AS owner_payout_account_ready,
+    {owner_price_ready} AS owner_price_ready
   FROM drive_share_requests
   {identity_joins}
   WHERE drive_share_requests.user_id=:user
@@ -64,7 +65,7 @@ WITH participants AS (
   UNION ALL
   SELECT request_id,revocation_revision,created_at,'share','incoming',NULL::text,'management_only',
     NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE,
-    FALSE,FALSE,FALSE,NULL::integer,NULL::integer,NULL::boolean
+    FALSE,FALSE,FALSE,NULL::integer,NULL::integer,NULL::boolean,FALSE
   FROM drive_share_management_contexts
   WHERE user_id=:user AND private_request_erased_at IS NOT NULL{queries}
 ), classified AS (
@@ -127,7 +128,7 @@ _QUERIES = """
       WHEN status='running' THEN 'pending'
       ELSE status END,
     NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE,
-    FALSE,FALSE,FALSE,NULL::integer,NULL::integer,NULL::boolean
+    FALSE,FALSE,FALSE,NULL::integer,NULL::integer,NULL::boolean,FALSE
   FROM drive_live_query_requests WHERE user_id=:user OR requester_user_id=:user"""
 
 _OWNER_SEARCH_STATE = """(
@@ -189,7 +190,9 @@ _OWNER_ALLOWED_RECIPIENT = (
 # Trusted circle, while the pair is connected and the owner's Drive is live. A
 # current Trusted member keeps the Trusted path. The Allow route rechecks the
 # complete state, including the sealed request.
-_OWNER_DECISION_READY = """(drive_share_requests.preparation_error_code IS NULL
+_OWNER_DECISION_READY = """((drive_share_requests.preparation_error_code IS NULL
+  OR drive_share_requests.preparation_error_code IN
+    ('owner_price_required','owner_payout_required','payout_unavailable'))
   AND drive_share_requests.owner_allowed_at IS NULL
   AND drive_share_requests.bulk_search_started_at IS NULL
   AND drive_share_requests.preparation_next_at<drive_share_requests.expires_at
@@ -345,6 +348,25 @@ def _projection(
         else "NULL::timestamptz",
         # Without migration 291 no request can be allowed, so none is offered.
         "owner_decision_ready": _owner_decision_ready(payments) if owner_allowed else "FALSE",
+        "owner_price_ready": "("
+        + _ACTIVE_CONNECTION
+        + " AND "
+        + _TRUSTED_RECIPIENT
+        + " AND "
+        + _trusted_authority_ready(False)
+        + " AND "
+        + _NO_PAYMENT_ORDER
+        + " AND drive_share_requests.payment_required=TRUE"
+        + " AND drive_share_requests.owner_allowed_at IS NULL"
+        + " AND (drive_share_requests.quoted_amount_cents IS NULL"
+        + " OR drive_share_requests.preparation_error_code IS NULL)"
+        + " AND drive_share_requests.bulk_search_started_at IS NULL"
+        + " AND drive_share_requests.preparation_lease_id IS NULL"
+        + " AND drive_share_requests.preparation_attempts=0"
+        + " AND (drive_share_requests.preparation_error_code='owner_price_required'"
+        + " OR drive_share_requests.preparation_error_code IS NULL))"
+        if payments and pricing and owner_allowed and background
+        else "FALSE",
         "payment_required": "drive_share_requests.payment_required" if payments else "FALSE",
         "owner_allowed": "drive_share_requests.owner_allowed_at IS NOT NULL"
         if owner_allowed
@@ -354,20 +376,27 @@ def _projection(
         else "NULL::integer",
         "quote_version": "drive_share_requests.quote_version" if pricing else "NULL::integer",
         "owner_payout_account_ready": """CASE WHEN
-          drive_share_requests.user_id=:user
-          AND drive_share_requests.payment_required=TRUE
-          AND drive_share_requests.quoted_amount_cents IS NOT NULL
-          AND ((drive_share_requests.status IN
-            ('pending','preparing','review_ready','approved','partial')
-            AND drive_share_requests.expires_at>clock_timestamp())
-            OR EXISTS (SELECT 1 FROM drive_request_owner_payouts p
-              WHERE p.request_id=drive_share_requests.request_id
-                AND p.status='awaiting_account'))
+          drive_share_requests.payment_required=TRUE
+          AND NOT EXISTS (SELECT 1 FROM drive_request_payment_orders pay
+            WHERE pay.request_id=drive_share_requests.request_id
+              AND pay.status IN ('paid','refunded'))
+          AND ((drive_share_requests.status IN ('pending','preparing','review_ready')
+            AND drive_share_requests.expires_at>clock_timestamp()
+            AND drive_share_requests.preparation_error_code IN
+              ('owner_price_required','owner_payout_required','payout_unavailable'))
+            OR (drive_share_requests.user_id=:user
+              AND drive_share_requests.quoted_amount_cents IS NOT NULL
+              AND ((drive_share_requests.status IN
+                ('pending','preparing','review_ready','approved','partial')
+                AND drive_share_requests.expires_at>clock_timestamp())
+                OR EXISTS (SELECT 1 FROM drive_request_owner_payouts p
+                  WHERE p.request_id=drive_share_requests.request_id
+                    AND p.status='awaiting_account'))))
           THEN EXISTS (SELECT 1 FROM pkm_owner_payout_accounts account
             WHERE account.user_id=drive_share_requests.user_id
-              AND account.details_submitted=TRUE AND account.payouts_enabled=TRUE)
+              AND account.account_ready=TRUE)
           ELSE NULL END"""
-        if pricing and payout_projection
+        if payments and pricing and payout_projection
         else "NULL::boolean",
     }.items():
         projection = projection.replace("{" + name + "}", expression)
@@ -391,6 +420,23 @@ def entry(row: Any) -> dict[str, Any]:
             "outgoing_requests",
             "active_grants",
         }
+    )
+    setup_waiting = bool(
+        request_open
+        and row.get("payment_status") not in {"paid", "refunded", "expired"}
+        and preparation_code
+        in {"owner_price_required", "owner_payout_required", "payout_unavailable"}
+    )
+    owner_price_required = setup_waiting and row.get("quoted_amount_cents") is None
+    payout_setup_required = request_open and row.get("owner_payout_account_ready") is False
+    setup_description = (
+        ("Link payouts" if row["direction"] == "incoming" else "Waiting for owner setup")
+        if payout_setup_required
+        else ("Set price" if row["direction"] == "incoming" else "Waiting for price")
+        if owner_price_required
+        else "Payments unavailable"
+        if setup_waiting and preparation_code == "payout_unavailable"
+        else None
     )
     owner_payment_waiting = (
         request_open
@@ -454,7 +500,9 @@ def entry(row: Any) -> dict[str, Any]:
         "action": "DOCUMENT_SHARE_REVIEW",
         "scope": None,
         "scope_description": (
-            "Enable background Drive access"
+            setup_description
+            if setup_description
+            else "Enable background Drive access"
             if row["bucket"] == "incoming_requests"
             and preparation_code == "background_preparation_required"
             else "Waiting for requester payment"
@@ -482,8 +530,16 @@ def entry(row: Any) -> dict[str, Any]:
             and row["bucket"] == "incoming_requests"
             and not row.get("access_stopped")
             and not automatic_progressing
-            and not owner_payment_blocked,
+            and (not owner_payment_blocked or payout_setup_required or setup_waiting),
             "owner_decision_available": owner_decision_available,
+            "owner_price_available": bool(
+                row["direction"] == "incoming"
+                and row["bucket"] == "incoming_requests"
+                and row["state"] == "pending"
+                and not row.get("access_stopped")
+                and row.get("owner_price_ready") is True
+                and row.get("owner_payout_account_ready") is True
+            ),
             "owner_allowed": row.get("owner_allowed") is True,
             **(
                 {"payment_required": row.get("payment_required") is True}
@@ -493,8 +549,15 @@ def entry(row: Any) -> dict[str, Any]:
             **({"payment_waiting_for_requester": True} if owner_payment_waiting else {}),
             **(
                 {"ownerPayoutAccountReady": row["owner_payout_account_ready"] is True}
-                if row["direction"] == "incoming"
-                and row.get("owner_payout_account_ready") is not None
+                if row.get("owner_payout_account_ready") is not None
+                else {}
+            ),
+            **(
+                {
+                    "ownerPriceRequired": owner_price_required,
+                    "paymentsReady": preparation_code != "payout_unavailable",
+                }
+                if setup_waiting
                 else {}
             ),
             **(
@@ -639,7 +702,10 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
         return bool(
             connection.execute(
                 text("""SELECT to_regclass('drive_request_owner_payouts') IS NOT NULL
-                  AND to_regclass('pkm_owner_payout_accounts') IS NOT NULL""")
+                  AND to_regclass('pkm_owner_payout_accounts') IS NOT NULL
+                  AND EXISTS (SELECT 1 FROM pg_attribute
+                    WHERE attrelid=to_regclass('pkm_owner_payout_accounts')
+                      AND attname='account_ready' AND NOT attisdropped)""")
             ).scalar_one()
         )
 

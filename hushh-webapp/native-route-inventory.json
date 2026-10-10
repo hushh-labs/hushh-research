@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-10-09",
-  "total_routes": 128,
-  "native_required_routes": 107,
+  "generated_at": "2026-10-10",
+  "total_routes": 130,
+  "native_required_routes": 109,
   "excluded_routes": 21,
   "routes": [
     {
@@ -893,6 +893,18 @@
       ]
     },
     {
+      "route": "/one/profile/payouts",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fpayouts",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/one/profile/payouts",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
       "route": "/one/profile/pkm",
       "classification": "native-required-functional",
       "legacyAlias": true,
@@ -1042,6 +1054,18 @@
       "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fregulatory",
       "expectedMarker": "native-route-profile",
       "expectedRoute": "/one/profile/regulatory",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/one/profile/request-pricing",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Frequest-pricing",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/one/profile/request-pricing",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [

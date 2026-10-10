@@ -9,6 +9,24 @@ import {
 import { registerBackLayer } from "@/lib/navigation/back-layers";
 
 describe("top shell back action", () => {
+  it.each(["payouts", "request-pricing"])("returns %s to Profile while retaining its Feed origin", (panel) => {
+    expect(resolveTopShellBackAction({
+      pathname: `/one/profile/${panel}`,
+      searchParams: new URLSearchParams("from=%2Fone%2Ffeed&documentPayouts=done"),
+      sectionOrigin: null,
+    })?.href).toBe("/one/profile?from=%2Fone%2Ffeed");
+  });
+
+  it("keeps the original request when a setup panel returns through Profile", () => {
+    const origin = "/one/consent?tab=pending&requestId=document_share_request%3A11111111-1111-4111-8111-111111111111&requestView=received";
+    let href = `/one/profile/payouts?${new URLSearchParams({ from: origin })}`;
+    for (let i = 0; i < 2; i++) {
+      const url = new URL(href, "https://app.test");
+      href = resolveTopShellBackAction({ pathname: url.pathname, searchParams: url.searchParams, sectionOrigin: null })!.href;
+    }
+    expect(href).toBe(origin);
+  });
+
   it("consumes a non-dismissible top overlay before any feature or route parent", () => {
     const overlay = document.createElement("div");
     overlay.setAttribute("role", "dialog");

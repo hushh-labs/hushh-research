@@ -88,11 +88,15 @@ export function DocumentRequestQuoteNotice({
   if (!quote) return null;
   return (
     <div className="space-y-1" aria-label="Document request quote">
-      <HelperText>{quote.paymentRequired
-        ? `Price: ${formatDocumentRequestPrice(quote.amountCents)}. Pay only if files are found.`
-        : "No payment is required for this request."}</HelperText>
+      <HelperText>{!quote.paymentRequired
+        ? "No payment is required for this request."
+        : quote.priceReady && quote.amountCents !== null
+          ? `Price: ${formatDocumentRequestPrice(quote.amountCents)}. Pay only if files are found.`
+          : "The owner will set a price. You review it before paying."}</HelperText>
       {quote.paymentRequired && !quote.payoutReady ? (
-        <HelperText>Owner payout setup pending.</HelperText>
+        <HelperText>We'll ask the owner to set up payouts.</HelperText>
+      ) : quote.paymentRequired && !quote.paymentsReady ? (
+        <HelperText>Payments are unavailable. You can still send your request.</HelperText>
       ) : null}
     </div>
   );

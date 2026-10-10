@@ -21,6 +21,7 @@ from sqlalchemy import text
 from hushh_mcp.services.drive_request_payment_service import _config as payment_config
 from hushh_mcp.services.drive_request_payment_service import _stripe_dict
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
+from hushh_mcp.services.pkm_payout_service import _account_readiness, resume_document_owner_setup
 
 _EVENT_TYPES = {
     "account.updated",
@@ -153,15 +154,15 @@ class StripeConnectBankPayouts(ExternalConnectorLifecycleStore):
                         self.stripe_api.Account.retrieve, account_id, api_key=key
                     )
                 )
-                if (
-                    remote.get("id") != account_id
-                    or remote.get("country") != "US"
-                    or remote.get("livemode") is not livemode
-                ):
+                if remote.get("id") != account_id or remote.get("country") != "US":
                     raise ConnectBankPayoutError("provider_mismatch")
+                # Stripe Account objects have no livemode field. The signed
+                # event mode and environment-bound API key establish this
+                # boundary; the retrieved mapped account establishes identity.
                 snapshot = {
                     "details": remote.get("details_submitted") is True,
                     "payouts": remote.get("payouts_enabled") is True,
+                    "ready": _account_readiness(remote)["ready"],
                 }
             else:
                 remote = _stripe_dict(
@@ -177,7 +178,7 @@ class StripeConnectBankPayouts(ExternalConnectorLifecycleStore):
             raise
         except Exception:
             raise ConnectBankPayoutError("provider_unavailable") from None
-        return await self._transaction(
+        result = await self._transaction(
             lambda c: self._apply(
                 c,
                 event_id=event_id,
@@ -188,6 +189,18 @@ class StripeConnectBankPayouts(ExternalConnectorLifecycleStore):
                 snapshot=snapshot,
             )
         )
+        if object_type == "account" and result == "updated":
+            owner = await self._transaction(
+                lambda c: c.execute(
+                    text(
+                        "SELECT user_id FROM pkm_owner_payout_accounts WHERE stripe_account_id=:account"
+                    ),
+                    {"account": account_id},
+                ).scalar_one_or_none()
+            )
+            if owner:
+                await resume_document_owner_setup(self.db, owner)
+        return result
 
     @staticmethod
     def _event_binding(
@@ -257,11 +270,12 @@ class StripeConnectBankPayouts(ExternalConnectorLifecycleStore):
         if event_type == "account.updated":
             connection.execute(
                 text("""UPDATE pkm_owner_payout_accounts
-                  SET details_submitted=:details,payouts_enabled=:payouts,
+                  SET details_submitted=:details,payouts_enabled=:payouts,account_ready=:ready,
                   updated_at=CURRENT_TIMESTAMP WHERE stripe_account_id=:account"""),
                 {
                     "details": snapshot["details"],
                     "payouts": snapshot["payouts"],
+                    "ready": snapshot["ready"],
                     "account": account_id,
                 },
             )

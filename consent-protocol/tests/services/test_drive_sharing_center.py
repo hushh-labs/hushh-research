@@ -13,6 +13,7 @@ from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
 from hushh_mcp.services.drive_owner_allowed import end_owner_allows_for_disconnected_pair
 from hushh_mcp.services.drive_sharing_center_contributor import DriveSharingCenterContributor, entry
+from hushh_mcp.services.google_drive_adapter import DriveReadError
 from tests.services.test_drive_permission_executor import (  # noqa: F401
     connector_postgres_url,
     documents,
@@ -24,7 +25,12 @@ from tests.services.test_drive_permission_executor import (  # noqa: F401
     sharing,
 )
 from tests.services.test_drive_request_bulk_postgres import request_bulk  # noqa: F401
-from tests.services.test_drive_sharing_store import request, review
+from tests.services.test_drive_sharing_store import (
+    request,
+    review,
+    stored_request,
+    trusted_unpriced_request,
+)
 from tests.services.test_drive_trusted_auto import _connection, _membership, _request
 
 
@@ -90,6 +96,136 @@ def test_consent_projects_locked_quote_and_owner_setup_without_an_order():
     owner = entry(row)["metadata"]
     assert owner["ownerPayoutAccountReady"] is False
     assert "quotedAmountCents" not in owner
+
+
+@pytest.mark.parametrize("direction", ["incoming", "outgoing"])
+def test_new_request_setup_projects_bank_before_price_and_clears_after_resume(direction):
+    row = {
+        "source": "share",
+        "id": f"document_share_request:{uuid4()}",
+        "request_id": uuid4(),
+        "bucket": f"{direction}_requests",
+        "status": "pending",
+        "issued_at": 0,
+        "direction": direction,
+        "state": "pending",
+        "revision": 0,
+        "quoted_amount_cents": None,
+        "preparation_error_code": "owner_payout_required",
+        "owner_payout_account_ready": False,
+    }
+    projected = entry(row)
+    assert projected["scope_description"] == (
+        "Link payouts" if direction == "incoming" else "Waiting for owner setup"
+    )
+    assert projected["metadata"]["ownerPriceRequired"] is True
+    assert projected["metadata"]["ownerPayoutAccountReady"] is False
+    assert projected["metadata"]["automatic_progress_active"] is False
+    row.update(owner_payout_account_ready=True, preparation_error_code="owner_price_required")
+    projected = entry(row)
+    assert projected["scope_description"] == (
+        "Set price" if direction == "incoming" else "Waiting for price"
+    )
+    row.update(
+        quoted_amount_cents=1200, quote_version=1, preparation_error_code="trusted_auto_queued"
+    )
+    assert "ownerPriceRequired" not in entry(row)["metadata"]
+    row.update(
+        payment_status="paid",
+        preparation_error_code="owner_price_required",
+        payment_amount_cents=1200,
+        payment_currency="usd",
+        payment_reconciliation_required=False,
+        payment_link_expired=False,
+    )
+    assert "ownerPriceRequired" not in entry(row)["metadata"]
+
+
+def test_trusted_price_only_projection_requires_current_ready_trust_and_payouts():
+    row = {
+        "source": "share",
+        "id": f"document_share_request:{uuid4()}",
+        "request_id": uuid4(),
+        "bucket": "incoming_requests",
+        "status": "pending",
+        "issued_at": 0,
+        "direction": "incoming",
+        "state": "pending",
+        "revision": 0,
+        "quoted_amount_cents": None,
+        "preparation_error_code": "owner_price_required",
+        "owner_price_ready": True,
+        "owner_payout_account_ready": True,
+    }
+    assert entry(row)["metadata"]["owner_price_available"] is True
+    assert entry(row)["metadata"]["owner_decision_available"] is False
+    for update in [
+        {"owner_price_ready": False},
+        {"owner_payout_account_ready": False},
+        {"state": "expired"},
+        {"direction": "outgoing"},
+        {"access_stopped": True},
+    ]:
+        assert entry({**row, **update})["metadata"]["owner_price_available"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "initially_trusted,default_amount_cents", [(True, None), (False, None), (False, 1200)]
+)
+async def test_trusted_price_action_real_projection_and_later_trust_transition(
+    sharing, monkeypatch, initially_trusted, default_amount_cents
+):
+    created = await trusted_unpriced_request(
+        sharing, monkeypatch, trusted=initially_trusted, default_amount_cents=default_amount_cents
+    )
+    identity = created["requestId"]
+    projection = DriveSharingCenterContributor(db=sharing.db)
+    if not initially_trusted:
+        before = (await projection.page("owner", bucket="incoming_requests", limit=20))["items"][0]
+        assert before["metadata"]["owner_decision_available"] is True
+        assert before["metadata"]["owner_price_available"] is False
+        assert stored_request(sharing, identity)[1].get("trusted_auto") is not True
+        with sharing.db.engine.begin() as connection:
+            connection.execute(
+                text("""INSERT INTO one_location_circle_memberships
+              SELECT id,'recipient','active' FROM one_location_circles WHERE owner_user_id='owner'""")
+            )
+    current = (await projection.page("owner", bucket="incoming_requests", limit=20))["items"][0]
+    assert current["metadata"]["owner_price_available"] is True
+    assert current["metadata"]["owner_decision_available"] is False
+    owner_review = await sharing.owner_review(user_id="owner", request_id=identity)
+    assert owner_review["priceOnlyAvailable"] is True
+    await sharing.set_request_price(
+        user_id="owner", request_id=identity, revision=created["revision"], amount_cents=700
+    )
+    row, private = stored_request(sharing, identity)
+    assert private["trusted_auto"] is True and "owner_allowed" not in private
+    assert row["owner_allowed_at"] is None and row["quoted_amount_cents"] == 700
+    await sharing.trusted_request_authority(user_id="owner", request_id=identity)
+    after = (await projection.page("owner", bucket="incoming_requests", limit=20))["items"][0]
+    assert after["metadata"]["owner_price_available"] is False
+    assert after["metadata"]["automatic_progress_active"] is True
+
+
+@pytest.mark.asyncio
+async def test_trusted_request_price_never_bypasses_background_opt_out(sharing, monkeypatch):
+    created = await trusted_unpriced_request(sharing, monkeypatch)
+    identity = created["requestId"]
+    await DriveLivePreferences(db=sharing.db).set_background(
+        user_id="owner", enabled=False, confirmed=True
+    )
+    projection = DriveSharingCenterContributor(db=sharing.db)
+    current = (await projection.page("owner", bucket="incoming_requests", limit=20))["items"][0]
+    assert current["metadata"]["owner_price_available"] is False
+    assert not (await sharing.owner_review(user_id="owner", request_id=identity))[
+        "priceOnlyAvailable"
+    ]
+    with pytest.raises(DriveReadError, match="background_preparation_required"):
+        await sharing.set_request_price(
+            user_id="owner", request_id=identity, revision=created["revision"], amount_cents=700
+        )
+    assert stored_request(sharing, identity)[0]["quoted_amount_cents"] is None
 
 
 def test_background_setup_label_is_owner_only_and_clears_on_resume():
@@ -418,6 +554,7 @@ async def test_metadata_only_previews_counts_and_filtered_pages(sharing, monkeyp
         "accessStopped",
         "owner_attention_required",
         "owner_decision_available",
+        "owner_price_available",
         "owner_allowed",
         "payment_required",
     }

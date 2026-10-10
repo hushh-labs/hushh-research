@@ -142,6 +142,83 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         super().__init__(db)
         self.stripe_api = stripe_api or stripe
 
+    async def owner_history(self, *, user_id: str, cursor: str | None = None) -> dict[str, Any]:
+        """Owner-scoped, bounded earnings; a transfer is never a bank deposit."""
+        if not user_id:
+            raise ValueError("invalid owner")
+        cursor_id = str(UUID(cursor)) if cursor else None
+
+        def operation(connection):
+            rows = (
+                connection.execute(
+                    text("""SELECT p.request_id,p.status,p.gross_amount_cents,
+                  p.refund_amount_cents,p.platform_fee_cents,p.allocated_processing_fee_cents,
+                  p.owner_earning_cents,p.reversal_amount_cents,p.created_at,p.transferred_at,
+                  p.expected_files,p.confirmed_files,r.user_id,r.request_envelope
+                  FROM drive_request_owner_payouts p
+                  JOIN drive_share_requests r ON r.request_id=p.request_id
+                  JOIN drive_request_payment_orders o ON o.request_id=p.request_id
+                  WHERE r.user_id=:owner AND p.erased_at IS NULL
+                    AND o.stripe_payment_intent_id IS NOT NULL
+                    AND (CAST(:cursor AS uuid) IS NULL OR (p.created_at,p.request_id) < (
+                      SELECT c.created_at,c.request_id FROM drive_request_owner_payouts c
+                      JOIN drive_share_requests cr ON cr.request_id=c.request_id
+                      WHERE c.request_id=CAST(:cursor AS uuid) AND cr.user_id=:owner))
+                  ORDER BY p.created_at DESC,p.request_id DESC LIMIT 21"""),
+                    {"owner": user_id, "cursor": cursor_id},
+                )
+                .mappings()
+                .all()
+            )
+            return [dict(row) for row in rows]
+
+        rows = await self._transaction(operation)
+        from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher, DriveSharingError
+
+        cipher = DriveSharingCipher() if rows else None
+        items = []
+        for row in rows[:20]:
+            description = "Document request"
+            try:
+                private = cipher.open(
+                    row["request_envelope"],
+                    user_id=user_id,
+                    resource_id=str(row["request_id"]),
+                    purpose="request",
+                )
+                terms = private.get("purpose")
+                purpose = terms.get("purpose") if isinstance(terms, dict) else None
+                if isinstance(purpose, str) and purpose.strip():
+                    description = " ".join(purpose.split())[:120]
+            except (DriveSharingError, ValueError, TypeError, KeyError):
+                # Financial history remains readable if an old request's
+                # descriptive envelope cannot be opened. Never log its contents.
+                pass
+            items.append(
+                {
+                    "requestId": str(row["request_id"]),
+                    "description": description,
+                    "status": row["status"],
+                    "grossAmountCents": row["gross_amount_cents"],
+                    "refundAmountCents": row["refund_amount_cents"],
+                    "platformFeeCents": row["platform_fee_cents"],
+                    "processingFeeCents": row["allocated_processing_fee_cents"],
+                    "netAmountCents": row["owner_earning_cents"],
+                    "reversedAmountCents": row["reversal_amount_cents"],
+                    "createdAt": row["created_at"].isoformat(),
+                    "transferredAt": row["transferred_at"].isoformat()
+                    if row["transferred_at"]
+                    else None,
+                    "expectedFiles": row["expected_files"],
+                    "confirmedFiles": row["confirmed_files"],
+                }
+            )
+        return {
+            "currency": "USD",
+            "transactions": items,
+            "nextCursor": str(rows[19]["request_id"]) if len(rows) > 20 else None,
+        }
+
     @staticmethod
     def record_order(connection, *, request_id: str, owner_user_id: str, amount_cents: int) -> bool:
         """Enroll only a new, unpaid order in the same transaction as its INSERT."""
@@ -727,7 +804,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         )
         payout = self._row(
             connection,
-            "SELECT * FROM drive_request_owner_payouts WHERE request_id=:request FOR UPDATE",
+            "SELECT *, (lease_expires_at > clock_timestamp()) AS lease_active FROM drive_request_owner_payouts WHERE request_id=:request FOR UPDATE",
             {"request": request_id},
         )
         prior_attempt = bool(payout and payout["status"] in {"dispatching", "unknown"})
@@ -753,6 +830,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         )
         if (
             payout is None
+            or payout.get("lease_active") is True
             or payout["status"] not in {"due", "awaiting_account", "dispatching", "unknown"}
             or obligation is None
             or (not prior_attempt and not (live_source or erased_source))
@@ -831,7 +909,9 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                 {"request": request_id},
             )
             return None
-        attempt = str(payout["transfer_attempt_id"] or uuid4())
+        # Each lease owns its completion. Stripe's request-scoped idempotency
+        # key stays stable, while a slow older worker cannot overwrite a retry.
+        attempt = str(uuid4())
         row = self._row(
             connection,
             """UPDATE drive_request_owner_payouts SET status='dispatching',
@@ -848,6 +928,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         source_valid = live_source or erased_source
         return {
             **row,
+            "first_transfer_attempt": payout.get("first_dispatch_at") is None,
             "must_reverse": bool(
                 obligation["status"] == "refunded"
                 or (order is not None and order["status"] == "refunded")
@@ -1067,15 +1148,24 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             and claim.get("create_allowed")
         ):
             target = "awaiting_account"
+        # The first claim may discover restricted banking before any transfer
+        # write. That owner's setup time must not consume Stripe's retry window.
+        # A prior uncertain attempt is never reset, even if a later read is empty.
+        clear_unused_attempt = bool(
+            target == "awaiting_account" and claim.get("first_transfer_attempt") is True
+        )
         connection.execute(
             text("""UPDATE drive_request_owner_payouts SET
           status=:status,safe_error_code=:error,lease_expires_at=NULL,
+          first_dispatch_at=CASE WHEN :clear_attempt THEN NULL ELSE first_dispatch_at END,
+          transfer_attempt_id=CASE WHEN :clear_attempt THEN NULL ELSE transfer_attempt_id END,
           next_check_at=clock_timestamp()+interval '5 minutes',updated_at=clock_timestamp()
           WHERE request_id=:request"""),
             {
                 "request": claim["request_id"],
                 "status": target,
                 "error": error or "provider_unavailable",
+                "clear_attempt": clear_unused_attempt,
             },
         )
         return target
