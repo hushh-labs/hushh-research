@@ -1,6 +1,8 @@
-.pane { display: grid; grid-template-columns: 380px minmax(0,1fr); min-height: 0; height: 100%; width: 100%; color: var(--chat-text); }
-.list { min-width: 0; overflow-y: auto; border-right: 1px solid color-mix(in srgb, var(--chat-text) 8%, transparent); }
-.listHeader { display: flex; align-items: center; justify-content: space-between; padding: 18px 20px 12px; font-size: 20px; font-weight: 700; }
+.pane { display: grid; grid-template-columns: 370px minmax(0,1fr); min-height: 0; height: 100%; width: 100%; color: var(--chat-text); }
+.list { min-width: 0; overflow-y: auto; border-right: 1px solid var(--chat-glass-edge); background: var(--chat-glass-strong); backdrop-filter: blur(28px) saturate(145%); -webkit-backdrop-filter: blur(28px) saturate(145%); }
+.listHeader { min-height: 68px; display: flex; align-items: center; justify-content: space-between; padding: 12px 18px; font-size: 20px; font-weight: 700; }
+.pane .listHeader h1 { margin: 0; color: var(--chat-text); font-family: var(--font-app-heading); font-size: 20px !important; font-weight: 700 !important; line-height: 1.2 !important; letter-spacing: -.02em !important; }
+.listHeaderActions { display: flex; align-items: center; gap: 2px; }
 .listHeader a, .back { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; color: var(--chat-accent); }
 .listHeader a:hover, .back:hover { background: var(--chat-row-active); }
 .row { width: 100%; min-height: 70px; display: flex; align-items: center; gap: 12px; padding: 10px 20px; text-align: left; }
