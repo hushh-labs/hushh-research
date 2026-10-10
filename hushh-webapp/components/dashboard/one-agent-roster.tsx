@@ -267,14 +267,15 @@ function useCachedAgentMetrics(
 }
 
 const ROSTER_DISPLAY_ORDER: readonly string[] = [
-  "finance",
-  "wallet",
   "location",
-  "ria",
   "gmail",
   "calendar",
-  "pkm",
+  "finance",
+  "ria",
+  "wallet",
   "consent",
+  "pkm",
+  "messages",
 ];
 
 // Outline icons belong to the One roster only; other surfaces keep their defaults.
