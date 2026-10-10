@@ -140,16 +140,34 @@ class WalletCardAccessService:
         )
         if not row:
             raise WalletCardAccessError("WALLET_CARD_INELIGIBLE")
-        entry = json.loads(WalletCardSourceCipher().open({
-            **row["source_projection"], "id": card_id, "sender_user_id": owner, "conversation_id": "",
-        }))
-        if not isinstance(entry, dict) or set(entry) != {"brand", "last4", "expiryMonth", "expiryYear", "issuingRegion"}:
+        entry = json.loads(
+            WalletCardSourceCipher().open(
+                {
+                    **row["source_projection"],
+                    "id": card_id,
+                    "sender_user_id": owner,
+                    "conversation_id": "",
+                }
+            )
+        )
+        if not isinstance(entry, dict) or set(entry) != {
+            "brand",
+            "last4",
+            "expiryMonth",
+            "expiryYear",
+            "issuingRegion",
+        }:
             raise WalletCardAccessError("WALLET_CARD_SOURCE_INVALID", 503)
-        return masked_card_projection({
-            "card_id": card_id, "brand": entry["brand"], "last4": entry["last4"],
-            "expiry_month": entry["expiryMonth"], "expiry_year": entry["expiryYear"],
-            "issuing_region": entry["issuingRegion"],
-        })
+        return masked_card_projection(
+            {
+                "card_id": card_id,
+                "brand": entry["brand"],
+                "last4": entry["last4"],
+                "expiry_month": entry["expiryMonth"],
+                "expiry_year": entry["expiryYear"],
+                "issuing_region": entry["issuingRegion"],
+            }
+        )
 
     @staticmethod
     def _grant_status(row, now):

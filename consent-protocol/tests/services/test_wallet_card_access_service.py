@@ -130,6 +130,7 @@ def test_unknown_manual_default_or_foreign_card_is_ineligible(monkeypatch):
 
 def test_masked_projection_is_bounded_by_validation(monkeypatch):
     from hushh_mcp.services.wallet_card_access_projection import masked_card_projection
+
     entry = {
         "card_id": "card_11111111-1111-4111-8111-111111111111",
         "brand": "visa",
