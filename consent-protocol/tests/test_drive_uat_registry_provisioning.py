@@ -24,6 +24,8 @@ from hushh_mcp.services.drive_prod_registry_provisioning import (
     _canonical_row as _prod_canonical_row,
 )
 from hushh_mcp.services.drive_uat_registry_provisioning import (
+    LEGACY_REGISTERED_REDIRECT_URIS,
+    LEGACY_WEB_REDIRECT_URI,
     NATIVE_OAUTH_REDIRECT_URI,
     NATIVE_PICKER_REDIRECT_URI,
     PROVISIONED_BY,
@@ -109,6 +111,10 @@ class _RegistryConnection:
         if sql.startswith("UPDATE external_mcp_connectors"):
             assert self.row is not None
             self.mutation_count += 1
+            if "registered_redirect_uris" in values:
+                self.row["registered_redirect_uris"] = json.loads(
+                    values["registered_redirect_uris"]
+                )
             self.row["is_active"] = True
             return _Rows([])
         raise AssertionError(f"Unhandled SQL: {sql}")
@@ -158,6 +164,12 @@ def _canonical_active_row(*, active: bool = True) -> dict[str, Any]:
         "registered_redirect_uris": list(REGISTERED_REDIRECT_URIS),
         "is_active": active,
     }
+
+
+def _legacy_active_row(*, active: bool = True) -> dict[str, Any]:
+    row = _canonical_active_row(active=active)
+    row["registered_redirect_uris"] = list(LEGACY_REGISTERED_REDIRECT_URIS)
+    return row
 
 
 def _script_module():
@@ -231,7 +243,7 @@ def test_activation_inserts_only_the_fixed_drive_rest_policy():
         "status": "activated",
         "transportKind": "google_drive_rest",
         "policyHash": LIVE_POLICY_HASH,
-        "redirectCount": 3,
+        "redirectCount": 4,
     }
     assert connection.row == _canonical_active_row()
     insert_values = next(
@@ -243,6 +255,7 @@ def test_activation_inserts_only_the_fixed_drive_rest_policy():
     assert json.loads(insert_values["capability_policy"]) == DRIVE_POLICY
     assert json.loads(insert_values["registered_redirect_uris"]) == [
         WEB_REDIRECT_URI,
+        LEGACY_WEB_REDIRECT_URI,
         NATIVE_OAUTH_REDIRECT_URI,
         NATIVE_PICKER_REDIRECT_URI,
     ]
@@ -259,6 +272,29 @@ def test_activation_is_idempotent_for_an_exact_active_row():
 
     assert result["status"] == "verified"
     assert connection.mutation_count == 0
+
+
+@pytest.mark.parametrize("active", [True, False])
+def test_activation_migrates_only_exact_legacy_redirect_row(active):
+    connection = _RegistryConnection(row=_legacy_active_row(active=active))
+
+    result = _service(connection).activate()
+
+    assert result["status"] == "migrated"
+    assert result["redirectCount"] == 4
+    assert connection.row == _canonical_active_row()
+    assert connection.mutation_count == 1
+    assert "FROM pg_control_system()" in connection.sql[0]
+    assert any("pg_advisory_xact_lock" in sql for sql in connection.sql)
+    assert any("FOR UPDATE" in sql for sql in connection.sql)
+    updates = [
+        (sql, params)
+        for sql, params in zip(connection.sql, connection.parameters, strict=True)
+        if sql.startswith("UPDATE external_mcp_connectors")
+    ]
+    assert len(updates) == 1
+    assert "registered_redirect_uris" in updates[0][0]
+    assert json.loads(updates[0][1]["registered_redirect_uris"]) == list(REGISTERED_REDIRECT_URIS)
 
 
 def test_activation_can_only_reactivate_an_exact_inactive_row():
@@ -278,6 +314,7 @@ def test_activation_can_only_reactivate_an_exact_inactive_row():
         ("oauth_scopes", "openid email"),
         ("oauth_client_secret_env", "GOOGLE_OAUTH_CLIENT_SECRET"),
         ("registered_redirect_uris", [WEB_REDIRECT_URI]),
+        ("registered_redirect_uris", [*LEGACY_REGISTERED_REDIRECT_URIS, "https://evil.example/cb"]),
         ("capability_policy", {"mutations": True}),
     ],
 )
@@ -300,6 +337,15 @@ def test_verify_is_read_only_and_requires_an_active_exact_row():
     assert result["status"] == "verified"
     assert connection.mutation_count == 0
     assert all("FOR UPDATE" not in sql for sql in connection.sql)
+
+
+def test_verify_refuses_legacy_row_until_migrated():
+    connection = _RegistryConnection(row=_legacy_active_row())
+
+    with pytest.raises(DriveUatRegistryProvisioningError, match="unavailable"):
+        _service(connection).verify()
+
+    assert connection.mutation_count == 0
 
 
 def test_cli_failure_does_not_echo_environment_values(monkeypatch, capsys):
