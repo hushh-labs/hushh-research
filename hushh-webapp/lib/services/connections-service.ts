@@ -371,9 +371,11 @@ export class ConnectionsService {
     page?: number;
     limit?: number;
     audience?: DirectoryAudience;
+    nameOnly?: boolean;
   }): Promise<DirectoryPage> {
     const params = new URLSearchParams();
     if (opts.query) params.set("query", opts.query);
+    if (opts.nameOnly) params.set("name_only", "true");
     params.set("page", String(opts.page ?? 1));
     if (typeof opts.limit === "number") params.set("limit", String(opts.limit));
     // Omitted rather than sent as "all", so the request a pre-split caller

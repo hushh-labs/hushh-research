@@ -158,13 +158,22 @@ class ConnectionsDouble:
         self.calls.append(("list_requests", (user_id, direction)))
         return list(self.incoming if direction == "incoming" else self.outgoing)
 
-    def search_directory(self, user_id: str, *, query: str = "", page: int = 1, limit: int = 20):
+    def search_directory(
+        self,
+        user_id: str,
+        *,
+        query: str = "",
+        page: int = 1,
+        limit: int = 20,
+        name_only: bool = False,
+    ):
         self.calls.append(("search_directory", (user_id, query, page, limit)))
         needle = (query or "").lower()
         items = [
             row
             for row in self.directory
             if any(tok.startswith(needle) for tok in str(row["displayName"]).lower().split())
+            or (not name_only and needle in str(row.get("email") or "").lower())
         ]
         return {"items": items, "page": page, "hasMore": False, "audience": "all"}
 
@@ -500,6 +509,9 @@ async def test_resolve_directory_pool_uses_search_and_annotates_known_people():
 
 async def test_resolve_directory_falls_back_to_a_short_prefix_for_near_spellings():
     ctx, connections, _ = make_ctx()
+    connections.directory.append(
+        {"userId": "unrelated", "displayName": "Zoe Peer", "email": "pria@example.test"}
+    )
     result = await people.resolve_person(
         ctx, people.ResolvePersonInput(spoken_name="Pria", pool="directory")
     )
@@ -1241,7 +1253,10 @@ async def test_resolve_person_reads_more_than_one_directory_page_before_claiming
         }
     ]
 
-    def paged(user_id: str, *, query: str = "", page: int = 1, limit: int = 20):
+    def paged(
+        user_id: str, *, query: str = "", page: int = 1, limit: int = 20, name_only: bool = False
+    ):
+        assert name_only is True
         connections.calls.append(("search_directory", (user_id, query, page, limit)))
         needle = (query or "").lower()[:3]
         rows = [r for r in connections.directory if r["displayName"].lower().startswith(needle)]
@@ -1270,7 +1285,10 @@ async def test_resolve_person_reports_truncation_instead_of_the_only_match():
     connections = ConnectionsDouble()
     connections.directory = _directory_of(400, prefix="Pri")
 
-    def paged(user_id: str, *, query: str = "", page: int = 1, limit: int = 20):
+    def paged(
+        user_id: str, *, query: str = "", page: int = 1, limit: int = 20, name_only: bool = False
+    ):
+        assert name_only is True
         connections.calls.append(("search_directory", (user_id, query, page, limit)))
         offset = (page - 1) * limit
         items = connections.directory[offset : offset + limit]

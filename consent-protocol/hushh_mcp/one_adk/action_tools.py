@@ -1355,7 +1355,11 @@ async def _execute_backend_direct_mutation(
                 page = 1
                 while page <= _DIRECTORY_RESOLVE_MAX_PAGES:
                     result = connections_service.search_directory(
-                        user_id, query=search_term, page=page, limit=_DIRECTORY_RESOLVE_PAGE_SIZE
+                        user_id,
+                        query=search_term,
+                        page=page,
+                        limit=_DIRECTORY_RESOLVE_PAGE_SIZE,
+                        name_only=True,
                     )
                     directory_candidates.extend(result.get("items") or [])
                     if not result.get("hasMore"):
@@ -2189,7 +2193,11 @@ def _directory_candidates(
     page = 1
     while page <= _DIRECTORY_RESOLVE_MAX_PAGES:
         result = connections_service.search_directory(
-            user_id, query=search_term, page=page, limit=_DIRECTORY_RESOLVE_PAGE_SIZE
+            user_id,
+            query=search_term,
+            page=page,
+            limit=_DIRECTORY_RESOLVE_PAGE_SIZE,
+            name_only=True,
         )
         candidates.extend(result.get("items") or [])
         if not result.get("hasMore"):

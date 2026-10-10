@@ -168,7 +168,7 @@ class ConnectionsChatService:
 
         def find_people(query: str) -> dict:
             """Search the owner directory by name. Resolve a real person before proposing a request; ambiguous names require request_person_choice."""
-            return service.search_directory(user_id, query=query)
+            return service.search_directory(user_id, query=query, name_only=True)
 
         def propose_send_request(addressee_user_id: str, label: str = "them") -> dict:
             """Propose sending a request to the person resolved by find_people. This only asks for confirmation and never sends."""
@@ -220,7 +220,9 @@ class ConnectionsChatService:
 
         def request_person_choice(name: str) -> dict:
             """Ask the owner to choose an ambiguous directory person. A single match returns resolved; multiple matches attach a picker; never guess."""
-            items = (service.search_directory(user_id, query=name) or {}).get("items") or []
+            items = (service.search_directory(user_id, query=name, name_only=True) or {}).get(
+                "items"
+            ) or []
             people = [p for p in items if p.get("userId")]
             if not people:
                 return {"status": "not_found", "name": name}

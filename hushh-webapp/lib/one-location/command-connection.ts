@@ -128,6 +128,7 @@ export function locationConnectionPrerequisite(
           query: name,
           page,
           limit: 50,
+          nameOnly: true,
         }),
     });
   };
