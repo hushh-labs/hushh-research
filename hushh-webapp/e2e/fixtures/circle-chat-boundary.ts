@@ -19,8 +19,8 @@ if (new URLSearchParams(location.search).has("workspace")) {
   );
 }
 let failed = false;
-const fixture = window as unknown as { chatFixture: { failNext: boolean; sends: unknown[]; read: number[]; loseAccess: boolean } };
-fixture.chatFixture = { failNext: false, sends: [], read: [], loseAccess: false };
+const fixture = window as unknown as { chatFixture: { failNext: boolean; sends: unknown[]; read: number[]; loseAccess: boolean; prepareDelayMs: number; sendDelayMs: number; imageMessageIds: string[] } };
+fixture.chatFixture = { failNext: false, sends: [], read: [], loseAccess: false, prepareDelayMs: 0, sendDelayMs: 0, imageMessageIds: [] };
 Object.assign(fixture.chatFixture, { incoming: () => {
   history.push({ id: `incoming-${history.length}`, sequence: history.length + 1, senderUserId: "bob", senderName: "Kushal Trivedi", createdAt: new Date().toISOString(), text: "Incoming while reading history", image: false });
   window.dispatchEvent(new CustomEvent("hushh:circle-chat-changed", { detail: { userId: "alice", circleId: "circle" } }));
@@ -38,9 +38,13 @@ export const CircleChatService = {
   },
   open: async (_session: unknown, message: typeof history[number]) => ({ text: message.text,
     image: message.image ? { name: "family.png", type: "image/png" } : null }),
-  prepare: async (_session: unknown, text: string, file: File | null) => ({ clientMessageId: "retry-id", text, image: Boolean(file) }),
+  prepare: async (_session: unknown, text: string, file: File | null, preview?: { clientMessageId: string }) => {
+    if (fixture.chatFixture.prepareDelayMs) await new Promise((resolve) => setTimeout(resolve, fixture.chatFixture.prepareDelayMs));
+    return { clientMessageId: preview?.clientMessageId ?? "retry-id", text, image: Boolean(file) };
+  },
   send: async (_session: unknown, payload: { text: string; image: boolean }) => {
     fixture.chatFixture.sends.push(payload);
+    if (fixture.chatFixture.sendDelayMs) await new Promise((resolve) => setTimeout(resolve, fixture.chatFixture.sendDelayMs));
     if (fixture.chatFixture.failNext && !failed) { failed = true; throw new ApiError("Delivery timed out", 504); }
     const message = { id: `message-${history.length}`, sequence: history.length + 1, senderUserId: "alice", senderName: "Alice", createdAt: new Date().toISOString(), ...payload };
     history.push(message);
@@ -48,5 +52,5 @@ export const CircleChatService = {
   },
   read: async (_session: unknown, sequence: number) => { fixture.chatFixture.read.push(sequence); },
   mute: async (_session: unknown, muted: boolean) => ({ muted }),
-  image: async () => new Blob([Uint8Array.from(atob(__CIRCLE_CHAT_FIXTURE_MEDIA__), (c) => c.charCodeAt(0))], { type: "image/webp" }),
+  image: async (_session: unknown, message: { id: string }) => { fixture.chatFixture.imageMessageIds.push(message.id); return new Blob([Uint8Array.from(atob(__CIRCLE_CHAT_FIXTURE_MEDIA__), (c) => c.charCodeAt(0))], { type: "image/webp" }); },
 };
