@@ -1110,6 +1110,18 @@
       "primary_access_path": "Google OAuth connection service and confirmation-bound Calendar live-read/action service"
     },
     {
+      "data_class": "audit_regulated",
+      "exact_tables": [
+        "hashcoin_wallets",
+        "hashcoin_ledger_entries",
+        "hashcoin_redemptions"
+      ],
+      "id": "hashcoin_owner_earnings",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Profile Payouts reads owner-scoped live and sandbox wallets. Verified document settlement appends one immutable net-cent credit per request; each live earning also seeds an isolated test demonstration balance. Test redemption reserves coins under a wallet row lock, then reconciles an idempotent Stripe test transfer before appending a debit. Postgres is authoritative; future Redis may cache projections only and never authorize spending."
+    },
+    {
       "data_class": "personal_metadata",
       "exact_tables": [
         "hushh_tech_account_links",
@@ -1769,18 +1781,6 @@
       "lifecycle_status": "current",
       "owner": "vault-pkm-governance",
       "primary_access_path": "vault setup, unlock-status, wrapper selection, and account deletion services"
-    },
-    {
-      "data_class": "audit_regulated",
-      "exact_tables": [
-        "hashcoin_wallets",
-        "hashcoin_ledger_entries",
-        "hashcoin_redemptions"
-      ],
-      "id": "hashcoin_owner_earnings",
-      "lifecycle_status": "current",
-      "owner": "iam-consent-governance",
-      "primary_access_path": "Profile Payouts reads owner-scoped live and sandbox wallets. Verified document settlement appends one immutable net-cent credit per request; each live earning also seeds an isolated test demonstration balance. Test redemption reserves coins under a wallet row lock, then reconciles an idempotent Stripe test transfer before appending a debit. Postgres is authoritative; future Redis may cache projections only and never authorize spending."
     }
   ],
   "database_retirements": [
@@ -4080,6 +4080,7 @@
           "help.open_examples",
           "profile.delete_account",
           "profile.marketplace_visibility.toggle",
+          "profile.payouts.test_redeem",
           "profile.reset_account",
           "profile.set_contact_discoverable",
           "profile.sign_out",
@@ -4171,6 +4172,7 @@
           "help.open_examples",
           "profile.delete_account",
           "profile.marketplace_visibility.toggle",
+          "profile.payouts.test_redeem",
           "profile.reset_account",
           "profile.set_contact_discoverable",
           "profile.sign_out",
@@ -4216,6 +4218,7 @@
           "help.open_examples",
           "profile.delete_account",
           "profile.marketplace_visibility.toggle",
+          "profile.payouts.test_redeem",
           "profile.reset_account",
           "profile.set_contact_discoverable",
           "profile.sign_out",
@@ -4519,6 +4522,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "profile.payouts.test_redeem",
           "route.profile_payouts"
         ],
         "delegate_agent_ids": [],
@@ -6214,245 +6218,26 @@
         "delegate_agent_ids": [],
         "playbook_id": "route.welcome"
       }
-    },
-    {
-      "alias": null,
-      "api_dependencies": [],
-      "cache": {
-        "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-        "resource_classes": [
-          "vault_metadata",
-          "pkm_metadata"
-        ]
-      },
-      "implementation_override": {
-        "canonical_url": "/one?profile_pane=1",
-        "kind": "redirect_with_shared_feature_module",
-        "pathname": "/one/profile",
-        "reason": "The profile route redirects into the pane on /one (carrying panel and detail); the canonical /one shell mounts the profile workspace as a pane. Sub-routes such as /one/profile/preferences still render the workspace page directly.",
-        "shared_feature_export": "ProfilePane"
-      },
-      "lifecycle": "canonical",
-      "native_surface_id": "native-route-profile",
-      "page_file": "app/one/profile/page.tsx",
-      "pathname": "/one/profile",
-      "route_mode": "standard",
-      "semantic_routes": [],
-      "voice": {
-        "action_ids": [
-          "help.open_examples",
-          "profile.delete_account",
-          "profile.marketplace_visibility.toggle",
-          "profile.payouts.test_redeem",
-          "profile.reset_account",
-          "profile.set_contact_discoverable",
-          "profile.sign_out",
-          "profile.support.submit_message",
-          "profile.update_display_name",
-          "route.back",
-          "route.profile",
-          "route.profile_access_panel",
-          "route.profile_connected_systems",
-          "route.profile_my_data",
-          "route.profile_payouts",
-          "route.profile_pkm_agent_lab",
-          "route.profile_privacy",
-          "route.profile_referrals_panel",
-          "route.profile_request_pricing",
-          "route.profile_security_panel",
-          "route.profile_support_panel",
-          "route.ria_settings_compat"
-        ],
-        "delegate_agent_ids": [],
-        "playbook_id": "route.profile"
-      }
-    },
-    {
-      "alias": null,
-      "api_dependencies": [],
-      "cache": {
-        "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-        "resource_classes": [
-          "unknown"
-        ]
-      },
-      "implementation_override": null,
-      "lifecycle": "canonical",
-      "native_surface_id": "native-route-profile",
-      "page_file": "app/one/profile/account/page.tsx",
-      "pathname": "/one/profile/account",
-      "route_mode": "standard",
-      "semantic_routes": [],
-      "voice": {
-        "action_ids": [
-          "help.open_examples",
-          "profile.delete_account",
-          "profile.marketplace_visibility.toggle",
-          "profile.payouts.test_redeem",
-          "profile.reset_account",
-          "profile.set_contact_discoverable",
-          "profile.sign_out",
-          "profile.support.submit_message",
-          "profile.update_display_name",
-          "route.back",
-          "route.profile",
-          "route.profile_access_panel",
-          "route.profile_connected_systems",
-          "route.profile_my_data",
-          "route.profile_payouts",
-          "route.profile_pkm_agent_lab",
-          "route.profile_privacy",
-          "route.profile_referrals_panel",
-          "route.profile_request_pricing",
-          "route.profile_security_panel",
-          "route.profile_support_panel",
-          "route.ria_settings_compat"
-        ],
-        "delegate_agent_ids": [],
-        "playbook_id": "route.profile.account"
-      }
-    },
-    {
-      "alias": null,
-      "api_dependencies": [],
-      "cache": {
-        "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-        "resource_classes": [
-          "unknown"
-        ]
-      },
-      "implementation_override": null,
-      "lifecycle": "canonical",
-      "native_surface_id": "native-route-profile",
-      "page_file": "app/one/profile/account/phone/page.tsx",
-      "pathname": "/one/profile/account/phone",
-      "route_mode": "standard",
-      "semantic_routes": [],
-      "voice": {
-        "action_ids": [
-          "help.open_examples",
-          "profile.delete_account",
-          "profile.marketplace_visibility.toggle",
-          "profile.payouts.test_redeem",
-          "profile.reset_account",
-          "profile.set_contact_discoverable",
-          "profile.sign_out",
-          "profile.support.submit_message",
-          "profile.update_display_name",
-          "route.back",
-          "route.profile",
-          "route.profile_access_panel",
-          "route.profile_connected_systems",
-          "route.profile_my_data",
-          "route.profile_payouts",
-          "route.profile_pkm_agent_lab",
-          "route.profile_privacy",
-          "route.profile_referrals_panel",
-          "route.profile_request_pricing",
-          "route.profile_security_panel",
-          "route.profile_support_panel",
-          "route.ria_settings_compat"
-        ],
-        "delegate_agent_ids": [],
-        "playbook_id": "route.profile.account.phone"
-      }
-    },
-    {
-      "alias": null,
-      "api_dependencies": [],
-      "cache": {
-        "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-        "resource_classes": [
-          "unknown"
-        ]
-      },
-      "implementation_override": null,
-      "lifecycle": "canonical",
-      "native_surface_id": "native-route-profile",
-      "page_file": "app/one/profile/payouts/page.tsx",
-      "pathname": "/one/profile/payouts",
-      "route_mode": "standard",
-      "semantic_routes": [],
-      "voice": {
-        "action_ids": [
-          "profile.payouts.test_redeem",
-          "route.profile_payouts"
-        ],
-        "delegate_agent_ids": [],
-        "playbook_id": "route.profile.payouts"
-      }
-    },
-    {
-      "alias": null,
-      "api_dependencies": [
-        {
-          "backend_endpoint_family": "/api/{public/people/*,one/people/*,one/information-requests/*}",
-          "native_transport": "CapacitorHttp direct backend via ApiService.apiFetch; native static export emits one non-production route fixture while runtime identity remains the opaque personRef.",
-          "nextjs_api_route": "/api/{public/people/{personRef},one/{path*}}",
-          "nextjs_proxy_file": "app/api/public/people/[personRef]/route.ts; app/api/one/[...path]/route.ts",
-          "service_file": "lib/services/person-profile-service.ts",
-          "service_methods": [
-            "getPublic",
-            "getViewer",
-            "createInformationRequest",
-            "getInformationRequestExports",
-            "cancelInformationRequest",
-            "connect",
-            "cancelConnectionRequest",
-            "removeConnection"
-          ]
-        }
-      ],
-      "cache": {
-        "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-        "resource_classes": [
-          "unknown"
-        ]
-      },
-      "implementation_override": null,
-      "lifecycle": "canonical",
-      "native_surface_id": "native-route-person-profile",
-      "page_file": "app/people/[personRef]/page.tsx",
-      "pathname": "/people/[personRef]",
-      "route_mode": "standard",
-      "semantic_routes": [],
-      "voice": {
-        "action_ids": [
-          "people.profile.cancel_connection_request",
-          "people.profile.connect",
-          "people.profile.manage_consent",
-          "people.profile.remove_connection",
-          "people.profile.review_information_request",
-          "route.person_profile"
-        ],
-        "delegate_agent_ids": [],
-        "playbook_id": "route.people.person_profile"
-      }
     }
   ],
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
-    "action_gateway": "af5117fd06fb5cdcb99ea3e743412033d9e25d009bb4aa58a5ab446cf4fdc64c",
+    "action_gateway": "3ac47552bcd39ef7d6a5749dac34af846a41aa6eb37508bd2b1a40488b6bc7ca",
     "agent_registry": "01b1ae85c91c4e85dd879f023bdc41a3878b473107342bc63528de0b0c453d2e",
     "cache_manifest": "a755d259334378b86771604d20c27dcc668c6f97bb954f483548ba1c3bdcb755",
-    "data_plane": "0b02a91bf31bff8b998b6a5528d07470967eef030967d6230ec564813da01fff",
+    "data_plane": "cad40004b0f28a684e301242eb7cd58a73d3964b1c8dd1d34bc69d6011fa61af",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "3dc81d307ef8cf9932ca3f80c2d54915515161968d0303feccea401e8afebce9",
-    "route_index": "35cc5509957aca01af57e1a00629708963ffd8a9eae3884622e65536f38ad54e",
+    "route_index": "3c3c1fd90b2cef732571058961c9bb7231df8e6252606dfe5cc3759e76b86c9f",
     "route_layout": "29de8eadf566988e4158093d2a42ffb0d584e7b8332db005c86fabc6dd1f575e",
-    "surface_map": "999a523df5d71ed512ebbd0c51a3c3eeee9fea743201c0f672d0defde7af7212",
+    "surface_map": "ca15dd9488c38a5785656af10380d5cdb9fc44f0eb034d8f5edf0dfa200fde4d",
     "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 236,
+    "actions": 237,
     "agents": 19,
     "aliases": 4,
     "decision_required": 2,
@@ -6460,6 +6245,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 150,
     "semantic_routes": 14,
-    "table_families": 95
+    "table_families": 99
   }
 }

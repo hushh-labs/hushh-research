@@ -1805,7 +1805,7 @@
           "playbook_id": "route.login",
           "purpose": "Let the person choose Google or Apple and begin the matching sign-in flow.",
           "screen": "login",
-          "entry_cue": "Say \u2018Continue with Google\u2019 or \u2018Continue with Apple\u2019.",
+          "entry_cue": "Say ‘Continue with Google’ or ‘Continue with Apple’.",
           "proactivity": "on_entry",
           "primary_action_id": "auth.sign_in_google",
           "happy_path_action_ids": [
@@ -2304,7 +2304,7 @@
           "playbook_id": "route.one.home",
           "purpose": "Help the person understand and use the one screen through its generated controls.",
           "screen": "one_agents",
-          "entry_cue": "You can say \u201cOpen Agents\u201d to use the primary control on this screen.",
+          "entry_cue": "You can say “Open Agents” to use the primary control on this screen.",
           "proactivity": "on_entry",
           "primary_action_id": "route.one_agents",
           "happy_path_action_ids": [
@@ -2659,7 +2659,7 @@
           "playbook_id": "route.one.connected.systems",
           "purpose": "Help the person understand and use the connected systems screen through its generated controls.",
           "screen": "connected_systems",
-          "entry_cue": "You can say \u201cOpen Connected Systems Panel\u201d to use the primary control on this screen.",
+          "entry_cue": "You can say “Open Connected Systems Panel” to use the primary control on this screen.",
           "proactivity": "on_entry",
           "primary_action_id": "route.profile_connected_systems",
           "happy_path_action_ids": [
@@ -2785,7 +2785,7 @@
           "playbook_id": "route.consents",
           "purpose": "Help the person understand and use the consents screen through its generated controls.",
           "screen": "consents",
-          "entry_cue": "You can say \u201cOpen RIA Requests\u201d to use the primary control on this screen.",
+          "entry_cue": "You can say “Open RIA Requests” to use the primary control on this screen.",
           "proactivity": "on_entry",
           "primary_action_id": "route.ria_requests_compat",
           "happy_path_action_ids": [
@@ -3247,7 +3247,7 @@
           "playbook_id": "route.one.kai.import",
           "purpose": "Help the person understand and use the import screen through its generated controls.",
           "screen": "import",
-          "entry_cue": "You can say \u201cOpen Portfolio Import\u201d to use the primary control on this screen.",
+          "entry_cue": "You can say “Open Portfolio Import” to use the primary control on this screen.",
           "proactivity": "on_entry",
           "primary_action_id": "route.kai_import",
           "happy_path_action_ids": [
@@ -4002,7 +4002,7 @@
           "playbook_id": "route.one.location",
           "purpose": "Help the person understand and use the location screen through its generated controls.",
           "screen": "one_location",
-          "entry_cue": "You can say \u201cOpen Location\u201d to use the primary control on this screen.",
+          "entry_cue": "You can say “Open Location” to use the primary control on this screen.",
           "proactivity": "on_entry",
           "primary_action_id": "route.one_location",
           "happy_path_action_ids": [
@@ -4701,7 +4701,7 @@
           "playbook_id": "route.one.pkm",
           "purpose": "Help the person understand and use the pkm screen through its generated controls.",
           "screen": "pkm",
-          "entry_cue": "You can say \u201cOpen Memory\u201d to use the primary control on this screen.",
+          "entry_cue": "You can say “Open Memory” to use the primary control on this screen.",
           "proactivity": "on_entry",
           "primary_action_id": "route.one_pkm",
           "happy_path_action_ids": [
@@ -4771,7 +4771,7 @@
           "playbook_id": "route.one.pkm.location",
           "purpose": "Help the person read saved places and visit details directly in Location memory.",
           "screen": "pkm_location",
-          "entry_cue": "You can say \u201cOpen Memory\u201d to return to the Memory home from this list.",
+          "entry_cue": "You can say “Open Memory” to return to the Memory home from this list.",
           "proactivity": "on_entry",
           "primary_action_id": "route.one_pkm_location_home",
           "happy_path_action_ids": [
@@ -4841,7 +4841,7 @@
           "playbook_id": "route.one.pkm.location.detail",
           "purpose": "Help the person manage a selected Location memory detail through its verified controls.",
           "screen": "pkm_location_detail",
-          "entry_cue": "You can say \u201cOpen Memory\u201d to return to the Memory home from this list.",
+          "entry_cue": "You can say “Open Memory” to return to the Memory home from this list.",
           "proactivity": "on_entry",
           "primary_action_id": "route.one_pkm_location_home",
           "happy_path_action_ids": [
@@ -4911,7 +4911,7 @@
           "playbook_id": "route.one.pkm.recent",
           "purpose": "Help the person browse the latest memories One has kept, through its generated controls.",
           "screen": "pkm_recent",
-          "entry_cue": "You can say \u201cOpen Memory\u201d to return to the Memory home from this list.",
+          "entry_cue": "You can say “Open Memory” to return to the Memory home from this list.",
           "proactivity": "on_entry",
           "primary_action_id": "route.one_pkm",
           "happy_path_action_ids": [
@@ -4981,7 +4981,7 @@
           "playbook_id": "route.profile",
           "purpose": "Help the person understand and use the profile screen through its generated controls.",
           "screen": "profile_account",
-          "entry_cue": "You can say \u201cOpen Profile\u201d to use the primary control on this screen.",
+          "entry_cue": "You can say “Open Profile” to use the primary control on this screen.",
           "proactivity": "on_entry",
           "primary_action_id": "route.profile",
           "happy_path_action_ids": [
@@ -6884,7 +6884,7 @@
           "playbook_id": "route.profile.security",
           "purpose": "Help the person understand and use the security screen through its generated controls.",
           "screen": "profile_security_panel",
-          "entry_cue": "You can say \u201cOpen Vault Security Panel\u201d to use the primary control on this screen.",
+          "entry_cue": "You can say “Open Vault Security Panel” to use the primary control on this screen.",
           "proactivity": "on_entry",
           "primary_action_id": "route.profile_security_panel",
           "happy_path_action_ids": [
@@ -7144,7 +7144,7 @@
           "playbook_id": "route.profile.support",
           "purpose": "Help the person understand and use the support screen through its generated controls.",
           "screen": "profile_support_panel",
-          "entry_cue": "You can say \u201cOpen Support Panel\u201d to use the primary control on this screen.",
+          "entry_cue": "You can say “Open Support Panel” to use the primary control on this screen.",
           "proactivity": "on_entry",
           "primary_action_id": "route.profile_support_panel",
           "happy_path_action_ids": [
@@ -7484,7 +7484,7 @@
           "playbook_id": "route.one.setup",
           "purpose": "Help the person choose, resume, skip, or finish one setup capability.",
           "screen": "one_setup_hub",
-          "entry_cue": "Choose something to set up, or say \u2018finish setup\u2019 when you are ready.",
+          "entry_cue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
           "proactivity": "on_entry",
           "primary_action_id": "setup.open_connections",
           "happy_path_action_ids": [
@@ -9003,7 +9003,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.register.phone",
-          "purpose": "Verify the signed-in person\u2019s phone before setup continues.",
+          "purpose": "Verify the signed-in person’s phone before setup continues.",
           "screen": "register_phone",
           "entry_cue": "Say your phone number including country code, or type it below.",
           "proactivity": "on_entry",
@@ -9246,7 +9246,7 @@
           "playbook_id": "route.ria.claim",
           "purpose": "Help the person claim their SEC advisor or firm profile with their office number.",
           "screen": "ria_claim",
-          "entry_cue": "You can say \u201cClaim RIA Profile\u201d to use the primary control on this screen.",
+          "entry_cue": "You can say “Claim RIA Profile” to use the primary control on this screen.",
           "proactivity": "on_entry",
           "primary_action_id": "route.ria_claim",
           "happy_path_action_ids": [
@@ -9315,7 +9315,7 @@
           "playbook_id": "route.ria.clients",
           "purpose": "Help the person understand and use the clients screen through its generated controls.",
           "screen": "ria_clients",
-          "entry_cue": "You can say \u201cOpen RIA Clients\u201d to use the primary control on this screen.",
+          "entry_cue": "You can say “Open RIA Clients” to use the primary control on this screen.",
           "proactivity": "on_entry",
           "primary_action_id": "route.ria_clients",
           "happy_path_action_ids": [
@@ -9389,7 +9389,7 @@
           "playbook_id": "route.ria.clients.userid",
           "purpose": "Help the person understand and use the clients screen through its generated controls.",
           "screen": "ria_client_workspace",
-          "entry_cue": "You can say \u201cOpen RIA Client Workspace\u201d to use the primary control on this screen.",
+          "entry_cue": "You can say “Open RIA Client Workspace” to use the primary control on this screen.",
           "proactivity": "on_entry",
           "primary_action_id": "route.ria_client_workspace",
           "happy_path_action_ids": [
@@ -9445,7 +9445,7 @@
           "playbook_id": "route.ria.clients.userid.accounts.accountid",
           "purpose": "Help the person understand and use the accounts screen through its generated controls.",
           "screen": "ria_client_account_detail",
-          "entry_cue": "You can say \u201cReturn To Client Information Explorer\u201d to use the primary control on this screen.",
+          "entry_cue": "You can say “Return To Client Information Explorer” to use the primary control on this screen.",
           "proactivity": "on_entry",
           "primary_action_id": "ria.client_account.open_workspace_fallback",
           "happy_path_action_ids": [
@@ -9501,7 +9501,7 @@
           "playbook_id": "route.ria.clients.userid.requests.requestid",
           "purpose": "Help the person understand and use the requests screen through its generated controls.",
           "screen": "ria_client_request_detail",
-          "entry_cue": "You can say \u201cReturn To Client Access\u201d to use the primary control on this screen.",
+          "entry_cue": "You can say “Return To Client Access” to use the primary control on this screen.",
           "proactivity": "on_entry",
           "primary_action_id": "ria.client_request.open_access_fallback",
           "happy_path_action_ids": [
@@ -9555,7 +9555,7 @@
           "playbook_id": "route.ria.onboarding",
           "purpose": "Help the person understand and use the onboarding screen through its generated controls.",
           "screen": "ria_onboarding",
-          "entry_cue": "You can say \u201cOpen RIA Onboarding\u201d to use the primary control on this screen.",
+          "entry_cue": "You can say “Open RIA Onboarding” to use the primary control on this screen.",
           "proactivity": "on_entry",
           "primary_action_id": "route.ria_onboarding",
           "happy_path_action_ids": [
@@ -9628,7 +9628,7 @@
           "playbook_id": "route.ria.picks",
           "purpose": "Help the person understand and use the picks screen through its generated controls.",
           "screen": "ria_picks",
-          "entry_cue": "You can say \u201cOpen RIA Picks\u201d to use the primary control on this screen.",
+          "entry_cue": "You can say “Open RIA Picks” to use the primary control on this screen.",
           "proactivity": "on_entry",
           "primary_action_id": "route.ria_picks",
           "happy_path_action_ids": [
@@ -9708,7 +9708,7 @@
           "playbook_id": "route.ria.profile",
           "purpose": "Help the advisor view and manage their RIA profile.",
           "screen": "profile_regulatory",
-          "entry_cue": "You can say \u201cOpen RIA Profile\u201d to return here.",
+          "entry_cue": "You can say “Open RIA Profile” to return here.",
           "proactivity": "on_entry",
           "primary_action_id": "route.ria_profile",
           "happy_path_action_ids": [
@@ -10112,5 +10112,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "3496c298cbe36ef1e446794829a2ef38f602a7ab8e1403255d1e3e4a72c20410"
+  "content_sha256": "6332919d6fbf00e6ad6b6148e3db78acc4e346510afa49d6c2493abd413afd87"
 }
