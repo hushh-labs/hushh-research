@@ -42,7 +42,7 @@
       ],
       "kind": "root",
       "reason": "Chat entry is an application root.",
-      "sourceRevision": "a1ed2e46309001f9cffd987f7134e8929ed5663ef9dc7b0b5604a6feddd80bfa"
+      "sourceRevision": "2f12f323e2001d736b2ac0da35d46e623b1a1eeeeba3add01d6ab0e28f970db0"
     }
   },
   {
@@ -2052,7 +2052,7 @@
     "voicePlaybook": {
       "playbookId": "route.one.files",
       "purpose": "Manage the owner’s encrypted Files library on an admitted BYOC pod. Organization requires explicit analysis consent.",
-      "screen": "app",
+      "screen": "one_files",
       "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,

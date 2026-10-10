@@ -152,9 +152,22 @@ Verify the complete canonical release history before recording its baseline;
 parked migration receipts do not prove a release prefix. Preserve divergent
 preview SQL and receipts without relabeling accepted history. A Dev baseline
 requires the same backup, restored-clone, source-preservation and readback proof.
-The current CLI help still says UAT/local; the enforced environment allowlist
-also includes Dev. That help correction belongs to the migration CLI owner;
-it does not change baseline authorization or permit production use.
+The CLI admits qualified nonproduction targets, including explicitly bound Dev.
+Shared Dev must resolve its release deferrals before baseline establishment;
+target flags and an earlier clone comparison do not replace fresh authorization
+or permit production use.
+
+Canonical migration 249 and parked cleanup 944 have different refusal guards.
+Do not use 944's tests as proof that 249 executed. Qualify the unchanged canonical
+SQL against the disposable restored schema, including marked command checkpoints,
+directive receipts and capability runs. For the actual Dev cutover, independently
+verify the connected database identity, public relation bindings and
+`search_path=pg_catalog,public,pg_temp` (explicitly keeping temporary relations last), drain
+incompatible revisions, tagged endpoints, jobs and workers, and resolve command
+effects. Expiry alone does not prove settlement. Under the bounded freeze, verify
+zero targets using 249's actual predicates, including conversations after unmarked
+messages would be removed; retain fresh backup, restore and preservation evidence
+before establishing and reading back the baseline.
 
 Before establishing a UAT baseline:
 

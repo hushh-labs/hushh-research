@@ -2224,3 +2224,19 @@ action fell through to the generic `app` screen. The correction adds the exact
 existing Files route to canonical screen derivation and regenerates the owning
 Back and Search projections. It changes no library access authority. Qualification
 of the successor candidate remains required before deployment.
+
+The successor `c6022fb49798bbfce1827d7adceaf58b412b63a0` passed local core, but
+[hosted CI 38023256043](https://github.com/hushh-labs/hushh-research/actions/runs/38023256043)
+found the remaining Files playbook declaring `app` while canonical derivation
+declared `one_files`. Align the authored playbook and verify both route-playbook
+and orchestration contracts before qualifying another release. Neither correction
+changes owner-pod or file analysis consent.
+
+Canonical migration 249 was independently exercised twice against a disposable
+PostgreSQL 15 schema restored without application records. All 41 focused cutover
+tests passed. Complete-column fingerprints preserved the synthetic marked chat,
+command checkpoints, directives, capability receipts and feedback. A negative
+control deliberately changed a checkpoint without changing row counts and failed
+the preservation assertion. The isolated cluster was retired; canonical SQL and
+its checksum remained unchanged. This proves the tested preservation contract,
+not shared Dev writer admission, a live cutover or canonical baseline.

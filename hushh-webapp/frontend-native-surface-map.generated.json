@@ -2986,7 +2986,7 @@
         "voice_playbook": {
           "playbook_id": "route.one.files",
           "purpose": "Manage the owner’s encrypted Files library on an admitted BYOC pod. Organization requires explicit analysis consent.",
-          "screen": "app",
+          "screen": "one_files",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -10241,5 +10241,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "f794550643a87c09f2cb17b81476920284a87f7cf574516816ce3ae4a449f0f2"
+  "content_sha256": "16376b00784f8fd76278e68274f375c6c8a3324343da958ee5165613e22ee848"
 }

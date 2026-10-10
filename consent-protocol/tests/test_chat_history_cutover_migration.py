@@ -20,8 +20,19 @@ from urllib.parse import urlparse
 
 import pytest
 
+from tests.helpers.chat_history_cutover import (
+    count_cutover_rows as _counts,
+)
+from tests.helpers.chat_history_cutover import (
+    fingerprint_cutover_rows,
+)
+from tests.helpers.chat_history_cutover import (
+    seed_cutover_rows as _seed,
+)
+
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "db/migrations/parked/944_one_chat_history_legacy_cutover.sql"
+CANONICAL_MIGRATION = ROOT / "db/migrations/249_one_chat_history_legacy_cutover.sql"
 ROLLBACK = ROOT / "db/migrations/rollback/944_one_chat_history_legacy_cutover.rollback.sql"
 MANIFEST = ROOT / "db/release_migration_manifest.json"
 MARKER = "hussh-chat-v1:"
@@ -86,95 +97,12 @@ def conn() -> Iterator:
         connection.close()
 
 
-def _run(conn) -> None:  # noqa: ANN001
+def _run(conn, *, migration: Path = MIGRATION) -> None:  # noqa: ANN001
     """Execute the migration body inside the test's own (rolled back) transaction."""
-    body = _sql().replace("\nBEGIN;\n", "\n").replace("\nCOMMIT;\n", "\n")
+    body = migration.read_text().replace("\nBEGIN;\n", "\n").replace("\nCOMMIT;\n", "\n")
     assert "BEGIN;" not in body and "COMMIT;" not in body
     with conn.cursor() as cursor:
         cursor.execute(body)
-
-
-def _seed(conn, *, stale_legacy: bool = True) -> dict:  # noqa: ANN001
-    owner = f"cutover-{uuid.uuid4().hex[:12]}"
-    ids = {
-        "owner": owner,
-        "legacy_conversation": str(uuid.uuid4()),
-        "new_conversation": str(uuid.uuid4()),
-    }
-    age = "NOW() - INTERVAL '2 hours'" if stale_legacy else "NOW()"
-    with conn.cursor() as cursor:
-        cursor.execute(
-            """INSERT INTO vault_keys (user_id, created_at, updated_at, vault_status)
-               VALUES (%s, 0, 0, 'placeholder')""",
-            (owner,),
-        )
-        cursor.execute("INSERT INTO actor_profiles (user_id) VALUES (%s)", (owner,))
-        for session_id, ciphertext in (("legacy-thread", "b2xk"), ("new-thread", MARKER + "bmV3")):
-            cursor.execute(
-                f"""INSERT INTO one_adk_sessions
-                    (app_name, user_id, session_id, payload_ciphertext, payload_iv,
-                     payload_tag, created_at, updated_at)
-                    VALUES ('hussh_one', %s, %s, %s, 'iv', 'tag', {age}, {age})""",
-                (owner, session_id, ciphertext),
-            )
-            cursor.execute(
-                """INSERT INTO one_agent_message_feedback
-                   (user_id, app_name, conversation_ref, message_ref, rating)
-                   VALUES (%s, 'hussh_one', %s, 'm1', 'up')""",
-                (owner, session_id),
-            )
-        cursor.execute(
-            f"""INSERT INTO one_adk_sessions
-                (app_name, user_id, session_id, payload_ciphertext, payload_iv, payload_tag,
-                 command_status, created_at, updated_at)
-                VALUES ('one.location.commands.v1', %s, 'old-command', 'b2xk', 'iv', 'tag',
-                        'settled', {age}, {age})""",
-            (owner,),
-        )
-        for key, title in (("legacy_conversation", "b2xk"), ("new_conversation", MARKER + "dA")):
-            cursor.execute(
-                f"""INSERT INTO agent_chat_conversations
-                    (id, user_id, title_ciphertext, title_iv, title_tag, created_at, updated_at)
-                    VALUES (%s, %s, %s, 'iv', 'tag', {age}, {age})""",
-                (ids[key], owner, title),
-            )
-            cursor.execute(
-                f"""INSERT INTO agent_chat_messages
-                    (id, conversation_id, user_id, role, content_ciphertext, content_iv,
-                     content_tag, created_at)
-                    VALUES (%s, %s, %s, 'user', %s, 'iv', 'tag', {age})""",
-                (str(uuid.uuid4()), ids[key], owner, title),
-            )
-        cursor.execute(
-            """INSERT INTO one_capability_runs
-               (run_id, user_id, capability_id, capability_version, graph_revision, status,
-                idempotency_key, slots_hmac, expires_at, slots_ciphertext, slots_iv,
-                slots_tag, slots_algorithm)
-               VALUES (%s, %s, 'workflow.location.onboarding', 1, 'g1', 'needs_input',
-                       %s, %s, NOW() + INTERVAL '1 day', 'cGxhdGZvcm0', 'iv', 'tag',
-                       'aes-256-gcm')""",
-            (f"run_{uuid.uuid4().hex}", owner, "a" * 64, "b" * 64),
-        )
-    return ids
-
-
-def _counts(conn, owner: str) -> dict:  # noqa: ANN001
-    with conn.cursor() as cursor:
-        cursor.execute(
-            """SELECT
-                 (SELECT COUNT(*) FROM one_adk_sessions WHERE user_id = %(o)s
-                    AND payload_ciphertext LIKE 'hussh-chat-v1:%%'),
-                 (SELECT COUNT(*) FROM one_adk_sessions WHERE user_id = %(o)s
-                    AND payload_ciphertext NOT LIKE 'hussh-chat-v1:%%'),
-                 (SELECT COUNT(*) FROM agent_chat_conversations WHERE user_id = %(o)s),
-                 (SELECT COUNT(*) FROM agent_chat_messages WHERE user_id = %(o)s),
-                 (SELECT COUNT(*) FROM one_agent_message_feedback WHERE user_id = %(o)s),
-                 (SELECT COUNT(*) FROM one_capability_runs WHERE user_id = %(o)s)""",
-            {"o": owner},
-        )
-        row = cursor.fetchone()
-    keys = ("new_sessions", "legacy_sessions", "conversations", "messages", "feedback", "runs")
-    return dict(zip(keys, row, strict=True))
 
 
 def test_cutover_deletes_only_platform_key_rows_and_is_idempotent(conn) -> None:  # noqa: ANN001
@@ -199,6 +127,77 @@ def test_cutover_deletes_only_platform_key_rows_and_is_idempotent(conn) -> None:
     assert _counts(conn, ids["owner"]) == after
     _run(conn)  # replay on the next deploy is a no-op
     assert _counts(conn, ids["owner"]) == after
+
+
+def test_canonical_cutover_preserves_marked_commands_and_receipts_on_replay(conn):
+    """Qualify 249's zero-effect replay separately from 944's refusal guards."""
+    ids = _seed(conn)
+    with conn.cursor() as cursor:
+        cursor.execute("SET LOCAL search_path = pg_catalog, public, pg_temp")
+        cursor.execute(
+            "UPDATE public.one_adk_sessions SET payload_ciphertext=%s WHERE user_id=%s",
+            (MARKER + "c3ludGhldGlj", ids["owner"]),
+        )
+        cursor.execute(
+            "UPDATE public.agent_chat_messages SET content_ciphertext=%s WHERE user_id=%s",
+            (MARKER + "c3ludGhldGlj", ids["owner"]),
+        )
+        cursor.execute(
+            "UPDATE public.agent_chat_conversations SET title_ciphertext=NULL WHERE id=%s",
+            (ids["legacy_conversation"],),
+        )
+        cursor.execute(
+            "UPDATE public.one_adk_sessions SET command_status='ready' "
+            "WHERE user_id=%s AND session_id='old-command'",
+            (ids["owner"],),
+        )
+        cursor.execute(
+            """INSERT INTO public.one_adk_sessions
+               (app_name,user_id,session_id,payload_ciphertext,payload_iv,payload_tag,
+                command_status)
+               VALUES ('one.location.commands.v1',%s,'admitted-command',%s,'iv','tag',
+                       'admitted')""",
+            (ids["owner"], MARKER + "c3ludGhldGlj"),
+        )
+        for channel in ("typed_chat", "adk_chat", "command"):
+            cursor.execute(
+                """INSERT INTO public.one_action_directive_ledger
+                (directive_id,user_id,channel,conversation_id,session_id,adk_app_name,
+                 action_id,context_revision,action_contract_digest,slots_hmac,
+                 resource_binding_hmac,requires_confirmation,trusted_activation_required,
+                 state,expires_at,consumed_at,command_step,operation_id)
+                VALUES (%s,%s,%s,%s,%s,%s,'synthetic','r1','d1','h1','binding',true,true,
+                        'consumed',NOW()+INTERVAL '1 hour',NOW(),%s,%s)""",
+                (
+                    str(uuid.uuid4()),
+                    ids["owner"],
+                    channel,
+                    ids["legacy_conversation"] if channel == "typed_chat" else None,
+                    "new-thread"
+                    if channel == "adk_chat"
+                    else "old-command"
+                    if channel == "command"
+                    else None,
+                    "hussh_one" if channel == "adk_chat" else None,
+                    0 if channel == "command" else None,
+                    str(uuid.uuid4()) if channel == "command" else None,
+                ),
+            )
+
+    before = fingerprint_cutover_rows(conn, ids["owner"])
+    for _ in range(2):
+        _run(conn, migration=CANONICAL_MIGRATION)
+        assert fingerprint_cutover_rows(conn, ids["owner"]) == before
+
+    # Negative control preserves all counts while corrupting a live checkpoint.
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "UPDATE public.one_adk_sessions SET command_status='settled' "
+            "WHERE user_id=%s AND session_id='old-command'",
+            (ids["owner"],),
+        )
+    with pytest.raises(AssertionError):
+        assert fingerprint_cutover_rows(conn, ids["owner"]) == before
 
 
 @pytest.mark.parametrize(

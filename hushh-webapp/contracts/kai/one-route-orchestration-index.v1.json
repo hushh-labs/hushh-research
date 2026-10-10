@@ -146,7 +146,7 @@
       "route_pattern": "/blog/[slug]",
       "page_file": "app/blog/[slug]/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "orchestration_class": "context_only",
       "instruction_id": "route.blog.slug",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -176,9 +176,7 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.one_files"
-      ],
+      "action_ids": [],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -1152,7 +1150,7 @@
       "route_pattern": "/manishhussh",
       "page_file": "app/manishhussh/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "orchestration_class": "context_only",
       "instruction_id": "route.manishhussh",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -1182,9 +1180,7 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.one_files"
-      ],
+      "action_ids": [],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -1705,7 +1701,7 @@
       "route_pattern": "/one/connected-systems/[systemId]",
       "page_file": "app/one/connected-systems/[systemId]/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "orchestration_class": "context_only",
       "instruction_id": "route.one.connected.systems.systemid",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -1735,9 +1731,7 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.one_files"
-      ],
+      "action_ids": [],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -1801,7 +1795,7 @@
       "route_pattern": "/one/email",
       "page_file": "app/one/email/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "orchestration_class": "context_only",
       "instruction_id": "route.one.email",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -1831,9 +1825,7 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.one_files"
-      ],
+      "action_ids": [],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -1895,7 +1887,7 @@
       "voice_playbook": {
         "playbook_id": "route.one.files",
         "purpose": "Manage the owner’s encrypted Files library on an admitted BYOC pod. Organization requires explicit analysis consent.",
-        "screen": "app",
+        "screen": "one_files",
         "entry_cue": "",
         "proactivity": "ambient",
         "primary_action_id": null,
@@ -1917,7 +1909,7 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "app",
+      "canonical_screen": "one_files",
       "voice_contract_file": "app/one/files/page.voice-action-contract.json",
       "action_ids": [
         "route.one_files"
@@ -3303,7 +3295,7 @@
       "route_pattern": "/one/messages",
       "page_file": "app/one/messages/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "orchestration_class": "context_only",
       "instruction_id": "route.one.messages",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -3333,9 +3325,7 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.one_files"
-      ],
+      "action_ids": [],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -5273,7 +5263,7 @@
       "route_pattern": "/one/puppy",
       "page_file": "app/one/puppy/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "orchestration_class": "context_only",
       "instruction_id": "route.one.puppy",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -5303,9 +5293,7 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.one_files"
-      ],
+      "action_ids": [],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -6070,7 +6058,7 @@
       "route_pattern": "/one/wallet-card",
       "page_file": "app/one/wallet-card/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "orchestration_class": "context_only",
       "instruction_id": "route.one.wallet.card",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -6100,9 +6088,7 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.one_files"
-      ],
+      "action_ids": [],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -6259,7 +6245,7 @@
       "route_pattern": "/privacy",
       "page_file": "app/privacy/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "orchestration_class": "context_only",
       "instruction_id": "route.privacy.policy",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -6289,9 +6275,7 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.one_files"
-      ],
+      "action_ids": [],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -6530,7 +6514,7 @@
       "route_pattern": "/research/protocol",
       "page_file": "app/research/protocol/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "orchestration_class": "context_only",
       "instruction_id": "route.research.protocol",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -6560,9 +6544,7 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.one_files"
-      ],
+      "action_ids": [],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -7137,7 +7119,7 @@
       "route_pattern": "/terms",
       "page_file": "app/terms/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "orchestration_class": "context_only",
       "instruction_id": "route.terms.of.use",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -7167,9 +7149,7 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.one_files"
-      ],
+      "action_ids": [],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -7182,7 +7162,7 @@
       "route_pattern": "/welcome",
       "page_file": "app/welcome/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "interactive",
+      "orchestration_class": "context_only",
       "instruction_id": "route.welcome",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -7212,9 +7192,7 @@
       },
       "canonical_screen": "app",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.one_files"
-      ],
+      "action_ids": [],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
