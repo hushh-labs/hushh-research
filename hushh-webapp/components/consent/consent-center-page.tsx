@@ -72,6 +72,12 @@ import {
 import { HandshakeTimeline } from "@/components/consent/handshake-timeline";
 import { DocumentShareReview } from "@/components/consent/document-share-review";
 import { DriveQueryRequestCard } from "@/components/consent/drive-query-request-card";
+import { AnswerRequestCard } from "@/components/consent/answer-request-card";
+import {
+  answerRequestId,
+  isAnswerRequestEntry,
+  isAnswerRequestSelection,
+} from "@/lib/consent/answer-request-consent";
 import {
   bundleEntryToOpen,
   ConsentCounterpartAvatar,
@@ -3287,7 +3293,15 @@ export function ConsentCenterPage() {
     selectedEntryDirection === "incoming" || selectedEntryDirection === "outgoing"
       ? selectedEntryDirection
       : undefined;
-  const isDocumentSelection = !isQuerySelection && (isDocumentShareSelection(selectedId) || !!(selectedEntry && isDocumentShareEntry(selectedEntry)));
+  // A paid answer is decided only by its own card: the generic approve path
+  // would grant the scopes without ever showing the question or the price.
+  const isAnswerSelection =
+    isAnswerRequestSelection(selectedId) ||
+    !!(selectedEntry && isAnswerRequestEntry(selectedEntry));
+  const selectedAnswerRequestId = answerRequestId(
+    selectedEntry && isAnswerRequestEntry(selectedEntry) ? selectedEntry.id : selectedId,
+  );
+  const isDocumentSelection = !isQuerySelection && !isAnswerSelection && (isDocumentShareSelection(selectedId) || !!(selectedEntry && isDocumentShareEntry(selectedEntry)));
   const selectedDocumentRequestId = documentShareRequestId(
     selectedEntry && isDocumentShareEntry(selectedEntry) ? selectedEntry.id : selectedId,
   );
@@ -3884,7 +3898,10 @@ export function ConsentCenterPage() {
                   : "Don’t allow was selected in the notification. Nothing changes until you decide below."}
             </div>
           ) : null}
-          {isQuerySelection ? (
+          {isAnswerSelection ? (
+            selectedAnswerRequestId ? <AnswerRequestCard requestId={selectedAnswerRequestId} />
+              : <SettingsRow title="Invalid answer request" description="Open this question from the list again." />
+          ) : isQuerySelection ? (
             selectedQueryRequestId ? <DriveQueryRequestCard requestId={selectedQueryRequestId} direction={selectedQueryDirection} />
               : <SettingsRow title="Invalid Drive question" description="Open this question from the list again." />
           ) : isDocumentSelection ? (

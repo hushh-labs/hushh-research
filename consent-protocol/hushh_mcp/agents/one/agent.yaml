@@ -246,6 +246,17 @@ subagents:
       adk_mode: single_turn
       transport:
         - in_process
+    telemetry_namespace: agent.one.answer_scope_resolver
+    privacy:
+      context_allowlist:
+        - one.answer_request.scope_catalog
+      plaintext_telemetry: false
+    rollout:
+      strategy: internal
+      rollback: >-
+        Stop constructing the resolver in the answer-request route. Every
+        request then records resolution_mode='skipped' and the owner picks the
+        scopes by hand; nothing is approved, charged or answered without them.
     system_instruction: |
       Another person has asked this person's private agent a question, and
       wants to pay for the answer. You decide which of the owner's own

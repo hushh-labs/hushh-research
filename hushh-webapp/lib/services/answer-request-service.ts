@@ -282,6 +282,22 @@ export class AnswerRequestService {
     return value as unknown as AnswerPaymentView;
   }
 
+  /** The sealed answer envelope. Ciphertext; only the requester can read it. */
+  static async answer(firebaseIdToken: string, requestId: string): Promise<unknown> {
+    if (!firebaseIdToken) throw new Error("Sign in to open this answer");
+    const response = await ApiService.apiFetch(`${requestPath(requestId)}/answer`, {
+      method: "GET",
+      cache: "no-store",
+      headers: { Authorization: `Bearer ${firebaseIdToken}` },
+    });
+    if (!response.ok) throw new Error("This answer is not available yet");
+    const value = await readJson(response);
+    if (!value.ciphertext || !value.iv || !value.recipientKeyId) {
+      throw new Error("Invalid answer envelope");
+    }
+    return value;
+  }
+
   /** Open hosted Checkout. Only ever returns a Stripe-hosted URL. */
   static async checkout(firebaseIdToken: string, requestId: string): Promise<string> {
     if (!firebaseIdToken) throw new Error("Sign in to pay");

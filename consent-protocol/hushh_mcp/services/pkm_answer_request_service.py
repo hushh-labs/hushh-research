@@ -113,10 +113,12 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
             {
                 "user": user_id,
                 "event": event_type,
+                # The opaque request UUID travels so the Feed row can link to
+                # the right card. Still no question, scopes or answer.
                 "meta": json.dumps(
-                    {"lane": "answer_request", "status": status}
+                    {"lane": "answer_request", "request_id": request_id, "status": status}
                     if status
-                    else {"lane": "answer_request"}
+                    else {"lane": "answer_request", "request_id": request_id}
                 ),
                 "row": f"answer_request:{request_id}",
             },
