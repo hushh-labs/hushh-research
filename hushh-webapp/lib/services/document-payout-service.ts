@@ -69,13 +69,21 @@ function authHeaders(vaultOwnerToken: string) {
   if (!vaultOwnerToken) throw new Error("Unlock your vault to view payouts");
   return { Authorization: `Bearer ${vaultOwnerToken}` };
 }
-function connectLink(value: unknown): { url: string } {
-  const body = object(value);
-  if (typeof body.url !== "string") throw new Error("Invalid payout link");
-  const url = new URL(body.url);
-  if (url.protocol !== "https:" || url.hostname !== "connect.stripe.com" ||
-      url.username || url.password || url.port) throw new Error("Invalid payout link");
-  return { url: url.href };
+/** Stripe owns onboarding and bank edits; validate again at the navigation boundary. */
+export function documentPayoutLinkUrl(value: unknown, purpose: "onboarding" | "management"): string {
+  if (typeof value !== "string") throw new Error("Invalid payout link");
+  let url: URL;
+  try { url = new URL(value); } catch { throw new Error("Invalid payout link"); }
+  const allowed = purpose === "management"
+    ? ["stripe.com", "connect.stripe.com"].includes(url.hostname) && /^\/express\/.+/.test(url.pathname)
+    : url.hostname === "connect.stripe.com";
+  if (url.protocol !== "https:" || !allowed || url.username || url.password || url.port) {
+    throw new Error("Invalid payout link");
+  }
+  return url.href;
+}
+function connectLink(value: unknown, purpose: "onboarding" | "management"): { url: string } {
+  return { url: documentPayoutLinkUrl(object(value).url, purpose) };
 }
 
 export class DocumentPayoutService {
@@ -123,13 +131,13 @@ export class DocumentPayoutService {
   static async onboard(vaultOwnerToken: string): Promise<{ url: string }> {
     return connectLink(await apiJson<unknown>("/api/one/payouts/account/onboard", {
       method: "POST", headers: authHeaders(vaultOwnerToken), cache: "no-store",
-    }));
+    }), "onboarding");
   }
 
   static async manage(vaultOwnerToken: string): Promise<{ url: string }> {
     return connectLink(await apiJson<unknown>("/api/one/payouts/account/manage", {
       method: "POST", headers: authHeaders(vaultOwnerToken), cache: "no-store",
-    }));
+    }), "management");
   }
 
   static async earnings(vaultOwnerToken: string, cursor?: string): Promise<DocumentEarningsResponse> {
