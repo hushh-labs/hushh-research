@@ -2004,6 +2004,7 @@ describe("Connect — People", () => {
       query: "Person",
       page: 1,
       limit: 50,
+      nameOnly: true,
     });
     expect(mocks.sendRequest).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2015,14 +2016,15 @@ describe("Connect — People", () => {
   });
 
   it("prepares an exact send without effects and rejects stale preparation", async () => {
-    mocks.searchDirectory.mockResolvedValue({
+    // Contact-only pages must not make a unique name look like a truncated list.
+    mocks.searchDirectory.mockImplementation(async ({ nameOnly }) => ({
       items: [person("u9", "Person 9")],
-      hasMore: false,
+      hasMore: !nameOnly,
       page: 1,
-    });
+    }));
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
-    const slots = { person: "Person 9", userId: "u9" };
+    const slots = { person: "Person 9" };
     const prepared = await prepareLocalOnboardingAction(
       "connect.send_request",
       slots,
