@@ -483,7 +483,7 @@ export class VaultBootstrapService {
       }
       const auth = await HushhVault.authenticatePasskeyPrf({
         userId: input.userId,
-        rpId: resolveRpId(),
+        rpId: input.passkeyRpId?.trim() || resolveRpId(),
         credentialId: input.passkeyCredentialId ?? undefined,
         prfSalt: input.passkeyPrfSalt,
         requestId: input.requestId,
