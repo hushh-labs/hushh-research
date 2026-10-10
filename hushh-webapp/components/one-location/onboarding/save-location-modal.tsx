@@ -1405,7 +1405,7 @@ export function SaveLocationModal({
                 disabled={interactionBusy}
                 className={cn(
                   secondaryActionClassName,
-                  "mt-2 border-t border-border/60 pt-2",
+                  "mt-2 pt-2",
                 )}
               >
                 Skip saving this place
