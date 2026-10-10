@@ -229,9 +229,25 @@ class DriveSharingStore(DriveDocumentStore):
             else {"enabled": False, "amount_cents": DEFAULT_PRICE_CENTS, "version": 0}
         )
 
-    def _owner_setup(self, connection, *, owner_user_id: str, amount_cents: int | None) -> dict:
+    def _owner_setup(
+        self,
+        connection,
+        *,
+        owner_user_id: str,
+        amount_cents: int | None,
+        settlement_method: str = "stripe_transfer",
+    ) -> dict:
         """Cached admission only; Checkout still verifies the live Stripe account."""
         from hushh_mcp.services.drive_request_owner_payout_service import payout_enabled
+
+        if settlement_method == "hashcoins":
+            # Bank setup belongs to redemption. A persisted coin request can
+            # continue even when enrollment of new coin requests is paused.
+            return {
+                "ownerPriceRequired": not valid_owner_price_cents(amount_cents),
+                "ownerPayoutAccountReady": True,
+                "paymentsReady": payout_enabled(),
+            }
 
         account = self._row(
             connection,
@@ -265,7 +281,10 @@ class DriveSharingStore(DriveDocumentStore):
         if paid:
             return {}
         return self._owner_setup(
-            connection, owner_user_id=row["user_id"], amount_cents=row.get("quoted_amount_cents")
+            connection,
+            owner_user_id=row["user_id"],
+            amount_cents=row.get("quoted_amount_cents"),
+            settlement_method=row.get("settlement_method", "stripe_transfer"),
         )
 
     @staticmethod
@@ -314,7 +333,12 @@ class DriveSharingStore(DriveDocumentStore):
             automatic = private.get("trusted_auto") is True
             if amount is None and automatic and pricing["enabled"]:
                 amount, version = pricing["amount_cents"], pricing["version"]
-            setup = self._owner_setup(connection, owner_user_id=user_id, amount_cents=amount)
+            setup = self._owner_setup(
+                connection,
+                owner_user_id=user_id,
+                amount_cents=amount,
+                settlement_method=row.get("settlement_method", "stripe_transfer"),
+            )
             automatic_code = (
                 "trusted_auto_active" if row["bulk_search_started_at"] else "trusted_auto_queued"
             )
@@ -408,6 +432,8 @@ class DriveSharingStore(DriveDocumentStore):
         return cast(dict, await self._transaction(operation))
 
     async def request_quote(self, *, user_id: str, owner_user_id: str) -> dict:
+        from hushh_mcp.services.hashcoin_wallet_service import hashcoins_enabled
+
         self._sharing_admission(user_id)
         self._sharing_admission(owner_user_id)
         payment_required = os.getenv("DRIVE_REQUEST_PAYMENTS_ENABLED", "").strip().lower() == "true"
@@ -417,7 +443,12 @@ class DriveSharingStore(DriveDocumentStore):
             self._relationship(connection, owner_user_id, user_id)
             pricing = self._owner_pricing(connection, owner_user_id)
             amount = pricing["amount_cents"] if pricing["enabled"] else None
-            setup = self._owner_setup(connection, owner_user_id=owner_user_id, amount_cents=amount)
+            setup = self._owner_setup(
+                connection,
+                owner_user_id=owner_user_id,
+                amount_cents=amount,
+                settlement_method="hashcoins" if hashcoins_enabled() else "stripe_transfer",
+            )
             return {
                 "amountCents": amount,
                 "version": pricing["version"],
@@ -967,9 +998,17 @@ class DriveSharingStore(DriveDocumentStore):
             quoted_amount_cents = (
                 (pricing["amount_cents"] if pricing["enabled"] else None) if pricing else None
             )
+            from hushh_mcp.services.hashcoin_wallet_service import hashcoins_enabled
+
+            settlement_method = (
+                "hashcoins" if payment_required and hashcoins_enabled() else "stripe_transfer"
+            )
             setup = (
                 self._owner_setup(
-                    connection, owner_user_id=owner_user_id, amount_cents=quoted_amount_cents
+                    connection,
+                    owner_user_id=owner_user_id,
+                    amount_cents=quoted_amount_cents,
+                    settlement_method=settlement_method,
                 )
                 if payment_required
                 else {}
@@ -990,9 +1029,9 @@ class DriveSharingStore(DriveDocumentStore):
                 """
                 INSERT INTO drive_share_requests(request_id,user_id,recipient_user_id,client_request_id,
                   request_envelope,recipient_binding,request_digest,preparation_error_code,
-                  payment_required,quoted_amount_cents,quote_version)
+                  payment_required,quoted_amount_cents,quote_version,settlement_method)
                 VALUES (:id,:owner,:recipient,:client,CAST(:envelope AS jsonb),:binding,:digest,
-                  :preparation_code,:payment_required,:quoted_amount,:quote_version)
+                  :preparation_code,:payment_required,:quoted_amount,:quote_version,:settlement_method)
                 ON CONFLICT (recipient_user_id,client_request_id) DO NOTHING
                 RETURNING *
             """,
@@ -1007,6 +1046,7 @@ class DriveSharingStore(DriveDocumentStore):
                     "preparation_code": setup_code
                     or ("trusted_auto_queued" if trusted_auto else None),
                     "payment_required": payment_required,
+                    "settlement_method": settlement_method,
                     "quoted_amount": quoted_amount_cents,
                     "quote_version": pricing["version"]
                     if quoted_amount_cents is not None
@@ -1923,6 +1963,7 @@ class DriveSharingStore(DriveDocumentStore):
             setup = self._request_setup(connection, row, self._open_request(row))
             payout_setup_relevant = bool(
                 row["payment_required"] is True
+                and row.get("settlement_method", "stripe_transfer") != "hashcoins"
                 and (
                     (
                         row["status"]
@@ -2260,7 +2301,12 @@ class DriveSharingStore(DriveDocumentStore):
                     "amountCents": amount_cents,
                     **self._request_setup(connection, row, private),
                 }
-            setup = self._owner_setup(connection, owner_user_id=user_id, amount_cents=amount_cents)
+            setup = self._owner_setup(
+                connection,
+                owner_user_id=user_id,
+                amount_cents=amount_cents,
+                settlement_method=row.get("settlement_method", "stripe_transfer"),
+            )
             envelope = self.sharing_cipher.seal(
                 {**private, "trusted_auto": True, "owner_request_price_cents": amount_cents},
                 user_id=user_id,
@@ -2339,7 +2385,12 @@ class DriveSharingStore(DriveDocumentStore):
                 raise DriveSharingError("date_range_required")
             self._sharing_admission(row["recipient_user_id"])
             setup = (
-                self._owner_setup(connection, owner_user_id=user_id, amount_cents=amount_cents)
+                self._owner_setup(
+                    connection,
+                    owner_user_id=user_id,
+                    amount_cents=amount_cents,
+                    settlement_method=row.get("settlement_method", "stripe_transfer"),
+                )
                 if private.get("owner_settlement_required") is True
                 else {}
             )

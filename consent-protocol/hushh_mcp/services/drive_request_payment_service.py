@@ -195,12 +195,18 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
         # a ledger remain on their original Hushh-merchant terms.
         payout_enrolled = state.get("_payout_enrolled") is True
         verified_account_id = None
+        bank_settlement = (
+            payout_enrolled
+            and state.get("_payout_settlement_method", "stripe_transfer") != "hashcoins"
+        )
         if payout_enrolled:
             from hushh_mcp.services.drive_request_owner_payout_service import payout_enabled
-            from hushh_mcp.services.pkm_payout_service import PkmPayoutService
 
             if not payout_enabled() or not state.get("_payout_owner_user_id"):
                 raise DriveSharingError("payment_unavailable")
+        if bank_settlement:
+            from hushh_mcp.services.pkm_payout_service import PkmPayoutService
+
             try:
                 account = await PkmPayoutService().refresh_account(
                     user_id=state["_payout_owner_user_id"]
@@ -239,7 +245,11 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 raise DriveSharingError("payment_checkout_expired")
             if order["status"] not in {"awaiting_payment", "checkout_open"}:
                 raise DriveSharingError("payment_not_ready")
-            if payout_enrolled:
+            if order.get("settlement_method", "stripe_transfer") != state.get(
+                "_payout_settlement_method", "stripe_transfer"
+            ):
+                raise DriveSharingError("payment_unavailable")
+            if bank_settlement:
                 # Keep the verified destination on the ownerless earning row.
                 # The live owner mapping is removed during account erasure.
                 current_account = self._row(

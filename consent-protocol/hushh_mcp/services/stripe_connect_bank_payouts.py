@@ -22,7 +22,11 @@ from hushh_mcp.services.drive_request_payment_service import _config as payment_
 from hushh_mcp.services.drive_request_payment_service import _stripe_dict
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
 from hushh_mcp.services.pkm_payout_service import _account_readiness, resume_document_owner_setup
-from hushh_mcp.services.stripe_mode import configured_stripe_mode
+from hushh_mcp.services.stripe_mode import (
+    configured_connect_mode,
+    configured_stripe_mode,
+    connect_config,
+)
 
 _ACCOUNT_EVENT_TYPES = {
     "account.updated",
@@ -106,13 +110,42 @@ def _iso_datetime(value: datetime | str | None) -> str | None:
 
 
 class StripeConnectBankPayouts(ExternalConnectorLifecycleStore):
-    def __init__(self, db: Any | None = None, *, stripe_api: Any = None) -> None:
+    def __init__(
+        self, db: Any | None = None, *, stripe_api: Any = None, connect_mode: bool = False
+    ) -> None:
         super().__init__(db)
         self.stripe_api = stripe_api or stripe
+        self.connect_mode = connect_mode
+        self.mode = configured_connect_mode() if connect_mode else configured_stripe_mode()
+
+    def _configuration(self, *, webhook: bool = False) -> tuple[str, str, bool]:
+        if not self.connect_mode:
+            return _config()
+        try:
+            key, mode = connect_config()
+        except ValueError:
+            raise ConnectBankPayoutError("payout_unavailable") from None
+        if mode != self.mode:
+            raise ConnectBankPayoutError("payout_unavailable")
+        # The sandbox endpoint has its own signature secret; the historic
+        # endpoint retains live account and bank-deposit reconciliation.
+        secret_name = (
+            "STRIPE_CONNECT_TEST_WEBHOOK_SECRET"
+            if mode == "test"
+            else "STRIPE_CONNECT_WEBHOOK_SECRET"
+        )
+        secret = (os.getenv(secret_name) or "").strip()
+        if webhook and (
+            not secret.startswith("whsec_")
+            or len(secret) < 20
+            or secret == (os.getenv("STRIPE_WEBHOOK_SECRET") or "").strip()
+        ):
+            raise ConnectBankPayoutError("payout_unavailable")
+        return key, secret, mode == "live"
 
     async def process_webhook(self, *, payload: bytes, signature: str | None) -> str:
         """Verify Stripe first, then reconcile its current connected-account state."""
-        key, webhook_secret, livemode = _config()
+        key, webhook_secret, livemode = self._configuration(webhook=True)
         if not signature or not payload or len(payload) > 128_000:
             raise ConnectBankPayoutError("invalid_event")
         try:
@@ -161,7 +194,9 @@ class StripeConnectBankPayouts(ExternalConnectorLifecycleStore):
         if event["livemode"] is not livemode:
             return "ignored_mode"
         binding = await self._transaction(
-            lambda c: self._event_binding(c, event_id, account_id, event_type, object_id)
+            lambda c: self._event_binding(
+                c, event_id, account_id, event_type, object_id, mode=self.mode
+            )
         )
         if binding == "duplicate":
             return "duplicate"
@@ -207,6 +242,7 @@ class StripeConnectBankPayouts(ExternalConnectorLifecycleStore):
                 object_id=object_id,
                 livemode=livemode,
                 snapshot=snapshot,
+                mode=self.mode,
             )
         )
         if account_event and result == "updated":
@@ -215,7 +251,7 @@ class StripeConnectBankPayouts(ExternalConnectorLifecycleStore):
                     text(
                         "SELECT user_id FROM stripe_owner_payout_accounts WHERE stripe_account_id=:account AND stripe_mode=:stripe_mode"
                     ),
-                    {"account": account_id, "stripe_mode": configured_stripe_mode()},
+                    {"account": account_id, "stripe_mode": self.mode},
                 ).scalar_one_or_none()
             )
             if owner:
@@ -224,7 +260,13 @@ class StripeConnectBankPayouts(ExternalConnectorLifecycleStore):
 
     @staticmethod
     def _event_binding(
-        connection: Any, event_id: str, account_id: str, event_type: str, object_id: str
+        connection: Any,
+        event_id: str,
+        account_id: str,
+        event_type: str,
+        object_id: str,
+        *,
+        mode: str | None = None,
     ) -> str | None:
         prior = (
             connection.execute(
@@ -246,7 +288,7 @@ class StripeConnectBankPayouts(ExternalConnectorLifecycleStore):
         mapped = connection.execute(
             text("""SELECT 1 FROM stripe_owner_payout_accounts
               WHERE stripe_account_id=:account AND stripe_mode=:stripe_mode LIMIT 1"""),
-            {"account": account_id, "stripe_mode": configured_stripe_mode()},
+            {"account": account_id, "stripe_mode": (mode or configured_stripe_mode())},
         ).first()
         return account_id if mapped is not None else None
 
@@ -260,12 +302,13 @@ class StripeConnectBankPayouts(ExternalConnectorLifecycleStore):
         object_id: str,
         livemode: bool,
         snapshot: dict[str, Any],
+        mode: str | None = None,
     ) -> str:
         mapped = (
             connection.execute(
                 text("""SELECT user_id FROM stripe_owner_payout_accounts
               WHERE stripe_account_id=:account AND stripe_mode=:stripe_mode LIMIT 1"""),
-                {"account": account_id, "stripe_mode": configured_stripe_mode()},
+                {"account": account_id, "stripe_mode": (mode or configured_stripe_mode())},
             )
             .mappings()
             .first()
@@ -297,7 +340,7 @@ class StripeConnectBankPayouts(ExternalConnectorLifecycleStore):
                     "payouts": snapshot["payouts"],
                     "ready": snapshot["ready"],
                     "account": account_id,
-                    "stripe_mode": configured_stripe_mode(),
+                    "stripe_mode": (mode or configured_stripe_mode()),
                 },
             )
             StripeConnectBankPayouts._notify_owner(connection, mapped["user_id"])
@@ -362,20 +405,20 @@ class StripeConnectBankPayouts(ExternalConnectorLifecycleStore):
     async def owner_summary(self, *, user_id: str) -> dict[str, Any]:
         if not isinstance(user_id, str) or not user_id:
             raise ConnectBankPayoutError("invalid_owner")
-        _, _, livemode = _config()
+        _, _, livemode = self._configuration()
 
         def read(connection: Any) -> dict[str, Any]:
             account = (
                 connection.execute(
                     text("""SELECT stripe_account_id FROM stripe_owner_payout_accounts
                   WHERE user_id=:owner AND stripe_mode=:stripe_mode LIMIT 1"""),
-                    {"owner": user_id, "stripe_mode": configured_stripe_mode()},
+                    {"owner": user_id, "stripe_mode": self.mode},
                 )
                 .mappings()
                 .first()
             )
             if account is None:
-                return {"currency": "USD", "payouts": []}
+                return {"currency": "USD", "stripeMode": self.mode, "payouts": []}
             rows = (
                 connection.execute(
                     text("""SELECT stripe_payout_id,amount_cents,status,expected_arrival_at,
@@ -389,6 +432,7 @@ class StripeConnectBankPayouts(ExternalConnectorLifecycleStore):
             )
             return {
                 "currency": "USD",
+                "stripeMode": self.mode,
                 "payouts": [
                     {
                         "id": row["stripe_payout_id"],

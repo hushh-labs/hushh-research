@@ -93,6 +93,25 @@ flowchart TB
 
 ## Route Categories
 
+### Hussh Coins earnings and sandbox redemption
+
+Owner-only `VAULT_OWNER` endpoints under `/api/one/payouts`:
+
+- `GET /hashcoins`: integer real and sandbox balances, reserved amounts, holds,
+  fixed `coinsPerDollar=100`, payout mode and recent redemption status/history.
+- `POST /hashcoins/redeem`: `{amountCoins, clientRequestId, mode:"test"}`; strict
+  integer bounds, owner-isolated idempotency and durable reservations. Returns
+  pending, succeeded, failed or unknown. Success confirms a test Stripe transfer,
+  never a real bank deposit. `mode:"live"` fails closed in this release.
+- Existing account/onboard/manage/bank-payout endpoints use the explicitly
+  configured Connect mode. Existing earnings history retains its payment mode.
+- `POST /connect/sandbox-webhook`: public ingress with mandatory raw-body Stripe
+  signature and test-mode/account validation. Legacy live webhook is unchanged.
+
+Hussh Coins balances derive from immutable delivery-settled credits and compensating
+entries. A sandbox redemption never updates a live balance or an old payout.
+See [the document payment contract](../operations/drive-request-stripe-paywall.md).
+
 ### Wallet Profile lifecycle
 
 The Wallet cards surface and `/one/wallet-card` share the same identity pass

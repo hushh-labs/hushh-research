@@ -33,6 +33,47 @@ describe("aggregate bank payout status", () => {
 
 const requestId = "11111111-1111-4111-8111-111111111111";
 const nextId = "22222222-2222-4222-8222-222222222222";
+const wallet = () => ({
+  coinName: "Hussh Coins", coinsPerDollar: 100, currency: "USD", payoutMode: "test", liveRedemptionEnabled: false, maxRedeemCoins: 50000,
+  live: { balanceCoins: 911, reservedCoins: 0, availableCoins: 911, amountCents: 911, held: false },
+  sandbox: { balanceCoins: 911, reservedCoins: 911, availableCoins: 0, amountCents: 911, held: false },
+  latestRedemption: null, redemptionHistory: [],
+});
+
+describe("Hussh Coins financial boundary", () => {
+  beforeEach(() => apiJson.mockReset());
+
+  it("keeps real and test balances separate and accepts held debt without showing it as spendable", async () => {
+    apiJson.mockResolvedValueOnce(wallet());
+    expect(await DocumentPayoutService.hashcoins("vault")).toEqual(wallet());
+    const debt = { ...wallet(), live: { balanceCoins: -50, amountCents: -50, reservedCoins: 0, availableCoins: 0, held: true } };
+    apiJson.mockResolvedValueOnce(debt);
+    expect(await DocumentPayoutService.hashcoins("vault")).toEqual(debt);
+    for (const invalid of [
+      { ...wallet(), coinsPerDollar: 1 }, { ...wallet(), liveRedemptionEnabled: true }, { ...wallet(), payoutMode: "live" },
+      { ...wallet(), sandbox: { ...wallet().sandbox, availableCoins: 911 } },
+      { ...debt, live: { ...debt.live, held: false } },
+    ]) {
+      apiJson.mockResolvedValueOnce(invalid);
+      await expect(DocumentPayoutService.hashcoins("vault")).rejects.toThrow(/Invalid Hussh Coins/);
+    }
+  });
+
+  it("forces test redemption, preserves the retry key, and rejects live transfer claims", async () => {
+    const result = { id: requestId, clientRequestId: nextId, amountCoins: 911, status: "unknown", stripeMode: "test" };
+    apiJson.mockResolvedValueOnce(result);
+    expect(await DocumentPayoutService.redeemTest("vault", 911, nextId)).toEqual(result);
+    expect(apiJson).toHaveBeenLastCalledWith("/api/one/payouts/hashcoins/redeem", expect.objectContaining({
+      method: "POST", headers: { Authorization: "Bearer vault", "Content-Type": "application/json" },
+      body: JSON.stringify({ amountCoins: 911, clientRequestId: nextId, mode: "test" }),
+    }));
+    apiJson.mockResolvedValueOnce({ ...result, stripeMode: "live" });
+    await expect(DocumentPayoutService.redeemTest("vault", 911, nextId)).rejects.toThrow("Invalid Hussh Coins redemption");
+    await expect(DocumentPayoutService.redeemTest("vault", 0.5, nextId)).rejects.toThrow("Invalid test redemption");
+    await expect(DocumentPayoutService.redeemTest("", 911, nextId)).rejects.toThrow(/Unlock/);
+  });
+});
+
 const earning = () => ({
   requestId, description: "Bank statements", status: "awaiting_fee",
   grossAmountCents: 1000, refundAmountCents: 500, platformFeeCents: 15,

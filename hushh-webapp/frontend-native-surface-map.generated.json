@@ -5026,6 +5026,7 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.payouts.test_redeem",
         "profile.reset_account",
         "profile.set_contact_discoverable",
         "profile.sign_out",
@@ -10057,5 +10058,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "883c9d8255d8e7cef2e39ab1637e3aa68a42a48f4d113170cd2b26683af1260e"
+  "content_sha256": "0b605d25104b660c5214c40ee36e262a19ba835a6b21e3b822b57fd25f7a6dbc"
 }
