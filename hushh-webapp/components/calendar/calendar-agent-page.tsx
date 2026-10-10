@@ -6,6 +6,7 @@ import { CheckCircle2, Loader2 } from "@/components/icons";
 import { toast } from "sonner";
 
 import { AskOneButton } from "@/components/agent/ask-one-button";
+import { Button } from "@/components/ui/button";
 import {
   AppPageContentRegion,
   AppPageShell,
@@ -105,6 +106,8 @@ function CalendarConnectIcon({
 
 type CalendarAgentPageProps = {
   journeyVariant?: "workspace" | "onboarding";
+  /** Only the setup adapter can authorize the first unfinished setup illustration. */
+  showOnboardingIllustration?: boolean;
   onConnectionStateChange?: (connected: boolean) => void;
   onFinishSetup?: () => void;
   onSkipSetup?: () => void;
@@ -121,6 +124,7 @@ type CalendarAgentPageProps = {
  */
 export function CalendarAgentPage({
   journeyVariant = "workspace",
+  showOnboardingIllustration = false,
   onConnectionStateChange,
   onFinishSetup,
   onSkipSetup,
@@ -161,6 +165,8 @@ export function CalendarAgentPage({
         ? value(current.identity === identity ? current.value : null) : value,
     }));
   };
+  const [connectedPresentationIdentity, setConnectedPresentationIdentity] =
+    useState<symbol | null>(null);
   const [busy, setBusy] = useState(false);
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
   // Google's opener policy can sever the popup's WindowProxy, so
@@ -227,6 +233,12 @@ export function CalendarAgentPage({
 
   const connected =
     status?.connected === true && status.status !== "needs_reauth";
+
+  // A deliberate disconnect uses the compact reconnect surface for the rest
+  // of this owner's visit; this presentation latch never writes setup state.
+  useEffect(() => {
+    if (connected) setConnectedPresentationIdentity(identity);
+  }, [connected, identity]);
 
   useEffect(() => {
     onConnectionStateChange?.(connected);
@@ -499,9 +511,13 @@ export function CalendarAgentPage({
   const needsReauth = status?.status === "needs_reauth";
   const checkingConnection =
     connectionPending || loading || (!status && !user);
-  // Every not-connected resting state (first connect and a lapsed Google
-  // authorization) shares one hero and one action.
-  const showConnectHero = !connected && !checkingConnection;
+  const showConnectHero =
+    journeyVariant === "onboarding" &&
+    showOnboardingIllustration &&
+    connectedPresentationIdentity !== identity &&
+    status?.status === "disconnected" &&
+    !connected &&
+    !checkingConnection;
 
   const popupWaitingNotice = popupWaiting ? (
     <div className="flex flex-col items-center gap-2 pt-3 text-center">
@@ -588,13 +604,23 @@ export function CalendarAgentPage({
                 <div className="pt-2 space-y-4 flex flex-col items-center w-full">
                   {/* Connection Status & Permission */}
                   <div className="flex flex-col items-center gap-1.5 text-center px-2">
-                    <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                      <CheckCircle2 className="size-4 shrink-0" aria-hidden />
+                    <div
+                      className={`inline-flex items-center gap-1.5 text-xs font-semibold ${
+                        connected
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-muted-foreground"
+                      }`}
+                    >
+                      {connected ? (
+                        <CheckCircle2 className="size-4 shrink-0" aria-hidden />
+                      ) : null}
                       <span>{connectionLabel}</span>
                     </div>
-                    <p className="text-xs text-muted-foreground max-w-sm leading-normal">
-                      {permissionLabel}
-                    </p>
+                    {connected ? (
+                      <p className="text-xs text-muted-foreground max-w-sm leading-normal">
+                        {permissionLabel}
+                      </p>
+                    ) : null}
                   </div>
 
                   {/* Actions */}
@@ -609,22 +635,44 @@ export function CalendarAgentPage({
                         Allow One to find subscribed calendars
                       </button>
                     ) : null}
-                    <AskOneButton
-                      disabled={busy}
-                      showIcon={false}
-                      onClick={() => openChat("Summarize my calendar events and help me plan meetings")}
-                      className="w-full rounded-full"
-                    >
-                      Try Calendar Agent with One
-                    </AskOneButton>
-                    <button
-                      type="button"
-                      className="text-xs font-medium text-muted-foreground transition-colors hover:text-destructive focus-visible:outline-none"
-                      disabled={busy}
-                      onClick={() => setDisconnectConfirmOpen(true)}
-                    >
-                      Disconnect Calendar
-                    </button>
+                    {connected ? (
+                      <>
+                        <AskOneButton
+                          disabled={busy}
+                          showIcon={false}
+                          onClick={() => openChat("Summarize my calendar events and help me plan meetings")}
+                          className="w-full rounded-full"
+                        >
+                          Try Calendar Agent with One
+                        </AskOneButton>
+                        <button
+                          type="button"
+                          className="text-xs font-medium text-muted-foreground transition-colors hover:text-destructive focus-visible:outline-none"
+                          disabled={busy}
+                          onClick={() => setDisconnectConfirmOpen(true)}
+                        >
+                          Disconnect Calendar
+                        </button>
+                      </>
+                    ) : (
+                      <Button
+                        type="button"
+                        size="prominent"
+                        className="w-full rounded-full bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
+                        disabled={busy}
+                        onClick={() => void connect("read")}
+                        data-voice-control-id="open_calendar_connector"
+                        data-voice-action-id={
+                          journeyVariant === "onboarding"
+                            ? "setup.connect_calendar"
+                            : undefined
+                        }
+                        data-voice-label="Connect Calendar"
+                        data-voice-purpose="starts Google Calendar authorization from this Calendar agent."
+                      >
+                        {needsReauth ? "Reconnect Calendar" : "Connect Calendar"}
+                      </Button>
+                    )}
                   </div>
                 </div>
               )}
