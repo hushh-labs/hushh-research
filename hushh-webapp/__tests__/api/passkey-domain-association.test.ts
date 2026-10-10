@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { GET as getAasa } from "@/app/.well-known/apple-app-site-association/route";
 import { GET as getAssetLinks } from "@/app/.well-known/assetlinks.json/route";
+import { GET as getRelatedOrigins } from "@/app/.well-known/webauthn/route";
+import { NextRequest } from "next/server";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -17,6 +19,34 @@ describe.sequential("native passkey domain association routes", () => {
     const response = await getAasa();
 
     expect(response.status).toBe(503);
+  });
+
+  it.each([
+    ["dev", "dev.one"],
+    ["uat", "uat.one"],
+    ["production", "one"],
+  ])("publishes only the %s related origins over both RP hosts", async (environment, prefix) => {
+    process.env.HUSHH_DEPLOY_ENV = environment;
+    for (const spelling of ["hushh", "hussh"]) {
+      const response = await getRelatedOrigins(new NextRequest(`https://${prefix}.${spelling}.ai/.well-known/webauthn`));
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expect(await response.json()).toEqual({
+        origins: [`https://${prefix}.hushh.ai`, `https://${prefix}.hussh.ai`],
+      });
+    }
+  });
+
+  it("refuses unknown, cross-environment and forwarded-host claims", async () => {
+    process.env.HUSHH_DEPLOY_ENV = "dev";
+    for (const hostname of ["one.hushh.ai", "uat.one.hussh.ai", "evil.dev.one.hussh.ai"]) {
+      const response = await getRelatedOrigins(new NextRequest(`https://${hostname}/.well-known/webauthn`, {
+        headers: { "x-forwarded-host": "dev.one.hussh.ai" },
+      }));
+      expect(response.status).toBe(404);
+    }
+    delete process.env.HUSHH_DEPLOY_ENV;
+    expect((await getRelatedOrigins(new NextRequest("https://dev.one.hushh.ai/.well-known/webauthn"))).status).toBe(404);
   });
 
   it("fails closed when the Android package id is absent, instead of falling back to a stale default", async () => {

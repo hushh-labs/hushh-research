@@ -1,9 +1,12 @@
+import domainAliases from "./passkey-domain-aliases.json";
+
 type ResolvePasskeyRpIdOptions = {
   isNative: boolean;
   hostname?: string | null;
 };
 
 export const CANONICAL_NATIVE_PASSKEY_RP_ID = "one.hushh.ai";
+export type PasskeyEnvironment = keyof typeof domainAliases;
 
 function extractHost(input: string | null | undefined): string | null {
   if (!input) return null;
@@ -34,10 +37,24 @@ export function normalizeRpHost(host: string | null | undefined): string | null 
   return normalized;
 }
 
+export function resolvePasskeyEnvironment(
+  hostname: string | null | undefined,
+): PasskeyEnvironment | null {
+  const host = normalizeRpHost(hostname);
+  if (!host) return null;
+  return (
+    (Object.keys(domainAliases) as PasskeyEnvironment[]).find((environment) =>
+      domainAliases[environment].includes(host),
+    ) ?? null
+  );
+}
+
 /**
  * A WebAuthn RP ID may be the current host or one of its registrable suffixes.
  * Keep this check centralized so wrapper selection and trusted-device flows
- * apply the same origin-boundary rule.
+ * apply the same origin-boundary rule. Exact domain pairs are authorized by
+ * the RP's /.well-known/webauthn document in browsers supporting Related
+ * Origin Requests. Stored RP IDs must never be rewritten.
  */
 export function isPasskeyRpIdCompatibleWithHost(
   hostname: string | null | undefined,
@@ -52,7 +69,10 @@ export function isPasskeyRpIdCompatibleWithHost(
   }
   return (
     normalizedHost === normalizedRpId ||
-    normalizedHost.endsWith(`.${normalizedRpId}`)
+    normalizedHost.endsWith(`.${normalizedRpId}`) ||
+    Object.values(domainAliases).some(
+      (pair) => pair.includes(normalizedHost) && pair.includes(normalizedRpId),
+    )
   );
 }
 

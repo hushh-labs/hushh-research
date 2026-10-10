@@ -15,6 +15,30 @@ parity = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(parity)
 
 
+def test_domain_runtime_requires_only_the_matching_alias_pair(monkeypatch):
+    origin = "https://uat.one.hushh.ai"
+    config = {
+        "cors_allowed_origins": origin + ",https://uat.one.hussh.ai",
+        "passkey_allowed_rp_ids": "localhost,127.0.0.1,uat.one.hushh.ai,uat.one.hussh.ai",
+        "plaid_webhook_url": origin + "/api/kai/plaid/webhook",
+    }
+    values = {"APP_FRONTEND_ORIGIN": origin}
+    monkeypatch.setattr(
+        parity,
+        "_read_secret_value",
+        lambda _project, key: (
+            json.dumps(config) if key == "BACKEND_RUNTIME_CONFIG_JSON" else values.get(key)
+        ),
+    )
+    assert parity._domain_runtime_contract("uat")["status"] == "valid"
+    config["passkey_allowed_rp_ids"] += ",one.hushh.ai"
+    assert parity._domain_runtime_contract("uat")["passkeys"] == "mismatch"
+    config["passkey_allowed_rp_ids"] = "localhost,127.0.0.1,uat.one.hushh.ai"
+    assert parity._domain_runtime_contract("uat")["passkeys"] == "mismatch"
+    config["cors_allowed_origins"] = origin
+    assert parity._domain_runtime_contract("uat")["cors"] == "mismatch"
+
+
 def _revision(service: str) -> dict[str, object]:
     return {
         "metadata": {"labels": {"serving.knative.dev/service": service}},

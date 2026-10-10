@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   isPasskeyRpIdCompatibleWithHost,
   normalizeRpHost,
+  resolvePasskeyEnvironment,
   resolvePasskeyRpId,
 } from "@/lib/vault/passkey-rp";
 
@@ -87,6 +88,32 @@ describe("passkey RP resolution", () => {
     expect(
       isPasskeyRpIdCompatibleWithHost("one.hushh.ai", "uat.one.hushh.ai"),
     ).toBe(false);
+  });
+
+  it.each(["dev.one", "uat.one", "one"])(
+    "accepts reciprocal spelling aliases only for %s",
+    (prefix) => {
+      const oldHost = `${prefix}.hushh.ai`;
+      const newHost = `${prefix}.hussh.ai`;
+      expect(isPasskeyRpIdCompatibleWithHost(newHost, oldHost)).toBe(true);
+      expect(isPasskeyRpIdCompatibleWithHost(oldHost, newHost)).toBe(true);
+      expect(resolvePasskeyRpId({ isNative: false, hostname: newHost })).toBe(newHost);
+      expect(isPasskeyRpIdCompatibleWithHost(`evil.${newHost}`, oldHost)).toBe(false);
+    },
+  );
+
+  it("rejects foreign environments and unregistered spelling aliases", () => {
+    expect(isPasskeyRpIdCompatibleWithHost("dev.one.hussh.ai", "one.hushh.ai")).toBe(false);
+    expect(isPasskeyRpIdCompatibleWithHost("uat.one.hussh.ai", "dev.one.hushh.ai")).toBe(false);
+    expect(isPasskeyRpIdCompatibleWithHost("one.hussh.ai", "uat.one.hushh.ai")).toBe(false);
+    expect(isPasskeyRpIdCompatibleWithHost("other.hussh.ai", "other.hushh.ai")).toBe(false);
+  });
+
+  it.each(["hushh", "hussh"])("resolves handoff environments for %s", (brand) => {
+    expect(resolvePasskeyEnvironment(`one.${brand}.ai`)).toBe("production");
+    expect(resolvePasskeyEnvironment(`uat.one.${brand}.ai`)).toBe("uat");
+    expect(resolvePasskeyEnvironment(`dev.one.${brand}.ai`)).toBe("dev");
+    expect(resolvePasskeyEnvironment(`evil.one.${brand}.ai`)).toBeNull();
   });
 
   it("rejects unrelated RP IDs even when their text is a suffix", () => {

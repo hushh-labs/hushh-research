@@ -351,14 +351,21 @@ def _domain_runtime_contract(project: str) -> dict[str, str]:
         if item.strip()
     }
     expected_origin = frontend_origin.rstrip("/")
-    cors_status = "valid" if expected_origin in cors_values else "mismatch"
+    aliases = json.loads(
+        (Path(__file__).resolve().parents[2] / "hushh-webapp/lib/vault/passkey-domain-aliases.json").read_text()
+    )
+    related_hosts = next((set(pair) for pair in aliases.values() if host in pair), {host})
+    expected_cors = {f"https://{related}" for related in related_hosts} if host in {
+        item for pair in aliases.values() for item in pair
+    } else {expected_origin}
+    cors_status = "valid" if expected_cors.issubset(cors_values) else "mismatch"
 
     passkey_hosts = {
         item.strip().lower()
         for item in str(runtime.get("passkey_allowed_rp_ids") or "").split(",")
         if item.strip()
     }
-    expected_passkey_hosts = {"localhost", "127.0.0.1", host}
+    expected_passkey_hosts = {"localhost", "127.0.0.1", *related_hosts}
     passkey_status = "valid" if passkey_hosts == expected_passkey_hosts else "mismatch"
 
     plaid_url = urlsplit(str(runtime.get("plaid_webhook_url") or "").strip())
