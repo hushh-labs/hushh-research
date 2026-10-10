@@ -5,6 +5,8 @@
   GET  /api/one/payouts/account  -> account readiness only, for document owners
   POST /api/one/payouts/account/onboard -> {url} document-owner onboarding
   GET  /api/one/payouts/account/bank-payouts -> owner's aggregate bank deposits
+  GET  /api/one/payouts/account/earnings -> paginated document transactions
+  POST /api/one/payouts/account/manage -> owner's Express bank settings
   POST /api/one/payouts/connect/webhook -> signed connected-account events
 
 Owner-scoped (vault owner token). Earnings become due when a bought packet is
@@ -13,7 +15,9 @@ delivered; the work drain transfers them once payouts are enabled.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 
@@ -26,6 +30,7 @@ from hushh_mcp.services.stripe_connect_bank_payouts import (
 )
 
 router = APIRouter(prefix="/api/one/payouts", tags=["One Packet Payouts"])
+logger = logging.getLogger(__name__)
 
 
 def _service() -> PkmPayoutService:
@@ -102,6 +107,39 @@ async def get_bank_payouts(
         return summary
     except ConnectBankPayoutError:
         raise HTTPException(status_code=503, detail="Bank payout status is unavailable.") from None
+
+
+@router.post("/account/manage")
+async def manage_payout_account(
+    response: Response, token_data: dict = Depends(require_vault_owner_token)
+) -> dict[str, str]:
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        link: dict[str, str] = await _service().management_link(user_id=token_data["user_id"])
+        return link
+    except PacketOrderError as exc:
+        raise HTTPException(
+            status_code=503, detail={"code": exc.code, "message": str(exc)}
+        ) from None
+
+
+@router.get("/account/earnings")
+async def document_earnings(
+    response: Response,
+    cursor: UUID | None = None,
+    token_data: dict = Depends(require_vault_owner_token),
+) -> dict[str, Any]:
+    from hushh_mcp.services.drive_request_owner_payout_service import DriveRequestOwnerPayoutService
+
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        history: dict[str, Any] = await DriveRequestOwnerPayoutService().owner_history(
+            user_id=token_data["user_id"], cursor=str(cursor) if cursor else None
+        )
+        return history
+    except Exception as exc:
+        logger.warning("document_earnings.unavailable type=%s", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Transactions are unavailable.") from None
 
 
 @router.post("/connect/webhook")

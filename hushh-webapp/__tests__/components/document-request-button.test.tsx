@@ -101,7 +101,7 @@ describe("asking a connection about their Drive", () => {
     });
     state.createQuery.mockImplementation(async (_token, draft) => queryView(draft.query));
     state.lookupClient.mockResolvedValue(null);
-    state.quote.mockResolvedValue({ amountCents: 1000, version: 1, paymentRequired: true, payoutReady: true });
+    state.quote.mockResolvedValue({ amountCents: 1000, version: 1, paymentRequired: true, priceReady: true, paymentsReady: true, payoutReady: true });
   });
   afterEach(cleanup);
 
@@ -272,7 +272,7 @@ describe("requesting exact files from a connection", () => {
     state.linkGoogle.mockResolvedValue(firebaseProof);
     state.create.mockResolvedValue({ requestId, status: "pending", revision: 1 });
     state.lookupClient.mockResolvedValue(null);
-    state.quote.mockResolvedValue({ amountCents: 1000, version: 1, paymentRequired: true, payoutReady: true });
+    state.quote.mockResolvedValue({ amountCents: 1000, version: 1, paymentRequired: true, priceReady: true, paymentsReady: true, payoutReady: true });
   });
   afterEach(cleanup);
 
@@ -364,8 +364,8 @@ describe("requesting exact files from a connection", () => {
   });
 
   it("refreshes a stale quote before retrying with a new version and key", async () => {
-    state.quote.mockResolvedValueOnce({ amountCents: 1000, version: 1, paymentRequired: true, payoutReady: true })
-      .mockResolvedValueOnce({ amountCents: 2500, version: 2, paymentRequired: true, payoutReady: true });
+    state.quote.mockResolvedValueOnce({ amountCents: 1000, version: 1, paymentRequired: true, priceReady: true, paymentsReady: true, payoutReady: true })
+      .mockResolvedValueOnce({ amountCents: 2500, version: 2, paymentRequired: true, priceReady: true, paymentsReady: true, payoutReady: true });
     state.create.mockRejectedValueOnce(new DriveSharingError("price_changed", 409))
       .mockResolvedValueOnce({ requestId, status: "pending", revision: 1 });
     mount();
@@ -379,6 +379,24 @@ describe("requesting exact files from a connection", () => {
     expect(state.create.mock.calls[0][2].expectedQuoteVersion).toBe(1);
     expect(state.create.mock.calls[1][2].expectedQuoteVersion).toBe(2);
     expect(state.create.mock.calls[1][2].clientRequestId).not.toBe(state.create.mock.calls[0][2].clientRequestId);
+  });
+
+  it("allows a request to wait for owner price and payout setup without inventing a price", async () => {
+    state.quote.mockResolvedValueOnce({ amountCents: null, version: 0, paymentRequired: true,
+      priceReady: false, payoutReady: false, paymentsReady: false });
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: "Request files" }));
+    expect(await screen.findByText("The owner will set a price. You review it before paying.")).toBeVisible();
+    expect(screen.getByText("We'll ask the owner to set up payouts.")).toBeVisible();
+    expect(screen.queryByText(/Price: \$10/)).toBeNull();
+    fireEvent.change(screen.getByLabelText("What do you need?"), { target: { value: "Bank statements" } });
+    fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2026-03-01" } });
+    fireEvent.change(screen.getByLabelText("End date"), { target: { value: "2026-08-31" } });
+    expect(screen.getByRole("button", { name: "Send request" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    expect(await screen.findByText("Request sent.")).toBeVisible();
+    expect(state.create).toHaveBeenCalledOnce();
+    expect(state.create.mock.calls[0][2]).toMatchObject({ expectedQuoteVersion: 0 });
   });
 
   it("refuses an incomplete period before any identity check", async () => {
@@ -417,7 +435,7 @@ describe("chat draft question card", () => {
     state.overview.mockResolvedValue({ features: { drive_document_sharing: true }, connectors: [] });
     state.createQuery.mockImplementation(async (_token, draft) => queryView(draft.query));
     state.lookupClient.mockResolvedValue(null);
-    state.quote.mockResolvedValue({ amountCents: 1000, version: 1, paymentRequired: true, payoutReady: true });
+    state.quote.mockResolvedValue({ amountCents: 1000, version: 1, paymentRequired: true, priceReady: true, paymentsReady: true, payoutReady: true });
   });
   afterEach(cleanup);
 

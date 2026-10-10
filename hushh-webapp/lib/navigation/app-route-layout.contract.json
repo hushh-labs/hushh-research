@@ -5329,6 +5329,120 @@
     }
   },
   {
+    "route": "/one/profile/payouts",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/profile-workspace-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.payouts",
+      "purpose": "Help the person use payouts through its generated controls.",
+      "screen": "profile_payouts",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/payouts",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/profile/payouts?documentPayouts=done",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
+          "href": "/one/profile/payouts?documentPayouts=refresh",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
+    }
+  },
+  {
+    "route": "/one/profile/request-pricing",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/profile-workspace-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.request.pricing",
+      "purpose": "Help the person use request pricing through its generated controls.",
+      "screen": "profile_request_pricing",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    },
+    "backVerification": {
+      "cases": [
+        {
+          "href": "/one/profile/request-pricing",
+          "expected": {
+            "href": "/one/profile",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        }
+      ],
+      "kind": "parent"
+    }
+  },
+  {
     "route": "/one/profile/my-data",
     "mode": "standard",
     "shellVerification": {

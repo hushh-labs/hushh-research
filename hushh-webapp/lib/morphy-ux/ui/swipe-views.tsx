@@ -183,6 +183,12 @@ function isNestedHorizontalScrollTarget(target: EventTarget | null): boolean {
   );
 }
 
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest(
+    "button, input, select, textarea, a[href], [role='button'], [role='slider'], [contenteditable='true']",
+  ));
+}
+
 function isNestedSwipeViewsTarget(
   target: EventTarget | null,
   rootNode: HTMLElement,
@@ -384,6 +390,7 @@ export function SwipeViews({
     (emblaApi: EmblaCarouselType, event: Event) => {
       if (
         disabledRef.current ||
+        isInteractiveTarget(event.target) ||
         isNestedHorizontalScrollTarget(event.target) ||
         isNestedSwipeViewsTarget(event.target, emblaApi.rootNode())
       ) {
@@ -679,9 +686,17 @@ export function SwipeViews({
   const syncTabIndicator = useCallback(
     (pagerOwned?: boolean) => {
       if (!emblaApi) return null;
+      const engine = emblaApi.internalEngine?.();
+      const width = engine?.slideRects?.[0]?.width;
+      const rendered = engine?.offsetLocation?.get?.();
       const scrollProgress = emblaApi.scrollProgress?.();
+      // Total scroll bounds can lag repaired snap points after a resize. Follow
+      // the rendered pane position so form presses cannot shift the highlight.
       const position =
-        typeof scrollProgress === "number" && Number.isFinite(scrollProgress)
+        typeof width === "number" && width > 0 &&
+        typeof rendered === "number" && Number.isFinite(rendered)
+          ? clampSwipePosition(-rendered / width, options.length)
+          : typeof scrollProgress === "number" && Number.isFinite(scrollProgress)
           ? clampSwipePosition(
               scrollProgress * Math.max(0, options.length - 1),
               options.length,
@@ -1046,7 +1061,9 @@ export function SwipeViews({
       }
       data-no-auto-fade="true"
       className={cn(
-        "w-full min-h-0 overflow-hidden",
+        // The transform owns horizontal travel. Unlike hidden, clip cannot
+        // acquire a native scrollLeft when the browser focuses a form control.
+        "w-full min-h-0 overflow-clip",
         // Only the release beat eases. Growing has to be instant or the
         // incoming pane is the one that gets clipped instead.
         heightMode === "active" &&

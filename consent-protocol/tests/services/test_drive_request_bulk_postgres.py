@@ -36,6 +36,7 @@ from hushh_mcp.services.google_drive_adapter import (
     LIVE_POLICY_HASH,
     DriveReadError,
 )
+from hushh_mcp.services.pkm_payout_service import PkmPayoutService
 from tests.services.test_drive_sharing_store import (  # noqa: F401
     MIGRATIONS,
     connector_postgres_url,
@@ -53,13 +54,35 @@ def request_bulk(sharing, monkeypatch):
     monkeypatch.setenv("GOOGLE_DRIVE_LIVE", "true")
     monkeypatch.setenv("DRIVE_DOCUMENT_SHARING", "true")
     monkeypatch.setenv("DRIVE_REQUEST_PAYMENTS_ENABLED", "true")
+    monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", "true")
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_local_only_synthetic")
     monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_payment_test_secret")
     monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://test.example")
     clear_runtime_settings_caches()
     monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner,recipient,trusted-member")
     monkeypatch.setenv("DRIVE_SHARING_KEY_V1", base64.b64encode(b"s" * 32).decode())
+    # Paid-flow tests start with the owner's explicit price and verified bank
+    # setup. Missing/restricted setup has separate negative controls.
+    monkeypatch.setattr(
+        PkmPayoutService,
+        "refresh_account",
+        AsyncMock(
+            return_value={
+                "stripe_account_id": "acct_test_owner",
+                "readiness": {"ready": True},
+            }
+        ),
+    )
     with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO drive_request_owner_pricing
+          (user_id,enabled,amount_cents,version) VALUES ('owner',TRUE,1000,1)""")
+        )
+        connection.execute(
+            text("""INSERT INTO pkm_owner_payout_accounts
+          (user_id,stripe_account_id,details_submitted,payouts_enabled,account_ready)
+          VALUES ('owner','acct_test_owner',TRUE,TRUE,TRUE)""")
+        )
         connection.execute(
             text("""UPDATE external_mcp_connectors SET transport_kind='google_drive_rest',
             mcp_endpoint=:endpoint,capability_policy=CAST(:policy AS jsonb)
@@ -126,6 +149,7 @@ async def _request(sharing):
         ),
         owner_user_id="owner",
         client_request_id=str(uuid4()),
+        expected_quote_version=1,
         purpose=ShareRequestPurpose(
             purpose="Standup notes from last 3 months",
             periodStart=(today - timedelta(days=90)).isoformat(),
@@ -881,6 +905,7 @@ async def _trusted_request(sharing):
         ),
         owner_user_id="owner",
         client_request_id=str(uuid4()),
+        expected_quote_version=1,
         purpose=ShareRequestPurpose(
             purpose="Standup notes from last 3 months",
             periodStart=(today - timedelta(days=90)).isoformat(),

@@ -12,6 +12,13 @@ describe("deriveVoiceRouteScreen", () => {
   ])("recognizes current interactive screen %s", (route, screen) => {
     expect(deriveVoiceRouteScreen(route).screen).toBe(screen);
   });
+
+  it.each(["payouts", "request-pricing"])("derives the %s screen without claiming Memory controls", (panel) => {
+    const expected = { screen: `profile_${panel.replace(/-/g, "_")}`, subview: null };
+    expect(deriveVoiceRouteScreen(`/one/profile/${panel}`)).toEqual(expected);
+    expect(deriveVoiceRouteScreen("/one/profile", `panel=${panel}`)).toEqual(expected);
+  });
+
   it("keeps the public One introduction distinct from authenticated One", () => {
     expect(deriveVoiceRouteScreen("/")).toEqual({
       screen: "one_intro",

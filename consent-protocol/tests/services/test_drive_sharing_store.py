@@ -8,7 +8,8 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from uuid import uuid4
+from unittest.mock import Mock
+from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -71,7 +72,8 @@ async def sharing(documents, monkeypatch):
             """CREATE TABLE pkm_owner_payout_accounts(
                  user_id TEXT PRIMARY KEY,stripe_account_id TEXT UNIQUE NOT NULL,
                  details_submitted BOOLEAN NOT NULL DEFAULT FALSE,
-                 payouts_enabled BOOLEAN NOT NULL DEFAULT FALSE)"""
+                 payouts_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                 account_ready BOOLEAN NOT NULL DEFAULT FALSE)"""
         )
         pair_id = str(uuid4())
         connection.execute(
@@ -104,6 +106,7 @@ async def sharing(documents, monkeypatch):
             "291_drive_request_owner_allowed.sql",
             "292_drive_request_owner_payouts.sql",
             "293_drive_request_owner_pricing.sql",
+            "297_document_commerce_readiness.sql",
         ):
             # Raw SQL preserves JSON colons; double percent signs for psycopg2's
             # parameter parser while retaining PostgreSQL format() placeholders.
@@ -124,12 +127,14 @@ async def sharing(documents, monkeypatch):
 
 
 async def request(sharing, client_id=None):
+    pricing = await sharing.owner_pricing(user_id="owner")
     return await sharing.create_request(
         recipient=VerifiedGoogleRecipient(
             "recipient", "1234567", "recipient@example.invalid", datetime.now(UTC)
         ),
         owner_user_id="owner",
         client_request_id=client_id or str(uuid4()),
+        expected_quote_version=pricing["version"],
         purpose=ShareRequestPurpose(
             purpose="Private six-month statements", periodStart="2026-01-01", periodEnd="2026-06-30"
         ),
@@ -148,10 +153,12 @@ async def test_owner_price_is_locked_at_request_creation_and_retry(sharing, monk
     assert initial == {"enabled": False, "amountCents": 1000, "version": 0}
     quote = await sharing.request_quote(user_id="recipient", owner_user_id="owner")
     assert quote == {
-        "amountCents": 1000,
+        "amountCents": None,
         "version": 0,
         "paymentRequired": True,
         "payoutReady": False,
+        "priceReady": False,
+        "paymentsReady": True,
     }
     first = await sharing.update_owner_pricing(
         user_id="owner", enabled=True, amount_cents=2500, expected_version=0
@@ -160,14 +167,16 @@ async def test_owner_price_is_locked_at_request_creation_and_retry(sharing, monk
     with sharing.db.engine.begin() as connection:
         connection.execute(
             text("""INSERT INTO pkm_owner_payout_accounts
-              (user_id,stripe_account_id,details_submitted,payouts_enabled)
-              VALUES ('owner','acct_test_owner',TRUE,TRUE)""")
+              (user_id,stripe_account_id,details_submitted,payouts_enabled,account_ready)
+              VALUES ('owner','acct_test_owner',TRUE,TRUE,TRUE)""")
         )
     assert (await sharing.request_quote(user_id="recipient", owner_user_id="owner")) == {
         "amountCents": 2500,
         "version": 1,
         "paymentRequired": True,
         "payoutReady": True,
+        "priceReady": True,
+        "paymentsReady": True,
     }
     client_id = str(uuid4())
     recipient = VerifiedGoogleRecipient(
@@ -177,16 +186,21 @@ async def test_owner_price_is_locked_at_request_creation_and_retry(sharing, monk
         purpose="Statements", periodStart="2026-01-01", periodEnd="2026-06-30"
     )
     monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", "false")
-    with pytest.raises(DriveSharingError, match="payout_unavailable"):
-        await sharing.request_quote(user_id="recipient", owner_user_id="owner")
-    with pytest.raises(DriveSharingError, match="payout_unavailable"):
-        await sharing.create_request(
-            recipient=recipient,
-            owner_user_id="owner",
-            client_request_id=str(uuid4()),
-            purpose=purpose,
-            expected_quote_version=1,
-        )
+    assert not (await sharing.request_quote(user_id="recipient", owner_user_id="owner"))[
+        "paymentsReady"
+    ]
+    paused = await sharing.create_request(
+        recipient=recipient,
+        owner_user_id="owner",
+        client_request_id=str(uuid4()),
+        purpose=purpose,
+        expected_quote_version=1,
+    )
+    assert paused["paymentsReady"] is False
+    assert (
+        stored_request(sharing, paused["requestId"])[0]["preparation_error_code"]
+        == "payout_unavailable"
+    )
     monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", "true")
     with pytest.raises(DriveSharingError, match="price_changed"):
         await sharing.create_request(
@@ -228,7 +242,7 @@ async def test_owner_price_is_locked_at_request_creation_and_retry(sharing, monk
 
 
 @pytest.mark.asyncio
-async def test_non_trusted_allow_cannot_reprice_a_quoted_request(sharing, monkeypatch):
+async def test_non_trusted_allow_fixes_owners_final_quote_before_payment(sharing, monkeypatch):
     live_drive(sharing, monkeypatch)
     monkeypatch.setenv("DRIVE_REQUEST_PAYMENTS_ENABLED", "true")
     monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", "true")
@@ -250,10 +264,243 @@ async def test_non_trusted_allow_cannot_reprice_a_quoted_request(sharing, monkey
         ),
         expected_quote_version=1,
     )
-    with pytest.raises(DriveSharingError, match="price_changed"):
-        await owner_allow(sharing, created, 3000)
-    allowed = await owner_allow(sharing, created, 2500)
-    assert (allowed["ownerAllowed"], allowed["quotedAmountCents"]) == (True, 2500)
+    allowed = await owner_allow(sharing, created, 3000)
+    assert (allowed["ownerAllowed"], allowed["quotedAmountCents"]) == (True, 3000)
+    assert allowed["ownerPayoutAccountReady"] is False
+    assert (
+        stored_request(sharing, created["requestId"])[0]["preparation_error_code"]
+        == "owner_payout_required"
+    )
+    assert await owner_allow(sharing, created, 3000) == allowed
+    with pytest.raises(DriveSharingError, match="request_already_decided"):
+        await owner_allow(sharing, created, 2500)
+
+
+@pytest.mark.asyncio
+async def test_trusted_request_waits_for_payout_and_price_and_resumes_without_repricing(
+    sharing, monkeypatch
+):
+    live_drive(sharing, monkeypatch)
+    monkeypatch.setenv("DRIVE_REQUEST_PAYMENTS_ENABLED", "true")
+    monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", "true")
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_request_payment_service.require_payment_configuration",
+        lambda: None,
+    )
+    circle = str(uuid4())
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("INSERT INTO one_location_circles VALUES (:id,'owner','trusted','active')"),
+            {"id": circle},
+        )
+        connection.execute(
+            text("INSERT INTO one_location_circle_memberships VALUES (:id,'recipient','active')"),
+            {"id": circle},
+        )
+    created = await request(sharing)
+    identity = created["requestId"]
+    assert created["ownerPriceRequired"] and not created["ownerPayoutAccountReady"]
+    assert "quotedAmountCents" not in created
+    assert stored_request(sharing, identity)[0]["preparation_error_code"] == "owner_payout_required"
+    for prepare in (
+        sharing.trusted_request_authority(user_id="owner", request_id=identity),
+        sharing.request_bulk_context(user_id="owner", request_id=identity, start=True),
+    ):
+        with pytest.raises(DriveSharingError, match="owner_payout_required"):
+            await prepare
+    assert not rows(sharing, "drive_request_payment_orders")
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO pkm_owner_payout_accounts
+          (user_id,stripe_account_id,details_submitted,payouts_enabled,account_ready)
+          VALUES ('owner','acct_test_owner',TRUE,TRUE,TRUE)""")
+        )
+    assert (await sharing.resume_owner_setup(user_id="owner"))["resumed"] == 0
+    assert stored_request(sharing, identity)[0]["preparation_error_code"] == "owner_price_required"
+    await sharing.update_owner_pricing(
+        user_id="owner", enabled=True, amount_cents=200, expected_version=0
+    )
+    row, _ = stored_request(sharing, identity)
+    assert (row["quoted_amount_cents"], row["preparation_error_code"]) == (
+        200,
+        "trusted_auto_queued",
+    )
+    await sharing.trusted_request_authority(user_id="owner", request_id=identity)
+    await sharing.update_owner_pricing(
+        user_id="owner", enabled=True, amount_cents=700, expected_version=1
+    )
+    assert stored_request(sharing, identity)[0]["quoted_amount_cents"] == 200
+
+
+def test_setup_notification_has_stream_event_identity_for_both_participants():
+    connection = Mock()
+    request_id = uuid4()
+    DriveSharingStore._notify_setup_changed(
+        connection, {"user_id": "owner", "recipient_user_id": "recipient", "request_id": request_id}
+    )
+    payloads = [json.loads(call.args[1]["payload"]) for call in connection.execute.call_args_list]
+    assert {payload["user_id"] for payload in payloads} == {"owner", "recipient"}
+    assert len({payload["event_id"] for payload in payloads}) == 1
+    for payload in payloads:
+        assert UUID(payload["event_id"])
+        assert UUID(payload["request_id"]) == request_id
+        assert payload["type"] == "document_share_feed_changed"
+        assert set(payload) == {"type", "event_id", "request_id", "user_id"}
+
+
+async def trusted_unpriced_request(
+    sharing, monkeypatch, *, payout_ready=True, trusted=True, default_amount_cents=None
+):
+    live_drive(sharing, monkeypatch)
+    monkeypatch.setenv("DRIVE_REQUEST_PAYMENTS_ENABLED", "true")
+    monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", "true")
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_request_payment_service.require_payment_configuration",
+        lambda: None,
+    )
+    circle = str(uuid4())
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("INSERT INTO one_location_circles VALUES (:id,'owner','trusted','active')"),
+            {"id": circle},
+        )
+        if trusted:
+            connection.execute(
+                text(
+                    "INSERT INTO one_location_circle_memberships VALUES (:id,'recipient','active')"
+                ),
+                {"id": circle},
+            )
+        if payout_ready:
+            connection.execute(
+                text("""INSERT INTO pkm_owner_payout_accounts
+              (user_id,stripe_account_id,details_submitted,payouts_enabled,account_ready)
+              VALUES ('owner','acct_test_owner',TRUE,TRUE,TRUE)""")
+            )
+    if default_amount_cents is not None:
+        await sharing.update_owner_pricing(
+            user_id="owner", enabled=True, amount_cents=default_amount_cents, expected_version=0
+        )
+    return await request(sharing)
+
+
+@pytest.mark.asyncio
+async def test_trusted_price_once_preserves_trust_authority_and_global_ask_each_time(
+    sharing, monkeypatch
+):
+    created = await trusted_unpriced_request(sharing, monkeypatch)
+    identity = created["requestId"]
+    review = await sharing.owner_review(user_id="owner", request_id=identity)
+    assert review["priceOnlyAvailable"] and not review["allowAvailable"]
+    first = await sharing.set_request_price(
+        user_id="owner", request_id=identity, revision=created["revision"], amount_cents=700
+    )
+    assert first["quotedAmountCents"] == 700 and not first["ownerPriceRequired"]
+    assert (
+        await sharing.set_request_price(
+            user_id="owner", request_id=identity, revision=created["revision"], amount_cents=700
+        )
+        == first
+    )
+    with pytest.raises(DriveSharingError, match="request_already_decided"):
+        await sharing.set_request_price(
+            user_id="owner", request_id=identity, revision=created["revision"], amount_cents=800
+        )
+    row, private = stored_request(sharing, identity)
+    assert row["owner_allowed_at"] is None and "owner_allowed" not in private
+    assert row["preparation_error_code"] == "trusted_auto_queued"
+    assert not (await sharing.owner_pricing(user_id="owner"))["enabled"]
+    assert not (await sharing.owner_review(user_id="owner", request_id=identity))[
+        "priceOnlyAvailable"
+    ]
+    await sharing.trusted_request_authority(user_id="owner", request_id=identity)
+    with sharing.db.engine.begin() as connection:
+        connection.execute(text("UPDATE one_location_circle_memberships SET status='removed'"))
+    with pytest.raises(DriveSharingError, match="trusted_request_unavailable"):
+        await sharing.trusted_request_authority(user_id="owner", request_id=identity)
+
+
+@pytest.mark.asyncio
+async def test_trusted_per_request_price_keeps_missing_bank_gate(sharing, monkeypatch):
+    created = await trusted_unpriced_request(sharing, monkeypatch, payout_ready=False)
+    identity = created["requestId"]
+    updated = await sharing.set_request_price(
+        user_id="owner", request_id=identity, revision=created["revision"], amount_cents=500
+    )
+    assert updated["quotedAmountCents"] == 500 and not updated["ownerPayoutAccountReady"]
+    assert stored_request(sharing, identity)[0]["preparation_error_code"] == "owner_payout_required"
+    with pytest.raises(DriveSharingError, match="owner_payout_required"):
+        await sharing.trusted_request_authority(user_id="owner", request_id=identity)
+    assert not rows(sharing, "drive_request_payment_orders")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "guard", ["owner", "revision", "expired", "stopped", "search", "lease", "order", "nontrusted"]
+)
+async def test_trusted_per_request_price_rechecks_immutable_and_authority_guards(
+    sharing, monkeypatch, guard
+):
+    created = await trusted_unpriced_request(sharing, monkeypatch)
+    identity = created["requestId"]
+    with sharing.db.engine.begin() as connection:
+        if guard in {"expired", "stopped", "search", "lease"}:
+            change = {
+                "expired": "created_at=clock_timestamp()-INTERVAL '2 hours',expires_at=clock_timestamp()-INTERVAL '1 hour'",
+                "stopped": "access_stop_requested_at=clock_timestamp()",
+                "search": "bulk_search_started_at=clock_timestamp()",
+                "lease": "preparation_lease_id=CAST(:id AS uuid),preparation_lease_expires_at=clock_timestamp()+INTERVAL '1 minute'",
+            }[guard]
+            connection.execute(
+                text(f"UPDATE drive_share_requests SET {change} WHERE request_id=:id"),
+                {"id": identity},
+            )
+        elif guard == "order":
+            connection.execute(
+                text("""INSERT INTO drive_request_payment_orders
+                     (request_id,user_id,requester_user_id,status)
+                     VALUES (:id,'owner','recipient','expired')"""),
+                {"id": identity},
+            )
+        elif guard == "nontrusted":
+            connection.execute(text("UPDATE one_location_circle_memberships SET status='removed'"))
+    with pytest.raises((DriveSharingError, DriveReadError)):
+        await sharing.set_request_price(
+            user_id="recipient" if guard == "owner" else "owner",
+            request_id=identity,
+            revision=created["revision"] + int(guard == "revision"),
+            amount_cents=500,
+        )
+    assert stored_request(sharing, identity)[0]["quoted_amount_cents"] is None
+
+
+@pytest.mark.asyncio
+async def test_scheduler_recovers_setup_without_account_webhook_wake(sharing, monkeypatch):
+    live_drive(sharing, monkeypatch)
+    monkeypatch.setenv("DRIVE_REQUEST_PAYMENTS_ENABLED", "true")
+    monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", "false")
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_request_payment_service.require_payment_configuration",
+        lambda: None,
+    )
+    created = await request(sharing)
+    await owner_allow(sharing, created, 500)
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO pkm_owner_payout_accounts
+          (user_id,stripe_account_id,details_submitted,payouts_enabled,account_ready)
+          VALUES ('owner','acct_test_owner',TRUE,TRUE,TRUE)""")
+        )
+    monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", "true")
+    due = await sharing.due_trusted_searches(limit=20)
+    assert due == [{"user_id": "owner", "request_id": created["requestId"]}]
+    assert (
+        stored_request(sharing, created["requestId"])[0]["preparation_error_code"]
+        == "trusted_auto_queued"
+    )
+    assert (await sharing.request_status(user_id="recipient", request_id=created["requestId"]))[
+        "ownerPayoutAccountReady"
+    ]
 
 
 @pytest.mark.asyncio

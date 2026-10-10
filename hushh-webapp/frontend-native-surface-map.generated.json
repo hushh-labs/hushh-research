@@ -2728,7 +2728,7 @@
         "voice_playbook": {
           "playbook_id": "route.one.connected.systems.systemid",
           "purpose": "Help the person understand and use the connected systems screen through its generated controls.",
-          "screen": "connected_systems",
+          "screen": "app",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -2756,10 +2756,8 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": "app/one/connected-systems/[systemId]/page.voice-action-contract.json",
-      "voice_action_contract_ids": [
-        "route.connected_system_list"
-      ],
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -2852,7 +2850,7 @@
         "voice_playbook": {
           "playbook_id": "route.one.email",
           "purpose": "Explain Gmail connection and hand the owner to One for approval-gated email drafting.",
-          "screen": "email_agent",
+          "screen": "app",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -2894,10 +2892,8 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": "app/one/email/page.voice-action-contract.json",
-      "voice_action_contract_ids": [
-        "route.mail_connections"
-      ],
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -4630,7 +4626,7 @@
         "voice_playbook": {
           "playbook_id": "route.one.messages",
           "purpose": "Read and send private messages with accepted connections and circles you belong to.",
-          "screen": "one_messages",
+          "screen": "app",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -4671,10 +4667,8 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": "app/one/messages/page.voice-action-contract.json",
-      "voice_action_contract_ids": [
-        "route.messages_connections"
-      ],
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -5034,9 +5028,12 @@
         "route.profile",
         "route.profile_access_panel",
         "route.profile_connected_systems",
+        "route.profile_my_data",
+        "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
         "route.profile_referrals_panel",
+        "route.profile_request_pricing",
         "route.profile_security_panel",
         "route.profile_support_panel"
       ],
@@ -5960,6 +5957,72 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/profile/payouts",
+      "page_file": "app/one/profile/payouts/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.payouts",
+          "purpose": "Help the person use payouts through its generated controls.",
+          "screen": "profile_payouts",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/payouts",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fpayouts",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/payouts",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/profile/pkm",
       "page_file": "app/one/profile/pkm/page.tsx",
       "physical_page_exists": true,
@@ -6727,6 +6790,72 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/profile/request-pricing",
+      "page_file": "app/one/profile/request-pricing/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.request.pricing",
+          "purpose": "Help the person use request pricing through its generated controls.",
+          "screen": "profile_request_pricing",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/request-pricing",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Frequest-pricing",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/request-pricing",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/profile/security",
       "page_file": "app/one/profile/security/page.tsx",
       "physical_page_exists": true,
@@ -7206,7 +7335,7 @@
         "voice_playbook": {
           "playbook_id": "route.one.puppy",
           "purpose": "Let the owner talk to Puppy One, the agent running on their own machine, and see which local model answered.",
-          "screen": "puppy_one",
+          "screen": "app",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -7238,10 +7367,8 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": "app/one/puppy/page.voice-action-contract.json",
-      "voice_action_contract_ids": [
-        "route.puppy_agents"
-      ],
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -8333,7 +8460,7 @@
         "voice_playbook": {
           "playbook_id": "route.one.wallet.card",
           "purpose": "Help the owner review, update, pause, rotate or remove what their Wallet profile shares.",
-          "screen": "one_wallet_card",
+          "screen": "app",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -8374,10 +8501,8 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": "app/one/wallet-card/page.voice-action-contract.json",
-      "voice_action_contract_ids": [
-        "route.wallet_profile_cards"
-      ],
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -9922,5 +10047,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "98bded879f3d7509a37ddef7a596e1b22f118810d9b0956f6efbdb924776e724"
+  "content_sha256": "bb0309acc9f371990027505e8752d252072c01181f1487609693985fc67e33b9"
 }

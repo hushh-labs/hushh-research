@@ -7,8 +7,10 @@ export interface OwnerDocumentDecision {
   requestId: string;
   /** The revision the decision is made against. Allow and Deny both send it. */
   revision: number;
-  /** The requester pays before files are found, so Allow asks for a price. */
+  /** The requester pays before files are shared, so Allow asks for a price. */
   paymentRequired: boolean;
+  /** Sets only a trusted request quote; it cannot grant independent consent. */
+  priceOnly?: true;
 }
 
 /**
@@ -24,7 +26,8 @@ export function ownerDocumentDecision(
   if (entry.kind !== "incoming_request") return null;
   const metadata = entry.metadata;
   if (metadata?.direction !== "incoming") return null;
-  if (metadata.owner_decision_available !== true) return null;
+  const priceOnly = metadata.owner_price_available === true;
+  if (metadata.owner_decision_available !== true && !priceOnly) return null;
   const revision = metadata.revision;
   if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0) {
     return null;
@@ -35,6 +38,7 @@ export function ownerDocumentDecision(
     requestId,
     revision,
     paymentRequired: metadata.payment_required === true,
+    ...(priceOnly ? { priceOnly: true as const } : {}),
   };
 }
 

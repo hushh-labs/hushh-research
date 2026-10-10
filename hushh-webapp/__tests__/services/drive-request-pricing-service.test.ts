@@ -27,7 +27,7 @@ describe("Drive request pricing service", () => {
       body: JSON.stringify({ enabled: true, amountCents: 2500, expectedVersion: 2 }),
     });
 
-    apiJson.mockResolvedValueOnce({ amountCents: 2500, version: 3, paymentRequired: true, payoutReady: false });
+    apiJson.mockResolvedValueOnce({ amountCents: 2500, version: 3, paymentRequired: true, priceReady: true, paymentsReady: true, payoutReady: false });
     expect(await DriveRequestPricingService.quote("vault", owner)).toMatchObject({ amountCents: 2500, version: 3, payoutReady: false });
     expect(apiJson).toHaveBeenLastCalledWith(
       `/api/connectors/google_drive/sharing/quote?ownerPersonRef=${owner}`,
@@ -35,14 +35,27 @@ describe("Drive request pricing service", () => {
     );
   });
 
+  it("keeps an unconfigured quote unset so requests can wait for owner setup", async () => {
+    const quote = { amountCents: null, version: 0, paymentRequired: true,
+      priceReady: false, payoutReady: false, paymentsReady: false };
+    apiJson.mockResolvedValueOnce(quote);
+    expect(await DriveRequestPricingService.quote("vault", owner)).toEqual(quote);
+  });
+
+  it("rejects a readiness flag that contradicts the quoted amount", async () => {
+    apiJson.mockResolvedValueOnce({ amountCents: null, version: 1, paymentRequired: true,
+      priceReady: true, payoutReady: true, paymentsReady: true });
+    await expect(DriveRequestPricingService.quote("vault", owner)).rejects.toThrow("Invalid Drive pricing response");
+  });
+
   it("rejects malformed prices and quote replies before they reach the UI", async () => {
     await expect(DriveRequestPricingService.save("vault", {
       enabled: true, amountCents: 1050, expectedVersion: 1,
     })).rejects.toThrow("whole-dollar");
     expect(apiJson).not.toHaveBeenCalled();
-    apiJson.mockResolvedValueOnce({ amountCents: 0, version: 1, paymentRequired: true, payoutReady: true });
+    apiJson.mockResolvedValueOnce({ amountCents: 0, version: 1, paymentRequired: true, priceReady: true, paymentsReady: true, payoutReady: true });
     await expect(DriveRequestPricingService.quote("vault", owner)).rejects.toThrow("Invalid Drive pricing response");
-    apiJson.mockResolvedValueOnce({ amountCents: 1000, version: -1, paymentRequired: true, payoutReady: true });
+    apiJson.mockResolvedValueOnce({ amountCents: 1000, version: -1, paymentRequired: true, priceReady: true, paymentsReady: true, payoutReady: true });
     await expect(DriveRequestPricingService.quote("vault", owner)).rejects.toThrow("Invalid Drive pricing response");
   });
 });
