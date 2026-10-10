@@ -72,6 +72,8 @@ Promotion targets:
 - [one-meta-glasses-dat-execution-plan.md](./one-meta-glasses-dat-execution-plan.md): planning-only DAT execution path for the wearable concept
 - [one-docusign-fund-setup-plan.md](./one-docusign-fund-setup-plan.md): planning-only vendor-neutral agreement execution and fund-setup workflow under One, with Nav/Connections authorization, trusted action confirmation, and MuleSoft/DocuSign provider options
 
+- [custom-mcp-oauth-shared-attempt-storage-design.md](./custom-mcp-oauth-shared-attempt-storage-design.md): planning-only shared encrypted continuation for custom MCP OAuth, including SDK resume, temporary key custody, lifecycle fences, and acceptance evidence
+
 ## References
 
 - [../vision/README.md](../vision/README.md): durable Hussh north stars
