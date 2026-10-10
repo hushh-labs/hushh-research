@@ -51,7 +51,7 @@ async function mount(page: Page, dark = false, delayInbox = false, inbox = false
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route("http://localhost/fixture-person-*.webp", (route) => route.fulfill({ contentType: "image/webp", body: fs.readFileSync(path.join(process.cwd(), `public/one-location/onboarding/orbit-person-${Number(route.request().url().match(/person-(\d+)/)![1]) + 1}.webp`)) }));
-  await page.route("http://localhost/one/messages*", (route) => route.fulfill({ contentType: "text/html", body: `<!doctype html><html data-command="${command}" class="${dark ? "dark" : ""}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>` }));
+  await page.route("http://localhost/one/messages*", (route) => route.fulfill({ contentType: "text/html", body: `<!doctype html><html data-command="${command}" data-path="/one/messages" class="${dark ? "dark" : ""}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>` }));
   await page.goto(`http://localhost/one/messages${inbox ? "" : `?conversation=maya${delayInbox ? "&delayInbox=1" : ""}`}`);
   await page.addScriptTag({ content: script });
   await awaitProductFont(page);
@@ -75,6 +75,10 @@ test("chat theme follows the device, persists a choice, and keeps the shared nav
   await expect(chat).toHaveAttribute("data-chat-open", "false");
   await expect(page.locator("[data-direct-message-composer-input]")).toBeHidden();
   await expect(navigation).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Messages" })).toBeVisible();
+  const lanes = page.getByRole("tablist", { name: "Message lanes" });
+  await expect(lanes.getByRole("tab", { name: "People 2" })).toHaveAttribute("aria-selected", "true");
+  await expect(lanes.getByRole("tab", { name: "Circles 3" })).toHaveAttribute("aria-selected", "false");
   const activeNav = navigation.getByRole("radio", { name: "One" });
   const inactiveNav = navigation.getByRole("radio", { name: "Chat" });
   await expect(activeNav).toHaveAttribute("aria-checked", "true");
@@ -92,6 +96,8 @@ test("chat theme follows the device, persists a choice, and keeps the shared nav
   await expect(activeNav).toHaveAttribute("aria-checked", "true");
   await expect(inactiveNav).toHaveAttribute("aria-checked", "false");
   await expect(activeNav).toHaveCSS("color", "rgb(0, 122, 255)");
+  await expect(lanes.getByRole("tab", { name: "People 2" })).toBeVisible();
+  await expect(lanes.getByRole("tab", { name: "Circles 3" })).toBeVisible();
   await page.reload();
   await page.addScriptTag({ content: script });
   await expect(chat).toHaveAttribute("data-theme", "light");
@@ -159,6 +165,30 @@ for (const [width, height] of [[320, 568], [393, 844], [430, 932], [768, 852], [
   test(`keeps chat navigation and keyboard controls reachable at ${width}x${height}`, async ({ page }) => {
     await page.setViewportSize({ width: width!, height: height! });
     const errors = await mount(page, width === 430);
+    const layout = await page.evaluate(() => {
+      const root = document.querySelector('[data-app-scroll-root="true"]')!;
+      const canvas = document.querySelector('[data-direct-message-page]')!;
+      const threadHeader = canvas.querySelector('main > header')!;
+      const aside = canvas.querySelector('aside[aria-label="Conversations"]');
+      const frame = (node: Element) => {
+        const { x, y, width, height } = node.getBoundingClientRect();
+        return { x, y, width, height };
+      };
+      const style = getComputedStyle(root);
+      return { canvas: frame(canvas), threadHeader: frame(threadHeader), aside: aside ? frame(aside) : null,
+        top: root.getBoundingClientRect().top + parseFloat(style.paddingTop),
+        availableHeight: innerHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom) };
+    });
+    expect(Math.abs(layout.canvas.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(layout.canvas.width - width!)).toBeLessThanOrEqual(2);
+    expect(Math.abs(layout.canvas.y - layout.top)).toBeLessThanOrEqual(2);
+    expect(layout.canvas.height).toBeGreaterThanOrEqual(layout.availableHeight - 2);
+    expect(Math.abs(layout.threadHeader.y - layout.canvas.y)).toBeLessThanOrEqual(1);
+    if (width! >= 960) {
+      expect(layout.aside).not.toBeNull();
+      expect(Math.abs(layout.aside!.x - layout.canvas.x)).toBeLessThanOrEqual(1);
+      expect(Math.abs(layout.aside!.width - 370)).toBeLessThanOrEqual(2);
+    }
     if (width! < 768) {
       await fixture(page, "fixture.remoteChange('maya-79', 'A long outgoing message with details. '.repeat(5)); fixture.remoteChange('maya-78', 'A long incoming message with details. '.repeat(5))");
       for (const id of ["maya-79", "maya-78"]) {
@@ -277,7 +307,7 @@ test("hover actions do not shift messages or the centered composer", async ({ pa
   await expect(bubble).toHaveAttribute("data-actions-visible", "true");
   await page.getByRole("button", { name: "Search messages", exact: true }).focus();
   await expect(page.locator('article[data-actions-visible="true"]')).toHaveCount(0);
-  const title = page.getByRole("heading", { name: "Chat", exact: true });
+  const title = page.getByRole("heading", { name: "Messages", exact: true });
   const contact = page.getByRole("heading", { name: "Maya Rao", exact: true });
   const typography = (node: HTMLElement | SVGElement) => {
     const style = getComputedStyle(node);
@@ -305,6 +335,26 @@ test("hidden encrypted selections survive browser history and refresh", async ({
   await page.reload(); await page.addScriptTag({ content: script });
   await expect(page.getByRole("textbox", { name: /Message Arjun/ })).toBeVisible();
   expect(page.url()).toBe("http://localhost/one/messages");
+});
+test("returning to Messages restores the last People thread until Back closes it", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await mount(page);
+  await page.getByRole("button", { name: /Arjun Mehta/ }).click();
+  await expect(page.getByRole("textbox", { name: /Message Arjun/ })).toBeVisible();
+
+  // A new document has no conversation token in its URL or history.state.
+  // Restoring here requires the user-scoped session selection.
+  await page.goto("http://localhost/one/messages");
+  await page.addScriptTag({ content: script });
+  await expect(page.getByRole("textbox", { name: /Message Arjun/ })).toBeVisible();
+  await expect(page.locator("[data-direct-message-page]")).toHaveAttribute("data-chat-open", "true");
+
+  expect(await page.evaluate(() => (window as any).directChatUnwindBack())).toBe(true);
+  await expect(page.locator("[data-direct-message-page]")).toHaveAttribute("data-chat-open", "false");
+  await page.goto("http://localhost/one/messages");
+  await page.addScriptTag({ content: script });
+  await expect(page.locator("[data-direct-message-page]")).toHaveAttribute("data-chat-open", "false");
+  await expect(page.getByRole("searchbox", { name: "Search conversations" })).toBeVisible();
 });
 test("background refreshes do not read new messages; changing owner clears prior previews immediately", async ({ page }) => {
   await mount(page);
