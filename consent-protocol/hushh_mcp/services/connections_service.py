@@ -16,6 +16,7 @@ import inspect
 import json
 import logging
 from collections import Counter
+from collections.abc import Mapping
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Callable, cast
@@ -3074,6 +3075,7 @@ class ConnectionsService:
         Name resolvers also request ``name_only`` from the production adapter;
         older injected name-search callables keep their existing signature.
         """
+        parameters: Mapping[str, inspect.Parameter]
         try:
             parameters = inspect.signature(directory_search).parameters
         except (TypeError, ValueError):  # builtins / C callables expose no signature
