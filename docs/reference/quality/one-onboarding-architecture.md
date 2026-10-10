@@ -186,6 +186,15 @@ therefore resumes the existing feature body without replaying the introduction.
 Do not add a second wizard, route-local intro, or durable completion marker for
 presentation alone.
 
+Calendar enters its feature body directly, without a cinematic introduction.
+Its connection illustration appears only during unfinished root onboarding,
+while Calendar is absent from the existing durable `setupCapabilityIds` and
+its verified connection status is `disconnected`. Completed setup, normal
+workspace visits, and reauthorization use the compact Calendar body. A deliberate
+disconnect also keeps that compact body for the remainder of the owner's visit.
+The existing Finish/Skip coordinator remains the completion authority; this
+presentation does not add a persistent shown marker or change OAuth behavior.
+
 ## 1. The hierarchy
 
 ```mermaid
