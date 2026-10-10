@@ -435,11 +435,14 @@ export function LocationPublisherBridge() {
       backendBaseUrl: getApiBaseUrl(),
       minMoveMeters: LIVE_LOCATION_MIN_MOVE_METERS,
       minIntervalMs: LIVE_LOCATION_MIN_PUBLISH_INTERVAL_MS,
+      // Rebuilt when precision changes: an Approximate session carries only
+      // SOS grants (see buildBackgroundShareSession).
+      precision,
     });
     void syncBackgroundShare({ enabled: publishing, session }).catch(
       () => undefined,
     );
-  }, [publishing, grantsSignature, vaultOwnerToken]);
+  }, [publishing, grantsSignature, vaultOwnerToken, precision]);
 
   useEffect(
     () => () => {
