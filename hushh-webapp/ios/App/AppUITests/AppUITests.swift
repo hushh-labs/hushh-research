@@ -136,6 +136,197 @@ final class AppUITests: XCTestCase {
         vaultUnlockSubmitted = false
     }
 
+    /// Public fixture only. Installation/launch is preparation; this journey
+    /// attaches without resetting, authenticating or navigating the WebView.
+    func testLocalNativeHistoryCompositionQualification() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_NATIVE_HISTORY_QUALIFICATION"] == "true" else {
+            throw XCTSkip("Explicit public native composition qualification")
+        }
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            XCTFail("QUALIFICATION_REQUIRES_PREPARED_RUNNING_APP"); return
+        }
+        // XCTest preparation can background the already installed application.
+        // Activate that same process; never relaunch or reset its session here.
+        app.activate()
+        let fixture = app.otherElements["native-history-qualification"].firstMatch
+        let launcher = app.buttons["native-history-qualification-launcher"].firstMatch
+        // Runner preparation can interrupt the app and legitimately retire its
+        // owned presentation. Re-entry is an explicit authored action, not a
+        // privacy bypass, relaunch, or automatic resurrection.
+        if !fixture.exists, waitForAdmittedControl(launcher) { launcher.tap() }
+        guard fixture.waitForExistence(timeout: 10) else {
+            XCTFail("QUALIFICATION_FIXTURE_NOT_ADMITTED"); return
+        }
+        let open = app.buttons["qualification-history-open"].firstMatch
+        let close = app.buttons["qualification-history-close"].firstMatch
+        let dock = app.descendants(matching: .any).matching(identifier: "qualification-dock").firstMatch
+        let exit = app.buttons["qualification-exit"].firstMatch
+        guard waitForAdmittedControl(open), waitForAdmittedControl(exit), dock.exists else {
+            XCTFail("QUALIFICATION_BASE_INCOMPLETE"); return
+        }
+        app.buttons["qualification-reset"].tap()
+        let initialOpen = open.frame, initialDock = dock.frame
+        XCTAssertGreaterThanOrEqual(initialOpen.width, 44)
+        XCTAssertGreaterThanOrEqual(initialOpen.height, 44)
+        XCTAssertEqual(app.buttons.matching(identifier: "qualification-history-open").count, 1)
+        XCTAssertEqual(app.textViews.matching(identifier: "native-dock-editor").count, 1,
+            "The study reuses one retained editor, not another implementation")
+        XCTAssertFalse(app.webViews.textFields["Message One"].firstMatch.isHittable,
+            "The underlying product composer cannot be interactive in a public study")
+
+        let system = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let exerciseDrawers = { [self] (cycles: Int) in
+            for cycle in 0..<cycles {
+                guard waitForAdmittedControl(open) else {
+                    XCTFail("QUALIFICATION_OPEN_NOT_RESTORED"); return
+                }
+                // Alternate center and edges. A retained control must remain usable,
+                // not merely exist after an earlier successful center tap.
+                // A system banner can cover this header despite AX reporting it
+                // hittable. Wait for retirement rather than replay an uncertain tap.
+                guard system.otherElements["NotificationShortLookView"].firstMatch.waitForNonExistence(timeout: 10) else {
+                    XCTFail("QUALIFICATION_INTERRUPTED_BY_SYSTEM_BANNER"); return
+                }
+                let x: CGFloat = cycle % 2 == 0 ? 0.5 : 0.15
+                open.coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.5)).tap()
+                guard waitForAdmittedControl(close) else {
+                    XCTFail("QUALIFICATION_DRAWER_NOT_ADMITTED"); return
+                }
+                XCTAssertFalse(open.isHittable, "Covered base navigation must not receive touches")
+                XCTAssertTrue(app.staticTexts["Synthetic conversations"].isHittable)
+                if cycle % 2 == 0 {
+                    // Hold a partial closing drag before releasing to spring back;
+                    // this covers the reported failure, not only settled taps.
+                    let start = fixture.coordinate(withNormalizedOffset: CGVector(dx: 0.65, dy: 0.55))
+                    let middle = fixture.coordinate(withNormalizedOffset: CGVector(dx: 0.40, dy: 0.55))
+                    start.press(forDuration: 0.05, thenDragTo: middle,
+                        withVelocity: .slow, thenHoldForDuration: 0.3)
+                    guard waitForAdmittedControl(close) else {
+                        XCTFail("QUALIFICATION_SHORT_DRAG_LOST_DRAWER"); return
+                    }
+                }
+                close.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: cycle % 2 == 0 ? 0.5 : 0.2)).tap()
+                guard waitForAdmittedControl(open) else {
+                    XCTFail("QUALIFICATION_CLOSE_LOST_BASE"); return
+                }
+                XCTAssertFalse(close.isHittable)
+                XCTAssertEqual(open.frame.minX, initialOpen.minX, accuracy: 1)
+                XCTAssertEqual(open.frame.minY, initialOpen.minY, accuracy: 1)
+                XCTAssertEqual(dock.frame, initialDock)
+                print("NATIVE_HISTORY_PUBLIC_CYCLE completed=\(cycle + 1)")
+            }
+        }
+        // Functional repetition and rendered performance are separate evidence:
+        // ten warm cycles, then three short measured gesture runs. AX queries
+        // occur outside each signposted animation, never on its frame path.
+        exerciseDrawers(10)
+        if ProcessInfo.processInfo.environment["HUSHH_MEASURE_PUBLIC_QUALIFICATION"] == "true" {
+            guard #available(iOS 26.0, *) else { throw XCTSkip("Native hitch measurement requires iOS 26") }
+            let options = XCTMeasureOptions()
+            options.iterationCount = 3
+            measure(metrics: [XCTOSSignpostMetric(subsystem: "ai.hushh.native-study",
+                category: "PointsOfInterest", name: "PublicDrawerMotion"), XCTHitchMetric(application: app)], options: options) {
+                app.buttons["qualification-reset"].tap()
+                exerciseDrawers(3)
+            }
+        }
+        let editor = app.textViews["native-dock-editor"].firstMatch
+        let emptySample = (editor.value as? String ?? "")
+        guard waitForAdmittedControl(editor), emptySample.isEmpty || emptySample == "Message One" else {
+            XCTFail("PUBLIC_EDITOR_REQUIRES_EMPTY_SAMPLE"); return
+        }
+        let sample = "Public sample 😀\nSecond line\nThird line\nFourth line\nFifth line\nSixth line\nSeventh line\nEighth line"
+        editor.tap()
+        editor.typeText(sample)
+        XCTAssertTrue((editor.value as? String) == sample, "Unicode and newlines must survive one input operation")
+        XCTAssertLessThanOrEqual(editor.frame.height, 144)
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.exists)
+        XCTAssertLessThanOrEqual(editor.frame.maxY, keyboard.frame.minY,
+            "The retained native editor must remain above the system keyboard")
+        app.buttons["Talk"].firstMatch.tap()
+        XCTAssertFalse(editor.isHittable)
+        app.buttons["Message"].firstMatch.tap()
+        guard waitForAdmittedControl(editor) else {
+            XCTFail("PUBLIC_EDITOR_MODE_NOT_RESTORED"); return
+        }
+        XCTAssertTrue((editor.value as? String) == sample, "Mode changes must not erase the retained draft")
+        open.tap()
+        guard waitForAdmittedControl(close) else { XCTFail("PUBLIC_EDITING_DRAWER_NOT_ADMITTED"); return }
+        XCTAssertFalse(editor.isHittable)
+        close.tap()
+        guard waitForAdmittedControl(editor) else { XCTFail("PUBLIC_EDITING_BASE_NOT_RESTORED"); return }
+        XCTAssertTrue((editor.value as? String) == sample, "Drawer settlement must not replace the editor")
+        XCTAssertFalse(app.buttons["Send message"].firstMatch.isEnabled,
+            "A public study must not install product submission authority")
+        guard let json = fixture.value as? String, let data = json.data(using: .utf8),
+              let timings = try? JSONSerialization.jsonObject(with: data) as? [String: Double],
+              let frames = timings["frames"], let over50 = timings["over50"],
+              let maxFrame = timings["maxFrameMs"], let duration = timings["measuredMs"],
+              frames > 0, duration > 0, [frames, over50, maxFrame, duration].allSatisfy({ $0.isFinite && $0 >= 0 }) else {
+            XCTFail("PUBLIC_MOTION_MEASUREMENT_MISSING"); return
+        }
+        print("NATIVE_HISTORY_PUBLIC_FRAMES samples=\(Int(frames)) over50=\(Int(over50)) max_ms=\(maxFrame) measured_ms=\(duration)")
+        XCTAssertEqual(over50, 0, "A physical motion window must have no frame over 50 ms")
+        if ProcessInfo.processInfo.environment["HUSHH_CAPTURE_PUBLIC_QUALIFICATION"] == "true" {
+            try auditPublicNativeHistoryAppearance(app, fixture: fixture)
+        }
+        // Keep the public fixture present for separate visual/performance review.
+        // No automatic Exit can expose private Chat in a public recording.
+    }
+
+    /// The actual contrast regression has its own bounded evidence path; a
+    /// visual correction need not repeat already verified gesture/editor work.
+    func testLocalNativeHistoryAppearanceAccessibilityQualification() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_NATIVE_HISTORY_QUALIFICATION"] == "true" else {
+            throw XCTSkip("Explicit public native appearance qualification")
+        }
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            XCTFail("QUALIFICATION_REQUIRES_PREPARED_RUNNING_APP"); return
+        }
+        app.activate()
+        let fixture = app.otherElements["native-history-qualification"].firstMatch
+        let launcher = app.buttons["native-history-qualification-launcher"].firstMatch
+        if !fixture.exists, waitForAdmittedControl(launcher) { launcher.tap() }
+        guard fixture.waitForExistence(timeout: 10), waitForAdmittedControl(app.buttons["qualification-reset"]) else {
+            XCTFail("QUALIFICATION_PUBLIC_APPEARANCE_NOT_ADMITTED"); return
+        }
+        app.buttons["qualification-reset"].tap()
+        let value = app.textViews["native-dock-editor"].firstMatch.value as? String ?? ""
+        guard value.isEmpty || value == "Message One" else {
+            XCTFail("PUBLIC_APPEARANCE_REQUIRES_EMPTY_SAMPLE"); return
+        }
+        try auditPublicNativeHistoryAppearance(app, fixture: fixture)
+        print("NATIVE_HISTORY_PUBLIC_APPEARANCE states=4")
+    }
+
+    private func auditPublicNativeHistoryAppearance(_ app: XCUIApplication, fixture: XCUIElement) throws {
+        // Collect the complete public matrix. Every audit issue still fails the
+        // test; none is ignored or expected. This does not certify motion.
+        continueAfterFailure = true
+        defer { continueAfterFailure = false }
+        for (theme, accent) in [("Light", "Blue"), ("Light", "Molten Gold"), ("Dark", "Blue"), ("Dark", "Molten Gold")] {
+            app.buttons[theme].firstMatch.tap()
+            app.buttons[accent].firstMatch.tap()
+            guard fixture.exists, app.buttons["qualification-history-open"].isHittable,
+                  app.descendants(matching: .any).matching(identifier: "qualification-dock").firstMatch.isHittable else {
+                XCTFail("PUBLIC_CAPTURE_NOT_ISOLATED"); return
+            }
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = "public-native-study-\(theme)-\(accent)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            if ProcessInfo.processInfo.environment["HUSHH_AUDIT_PUBLIC_QUALIFICATION"] == "true", #available(iOS 17.0, *) {
+                try app.performAccessibilityAudit(for: [.contrast, .hitRegion,
+                    .sufficientElementDescription, .trait, .textClipped, .dynamicType])
+            }
+        }
+        app.buttons["Light"].firstMatch.tap()
+        app.buttons["Blue"].firstMatch.tap()
+    }
+
     func testLocalSessionAutomationAdmissionOnly() throws {
         guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
             throw XCTSkip("Opt-in credential-free attach-only runner admission")

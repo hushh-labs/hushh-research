@@ -86,9 +86,12 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
     private var nativeTestPollInFlight = false
     #if DEBUG
     private var vaultLayoutProbe: NativeVaultLayoutProbe?
+    #endif
+    #if DEBUG || HUSHH_NATIVE_HISTORY_STUDY
     private var historyQualification: UIViewController?
     private var historyQualificationAttempted = false
     private var historyQualificationObserver: NSObjectProtocol?
+    private var historyQualificationLauncher: UIButton?
     #endif
     private var launchCover: UIView?
     private var launchCoverObservation: NSKeyValueObservation?
@@ -107,7 +110,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
     }
 
     deinit {
-        #if DEBUG
+        #if DEBUG || HUSHH_NATIVE_HISTORY_STUDY
         if let historyQualificationObserver { NotificationCenter.default.removeObserver(historyQualificationObserver) }
         #endif
         nativeTestPollTimer?.invalidate()
@@ -155,7 +158,10 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
             if ProcessInfo.processInfo.arguments.contains("--hushh-vault-layout-diagnostics") {
                 vaultLayoutProbe = NativeVaultLayoutProbe(host: view, webView: webView)
             }
+            #endif
+            #if DEBUG || HUSHH_NATIVE_HISTORY_STUDY
             if ProcessInfo.processInfo.arguments.contains(NativeHistoryQualification.argument) {
+                installHistoryQualificationLauncher()
                 historyQualificationObserver = NotificationCenter.default.addObserver(
                     forName: HushhSessionPrivacyShield.presentationDidChange, object: nil, queue: .main
                 ) { [weak self] _ in self?.presentHistoryQualificationIfAdmitted() }
@@ -208,7 +214,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
             animations: { cover.alpha = 0 },
             completion: { [weak self] _ in
                 cover.removeFromSuperview()
-                #if DEBUG
+                #if DEBUG || HUSHH_NATIVE_HISTORY_STUDY
                 self?.presentHistoryQualificationIfAdmitted()
                 #endif
             }
@@ -217,12 +223,47 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        #if DEBUG
+        #if DEBUG || HUSHH_NATIVE_HISTORY_STUDY
         presentHistoryQualificationIfAdmitted()
         #endif
     }
 
-    #if DEBUG
+    #if DEBUG || HUSHH_NATIVE_HISTORY_STUDY
+    /// Explicit, public-only entry after XCTest preparation or a privacy
+    /// retirement. Never automatically resurrect a retired presentation.
+    private func installHistoryQualificationLauncher() {
+        guard #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone else { return }
+        // Public recording isolation survives fixture exit and app inactivity.
+        // The existing WebView/session remains underneath; this opt-in study
+        // never reveals its protected content to an artifact on retirement.
+        let landing = UIView(frame: view.bounds)
+        landing.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        landing.backgroundColor = .systemBackground
+        landing.accessibilityIdentifier = "native-history-public-landing"
+        view.addSubview(landing)
+        let button = UIButton(type: .system)
+        button.setTitle("Open native study", for: .normal)
+        button.accessibilityIdentifier = "native-history-qualification-launcher"
+        button.backgroundColor = .secondarySystemBackground
+        button.layer.cornerRadius = 12
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.addTarget(self, action: #selector(openHistoryQualification), for: .touchUpInside)
+        landing.addSubview(button)
+        NSLayoutConstraint.activate([
+            button.centerXAnchor.constraint(equalTo: landing.centerXAnchor),
+            button.centerYAnchor.constraint(equalTo: landing.centerYAnchor),
+            button.widthAnchor.constraint(equalToConstant: 180),
+            button.heightAnchor.constraint(equalToConstant: 44)
+        ])
+        historyQualificationLauncher = button
+    }
+
+    @objc private func openHistoryQualification() {
+        guard historyQualification == nil else { return }
+        historyQualificationAttempted = false
+        presentHistoryQualificationIfAdmitted()
+    }
+
     private func presentHistoryQualificationIfAdmitted() {
         guard #available(iOS 26.0, *), !historyQualificationAttempted,
               NativeHistoryQualification.admits(arguments: ProcessInfo.processInfo.arguments,
@@ -234,8 +275,12 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         if let historyQualificationObserver { NotificationCenter.default.removeObserver(historyQualificationObserver) }
         historyQualificationObserver = nil
         let fixture = NativeHistoryQualificationController()
-        fixture.onRetired = { [weak self] in self?.historyQualification = nil }
+        fixture.onRetired = { [weak self] in
+            self?.historyQualification = nil
+            self?.historyQualificationLauncher?.isHidden = false
+        }
         historyQualification = fixture
+        historyQualificationLauncher?.isHidden = true
         view.endEditing(true)
         present(fixture, animated: false) {
             let shield = HushhSessionPrivacyShield.shared

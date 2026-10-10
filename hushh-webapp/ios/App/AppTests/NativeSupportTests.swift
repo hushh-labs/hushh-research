@@ -38,11 +38,16 @@ final class NativeSupportTests: XCTestCase {
     func testNativeHistoryQualificationRetainsHostsAndActuallyDetachesOnRetirement() throws {
         guard #available(iOS 26.0, *) else { throw XCTSkip("Glass composition requires iOS 26") }
         let fixture = NativeHistoryQualificationController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = fixture
+        window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil }
         fixture.loadViewIfNeeded()
         fixture.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
         fixture.view.layoutIfNeeded()
         let base = try XCTUnwrap(fixture.baseHost)
         let drawer = try XCTUnwrap(fixture.drawerHost)
+        let editor = try XCTUnwrap(fixture.dock.editor)
         XCTAssertEqual(fixture.children.count, 2)
         XCTAssertTrue(fixture.view.accessibilityViewIsModal)
         fixture.appearance.dark = true
@@ -50,7 +55,20 @@ final class NativeSupportTests: XCTestCase {
         fixture.beginDrag()
         XCTAssertTrue(fixture.baseHost === base)
         XCTAssertTrue(fixture.drawerHost === drawer)
+        XCTAssertTrue(fixture.dock.editor === editor)
         XCTAssertEqual(fixture.overrideUserInterfaceStyle, .dark)
+        XCTAssertTrue(fixture.modalPresentationCapturesStatusBarAppearance)
+        XCTAssertEqual(fixture.preferredStatusBarStyle, .lightContent)
+        fixture.settle(open: true)
+        fixture.beginDrag()
+        fixture.settle(open: false)
+        XCTAssertFalse(base.view.isUserInteractionEnabled,
+            "A closing target cannot enable the base before visible settlement")
+        XCTAssertTrue(base.view.accessibilityElementsHidden,
+            "Accessibility must remain isolated through the closing animation")
+        fixture.beginDrag()
+        XCTAssertTrue(fixture.baseHost === base)
+        XCTAssertTrue(fixture.drawerHost === drawer)
         let shield = HushhSessionPrivacyShield.shared.snapshot()
         var detached = false
         fixture.onRetired = {
@@ -61,6 +79,8 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(fixture.view.accessibilityElementsHidden)
         XCTAssertFalse(fixture.view.isUserInteractionEnabled)
         XCTAssertNil(fixture.appearance.changed)
+        XCTAssertTrue(fixture.dock.text.isEmpty)
+        XCTAssertNil(fixture.dock.emit)
         fixture.beginDrag()
         fixture.settle(open: true)
         XCTAssertTrue(fixture.children.isEmpty)
