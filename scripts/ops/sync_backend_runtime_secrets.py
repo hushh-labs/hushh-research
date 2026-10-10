@@ -16,6 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 UPSERT_SECRET_SCRIPT = REPO_ROOT / "scripts" / "ops" / "upsert_gcp_secret.py"
 GMAIL_OAUTH_RETURN_PATH = "/one/profile/gmail/oauth/return"
 LOCAL_PASSKEY_RP_IDS = ("localhost", "127.0.0.1")
+PASSKEY_DOMAIN_ALIASES = REPO_ROOT / "hushh-webapp/lib/vault/passkey-domain-aliases.json"
 CONNECTOR_ROLLOUT_FLAGS = (
     "connections_panel_v2",
     "google_drive_connection",
@@ -162,13 +163,27 @@ def _frontend_origin_host(app_frontend_origin: str) -> str:
 def _canonical_passkey_allowed_rp_ids(app_frontend_origin: str) -> str:
     """Build the exact RP allowlist for the current frontend origin.
 
-    Hosted lanes are isolated by their own browser origin. Localhost remains
+    Hosted lanes allow only their declared old/new spelling pair. Localhost remains
     available for contributor tooling, but a hosted lane must not inherit
     another lane's parent-domain RP as a silent compatibility fallback.
     """
 
+    hosts = _frontend_passkey_hosts(app_frontend_origin)
+    return ",".join(dict.fromkeys((*LOCAL_PASSKEY_RP_IDS, *hosts)))
+
+
+def _frontend_passkey_hosts(app_frontend_origin: str) -> tuple[str, ...]:
     host = _frontend_origin_host(app_frontend_origin)
-    return ",".join(dict.fromkeys((*LOCAL_PASSKEY_RP_IDS, host)))
+    aliases = json.loads(PASSKEY_DOMAIN_ALIASES.read_text())
+    return next((tuple(pair) for pair in aliases.values() if host in pair), (host,))
+
+
+def _cors_with_frontend_aliases(app_frontend_origin: str, configured: str) -> str:
+    origins = [origin.strip() for origin in configured.split(",") if origin.strip()]
+    host = _frontend_origin_host(app_frontend_origin)
+    if f"https://{host}" in origins:
+        origins.extend(f"https://{alias}" for alias in _frontend_passkey_hosts(app_frontend_origin))
+    return ",".join(dict.fromkeys(origins))
 
 
 def _normalize_passkey_rp_ids(value: str) -> tuple[str, ...]:
@@ -549,9 +564,12 @@ def main() -> int:
     ) != _normalize_passkey_rp_ids(canonical_passkey_rp_ids):
         parser.error(
             "--passkey-allowed-rp-ids must contain only localhost, 127.0.0.1, "
-            "and the APP_FRONTEND_ORIGIN host"
+            "and the APP_FRONTEND_ORIGIN host with its declared same-environment alias"
         )
     args.passkey_allowed_rp_ids = canonical_passkey_rp_ids
+    args.cors_allowed_origins = _cors_with_frontend_aliases(
+        args.app_frontend_origin, args.cors_allowed_origins
+    )
 
     if not str(args.nws_nearby_v4_api_key_source_secret or "").strip():
         args.nws_nearby_v4_api_key_source_secret = _NWS_V4_KEY_SOURCE_BY_PROJECT.get(

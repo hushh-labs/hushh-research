@@ -23,8 +23,8 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
-import sys
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 CHECKS: list[dict[str, Any]] = []
@@ -177,13 +177,16 @@ def check_secrets(dev: str, uat: str) -> None:
                    "re-run sync_backend_runtime_secrets.py with --environment uat")
         else:
             record("runtime-identity", "pass", "runtime identity is uat (behavior parity by design)")
-        expected_rp_ids = {"localhost", "127.0.0.1", DEV_DOMAIN}
+        aliases = json.loads(
+            (Path(__file__).resolve().parents[2] / "hushh-webapp/lib/vault/passkey-domain-aliases.json").read_text()
+        )
+        expected_rp_ids = {"localhost", "127.0.0.1", *aliases["dev"]}
         configured_rp_ids = {
             item.strip().lower() for item in rp_ids.split(",") if item.strip()
         }
         if configured_rp_ids != expected_rp_ids:
             record("runtime-config-passkeys", "fail",
-                   f"passkey RP ids must be localhost plus {DEV_DOMAIN}",
+                   "passkey RP ids must be localhost plus the declared dev aliases",
                    "re-run sync_backend_runtime_secrets.py with the dev APP_FRONTEND_ORIGIN")
         else:
             record("runtime-config-passkeys", "pass",

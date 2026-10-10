@@ -26,6 +26,20 @@ class FakeStripe:
         self.retrieve_calls = []
         self.payout_status = "pending"
         self.account_payouts_enabled = True
+        self.external_accounts = {
+            "data": [
+                {
+                    "object": "bank_account",
+                    "country": "US",
+                    "currency": "usd",
+                    "default_for_currency": True,
+                    "bank_name": "Example Bank",
+                    "last4": "6789",
+                    "status": "new",
+                }
+            ],
+            "has_more": False,
+        }
         outer = self
 
         class Webhook:
@@ -62,13 +76,19 @@ class FakeStripe:
                     "payouts_enabled": outer.account_payouts_enabled,
                     "capabilities": {"transfers": "active"},
                     "requirements": {},
+                    **(
+                        {"external_accounts": outer.external_accounts}
+                        if outer.external_accounts is not None
+                        else {}
+                    ),
                 }
 
         self.Webhook, self.Payout, self.Account = Webhook, Payout, Account
 
 
 def event(*, event_id="evt_one", account="acct_owner", kind="payout.created", live=False):
-    obj_id = account if kind == "account.updated" else "po_one"
+    external = kind.startswith("account.external_account.")
+    obj_id = account if kind == "account.updated" else "ba_one" if external else "po_one"
     return json.dumps(
         {
             "id": event_id,
@@ -78,7 +98,11 @@ def event(*, event_id="evt_one", account="acct_owner", kind="payout.created", li
             "data": {
                 "object": {
                     "id": obj_id,
-                    "object": "account" if kind == "account.updated" else "payout",
+                    "object": "account"
+                    if kind == "account.updated"
+                    else "bank_account"
+                    if external
+                    else "payout",
                 }
             },
         }
@@ -106,8 +130,9 @@ def world(monkeypatch):
 
     with engine.begin() as connection:
         connection.execute(
-            text("""CREATE TABLE pkm_owner_payout_accounts (
+            text("""CREATE TABLE stripe_owner_payout_accounts (
           user_id TEXT PRIMARY KEY,stripe_account_id TEXT UNIQUE NOT NULL,
+          stripe_mode TEXT NOT NULL DEFAULT 'test',
           details_submitted BOOLEAN NOT NULL,payouts_enabled BOOLEAN NOT NULL,
           account_ready BOOLEAN NOT NULL DEFAULT FALSE,
           updated_at TIMESTAMP)""")
@@ -128,7 +153,7 @@ def world(monkeypatch):
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
         )
         connection.execute(
-            text("""INSERT INTO pkm_owner_payout_accounts
+            text("""INSERT INTO stripe_owner_payout_accounts
               (user_id,stripe_account_id,details_submitted,payouts_enabled)
               VALUES ('owner','acct_owner',0,0),('other','acct_other',0,0)""")
         )
@@ -228,7 +253,7 @@ async def test_account_update_refreshes_owner_readiness_and_rejects_replayed_id_
     with engine.begin() as connection:
         account = connection.execute(
             text(
-                "SELECT details_submitted,payouts_enabled,account_ready FROM pkm_owner_payout_accounts WHERE user_id='owner'"
+                "SELECT details_submitted,payouts_enabled,account_ready FROM stripe_owner_payout_accounts WHERE user_id='owner'"
             )
         ).first()
         assert tuple(account) == (1, 1, 1)
@@ -240,6 +265,52 @@ async def test_account_update_refreshes_owner_readiness_and_rejects_replayed_id_
             payload=event(event_id="evt_account", kind="payout.updated"), signature="valid"
         )
     assert len(fake.retrieve_calls) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "account.external_account.created",
+        "account.external_account.updated",
+        "account.external_account.deleted",
+    ],
+)
+async def test_bank_change_reconciles_current_account_and_notifies_owner(world, kind):
+    service, fake, engine = world
+    # Stripe still reports payouts_enabled while its removed/failed default bank
+    # is already visible. Never keep accepting new paid orders on that cache.
+    fake.external_accounts = {"data": [], "has_more": False}
+    assert await service.process_webhook(payload=event(kind=kind), signature="valid") == "updated"
+    assert fake.retrieve_calls[0][0] == "acct_owner"  # deleted bank cannot be retrieved
+    assert service.notices == [
+        ("one_user_state_changed", '{"type":"bank_payout_changed","user_id":"owner"}')
+    ]
+    with engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("SELECT account_ready FROM stripe_owner_payout_accounts WHERE user_id='owner'")
+            ).scalar_one()
+            == 0
+        )
+        assert (
+            connection.execute(
+                text("SELECT COUNT(*) FROM stripe_connect_bank_payouts")
+            ).scalar_one()
+            == 0
+        )
+    assert await service.process_webhook(payload=event(kind=kind), signature="valid") == "duplicate"
+    assert len(fake.retrieve_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_bank_change_rejects_external_object_bound_to_another_owner(world):
+    service, fake, _engine = world
+    payload = json.loads(event(kind="account.external_account.updated"))
+    payload["data"]["object"]["account"] = "acct_other"
+    with pytest.raises(ConnectBankPayoutError, match="invalid_event"):
+        await service.process_webhook(payload=json.dumps(payload).encode(), signature="valid")
+    assert fake.retrieve_calls == []
 
 
 def test_routes_keep_bank_summary_owner_scoped_and_webhook_public(world, monkeypatch):

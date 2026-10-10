@@ -79,9 +79,9 @@ def request_bulk(sharing, monkeypatch):
           (user_id,enabled,amount_cents,version) VALUES ('owner',TRUE,1000,1)""")
         )
         connection.execute(
-            text("""INSERT INTO pkm_owner_payout_accounts
-          (user_id,stripe_account_id,details_submitted,payouts_enabled,account_ready)
-          VALUES ('owner','acct_test_owner',TRUE,TRUE,TRUE)""")
+            text("""INSERT INTO stripe_owner_payout_accounts
+          (stripe_mode,user_id,stripe_account_id,details_submitted,payouts_enabled,account_ready)
+          VALUES ('test','owner','acct_test_owner',TRUE,TRUE,TRUE)""")
         )
         connection.execute(
             text("""UPDATE external_mcp_connectors SET transport_kind='google_drive_rest',
@@ -936,8 +936,8 @@ async def _trusted_review(bulk, sharing, *, paid=True):
         if paid:
             connection.execute(
                 text("""INSERT INTO drive_request_payment_orders
-                  (request_id,user_id,requester_user_id,status,paid_at)
-                  VALUES (:request,'owner','trusted-member','paid',clock_timestamp())"""),
+                  (stripe_mode,request_id,user_id,requester_user_id,status,paid_at)
+                  VALUES ('test',:request,'owner','trusted-member','paid',clock_timestamp())"""),
                 {"request": request["requestId"]},
             )
     return review
@@ -949,8 +949,8 @@ async def _paid_partial_progressive_request(bulk, sharing, *, batches=1):
     with bulk.db.engine.begin() as connection:
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-              (request_id,user_id,requester_user_id,status,paid_at)
-              VALUES (:request,'owner','trusted-member','paid',clock_timestamp())"""),
+              (stripe_mode,request_id,user_id,requester_user_id,status,paid_at)
+              VALUES ('test',:request,'owner','trusted-member','paid',clock_timestamp())"""),
             {"request": request_id},
         )
     reviews = []
@@ -1267,8 +1267,8 @@ async def test_new_trusted_request_cannot_queue_or_claim_grants_until_paid(reque
         )
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-              (request_id,user_id,requester_user_id,status)
-              VALUES (:request,'owner','trusted-member','awaiting_payment')"""),
+              (stripe_mode,request_id,user_id,requester_user_id,status)
+              VALUES ('test',:request,'owner','trusted-member','awaiting_payment')"""),
             {"request": request_id},
         )
     assert str(request_id) in {
@@ -1442,8 +1442,8 @@ async def _paid_request_review(bulk, sharing):
         )
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-              (request_id,user_id,requester_user_id,status,stripe_payment_intent_id,paid_at)
-              VALUES (:request,'owner','recipient','paid',:intent,clock_timestamp())"""),
+              (stripe_mode,request_id,user_id,requester_user_id,status,stripe_payment_intent_id,paid_at)
+              VALUES ('test',:request,'owner','recipient','paid',:intent,clock_timestamp())"""),
             {"request": request["requestId"], "intent": f"pi_test_{uuid4().hex}"},
         )
     return request, review
@@ -2020,8 +2020,8 @@ async def test_request_freezes_all_525_matches_for_only_b(request_bulk, sharing)
     with request_bulk.db.engine.begin() as connection:
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-              (request_id,user_id,requester_user_id,status,paid_at)
-              VALUES (:request,'owner','recipient','paid',clock_timestamp())"""),
+              (stripe_mode,request_id,user_id,requester_user_id,status,paid_at)
+              VALUES ('test',:request,'owner','recipient','paid',clock_timestamp())"""),
             {"request": request["requestId"]},
         )
     search = await _complete_shared_drive_search(
@@ -2141,8 +2141,8 @@ async def test_progressive_batch_claims_keep_search_running_and_aggregate_delive
     with request_bulk.db.engine.begin() as connection:
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-              (request_id,user_id,requester_user_id,status,paid_at)
-              VALUES (:request,'owner','recipient','paid',clock_timestamp())"""),
+              (stripe_mode,request_id,user_id,requester_user_id,status,paid_at)
+              VALUES ('test',:request,'owner','recipient','paid',clock_timestamp())"""),
             {"request": request_id},
         )
     search = _search(request_bulk, request_id=request_id, count=50)

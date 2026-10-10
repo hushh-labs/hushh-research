@@ -21,6 +21,46 @@ WORKER_ROLLBACK = ROOT / "deploy" / "drive" / "rollback_after_worker_failure.sh"
 SCHEDULER_STATE = ROOT / "deploy" / "drive" / "verify_scheduler_state.py"
 
 
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        ("test", "STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET STRIPE_CONNECT_WEBHOOK_SECRET"),
+        (
+            "live",
+            "STRIPE_LIVE_SECRET_KEY STRIPE_LIVE_WEBHOOK_SECRET STRIPE_LIVE_CONNECT_WEBHOOK_SECRET",
+        ),
+        ("production", None),
+    ],
+)
+def test_uat_stripe_mode_selects_isolated_secret_family(mode, expected):
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            "source deploy/drive/uat_stripe_bindings.sh && "
+            'printf "%s %s %s" "$STRIPE_UAT_KEY_SECRET" '
+            '"$STRIPE_UAT_WEBHOOK_SECRET" "$STRIPE_UAT_CONNECT_SECRET"',
+        ],
+        cwd=ROOT,
+        env={**os.environ, "STRIPE_UAT_MODE": mode},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if expected is None:
+        assert result.returncode != 0
+        assert result.stdout == ""
+    else:
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == expected
+    workflow = UAT_WORKFLOW.read_text()
+    worker = WORKER_RELEASE.read_text()
+    assert "source deploy/drive/uat_stripe_bindings.sh" in workflow
+    assert "source deploy/drive/uat_stripe_bindings.sh" in worker
+    assert "STRIPE_MODE=${STRIPE_UAT_MODE}" in workflow
+    assert "STRIPE_MODE=${STRIPE_UAT_MODE}" in worker
+
+
 def test_scheduler_targets_only_the_bounded_oidc_drain_and_never_mutates_runtime_iam():
     source = SCRIPT.read_text(encoding="utf-8")
 

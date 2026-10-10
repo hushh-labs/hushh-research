@@ -461,9 +461,9 @@ values.
 | `DB_PORT` | No | No | Local: `.env`; Prod: Cloud Run env (default 5432) | |
 | `DB_NAME` | No | No | Local: `.env`; Prod: Cloud Run env (default postgres) | |
 | `APP_FRONTEND_ORIGIN` | Yes | Yes (prod) | Local: `.env`; Prod: Secret Manager | CORS fallback source |
-| `BACKEND_RUNTIME_CONFIG_JSON` | Yes | Yes (prod) | Local: `.env`; Prod: Secret Manager | Structured runtime policy for DB socket, CORS, remote toggles, and platform settings; `passkey_allowed_rp_ids` is derived as `localhost,127.0.0.1,<APP_FRONTEND_ORIGIN host>` |
+| `BACKEND_RUNTIME_CONFIG_JSON` | Yes | Yes (prod) | Local: `.env`; Prod: Secret Manager | Structured runtime policy for DB socket, CORS, remote toggles, and platform settings; `passkey_allowed_rp_ids` is derived as `localhost,127.0.0.1` plus the active frontend host and its declared same-environment alias |
 | `CORS_ALLOWED_ORIGINS` | Yes (prod recommended) | No | Local: `.env`; Prod: Cloud Run env | Explicit CORS allowlist (comma-separated) |
-| `PASSKEY_ALLOWED_RP_IDS` | No | No | Local: `.env`; Prod: `BACKEND_RUNTIME_CONFIG_JSON` | WebAuthn RP allowlist generated as `localhost,127.0.0.1,<APP_FRONTEND_ORIGIN host>`; extra or cross-environment hosts are rejected by the sync/parity contracts |
+| `PASSKEY_ALLOWED_RP_IDS` | No | No | Local: `.env`; Prod: `BACKEND_RUNTIME_CONFIG_JSON` | WebAuthn RP allowlist generated as `localhost,127.0.0.1` plus the active frontend host and its declared same-environment alias; unregistered or cross-environment hosts are rejected by the sync/parity contracts |
 | `HUSHH_GENAI_AUTH_MODE` | Optional local | Yes | Local: `.env`; Prod: Cloud Run env | Hosted value is `vertex_adc`; local API-key compatibility must be selected explicitly. |
 | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | Optional local | No | Local: `.env` only | Used only with `developer_api_key`; prohibited as hosted Gemini credentials. |
 | `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` | ADC local/hosted | Yes | Local: env; Prod: Cloud Run env | Vertex routing; authentication comes from ADC. |
@@ -643,6 +643,20 @@ These are used by MCP modules (`mcp_modules/`) for MCP server functionality, not
 
 ---
 
+### Stripe mode on UAT
+
+`STRIPE_MODE` is server-only runtime configuration: `test` or `live`, validated
+against the secret key. Production defaults to and requires `live`; other
+runtimes default to `test`. The UAT workflow reads environment variable
+`STRIPE_UAT_MODE` and applies it to both API and private Drive worker. Live UAT
+uses its own `STRIPE_LIVE_SECRET_KEY`, `STRIPE_LIVE_WEBHOOK_SECRET` and
+`STRIPE_LIVE_CONNECT_WEBHOOK_SECRET` Secret Manager bindings. These map to the
+same runtime names (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
+`STRIPE_CONNECT_WEBHOOK_SECRET`); no credentials enter GitHub variables or code.
+The worker only mounts the API key and payment webhook secret because public
+Connect events terminate at the API. Sandbox secrets and production bindings are
+not overwritten. See [document payments](./drive-request-stripe-paywall.md#uat-live-payments).
+
 ## Secret Manager (GCP) — strict parity with code
 
 Secret Manager must hold **exactly** the keys the code uses. No extra secrets; no missing secrets. Cloud Build injects only these.
@@ -656,7 +670,7 @@ Secret Manager must hold **exactly** the keys the code uses. No extra secrets; n
 | `GOOGLE_MAPS_API_KEY` | `GOOGLE_MAPS_API_KEY` (`hushh_mcp/services/google_maps_service.py`) |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | `FIREBASE_ADMIN_CREDENTIALS_JSON` (api/utils/firebase_admin.py) |
 | `APP_FRONTEND_ORIGIN` | `APP_FRONTEND_ORIGIN` (server.py CORS) |
-| `BACKEND_RUNTIME_CONFIG_JSON` | `BACKEND_RUNTIME_CONFIG_JSON` (runtime settings hydration for DB socket, CORS, remote toggles, service policy, and the exact `localhost,127.0.0.1,<APP_FRONTEND_ORIGIN host>` passkey RP allowlist) |
+| `BACKEND_RUNTIME_CONFIG_JSON` | `BACKEND_RUNTIME_CONFIG_JSON` (runtime settings hydration for DB socket, CORS, remote toggles, service policy, and the exact `localhost,127.0.0.1` plus the active frontend host and its declared same-environment alias passkey RP allowlist) |
 | `DB_USER` | `DB_USER` (db/connection.py, db/db_client.py) |
 | `DB_PASSWORD` | `DB_PASSWORD` (same) |
 
@@ -812,3 +826,9 @@ Local Android release signing:
 | Local dev | `consent-protocol/.env` (from `.env.example`) | `hushh-webapp/.env.local` |
 | CI | Env in workflow (dummy keys, TESTING=true) | Env in workflow (dummy Firebase, BACKEND_URL) |
 | Production | Secret Manager + Cloud Run env (GOOGLE_GENAI_USE_VERTEXAI, ENVIRONMENT) | Secret Manager → build-args in Dockerfile |
+
+### Passkeys across the domain transition
+
+`hushh-webapp/lib/vault/passkey-domain-aliases.json` owns the exact dev, UAT and production pairs for `hushh.ai` and `hussh.ai`. Browser registration keeps the current host RP; unlock uses the stored RP, credential and PRF salt unchanged. Each RP serves `/.well-known/webauthn` over HTTPS with only its own environment origins. Native unlock also retains the stored RP; existing OS associations remain required.
+
+Related Origin Requests requires browser support. Keep passphrase/recovery available for unsupported browsers; do not replace or reset an existing vault. Firebase sign-in and HttpOnly cookies are origin-bound, and vault keys remain memory-only. A cross-domain navigation requires sign-in and unlock again; account-owned history is restored through the existing authenticated APIs. Never transfer tokens, keys or decrypted information in redirect URLs or browser storage.
