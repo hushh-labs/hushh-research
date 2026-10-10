@@ -160,10 +160,10 @@
 
 
 /* One alignment grid for navigation, stats and sharing. */
-.referral-dashboard > header > div { grid-template-columns: minmax(44px,1fr) minmax(0,224px) minmax(44px,1fr); }
-.referral-dashboard > header > div > span[aria-hidden] { display: block; }
-.referral-dashboard .referral-tabs { --type-form-label-size: 13px; width: 100%; justify-self: center; }
-.referral-dashboard .referral-tabs [role="tab"] { min-height: 36px; font-size: 13px; }
+.referral-dashboard > header { padding-top: var(--app-safe-area-top-effective, env(safe-area-inset-top, 0px)); }
+.referral-dashboard .referral-standings > aside { top: calc(136px + var(--app-safe-area-top-effective, env(safe-area-inset-top, 0px))); }
+.referral-dashboard .referral-tabs { --type-form-label-size: 13px; width: 100%; }
+.referral-dashboard .referral-tabs [role="tab"] { min-height: 36px; padding-inline: 8px; font-size: 13px; }
 .referral-share-button { min-height: 44px; font-size: 14px; background: #e5f1ff; color: #006dcc; }
 .referral-share-button svg { width: 21px; height: 21px; }
 .referral-share-button[href^="https://wa.me"] { background: #e5f6eb; color: #16743c; }
