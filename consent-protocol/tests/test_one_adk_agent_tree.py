@@ -3144,7 +3144,8 @@ class TestBackendDirectConnectionActions:
     async def test_send_request_handles_multiple_people_in_one_turn(self):
         state = self._authorized_state()
 
-        def fake_search_directory(self, user_id, *, query, page, limit):
+        def fake_search_directory(self, user_id, *, query, page, limit, name_only=False):
+            assert name_only is True
             people = {
                 "Sarah": {"userId": "u1", "displayName": "Sarah Chen", "relationship": "none"},
                 "Abdul": {"userId": "u2", "displayName": "Abdul Gaffar", "relationship": "none"},
@@ -3679,7 +3680,8 @@ class TestBackendDirectPartialFailureResilience:
     async def test_connect_send_request_reports_who_succeeded_when_one_of_two_fails(self):
         state = self._authorized_state()
 
-        def fake_search_directory(self, user_id, *, query, page, limit):
+        def fake_search_directory(self, user_id, *, query, page, limit, name_only=False):
+            assert name_only is True
             people = {
                 "Sarah": {"userId": "u1", "displayName": "Sarah Chen", "relationship": "none"},
                 "Bob": {"userId": "u2", "displayName": "Bob Diaz", "relationship": "none"},

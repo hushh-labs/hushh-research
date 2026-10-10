@@ -43,7 +43,7 @@ from hushh_mcp.services.contact_sync_contract import (
     contact_sync_preference_state,
 )
 from hushh_mcp.services.people_search_sql import (
-    directory_name_rank,
+    directory_search_rank,
     normalize_directory_name,
     people_query_match_params,
 )
@@ -175,6 +175,7 @@ def _default_directory_search(
     page: int,
     limit: int,
     audience: str = DIRECTORY_AUDIENCE_ALL,
+    name_only: bool = False,
 ) -> dict[str, Any]:
     from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
 
@@ -184,6 +185,7 @@ def _default_directory_search(
         page=page,
         limit=limit,
         audience=audience,
+        name_only=name_only,
     )
 
 
@@ -3055,8 +3057,9 @@ class ConnectionsService:
         page: int,
         limit: int,
         audience: str,
+        name_only: bool = False,
     ) -> tuple[dict[str, Any], bool]:
-        """Call the injected directory search, with or without `audience`.
+        """Call the injected directory search with the options it supports.
 
         Returns the page and whether the split was applied at the source.
 
@@ -3067,19 +3070,26 @@ class ConnectionsService:
         implementations that actually accept it. A double that does not is asked
         the question it already understood, and the audience split is then
         applied in Python below.
+
+        Name resolvers also request ``name_only`` from the production adapter;
+        older injected name-search callables keep their existing signature.
         """
         try:
-            accepts_audience = "audience" in inspect.signature(directory_search).parameters
+            parameters = inspect.signature(directory_search).parameters
         except (TypeError, ValueError):  # builtins / C callables expose no signature
-            accepts_audience = False
+            parameters = {}
+        accepts_audience = "audience" in parameters
+        options: dict[str, Any] = {"query": query, "page": page, "limit": limit}
         if accepts_audience:
-            return (
-                directory_search(
-                    owner_user_id, query=query, page=page, limit=limit, audience=audience
-                ),
-                True,
+            options["audience"] = audience
+        if name_only and (
+            "name_only" in parameters
+            or any(
+                parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
             )
-        return directory_search(owner_user_id, query=query, page=page, limit=limit), False
+        ):
+            options["name_only"] = name_only
+        return directory_search(owner_user_id, **options), accepts_audience
 
     def _filter_people_by_audience(
         self, people: list[dict[str, Any]], audience: str
@@ -3144,7 +3154,9 @@ class ConnectionsService:
         page: int = 1,
         limit: int = 20,
         audience: str = DIRECTORY_AUDIENCE_ALL,
+        name_only: bool = False,
     ) -> dict[str, Any]:
+        """Search visible people; name resolvers opt out of contact-only matches."""
         user_id = (user_id or "").strip()
         page = max(1, int(page or 1))
         limit = max(1, min(int(limit or 20), 50))
@@ -3171,6 +3183,7 @@ class ConnectionsService:
                 page=page,
                 limit=limit,
                 audience=audience,
+                name_only=name_only,
             )
             people = directory_page.get("items") or []
             has_more = bool(directory_page.get("hasMore"))
@@ -3184,45 +3197,16 @@ class ConnectionsService:
             # finish BEFORE the page is cut.
             people = self._directory_lookup(user_id) or []
             if needle:
-                # Same separator folding as the SQL path's TRANSLATE. Without
-                # it the two paths disagree about "Abdul-Rashid": Python's
-                # bare split() sees one word, the SQL sees two, and whether a
-                # person is findable comes down to which branch a deployment
-                # happened to take.
-                raw_identifier = needle
-                exact_email = (
-                    raw_identifier if "@" in raw_identifier and " " not in raw_identifier else None
-                )
-                phone_digits = "".join(char for char in raw_identifier if char.isdigit())
-                exact_phone = (
-                    phone_digits
-                    if not exact_email
-                    and 10 <= len(phone_digits) <= 15
-                    and all(char.isdigit() or char in "+-(). " for char in raw_identifier)
-                    else None
-                )
-                needle = normalize_directory_name(needle)
 
                 def _tier(person: dict[str, Any]) -> int | None:
-                    if exact_email or exact_phone:
-                        email = str(person.get("email") or "").strip().lower()
-                        phone = str(person.get("phoneNumber") or "")
-                        verified_phone = bool(person.get("phoneVerified"))
-                        if exact_email and email == exact_email:
-                            return 0
-                        if (
-                            exact_phone
-                            and verified_phone
-                            and "".join(char for char in phone if char.isdigit()) == exact_phone
-                        ):
-                            return 0
-                        return None
-                    rank: int | None = directory_name_rank(
-                        str(person.get("displayName") or ""), needle
+                    return directory_search_rank(
+                        str(person.get("displayName") or ""),
+                        needle,
+                        email=person.get("email"),
+                        phone_number=person.get("phoneNumber"),
+                        phone_verified=bool(person.get("phoneVerified")),
+                        name_only=name_only,
                     )
-                    if rank is not None:
-                        return rank
-                    return None
 
                 ranked = [(tier, p) for p in people if (tier := _tier(p)) is not None]
                 ranked.sort(

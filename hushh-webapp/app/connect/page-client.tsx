@@ -2426,6 +2426,7 @@ export default function ConnectPageClient() {
             query,
             page,
             limit: DIRECTORY_RESOLVE_PAGE_SIZE,
+            nameOnly: true,
           });
           candidates.push(...result.items);
           if (!result.hasMore) {
@@ -2552,6 +2553,7 @@ export default function ConnectPageClient() {
             query: searchTerm,
             page: pageNumber,
             limit: DIRECTORY_RESOLVE_PAGE_SIZE,
+            nameOnly: true,
           });
           candidates.push(...page.items);
           if (!page.hasMore) break;
