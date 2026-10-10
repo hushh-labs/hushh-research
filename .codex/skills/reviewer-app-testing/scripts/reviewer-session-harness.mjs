@@ -324,7 +324,7 @@ export async function createReviewerSessionHarness({
     const reviewerButton = page.getByRole("button", { name: /continue as reviewer/i });
     const unlockInput = page.locator("#unlock-passphrase");
     const unlockButton = page
-      .getByRole("button", { name: /^unlock(?: with passphrase)?$/i })
+      .getByRole("button", { name: /^(?:unlock with passphrase|unlock)$/i })
       .first();
     const terminalFailures = new Set(["auth_error", "uid_mismatch", "vault_error"]);
     const deadline = Date.now() + unlockTimeoutMs;
