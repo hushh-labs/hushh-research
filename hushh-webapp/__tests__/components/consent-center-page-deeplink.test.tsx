@@ -735,6 +735,10 @@ describe("ConsentCenterPage requestId deep links", () => {
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     await waitFor(() => expect(mocks.replace).toHaveBeenCalled());
     expect(await screen.findByRole("button", { name: "Sent documents" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("consent-request-direction")).toHaveAttribute(
+      "data-request-direction",
+      "sent",
+    );
     expect(mocks.replace.mock.lastCall?.[0]).toContain("requestView=sent");
     expect(mocks.replace.mock.lastCall?.[0]).not.toContain("requestId=");
     fireEvent.click(screen.getByRole("button", { name: "Received" }));
