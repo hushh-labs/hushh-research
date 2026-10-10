@@ -635,3 +635,55 @@ else:
     if worker_state == "cancel_during_deploy":
         assert result.returncode == 143
         assert "Drive worker candidate failed" in result.stderr
+
+
+def test_uat_sandbox_connect_does_not_change_live_checkout_binding():
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            "source deploy/drive/uat_stripe_bindings.sh && "
+            'printf "%s %s %s %s" "$STRIPE_UAT_KEY_SECRET" "$STRIPE_UAT_CONNECT_KEY_SECRET" '
+            '"$STRIPE_UAT_CONNECT_SECRET" "$STRIPE_UAT_CONNECT_TEST_WEBHOOK_SECRET"',
+        ],
+        cwd=ROOT,
+        env={**os.environ, "STRIPE_UAT_MODE": "live", "STRIPE_CONNECT_UAT_MODE": "test"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == (
+        "STRIPE_LIVE_SECRET_KEY STRIPE_SECRET_KEY "
+        "STRIPE_LIVE_CONNECT_WEBHOOK_SECRET STRIPE_CONNECT_WEBHOOK_SECRET"
+    )
+
+
+@pytest.mark.parametrize(
+    "mode,secret_ready,expected", [("test", True, 0), ("live", True, 1), ("test", False, 1)]
+)
+def test_hashcoin_deploy_preflight_checks_isolated_secret_project(mode, secret_ready, expected):
+    script = """
+set -euo pipefail
+gcloud() {
+  [[ "$*" == "secrets describe "*" --project=hushh-pda-uat" ]] || return 2
+  [[ "$SECRET_READY" == "true" ]]
+}
+source deploy/drive/verify_hashcoin_config.sh hushh-pda-uat
+"""
+    result = subprocess.run(  # noqa: S603 - fixed repository-owned preflight script
+        ["bash", "-c", script],
+        cwd=ROOT,
+        env={
+            **os.environ,
+            "_DRIVE_REQUEST_HASHCOINS_ENABLED": "true",
+            "_STRIPE_CONNECT_MODE": mode,
+            "_STRIPE_CONNECT_SECRET_KEY_SECRET": "STRIPE_SECRET_KEY",
+            "_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET": "STRIPE_CONNECT_WEBHOOK_SECRET",
+            "SECRET_READY": str(secret_ready).lower(),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == expected, result.stderr

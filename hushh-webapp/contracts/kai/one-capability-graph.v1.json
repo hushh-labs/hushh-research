@@ -18356,6 +18356,160 @@
     },
     {
       "aliases": [
+        "Test Hussh Coins redemption",
+        "test redeem",
+        "test my payout"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_owner_token"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.payouts.test_redeem",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Redeems the available sandbox balance to a test Stripe account. Real Hussh Coins and real money remain unchanged.",
+      "execution": {
+        "binding_ref": "semantic_action:profile.payouts.test_redeem",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "profile.payouts.test_redeem"
+        }
+      },
+      "goal_id": "goal.profile.payouts.test_redeem",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Test Hussh Coins redemption",
+      "navigation": {
+        "fallback": "profile.payouts.test_redeem",
+        "routes": [
+          "/one/profile/payouts"
+        ],
+        "screens": [
+          "profile_payouts"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "Hussh Coins",
+        "sandbox redemption",
+        "test payout"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Back to Agents",
         "back to agents"
       ],
@@ -38645,7 +38799,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "c4d3c9bb594b4ed738c9f7a2757bb6024dce03ec4be1b6974fb2e19494691654",
+      "projection_digest": "4d156b4301244e67f955c79ec87381a3db395aac3b836d9c57cb02cefadfe794",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -38664,7 +38818,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
       },
-      "source_revision": "8bd0ffe364fc552e",
+      "source_revision": "9685a4f3c74e2591",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -40182,7 +40336,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "8bd0ffe364fc552e",
+    "source_revision": "9685a4f3c74e2591",
     "web": {
       "actions": [
         {
@@ -40225,7 +40379,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "64bbd4eba97323d582059a9b9aca22be3ea938b7efbf8a8c10175160d83e5e95",
+      "projection_digest": "21ed10e43c4ad53fb2cf9c5369649802e470b295a92f23c6f6d052efab8b6347",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -40244,7 +40398,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
       },
-      "source_revision": "8bd0ffe364fc552e",
+      "source_revision": "9685a4f3c74e2591",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -41801,7 +41955,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "8bd0ffe364fc552e",
+  "revision": "9685a4f3c74e2591",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -42704,6 +42858,7 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.payouts.test_redeem",
         "profile.reset_account",
         "profile.set_contact_discoverable",
         "profile.sign_out",
@@ -42753,6 +42908,7 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.payouts.test_redeem",
         "profile.reset_account",
         "profile.set_contact_discoverable",
         "profile.sign_out",
@@ -42784,6 +42940,7 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.payouts.test_redeem",
         "profile.reset_account",
         "profile.set_contact_discoverable",
         "profile.sign_out",
@@ -42918,6 +43075,7 @@
     },
     {
       "action_ids": [
+        "profile.payouts.test_redeem",
         "route.profile_payouts"
       ],
       "capability_id": "screen:/one/profile/payouts",
@@ -43615,13 +43773,18 @@
   ],
   "semantic_diff": {
     "added": [
-      "screens:screen:/wallet/open"
+      "actions:profile.payouts.test_redeem"
     ],
     "breaking": [],
-    "changed": [],
+    "changed": [
+      "screens:screen:/one/profile",
+      "screens:screen:/one/profile/account",
+      "screens:screen:/one/profile/account/phone",
+      "screens:screen:/one/profile/payouts"
+    ],
     "compatible": [],
     "deprecated": [],
-    "from_revision": "2a9dba3f2461797f",
+    "from_revision": "8bd0ffe364fc552e",
     "migrated": [],
     "removed": []
   },
@@ -45851,18 +46014,18 @@
     "capability_graph_evolution": "96b63878194651962b7fd3deceaac9d6223f7b170c16c67f813a3c72ca911946",
     "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "7f7dd73509d05e94c2781e8182d3d9a04b6b00f85ef5e202615d8667014fb9b4",
+    "kai_action_gateway": "af5117fd06fb5cdcb99ea3e743412033d9e25d009bb4aa58a5ab446cf4fdc64c",
     "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
     "location_knowledge_package": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "01b1ae85c91c4e85dd879f023bdc41a3878b473107342bc63528de0b0c453d2e",
-    "route_orchestration_index": "59d80875e0dc3fead163db03dd3680bfca360e6178bd63bad524fca7871e9155",
+    "route_orchestration_index": "35cc5509957aca01af57e1a00629708963ffd8a9eae3884622e65536f38ad54e",
     "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
   },
-  "source_revision": "8bd0ffe364fc552e",
+  "source_revision": "9685a4f3c74e2591",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "8bd0ffe364fc552e",
+    "current_graph_revision": "9685a4f3c74e2591",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -45908,6 +46071,7 @@
           "6a2a7c280f69e9e0",
           "6a987992e57a50e3",
           "6ae4aaa57eb4e7fe",
+          "6b57ddfaef397486",
           "6b7a0c817a0f0da5",
           "6be9b0c2414cdb98",
           "6c20fd33cd695f9c",
@@ -45919,6 +46083,7 @@
           "804a8fd643783c90",
           "82e741080f6a22ff",
           "847b5d41cc16757e",
+          "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8e37ce83397a3ac7",
           "8e7504c56c6fdfc8",
@@ -46026,6 +46191,7 @@
           "6a2a7c280f69e9e0",
           "6a987992e57a50e3",
           "6ae4aaa57eb4e7fe",
+          "6b57ddfaef397486",
           "6b7a0c817a0f0da5",
           "6be9b0c2414cdb98",
           "6c20fd33cd695f9c",
@@ -46037,6 +46203,7 @@
           "804a8fd643783c90",
           "82e741080f6a22ff",
           "847b5d41cc16757e",
+          "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8e37ce83397a3ac7",
           "8e7504c56c6fdfc8",
@@ -46120,11 +46287,13 @@
           "66bd2c14003aab77",
           "6a987992e57a50e3",
           "6ae4aaa57eb4e7fe",
+          "6b57ddfaef397486",
           "6b7a0c817a0f0da5",
           "6c20fd33cd695f9c",
           "6fab1183e63a24c5",
           "71ed8af339174fae",
           "847b5d41cc16757e",
+          "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8e7504c56c6fdfc8",
           "934f53f787f43981",
@@ -46263,6 +46432,7 @@
           "6a2a7c280f69e9e0",
           "6a987992e57a50e3",
           "6ae4aaa57eb4e7fe",
+          "6b57ddfaef397486",
           "6b7a0c817a0f0da5",
           "6be9b0c2414cdb98",
           "6c20fd33cd695f9c",
@@ -46274,6 +46444,7 @@
           "804a8fd643783c90",
           "82e741080f6a22ff",
           "847b5d41cc16757e",
+          "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8e37ce83397a3ac7",
           "8e7504c56c6fdfc8",
@@ -46381,6 +46552,7 @@
           "6a2a7c280f69e9e0",
           "6a987992e57a50e3",
           "6ae4aaa57eb4e7fe",
+          "6b57ddfaef397486",
           "6b7a0c817a0f0da5",
           "6be9b0c2414cdb98",
           "6c20fd33cd695f9c",
@@ -46392,6 +46564,7 @@
           "804a8fd643783c90",
           "82e741080f6a22ff",
           "847b5d41cc16757e",
+          "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8e37ce83397a3ac7",
           "8e7504c56c6fdfc8",
@@ -46499,6 +46672,7 @@
           "6a2a7c280f69e9e0",
           "6a987992e57a50e3",
           "6ae4aaa57eb4e7fe",
+          "6b57ddfaef397486",
           "6b7a0c817a0f0da5",
           "6be9b0c2414cdb98",
           "6c20fd33cd695f9c",
@@ -46510,6 +46684,7 @@
           "804a8fd643783c90",
           "82e741080f6a22ff",
           "847b5d41cc16757e",
+          "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8e37ce83397a3ac7",
           "8e7504c56c6fdfc8",
@@ -46617,6 +46792,7 @@
           "6a2a7c280f69e9e0",
           "6a987992e57a50e3",
           "6ae4aaa57eb4e7fe",
+          "6b57ddfaef397486",
           "6b7a0c817a0f0da5",
           "6be9b0c2414cdb98",
           "6c20fd33cd695f9c",
@@ -46628,6 +46804,7 @@
           "804a8fd643783c90",
           "82e741080f6a22ff",
           "847b5d41cc16757e",
+          "8bd0ffe364fc552e",
           "8d4a819bd126b823",
           "8e37ce83397a3ac7",
           "8e7504c56c6fdfc8",

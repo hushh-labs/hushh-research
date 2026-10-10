@@ -115,6 +115,7 @@ async def sharing(documents, monkeypatch):
             "294_drive_request_bank_payout_events.sql",
             "297_document_commerce_readiness.sql",
             "298_stripe_mode_isolation.sql",
+            "299_hashcoin_wallet.sql",
         ):
             # Raw SQL preserves JSON colons; double percent signs for psycopg2's
             # parameter parser while retaining PostgreSQL format() placeholders.
@@ -1305,3 +1306,53 @@ async def test_a_trusted_members_unmarked_request_keeps_the_trusted_path(sharing
     row, private = stored_request(sharing, request_id)
     assert (row["owner_allowed_at"], row["preparation_error_code"]) == (None, None)
     assert "owner_allowed" not in private
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("trusted", [True, False])
+async def test_hashcoin_requests_preserve_consent_without_requiring_bank(
+    sharing, monkeypatch, trusted
+):
+    monkeypatch.setenv("STRIPE_MODE", "live")
+    monkeypatch.setenv("DRIVE_REQUEST_HASHCOINS_ENABLED", "true")
+    created = await trusted_unpriced_request(
+        sharing, monkeypatch, trusted=trusted, payout_ready=False, default_amount_cents=200
+    )
+    identity = created["requestId"]
+    row, private = stored_request(sharing, identity)
+    assert row["settlement_method"] == "hashcoins"
+    assert created["ownerPayoutAccountReady"] is True
+    with sharing.db.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM stripe_owner_payout_accounts")
+            ).scalar_one()
+            == 0
+        )
+    if trusted:
+        assert private.get("trusted_auto") is True
+        assert row["preparation_error_code"] == "trusted_auto_queued"
+    else:
+        assert private.get("trusted_auto") is not True
+        with pytest.raises(DriveSharingError):
+            await sharing.trusted_request_authority(user_id="owner", request_id=identity)
+        allowed = await owner_allow(sharing, created, 300)
+        assert allowed["ownerAllowed"] is True
+        assert allowed["quotedAmountCents"] == 300
+    # Switching enrollment off cannot reinterpret an existing request.
+    monkeypatch.setenv("DRIVE_REQUEST_HASHCOINS_ENABLED", "false")
+    context = await sharing.trusted_request_authority(user_id="owner", request_id=identity)
+    assert context
+    assert stored_request(sharing, identity)[0]["settlement_method"] == "hashcoins"
+
+
+@pytest.mark.asyncio
+async def test_hashcoin_request_without_price_still_waits_for_owner(sharing, monkeypatch):
+    monkeypatch.setenv("DRIVE_REQUEST_HASHCOINS_ENABLED", "true")
+    created = await trusted_unpriced_request(sharing, monkeypatch, payout_ready=False)
+    assert created["ownerPriceRequired"] is True
+    assert (
+        stored_request(sharing, created["requestId"])[0]["preparation_error_code"]
+        == "owner_price_required"
+    )
+    assert not rows(sharing, "drive_request_payment_orders")

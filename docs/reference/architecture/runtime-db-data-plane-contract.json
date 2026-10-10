@@ -1654,6 +1654,23 @@
       "plaintext_posture": "opaque_source_device_and_recipient_delivery_metadata",
       "expected_row_growth": "one_outbox_per_direct_message_and_one_acceptance_per_recipient_installation",
       "trust_boundary": "Verified recipient, active connection/current Circle membership, block/mute/read/deletion checks, installation owner/key lifecycle fences. No plaintext message or avatar persists in these tables."
+    },
+    {
+      "id": "hashcoin_owner_earnings",
+      "owner": "iam-consent-governance",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "hashcoin_wallets",
+        "hashcoin_ledger_entries",
+        "hashcoin_redemptions"
+      ],
+      "primary_access_path": "Profile Payouts reads owner-scoped live and sandbox wallets. Verified document settlement appends one immutable net-cent credit per request; each live earning also seeds an isolated test demonstration balance. Test redemption reserves coins under a wallet row lock, then reconciles an idempotent Stripe test transfer before appending a debit. Postgres is authoritative; future Redis may cache projections only and never authorize spending.",
+      "retention_policy": "Financial entries and redemption obligations retained for reconciliation and audit. One wallet per owner and Stripe mode; append-only entries keyed uniquely to source obligations. Live redemption is unavailable until separately enabled by a reviewed production release.",
+      "deletion_behavior": "Actor profile erasure detaches owner identity and holds the wallet; ownerless financial entries and unknown provider obligations survive. Never cascade-delete money or convert legacy transfers into credits.",
+      "trust_boundary": "Server-only wallet ownership, mode, integer amounts, opaque request and provider references. No bank details, card data, or document content. One Hashcoin equals one USD cent. Test redemption can never debit live earnings; original order settlement method is immutable.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_per_user_request"
     }
   ]
 }

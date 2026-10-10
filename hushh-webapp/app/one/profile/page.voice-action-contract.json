@@ -798,6 +798,51 @@
       "control_ids": [],
       "state_exposure": [],
       "speaker_persona": "one"
+    },
+    {
+      "action_id": "profile.payouts.test_redeem",
+      "label": "Test Hussh Coins redemption",
+      "meaning": "Redeems the available sandbox balance to a test Stripe account. Real Hussh Coins and real money remain unchanged.",
+      "aliases": [
+        "test redeem",
+        "test my payout"
+      ],
+      "search_keywords": [
+        "Hussh Coins",
+        "sandbox redemption",
+        "test payout"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/payouts"
+        ],
+        "screens": [
+          "profile_payouts"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Unlocked vault; test balance available; Stripe test payout account linked."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "profile.payouts.test_redeem"
+      },
+      "control_ids": [
+        "profile_payouts_test_redeem"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "components/consent/document-hashcoins.tsx"
+      ],
+      "speaker_persona": "one"
     }
   ],
   "search": {}

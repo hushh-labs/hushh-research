@@ -623,3 +623,19 @@ async def test_bank_management_accepts_both_official_stripe_login_hosts_only(
     else:
         with pytest.raises(PacketOrderError, match="Couldn't open bank settings"):
             await svc.management_link(user_id="owner")
+
+
+async def test_explicit_sandbox_bank_keeps_live_marketplace_settlement_isolated(world, monkeypatch):
+    legacy, db, fake = world
+    monkeypatch.setenv("STRIPE_MODE", "live")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_live_" + "l" * 30)
+    sandbox = PkmPayoutService(stripe_api=fake, mode="test", api_key="sk_test_" + "t" * 30)
+    sandbox._db = db
+    await sandbox.onboarding_link(user_id="owner", surface="documents")
+    assert fake.accounts[-1]["api_key"].startswith("sk_test_")
+    assert db.tables["stripe_owner_payout_accounts"][-1]["stripe_mode"] == "test"
+    assert (await legacy.account_status(user_id="owner"))["stripeMode"] == "live"
+    assert (await legacy.account_status(user_id="owner"))["account"] is None
+    with pytest.raises(PacketOrderError, match="mode does not match"):
+        await sandbox.transfer_due()
+    assert fake.transfers == []

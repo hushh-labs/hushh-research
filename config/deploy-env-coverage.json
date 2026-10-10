@@ -47,7 +47,9 @@
         "_RIA_CLAIM_TEST_CODE_SECRET",
         "_RIA_CLAIM_TEST_EMAILS_SECRET",
         "_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET",
-        "_CURATED_CONNECTOR_SECRETS"
+        "_CURATED_CONNECTOR_SECRETS",
+        "_STRIPE_CONNECT_SECRET_KEY_SECRET",
+        "_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET"
       ],
       "reasons": {
         "_DIRECT_MESSAGE_ENCRYPTION_KEY_V1_SECRET": "Direct messaging is currently provisioned and enabled in UAT only; production must receive distinct encryption material before this binding is enabled.",
@@ -72,7 +74,9 @@
         "_RIA_CLAIM_TEST_CODE_SECRET": "Pre-existing omission, recorded when this check was added on 2026-09-08. Inherited, not reviewed. Verify against the live service before assuming it is intended.",
         "_RIA_CLAIM_TEST_EMAILS_SECRET": "Pre-existing omission, recorded when this check was added on 2026-09-08. Inherited, not reviewed. Verify against the live service before assuming it is intended.",
         "_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET": "Pre-existing omission, recorded when this check was added on 2026-09-08. Inherited, not reviewed. Verify against the live service before assuming it is intended.",
-        "_CURATED_CONNECTOR_SECRETS": "Curated connector OAuth clients (config/curated_connectors) are provisioned for UAT only; production must not borrow their client identity or grants."
+        "_CURATED_CONNECTOR_SECRETS": "Curated connector OAuth clients (config/curated_connectors) are provisioned for UAT only; production must not borrow their client identity or grants.",
+        "_STRIPE_CONNECT_SECRET_KEY_SECRET": "Independent sandbox Connect is enabled only for UAT document redemption; this lane retains its existing payment-mode Connect key and has Hussh Coins enrollment disabled.",
+        "_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET": "UAT-only sandbox connected-account endpoint secret; must not cross environment boundaries. This lane retains its existing Connect webhook."
       }
     },
     "deploy-dev.yml": {
@@ -104,7 +108,9 @@
         "_GOOGLE_DRIVE_PICKER_API_KEY_SECRET",
         "_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET",
         "_DRIVE_DOCUMENT_KEY_V1_SECRET",
-        "_DRIVE_SHARING_KEY_V1_SECRET"
+        "_DRIVE_SHARING_KEY_V1_SECRET",
+        "_STRIPE_CONNECT_SECRET_KEY_SECRET",
+        "_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET"
       ],
       "reasons": {
         "_DIRECT_MESSAGE_ENCRYPTION_KEY_V1_SECRET": "Direct-message ciphertext must use environment-specific key material; dev must not borrow the UAT secret.",
@@ -134,7 +140,9 @@
         "_GOOGLE_DRIVE_PICKER_API_KEY_SECRET": "The constrained Picker developer key is provisioned for the UAT origin only; dev must not use it.",
         "_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET": "UAT connector credential encryption material must not cross environment boundaries; dev requires independently provisioned keys.",
         "_DRIVE_DOCUMENT_KEY_V1_SECRET": "UAT document encryption material must not cross environment boundaries; dev requires independently provisioned keys.",
-        "_DRIVE_SHARING_KEY_V1_SECRET": "UAT sharing-receipt encryption material must not cross environment boundaries; dev requires independently provisioned keys."
+        "_DRIVE_SHARING_KEY_V1_SECRET": "UAT sharing-receipt encryption material must not cross environment boundaries; dev requires independently provisioned keys.",
+        "_STRIPE_CONNECT_SECRET_KEY_SECRET": "Independent sandbox Connect is enabled only for UAT document redemption; this lane retains its existing payment-mode Connect key and has Hussh Coins enrollment disabled.",
+        "_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET": "UAT-only sandbox connected-account endpoint secret; must not cross environment boundaries. This lane retains its existing Connect webhook."
       }
     }
   }
