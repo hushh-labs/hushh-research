@@ -23,6 +23,13 @@ This contract keeps shadcn as the vendor primitive layer, makes Morphy UX the st
 
 ## Canonical Policies
 
+The shushing brand mark is authored in
+`hushh-webapp/assets/brand/hushh-mark-source.svg`. Run `npm run build:brand-assets`
+in `hushh-webapp` to regenerate the shared raster mark, browser icons, native
+launcher and splash assets, and Wallet artwork. The historical source PNG is a
+generated compatibility projection. Welcome artwork uses `HushhMark` in both
+themes; never render the brand as an operating-system emoji.
+
 1. Default to stock shadcn imports for baseline controls.
 2. Use Morphy when the change belongs to the reusable design-system layer.
 3. Keep `components/ui` overwrite-safe with `npx shadcn@latest add ... --overwrite`.
