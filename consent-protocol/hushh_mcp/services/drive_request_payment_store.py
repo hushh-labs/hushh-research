@@ -22,6 +22,7 @@ from hushh_mcp.services.drive_owner_allowed import (
 )
 from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher, DriveSharingError
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
+from hushh_mcp.services.stripe_mode import configured_stripe_mode
 
 
 def _request_id(value: object) -> str:
@@ -80,9 +81,9 @@ def _record_new_owner_payout(
             account = (
                 connection.execute(
                     text(
-                        "SELECT account_ready FROM pkm_owner_payout_accounts WHERE user_id=:owner"
+                        "SELECT account_ready FROM stripe_owner_payout_accounts WHERE user_id=:owner AND stripe_mode=:stripe_mode"
                     ),
-                    {"owner": owner_user_id},
+                    {"owner": owner_user_id, "stripe_mode": configured_stripe_mode()},
                 )
                 .mappings()
                 .first()
@@ -110,7 +111,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                     text("""SELECT o.request_id::text AS request_id,o.requester_user_id
                       FROM drive_request_payment_orders o
                       JOIN drive_share_requests r ON r.request_id=o.request_id
-                      WHERE o.status='awaiting_payment'
+                      WHERE o.status='awaiting_payment' AND o.stripe_mode=:stripe_mode
                         AND o.stripe_checkout_session_id IS NULL
                         AND r.payment_required=TRUE
                         AND r.status IN ('pending','approved','partial')
@@ -132,7 +133,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                                 AND b.status IN ('queued','running','completed','partial')))
                         ))
                       ORDER BY o.updated_at,o.request_id LIMIT :limit"""),
-                    {"limit": limit},
+                    {"limit": limit, "stripe_mode": configured_stripe_mode()},
                 )
                 .mappings()
                 .all()
@@ -211,7 +212,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             return
         row = (
             connection.execute(
-                text("""SELECT status,paid_at,reconciliation_required FROM drive_request_payment_orders
+                text("""SELECT status,paid_at,reconciliation_required,stripe_mode FROM drive_request_payment_orders
                  WHERE request_id=:request FOR SHARE"""),
                 {"request": request_row["request_id"]},
             )
@@ -220,6 +221,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
         )
         if (
             row is None
+            or row.get("stripe_mode") != configured_stripe_mode()
             or row["status"] != "paid"
             or row["paid_at"] is None
             or row["reconciliation_required"]
@@ -265,14 +267,15 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
         amount_cents = _order_amount_cents(request, private)
         inserted = connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-              (request_id,user_id,requester_user_id,amount_cents)
-              VALUES (:request,:owner,:requester,:amount)
+              (request_id,user_id,requester_user_id,amount_cents,stripe_mode)
+              VALUES (:request,:owner,:requester,:amount,:stripe_mode)
               ON CONFLICT (request_id) DO NOTHING"""),
             {
                 "request": request["request_id"],
                 "owner": request["user_id"],
                 "requester": request["recipient_user_id"],
                 "amount": amount_cents,
+                "stripe_mode": configured_stripe_mode(),
             },
         )
         if inserted.rowcount == 1:
@@ -394,14 +397,15 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
         amount_cents = _order_amount_cents(request, private)
         inserted = connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-              (request_id,user_id,requester_user_id,amount_cents)
-              VALUES (:request,:owner,:requester,:amount)
+              (request_id,user_id,requester_user_id,amount_cents,stripe_mode)
+              VALUES (:request,:owner,:requester,:amount,:stripe_mode)
               ON CONFLICT (request_id) DO NOTHING"""),
             {
                 "request": request["request_id"],
                 "owner": user_id,
                 "requester": request["recipient_user_id"],
                 "amount": amount_cents,
+                "stripe_mode": configured_stripe_mode(),
             },
         )
         if inserted.rowcount == 1:
@@ -503,7 +507,10 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                     or order["stripe_checkout_expires_at"] <= datetime.now(UTC)
                 )
             )
-            if order is None:
+            wrong_mode = bool(order and order.get("stripe_mode") != configured_stripe_mode())
+            if wrong_mode and order["status"] not in {"paid", "refunded"}:
+                status = "expired"
+            elif order is None:
                 status = "expired" if request_expired else "preparing"
             elif order["status"] not in {"paid", "refunded"} and (
                 request_expired or checkout_expired
@@ -532,7 +539,8 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 if setup.get("ownerPriceRequired")
                 else _quoted_amount_cents(request, order, private),
                 "currency": order["currency"] if order is not None else "usd",
-                "paymentLinkExpired": checkout_expired and not request_expired,
+                "paymentLinkExpired": (checkout_expired and not request_expired) or wrong_mode,
+                "stripeMode": order.get("stripe_mode") if order else configured_stripe_mode(),
                 "checkoutExpiresAt": (
                     order["stripe_checkout_expires_at"].isoformat()
                     if order
@@ -577,11 +585,11 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                     text("""SELECT r.request_id,r.user_id,r.recipient_user_id
                   FROM drive_request_payment_orders o
                   JOIN drive_share_requests r ON r.request_id=o.request_id
-                  WHERE o.status='paid' AND o.reconciliation_required=FALSE
+                  WHERE o.status='paid' AND o.reconciliation_required=FALSE AND o.stripe_mode=:stripe_mode
                     AND r.payment_required=TRUE
                     AND r.status IN ('pending','approved','partial')
                   ORDER BY o.updated_at,o.request_id LIMIT :limit"""),
-                    {"limit": limit},
+                    {"limit": limit, "stripe_mode": configured_stripe_mode()},
                 )
                 .mappings()
                 .all()
@@ -616,6 +624,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                     request is None
                     or order is None
                     or order["status"] != "paid"
+                    or order.get("stripe_mode") != configured_stripe_mode()
                     or order["reconciliation_required"]
                 ):
                     continue

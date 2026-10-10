@@ -12,6 +12,7 @@ from hushh_mcp.services.drive_revocation_store import DriveRevocationStore
 from hushh_mcp.services.drive_sharing_contract import MAX_FILES, DriveSharingError
 from hushh_mcp.services.google_drive_adapter import FILE_ID
 from hushh_mcp.services.requester_identity import label_from_identity_row
+from hushh_mcp.services.stripe_mode import configured_stripe_mode
 
 
 class DriveSharingProjectionStore(DriveRevocationStore):
@@ -173,7 +174,8 @@ class DriveSharingProjectionStore(DriveRevocationStore):
                 FROM drive_share_requests r
                 LEFT JOIN drive_request_owner_payouts p ON p.request_id=r.request_id
                   AND p.erased_at IS NULL
-                LEFT JOIN pkm_owner_payout_accounts account ON account.user_id=r.user_id
+                LEFT JOIN stripe_owner_payout_accounts account ON account.user_id=r.user_id
+                  AND account.stripe_mode=:stripe_mode
                 WHERE (:outgoing=TRUE AND r.recipient_user_id=:user)
                    OR (:outgoing=FALSE AND r.user_id=:user)
                 UNION ALL
@@ -186,6 +188,7 @@ class DriveSharingProjectionStore(DriveRevocationStore):
                     {
                         "user": user_id,
                         "outgoing": direction == "outgoing",
+                        "stripe_mode": configured_stripe_mode(),
                         "limit": limit + 1,
                         "offset": offset,
                     },

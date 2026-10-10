@@ -448,6 +448,58 @@ class TestPayouts:
         assert status == "awaiting_account"
 
 
+class TestStripeModeIsolation:
+    async def test_the_mode_isolated_account_wins_over_the_legacy_one(self, answer_engine):  # noqa: F811
+        # Migration 298 exists because paying a live answer into a test-mode
+        # Connect account (or the reverse) is a real way to lose money.
+        service, request_id, digest = await _approved(answer_engine, amount=10_000)
+        _mark_paid(answer_engine, request_id, digest, amount=10_000)
+        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+        with answer_engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO pkm_owner_payout_accounts"
+                    " (user_id,stripe_account_id,details_submitted,payouts_enabled)"
+                    " VALUES (:u,'acct_legacy',TRUE,TRUE)"
+                ),
+                {"u": OWNER},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO stripe_owner_payout_accounts"
+                    " (user_id,stripe_mode,stripe_account_id,payouts_enabled,account_ready)"
+                    " VALUES (:u,'test','acct_test_mode',TRUE,TRUE)"
+                ),
+                {"u": OWNER},
+            )
+        api = Mock()
+        api.Transfer.create.return_value = {"id": "tr_1"}
+        await PkmAnswerWorkWorker(_db(answer_engine), stripe_api=api).run_payouts(max_jobs=5)
+        assert api.Transfer.create.call_args.kwargs["destination"] == "acct_test_mode"
+
+    async def test_an_account_verified_in_another_mode_is_not_used(self, answer_engine):  # noqa: F811
+        service, request_id, digest = await _approved(answer_engine)
+        _mark_paid(answer_engine, request_id, digest)
+        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+        with answer_engine.begin() as connection:
+            # Only a live-mode account exists; this runtime is in test mode.
+            connection.execute(
+                text(
+                    "INSERT INTO stripe_owner_payout_accounts"
+                    " (user_id,stripe_mode,stripe_account_id,payouts_enabled,account_ready)"
+                    " VALUES (:u,'live','acct_live_mode',TRUE,TRUE)"
+                ),
+                {"u": OWNER},
+            )
+        api = Mock()
+        outcome = await PkmAnswerWorkWorker(_db(answer_engine), stripe_api=api).run_payouts(
+            max_jobs=5
+        )
+        # It waits for a test-mode account rather than paying the live one.
+        assert outcome["awaiting_account"] == 1
+        api.Transfer.create.assert_not_called()
+
+
 class TestDisabledLane:
     async def test_every_worker_short_circuits_while_the_flag_is_off(
         self,

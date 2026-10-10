@@ -85,6 +85,19 @@ def answer_engine(connector_postgres_url):  # noqa: F811
             """CREATE TABLE IF NOT EXISTS users (
                  id TEXT PRIMARY KEY, email TEXT, display_name TEXT, photo_url TEXT)"""
         )
+        # Migration 298's mode-isolated account, and migration 280's legacy
+        # one. The payout worker prefers the former so a live answer is never
+        # paid into a test-mode Connect account.
+        connection.exec_driver_sql(
+            """CREATE TABLE IF NOT EXISTS stripe_owner_payout_accounts (
+                 user_id TEXT NOT NULL,
+                 stripe_mode TEXT NOT NULL CHECK (stripe_mode IN ('test','live')),
+                 stripe_account_id TEXT NOT NULL UNIQUE,
+                 details_submitted BOOLEAN NOT NULL DEFAULT FALSE,
+                 payouts_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                 account_ready BOOLEAN NOT NULL DEFAULT FALSE,
+                 PRIMARY KEY (user_id, stripe_mode))"""
+        )
         # Migration 280 owns this; the payout worker reads the owner's Stripe
         # Connect readiness from it.
         connection.exec_driver_sql(
@@ -140,6 +153,7 @@ def clean(answer_engine):
         connection.exec_driver_sql("DELETE FROM consent_audit")
         connection.exec_driver_sql("DELETE FROM actor_identity_cache")
         connection.exec_driver_sql("DELETE FROM users")
+        connection.exec_driver_sql("DELETE FROM stripe_owner_payout_accounts")
         connection.exec_driver_sql("DELETE FROM pkm_owner_payout_accounts")
         connection.exec_driver_sql("DELETE FROM pkm_answer_owner_payouts")
         connection.exec_driver_sql("DELETE FROM pkm_answer_payment_refunds")

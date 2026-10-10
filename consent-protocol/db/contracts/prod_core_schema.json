@@ -65,7 +65,9 @@
     "restore_legacy_push_projection",
     "preserve_drive_owner_delivery_basis",
     "preserve_drive_request_owner_payout",
-    "notify_document_owner_earning_changed"
+    "notify_document_owner_earning_changed",
+    "mirror_drive_request_stripe_mode",
+    "bind_stripe_checkout_mode"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -967,7 +969,8 @@
       "eligible_at_erasure",
       "safe_error_code",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "stripe_mode"
     ],
     "drive_request_owner_pricing": [
       "user_id",
@@ -992,7 +995,8 @@
       "delivery_confirmed_at_erasure",
       "delivery_unsettled_at_erasure",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "stripe_mode"
     ],
     "drive_request_payment_orders": [
       "request_id",
@@ -1011,7 +1015,8 @@
       "reconciliation_reason",
       "reconciliation_at",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "stripe_mode"
     ],
     "drive_request_payment_refunds": [
       "request_id",
@@ -2353,7 +2358,8 @@
       "credits_spent",
       "owner_earning_status",
       "stripe_transfer_id",
-      "transferred_at"
+      "transferred_at",
+      "stripe_mode"
     ],
     "pkm_packets": [
       "id",
@@ -2588,6 +2594,16 @@
       "status_rank",
       "expected_arrival_at",
       "failure_code",
+      "created_at",
+      "updated_at"
+    ],
+    "stripe_owner_payout_accounts": [
+      "user_id",
+      "stripe_mode",
+      "stripe_account_id",
+      "details_submitted",
+      "payouts_enabled",
+      "account_ready",
       "created_at",
       "updated_at"
     ],

@@ -7389,7 +7389,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.referrals",
-          "purpose": "Welcome the person to referrals with a replayable, device/account-scoped introduction, then help them read their referral link, points, standings, and reward progress through the dashboard's own controls. Continuing or skipping the introduction never grants setup completion or referral credit.",
+          "purpose": "Welcome the person to referrals with a replayable, device/account-scoped introduction, then help them read their referral link, points, ranking, and reward progress through the dashboard's own controls. Continuing or skipping the introduction never grants setup completion or referral credit.",
           "screen": "one_referrals",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -10048,5 +10048,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "b887b7771201458dadd4339acdfbd75bb333ec2c4fe16a47a7242fbc7cfbcdf5"
+  "content_sha256": "6d879adee31cd6659de3c3bb20ae4ca78c143b08cfe939a92ea67e76879f8b2c"
 }

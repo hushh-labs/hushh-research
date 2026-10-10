@@ -127,8 +127,8 @@ async def test_per_file_grant_claim_rechecks_request_payment(permission_setup):
         )
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-              (request_id,user_id,requester_user_id,status)
-              VALUES (:request,'owner','recipient','awaiting_payment')"""),
+              (request_id,user_id,requester_user_id,stripe_mode,status)
+              VALUES (:request,'owner','recipient','test','awaiting_payment')"""),
             {"request": request_id},
         )
     with pytest.raises(DriveSharingError, match="payment_required"):

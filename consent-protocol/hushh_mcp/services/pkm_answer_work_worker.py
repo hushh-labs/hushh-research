@@ -32,6 +32,7 @@ from hushh_mcp.services.external_connector_lifecycle_store import (
     ExternalConnectorLifecycleStore,
 )
 from hushh_mcp.services.pkm_answer_payment_service import answer_payments_enabled
+from hushh_mcp.services.stripe_mode import configured_stripe_mode
 
 logger = logging.getLogger(__name__)
 
@@ -365,12 +366,24 @@ def _promote_due_payouts(connection) -> None:
                       a.stripe_account_id
                FROM pkm_answer_payment_orders o
                JOIN pkm_answer_deliveries d ON d.request_id = o.request_id AND d.has_content
-               LEFT JOIN pkm_owner_payout_accounts a
-                 ON a.user_id = o.owner_user_id AND a.payouts_enabled
+               -- Mode-isolated account first (migration 298): paying a live
+               -- answer into a test-mode Connect account, or the reverse, is
+               -- exactly what that migration exists to prevent. The legacy
+               -- table is the expand-only fallback for runtimes that have not
+               -- re-verified in their mode yet.
+               LEFT JOIN LATERAL (
+                 SELECT stripe_account_id FROM stripe_owner_payout_accounts
+                 WHERE user_id = o.owner_user_id AND stripe_mode = :stripe_mode
+                   AND payouts_enabled AND account_ready
+                 UNION ALL
+                 SELECT stripe_account_id FROM pkm_owner_payout_accounts
+                 WHERE user_id = o.owner_user_id AND payouts_enabled
+                 LIMIT 1
+               ) a ON TRUE
                WHERE o.status = 'paid' AND o.owner_earning_status = 'due'
                ON CONFLICT (request_id) DO NOTHING"""
         ),
-        {"bps": COMMISSION_BPS},
+        {"bps": COMMISSION_BPS, "stripe_mode": configured_stripe_mode()},
     )
 
 

@@ -734,7 +734,7 @@
       "primary_access_path": "hussh.ai White Pages buy flow: a signed-in buyer pays hussh for one packet through Stripe Checkout; the signed Stripe webhook marks the order paid and files an owner-approved marketplace access request; denied, expired or orphaned requests are refunded by the packet-order reconcile.",
       "retention_policy": "Retained while payment or refund is unsettled and for bounded financial and consent-audit review afterwards; snapshots the packet title and price paid.",
       "deletion_behavior": "On account deletion, paid but undelivered orders move to refund_pending, are refunded in full by the reconcile, and the row is then deleted; all other rows (unpaid, settled, or delivered) are deleted, and an owner earning not yet transferred is forfeited.",
-      "trust_boundary": "Stores buyer and owner references, the public listing id, packet id and title, amounts, status and Stripe object ids. No card data (Stripe-hosted Checkout) and no PKM values.",
+      "trust_boundary": "Stores buyer and owner references, the public listing id, packet id and title, amounts, status and Stripe object ids. No card data (Stripe-hosted Checkout) and no PKM values. Orders record Stripe mode; provider operations require the current matching mode, while unresolved historical mode remains legacy and fails closed.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_per_user_request"
     },
@@ -775,14 +775,15 @@
       "data_class": "personal_metadata",
       "lifecycle_status": "current",
       "exact_tables": [
-        "pkm_owner_payout_accounts"
+        "pkm_owner_payout_accounts",
+        "stripe_owner_payout_accounts"
       ],
-      "primary_access_path": "One marketplace Owner tab payouts: a packet owner onboards to a Stripe Connect Express account; the work drain marks delivered orders' earnings due and transfers them (amount minus platform fee) once Stripe enables payouts.",
-      "retention_policy": "Retained while the owner keeps their account.",
-      "deletion_behavior": "Delete the row on account reset and deletion; the Stripe Express account itself is held by Stripe.",
-      "trust_boundary": "Stores the user reference, Stripe Connect account id and readiness flags only. Bank and identity details stay with Stripe.",
+      "primary_access_path": "Profile Payouts and marketplace owner payouts use stripe_owner_payout_accounts keyed by owner and Stripe test/live mode. Stripe-hosted Express onboarding collects bank and identity details. The legacy pkm_owner_payout_accounts mapping remains for rolling compatibility and is adopted only after provider verification under the current mode key.",
+      "retention_policy": "Retained while the owner keeps their account; at most one current mapping per owner and Stripe mode, plus the legacy compatibility row until its separately reviewed retirement.",
+      "deletion_behavior": "Account reset and deletion remove both current-mode mappings and the legacy mapping after settlement obligations retain their previously verified destination. The Stripe Express account itself is held by Stripe.",
+      "trust_boundary": "Stores user reference, explicit test/live mode, Stripe Connect account ID and readiness flags only. Never substitute an account across modes. Bank and identity details stay with Stripe. Postgres is authoritative; any future Redis readiness cache must preserve owner-plus-mode keys and signed-event invalidation and cannot authorize settlement.",
       "plaintext_posture": "metadata_only",
-      "expected_row_growth": "low_per_user"
+      "expected_row_growth": "at_most_two_mode_mappings_plus_one_legacy_mapping_per_owner"
     },
     {
       "id": "information_marketplace_delivery",
@@ -1106,7 +1107,7 @@
       "primary_access_path": "One USD Stripe Checkout order is created only after an eligible Drive request, from the owner's Trusted circle or explicitly allowed by the owner, has a nonempty frozen shareable batch. New requests lock the owner's effective whole-dollar quote from 100 to 50000 cents at creation; legacy requests retain their original price rule. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority.",
       "retention_policy": "At most one live order and one account-free obligation per request, plus one refund attempt and verified event dedupe receipts. Checkout URLs expire with their Stripe session and are cleared on settlement. The obligation and refund evidence survive request erasure until payment and refund duties are settled under merchant retention policy.",
       "deletion_behavior": "The live order cascades from the request. Before account reset or erasure removes the request, an opaque obligation snapshots delivery state and removes all account linkage; late signed charges and in-flight refunds remain reconcilable. Stripe's own merchant records follow the payment account's retention policy.",
-      "trust_boundary": "The retained obligation has only a random request UUID, payer digest, amount (whole dollars, 100 to 50000 cents) and currency, Stripe provider IDs, status and timestamps. No account ID, email, filename, search term, request purpose, document ID, content or Checkout URL is retained there. The requester-visible Feed event is never written after erasure.",
+      "trust_boundary": "The retained obligation has only a random request UUID, payer digest, amount (whole dollars, 100 to 50000 cents) and currency, Stripe provider IDs, status and timestamps. No account ID, email, filename, search term, request purpose, document ID, content or Checkout URL is retained there. The requester-visible Feed event is never written after erasure. Orders and retained obligations bind an immutable Stripe mode; unproven legacy rows cannot authorize live money. Current-mode processing never reinterprets a test Checkout or refund as live.",
       "plaintext_posture": "opaque_payment_identifiers_bounded_price_and_workflow_status_only",
       "expected_row_growth": "one_order_per_eligible_request_plus_verified_event_dedupe_receipts"
     },
@@ -1136,7 +1137,7 @@
       "primary_access_path": "New eligible paid Drive orders enroll one owner earning. Signed charge, refund, delivery and Stripe fee evidence determine a 3% platform share and one idempotent Connect transfer after confirmed delivery.",
       "retention_policy": "Retain unsettled earnings and transfer or reversal evidence through financial reconciliation under the merchant retention policy. Historical orders are not backfilled.",
       "deletion_behavior": "Account erasure removes live identity joins but retains the opaque obligation and provider settlement identifiers until any earned share, refund or reversal is resolved.",
-      "trust_boundary": "No document name, search term, bank number or user ID is stored in the retained payout row. Stripe account IDs and charge or transfer IDs remain restricted to service-role settlement paths.",
+      "trust_boundary": "No document name, search term, bank number or user ID is stored in the retained payout row. Stripe account IDs and charge or transfer IDs remain restricted to service-role settlement paths. Settlement binds the original test/live payment mode and verified destination; changing runtime mode cannot convert an old earning into live money.",
       "plaintext_posture": "opaque_financial_identifiers_amounts_and_status_only",
       "expected_row_growth": "one_per_new_eligible_paid_request"
     },
@@ -1149,7 +1150,7 @@
         "stripe_connect_bank_payouts",
         "stripe_connect_bank_payout_events"
       ],
-      "primary_access_path": "A separately signed connected-account Stripe webhook deduplicates events, verifies the latest provider state and updates aggregate bank-deposit status. The authenticated owner reads recent deposits through their current connected-account mapping.",
+      "primary_access_path": "A separately signed connected-account Stripe webhook deduplicates events, verifies current provider state and updates aggregate bank-deposit status. Bank creation, update and deletion events also refresh readiness. Authenticated owners read recent deposits through the current owner-plus-mode connected-account mapping.",
       "retention_policy": "Provider payout and event receipts support settlement, reversal and duplicate-event reconciliation under the merchant retention policy.",
       "deletion_behavior": "Deleting the owner's connected-account mapping removes their app access to these account-keyed financial receipts; any retained provider evidence remains restricted to settlement operators.",
       "trust_boundary": "Only Stripe Connect account and payout IDs, amount, status, mode, failure code and timestamps are stored. No bank details or document request ID are present; a deposit may combine several earnings.",

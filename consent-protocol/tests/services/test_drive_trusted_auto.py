@@ -102,8 +102,8 @@ async def _paid_auto_review(sharing, bulk, *, request_id, job_id):
     with sharing.db.engine.begin() as connection:
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders(
-              request_id,user_id,requester_user_id,status,paid_at)
-              VALUES(:request,'owner','recipient','paid',clock_timestamp())"""),
+              request_id,user_id,requester_user_id,stripe_mode,status,paid_at)
+              VALUES(:request,'owner','recipient','test','paid',clock_timestamp())"""),
             {"request": request_id},
         )
     return review
@@ -183,8 +183,8 @@ async def _frozen_auto_batch(sharing, bulk, *, payment_status=None):
         with sharing.db.engine.begin() as connection:
             connection.execute(
                 text("""INSERT INTO drive_request_payment_orders(
-                  request_id,user_id,requester_user_id,status,paid_at)
-                  VALUES(:request,'owner','recipient',:status,
+                  request_id,user_id,requester_user_id,stripe_mode,status,paid_at)
+                  VALUES(:request,'owner','recipient','test',:status,
                     CASE WHEN :status='paid' THEN clock_timestamp() ELSE NULL END)"""),
                 {"request": request_id, "status": payment_status},
             )

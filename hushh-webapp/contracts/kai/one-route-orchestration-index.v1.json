@@ -5239,7 +5239,7 @@
       "context_policy": "suppress",
       "voice_playbook": {
         "playbook_id": "route.one.referrals",
-        "purpose": "Welcome the person to referrals with a replayable, device/account-scoped introduction, then help them read their referral link, points, standings, and reward progress through the dashboard's own controls. Continuing or skipping the introduction never grants setup completion or referral credit.",
+        "purpose": "Welcome the person to referrals with a replayable, device/account-scoped introduction, then help them read their referral link, points, ranking, and reward progress through the dashboard's own controls. Continuing or skipping the introduction never grants setup completion or referral credit.",
         "screen": "one_referrals",
         "entry_cue": "",
         "proactivity": "ambient",

@@ -72,23 +72,23 @@ async def test_owner_payout_lease_claim_and_stale_completion_are_fenced_in_postg
             {"id": identity},
         )
         connection.execute(
-            text("""INSERT INTO pkm_owner_payout_accounts
-                (user_id,stripe_account_id,details_submitted,payouts_enabled,account_ready)
-                VALUES ('owner','acct_test_owner',TRUE,TRUE,TRUE)""")
+            text("""INSERT INTO stripe_owner_payout_accounts
+                (stripe_mode,user_id,stripe_account_id,details_submitted,payouts_enabled,account_ready)
+                VALUES ('test','owner','acct_test_owner',TRUE,TRUE,TRUE)""")
         )
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-                (request_id,user_id,requester_user_id,status,stripe_payment_intent_id,paid_at)
-                VALUES (:id,'owner','recipient','paid','pi_test_lease',clock_timestamp())"""),
+                (stripe_mode,request_id,user_id,requester_user_id,status,stripe_payment_intent_id,paid_at)
+                VALUES ('test',:id,'owner','recipient','paid','pi_test_lease',clock_timestamp())"""),
             {"id": identity},
         )
         connection.execute(
             text("""INSERT INTO drive_request_owner_payouts
-                (request_id,gross_amount_cents,status,expected_files,confirmed_files,
+                (stripe_mode,request_id,gross_amount_cents,status,expected_files,confirmed_files,
                  retained_amount_cents,refund_amount_cents,platform_fee_cents,
                  actual_processing_fee_cents,allocated_processing_fee_cents,owner_earning_cents,
                  finalized_at,stripe_payment_intent_id,stripe_charge_id,stripe_balance_transaction_id)
-                VALUES (:id,1000,'due',1,1,1000,0,30,59,59,911,
+                VALUES ('test',:id,1000,'due',1,1,1000,0,30,59,59,911,
                   clock_timestamp(),'pi_test_lease','ch_test_lease','txn_test_lease')"""),
             {"id": identity},
         )
@@ -148,7 +148,8 @@ async def test_owner_payout_lease_claim_and_stale_completion_are_fenced_in_postg
 
 
 @pytest.fixture(autouse=True)
-def fresh_payment_runtime_settings():
+def fresh_payment_runtime_settings(monkeypatch):
+    monkeypatch.setenv("STRIPE_MODE", "test")
     clear_runtime_settings_caches()
     yield
     clear_runtime_settings_caches()
@@ -245,7 +246,7 @@ def _signed_event(
     return body, f"t={timestamp},v1={signature}"
 
 
-def test_live_stripe_key_is_rejected_outside_production(monkeypatch):
+def test_live_stripe_key_requires_explicit_live_mode(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_live_should_not_be_used")
     monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_payment_test_secret")
@@ -254,10 +255,72 @@ def test_live_stripe_key_is_rejected_outside_production(monkeypatch):
         _config()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stored_mode", ["test", "legacy"])
+async def test_live_cutover_never_reuses_old_checkout_or_refunds_old_money(
+    sharing, monkeypatch, stored_mode
+):
+    request_id = (await request(sharing))["requestId"]
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE drive_share_requests SET payment_required=TRUE,status='approved' WHERE request_id=:id"
+            ),
+            {"id": request_id},
+        )
+        connection.execute(
+            text("""INSERT INTO drive_request_payment_orders
+              (request_id,user_id,requester_user_id,stripe_mode,status)
+              VALUES (:id,'owner','recipient',:mode,'awaiting_payment')"""),
+            {"id": request_id, "mode": stored_mode},
+        )
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("STRIPE_MODE", "live")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_live_only_synthetic_test_fixture")
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_payment_test_secret")
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://test.example")
+    create = Mock()
+    service = DriveRequestPaymentService(
+        db=sharing.db,
+        stripe_api=SimpleNamespace(
+            checkout=SimpleNamespace(Session=SimpleNamespace(create=create))
+        ),
+    )
+    state = await service.payment_state(requester_user_id="recipient", request_id=request_id)
+    assert (state["status"], state["paymentLinkExpired"], state["stripeMode"]) == (
+        "expired",
+        True,
+        stored_mode,
+    )
+    assert await service.due_checkout_orders() == []
+    with pytest.raises(DriveSharingError, match="payment_checkout_expired"):
+        await service.checkout(requester_user_id="recipient", request_id=request_id)
+    create.assert_not_called()
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_request_payment_orders SET status='paid',
+              stripe_payment_intent_id='pi_previous_mode',paid_at=clock_timestamp()
+              WHERE request_id=:id"""),
+            {"id": request_id},
+        )
+        connection.execute(
+            text("UPDATE drive_share_requests SET status='no_match' WHERE request_id=:id"),
+            {"id": request_id},
+        )
+        assert _claim_refunds(service, connection, limit=10) == []
+    # Positive control: returning to the known sandbox mode can reconcile its
+    # own charge. An unclassified legacy charge remains held in every mode.
+    monkeypatch.setenv("STRIPE_MODE", "test")
+    with sharing.db.engine.begin() as connection:
+        claims = _claim_refunds(service, connection, limit=10)
+    assert len(claims) == (1 if stored_mode == "test" else 0)
+
+
 def test_paid_grant_guard_blocks_reconciliation_hold():
     connection = SimpleNamespace(execute=Mock())
     connection.execute.return_value.mappings.return_value.first.return_value = {
         "status": "paid",
+        "stripe_mode": "test",
         "paid_at": object(),
         "reconciliation_required": True,
     }
@@ -388,6 +451,7 @@ async def test_payment_status_read_never_creates_unapproved_order_or_event(
         "expires_at": datetime.now(UTC) + timedelta(hours=1),
     }
     order = {
+        "stripe_mode": "test",
         "status": "awaiting_payment",
         "reconciliation_required": False,
         "amount_cents": 2000,
@@ -725,6 +789,7 @@ async def test_erased_webhook_requires_reserved_attempt_and_queues_refund(monkey
     request_id, attempt_id = str(uuid4()), str(uuid4())
     payer_ref = hashlib.sha256(f"{request_id}:recipient".encode()).hexdigest()
     obligation = {
+        "stripe_mode": "test",
         "erased_at": datetime.now(UTC),
         "checkout_attempt_id": attempt_id,
         "stripe_checkout_session_id": None,
@@ -899,8 +964,8 @@ async def test_refund_first_dispatch_timestamp_survives_uncertain_retry(sharing)
         )
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-          (request_id,user_id,requester_user_id,status,stripe_payment_intent_id,paid_at)
-          VALUES (:request,'owner','recipient','paid','pi_test_refund',clock_timestamp())"""),
+          (stripe_mode,request_id,user_id,requester_user_id,status,stripe_payment_intent_id,paid_at)
+          VALUES ('test',:request,'owner','recipient','paid','pi_test_refund',clock_timestamp())"""),
             {"request": request_id},
         )
         first = _claim_refunds(DriveRequestPaymentService(db=sharing.db), connection, limit=1)
@@ -1045,9 +1110,9 @@ async def test_signed_webhook_requires_exact_order_binding_and_replays_once(shar
         )
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-          (request_id,user_id,requester_user_id,status,stripe_checkout_session_id,
+          (stripe_mode,request_id,user_id,requester_user_id,status,stripe_checkout_session_id,
            stripe_checkout_url,stripe_checkout_expires_at)
-          VALUES (:id,'owner','recipient','checkout_open','cs_test_bound',
+          VALUES ('test',:id,'owner','recipient','checkout_open','cs_test_bound',
                   'https://checkout.stripe.com/test',clock_timestamp()+interval '1 hour')"""),
             {"id": request_id},
         )
@@ -1101,9 +1166,9 @@ async def test_owner_priced_payment_settles_and_refunds_only_at_its_order_amount
         )
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-              (request_id,user_id,requester_user_id,amount_cents,status,checkout_attempt_id,
+              (stripe_mode,request_id,user_id,requester_user_id,amount_cents,status,checkout_attempt_id,
                stripe_checkout_session_id,stripe_checkout_url,stripe_checkout_expires_at)
-              VALUES (:request,'owner','recipient',2000,'checkout_open',:attempt,'cs_test_bound',
+              VALUES ('test',:request,'owner','recipient',2000,'checkout_open',:attempt,'cs_test_bound',
                       'https://checkout.stripe.com/test',clock_timestamp()+interval '1 hour')"""),
             {"request": request_id, "attempt": attempt},
         )
@@ -1172,9 +1237,9 @@ async def test_expired_checkout_webhook_marks_link_expired_and_is_idempotent(sha
         )
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-          (request_id,user_id,requester_user_id,status,checkout_attempt_id,
+          (stripe_mode,request_id,user_id,requester_user_id,status,checkout_attempt_id,
            stripe_checkout_session_id,stripe_checkout_url,stripe_checkout_expires_at)
-          VALUES (:id,'owner','recipient','checkout_open',:attempt,'cs_test_expired',
+          VALUES ('test',:id,'owner','recipient','checkout_open',:attempt,'cs_test_expired',
                   'https://checkout.stripe.com/expired',clock_timestamp()+interval '1 hour')"""),
             {"id": request_id, "attempt": attempt},
         )
@@ -1221,9 +1286,9 @@ async def test_payment_state_reports_expired_checkout_link(sharing):
         )
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-          (request_id,user_id,requester_user_id,status,checkout_attempt_id,
+          (stripe_mode,request_id,user_id,requester_user_id,status,checkout_attempt_id,
            stripe_checkout_session_id,stripe_checkout_url,stripe_checkout_expires_at)
-          VALUES (:id,'owner','recipient','checkout_open',:attempt,'cs_test_old',
+          VALUES ('test',:id,'owner','recipient','checkout_open',:attempt,'cs_test_old',
                   'https://checkout.stripe.com/old',clock_timestamp()-interval '1 second')"""),
             {"id": request_id, "attempt": str(uuid4())},
         )
@@ -1246,7 +1311,7 @@ async def test_deleting_request_keeps_opaque_payment_obligation(sharing):
         )
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-          (request_id,user_id,requester_user_id) VALUES (:id,'owner','recipient')"""),
+          (stripe_mode,request_id,user_id,requester_user_id) VALUES ('test',:id,'owner','recipient')"""),
             {"id": request_id},
         )
         connection.execute(
@@ -1312,8 +1377,8 @@ async def test_late_paid_webhook_after_erasure_uses_reserved_attempt(sharing, mo
         )
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-          (request_id,user_id,requester_user_id,checkout_attempt_id)
-          VALUES (:id,'owner','recipient',:attempt)"""),
+          (stripe_mode,request_id,user_id,requester_user_id,checkout_attempt_id)
+          VALUES ('test',:id,'owner','recipient',:attempt)"""),
             {"id": request_id, "attempt": attempt_id},
         )
         connection.execute(
@@ -1363,6 +1428,7 @@ def _checkout_fixture(monkeypatch, provider_create, *, amount_cents=1000):
     monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://test.example")
     request_id, attempt_id = str(uuid4()), str(uuid4())
     order = {
+        "stripe_mode": "test",
         "status": "awaiting_payment",
         "amount_cents": amount_cents,
         "currency": "usd",
@@ -1458,7 +1524,7 @@ async def test_enrolled_checkout_binds_verified_connect_destination(monkeypatch)
     original_row = service._row.side_effect
 
     def row(connection, sql, params):
-        if "FROM pkm_owner_payout_accounts" in sql:
+        if "FROM stripe_owner_payout_accounts" in sql:
             return {
                 "stripe_account_id": "acct_verified",
                 "details_submitted": True,
@@ -1509,7 +1575,7 @@ async def test_enrolled_checkout_rejects_changed_connect_mapping_before_charge(m
     original_row = service._row.side_effect
 
     def row(connection, sql, params):
-        if "FROM pkm_owner_payout_accounts" in sql:
+        if "FROM stripe_owner_payout_accounts" in sql:
             return {
                 "stripe_account_id": "acct_changed",
                 "details_submitted": True,
@@ -1762,6 +1828,7 @@ async def test_unbound_reservation_expiry_is_not_an_actionable_pay_deadline(monk
         "access_stop_requested_at": None,
     }
     order = {
+        "stripe_mode": "test",
         "status": "awaiting_payment",
         "amount_cents": 1000,
         "currency": "usd",
@@ -1852,8 +1919,8 @@ async def test_checkout_candidates_exclude_pending_without_approved_or_frozen_ba
             )
             connection.execute(
                 text("""INSERT INTO drive_request_payment_orders
-                  (request_id,user_id,requester_user_id)
-                  VALUES (:request,'owner','recipient')"""),
+                  (stripe_mode,request_id,user_id,requester_user_id)
+                  VALUES ('test',:request,'owner','recipient')"""),
                 {"request": request_id},
             )
         connection.execute(
@@ -2043,8 +2110,8 @@ async def test_legacy_undated_order_cannot_start_checkout(sharing, monkeypatch):
         _make_legacy_undated_paid_request(sharing, connection, request_id)
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-          (request_id,user_id,requester_user_id,status)
-          VALUES (:request,'owner','recipient','awaiting_payment')"""),
+          (stripe_mode,request_id,user_id,requester_user_id,status)
+          VALUES ('test',:request,'owner','recipient','awaiting_payment')"""),
             {"request": request_id},
         )
     stripe_api = Mock()
@@ -2062,8 +2129,8 @@ async def test_paid_undated_request_stays_visible_and_enters_refund_reconciliati
         _make_legacy_undated_paid_request(sharing, connection, request_id)
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-          (request_id,user_id,requester_user_id,status,stripe_payment_intent_id,paid_at)
-          VALUES (:request,'owner','recipient','paid','pi_test_undated',clock_timestamp())"""),
+          (stripe_mode,request_id,user_id,requester_user_id,status,stripe_payment_intent_id,paid_at)
+          VALUES ('test',:request,'owner','recipient','paid','pi_test_undated',clock_timestamp())"""),
             {"request": request_id},
         )
     service = DriveRequestPaymentService(db=sharing.db)
@@ -2100,8 +2167,8 @@ async def test_authority_repair_keeps_an_owner_allowed_paid_order(sharing):
             )
             connection.execute(
                 text("""INSERT INTO drive_request_payment_orders
-                  (request_id,user_id,requester_user_id,status,paid_at)
-                  VALUES (:request,'owner','recipient','paid',clock_timestamp())"""),
+                  (stripe_mode,request_id,user_id,requester_user_id,status,paid_at)
+                  VALUES ('test',:request,'owner','recipient','paid',clock_timestamp())"""),
                 {"request": request_id},
             )
 
@@ -2130,8 +2197,8 @@ async def test_paid_no_match_request_is_immediately_refund_eligible(sharing):
         )
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-          (request_id,user_id,requester_user_id,status,stripe_payment_intent_id,paid_at)
-          VALUES (:request,'owner','recipient','paid','pi_test_no_match',clock_timestamp())"""),
+          (stripe_mode,request_id,user_id,requester_user_id,status,stripe_payment_intent_id,paid_at)
+          VALUES ('test',:request,'owner','recipient','paid','pi_test_no_match',clock_timestamp())"""),
             {"request": request_id},
         )
         claims = _claim_refunds(DriveRequestPaymentService(db=sharing.db), connection, limit=1)
@@ -2155,9 +2222,9 @@ async def test_webhook_waits_for_account_erasure_and_reconciles_late_payment(sha
         )
         connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-              (request_id,user_id,requester_user_id,status,checkout_attempt_id,
+              (stripe_mode,request_id,user_id,requester_user_id,status,checkout_attempt_id,
                stripe_checkout_session_id)
-              VALUES (:request,'owner','recipient','checkout_open',:attempt,'cs_test_bound')"""),
+              VALUES ('test',:request,'owner','recipient','checkout_open',:attempt,'cs_test_bound')"""),
             {"request": request_id, "attempt": attempt_id},
         )
 

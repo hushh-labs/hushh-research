@@ -269,6 +269,7 @@
     "295_direct_message_attachments.sql",
     "296_circle_chat_reactions_events.sql",
     "297_document_commerce_readiness.sql",
+    "298_stripe_mode_isolation.sql",
     "299_pkm_answer_requests.sql",
     "300_pkm_answer_refunds_payouts.sql"
   ],
@@ -564,6 +565,7 @@
     "295_direct_message_attachments.sql": "rollback/295_direct_message_attachments.rollback.sql",
     "296_circle_chat_reactions_events.sql": "rollback/296_circle_chat_reactions_events.rollback.sql",
     "297_document_commerce_readiness.sql": "rollback/297_document_commerce_readiness.rollback.sql",
+    "298_stripe_mode_isolation.sql": "rollback/298_stripe_mode_isolation.rollback.sql",
     "299_pkm_answer_requests.sql": "rollback/299_pkm_answer_requests.rollback.sql",
     "300_pkm_answer_refunds_payouts.sql": "rollback/300_pkm_answer_refunds_payouts.rollback.sql"
   }

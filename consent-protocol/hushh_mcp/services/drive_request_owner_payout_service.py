@@ -18,6 +18,7 @@ from sqlalchemy import text
 
 from hushh_mcp.services.drive_request_payment_service import _config, _stripe_dict
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
+from hushh_mcp.services.stripe_mode import configured_stripe_mode, stripe_environment
 
 _SAFE_RETRY_WINDOW = timedelta(hours=20)
 _TERMINAL_REQUESTS = {"completed", "partial", "no_match"}
@@ -151,7 +152,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         def operation(connection):
             rows = (
                 connection.execute(
-                    text("""SELECT p.request_id,p.status,p.gross_amount_cents,
+                    text("""SELECT p.request_id,p.status,p.stripe_mode,p.gross_amount_cents,
                   p.refund_amount_cents,p.platform_fee_cents,p.allocated_processing_fee_cents,
                   p.owner_earning_cents,p.reversal_amount_cents,p.created_at,p.transferred_at,
                   p.expected_files,p.confirmed_files,r.user_id,r.request_envelope
@@ -198,6 +199,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                 {
                     "requestId": str(row["request_id"]),
                     "description": description,
+                    "stripeMode": row["stripe_mode"],
                     "status": row["status"],
                     "grossAmountCents": row["gross_amount_cents"],
                     "refundAmountCents": row["refund_amount_cents"],
@@ -216,6 +218,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         return {
             "currency": "USD",
             "transactions": items,
+            "stripeMode": configured_stripe_mode(),
             "nextCursor": str(rows[19]["request_id"]) if len(rows) > 20 else None,
         }
 
@@ -229,7 +232,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             raise ValueError("invalid payout order")
         order = (
             connection.execute(
-                text("""SELECT user_id,amount_cents,status,paid_at FROM drive_request_payment_orders
+                text("""SELECT user_id,amount_cents,status,paid_at,stripe_mode FROM drive_request_payment_orders
               WHERE request_id=:request FOR UPDATE"""),
                 {"request": request},
             )
@@ -242,12 +245,13 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             or order["amount_cents"] != amount_cents
             or order["status"] not in {"awaiting_payment", "checkout_open"}
             or order["paid_at"] is not None
+            or order["stripe_mode"] != configured_stripe_mode()
         ):
             raise ValueError("payout_order_not_new")
         inserted = connection.execute(
-            text("""INSERT INTO drive_request_owner_payouts(request_id,gross_amount_cents)
-              VALUES (:request,:amount) ON CONFLICT (request_id) DO NOTHING"""),
-            {"request": request, "amount": amount_cents},
+            text("""INSERT INTO drive_request_owner_payouts(request_id,gross_amount_cents,stripe_mode)
+              VALUES (:request,:amount,:stripe_mode) ON CONFLICT (request_id) DO NOTHING"""),
+            {"request": request, "amount": amount_cents, "stripe_mode": configured_stripe_mode()},
         )
         ledger = (
             connection.execute(
@@ -504,9 +508,9 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                 str(row[0])
                 for row in c.execute(
                     text("""SELECT request_id FROM drive_request_owner_payouts
-              WHERE status IN ('awaiting_delivery','awaiting_refund')
+              WHERE stripe_mode=:stripe_mode AND status IN ('awaiting_delivery','awaiting_refund')
               ORDER BY updated_at,request_id LIMIT :scan"""),
-                    {"scan": max_orders * 4},
+                    {"scan": max_orders * 4, "stripe_mode": configured_stripe_mode()},
                 ).all()
             ]
         )
@@ -551,7 +555,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
               FROM drive_request_owner_payouts p
               JOIN drive_request_payment_obligations b ON b.request_id=p.request_id
               LEFT JOIN drive_request_payment_orders o ON o.request_id=p.request_id
-              WHERE p.status='awaiting_fee'
+              WHERE p.status='awaiting_fee' AND p.stripe_mode=:stripe_mode AND b.stripe_mode=p.stripe_mode
                 AND p.next_check_at<=clock_timestamp()
                 AND b.status='paid' AND b.reconciliation_required=FALSE
                 AND ((p.erased_at IS NULL AND o.status='paid'
@@ -562,7 +566,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                   AND b.delivery_unsettled_at_erasure=FALSE
                   AND b.stripe_payment_intent_id=p.stripe_payment_intent_id))
               ORDER BY p.updated_at,p.request_id LIMIT :limit"""),
-                    {"limit": max_orders},
+                    {"limit": max_orders, "stripe_mode": configured_stripe_mode()},
                 )
                 .mappings()
                 .all()
@@ -731,6 +735,43 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         )
         return True
 
+    async def _adopt_production_transfer_accounts(self, request_ids: list[str]) -> None:
+        """Existing live earnings must not wait for the owner to reopen Profile.
+
+        Adoption only reads a legacy mapping and authenticates it with the live
+        provider key. It never creates a replacement or crosses a mode boundary.
+        """
+        if stripe_environment() != "production" or configured_stripe_mode() != "live":
+            return
+        if not request_ids:
+            return
+        from hushh_mcp.services.pkm_packet_order_service import PacketOrderError
+        from hushh_mcp.services.pkm_payout_service import PkmPayoutService
+
+        owners = await self._transaction(
+            lambda c: [
+                str(row[0])
+                for row in c.execute(
+                    text("""SELECT DISTINCT r.user_id
+                  FROM drive_request_owner_payouts p
+                  JOIN drive_share_requests r ON r.request_id=p.request_id
+                  LEFT JOIN stripe_owner_payout_accounts a
+                    ON a.user_id=r.user_id AND a.stripe_mode='live'
+                  WHERE p.request_id=ANY(CAST(:requests AS uuid[]))
+                    AND p.stripe_mode='live' AND p.erased_at IS NULL
+                    AND a.user_id IS NULL ORDER BY r.user_id LIMIT 5"""),
+                    {"requests": request_ids[:400]},
+                ).all()
+            ]
+        )
+        service = PkmPayoutService(stripe_api=self.stripe_api)
+        service._db = self.db
+        for owner in owners:
+            try:
+                await service.refresh_account(owner)
+            except PacketOrderError:
+                continue  # Existing earning remains due for a later verified retry.
+
     async def transfer_due(self, *, max_orders: int = 20) -> dict[str, int]:
         if type(max_orders) is not int or not 1 <= max_orders <= 100:
             raise ValueError("invalid payout transfer bound")
@@ -743,18 +784,23 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                 str(row[0])
                 for row in c.execute(
                     text("""SELECT request_id FROM drive_request_owner_payouts
-              WHERE (status IN ('dispatching','unknown') OR
+              WHERE stripe_mode=:stripe_mode AND (status IN ('dispatching','unknown') OR
                 (:allow_new AND status IN ('due','awaiting_account')))
                 AND next_check_at<=clock_timestamp()
                 AND (lease_expires_at IS NULL OR lease_expires_at<=clock_timestamp())
               ORDER BY next_check_at,request_id LIMIT :limit"""),
-                    {"limit": max_orders * 4, "allow_new": allow_new},
+                    {
+                        "limit": max_orders * 4,
+                        "allow_new": allow_new,
+                        "stripe_mode": configured_stripe_mode(),
+                    },
                 ).all()
             ]
         )
         if not ids:
             return outcomes
         key, _, _ = _config()
+        await self._adopt_production_transfer_accounts(ids)
         for request_id in ids:
             if outcomes["claimed"] >= max_orders:
                 break
@@ -807,6 +853,8 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             "SELECT *, (lease_expires_at > clock_timestamp()) AS lease_active FROM drive_request_owner_payouts WHERE request_id=:request FOR UPDATE",
             {"request": request_id},
         )
+        if payout is None or payout.get("stripe_mode") != configured_stripe_mode():
+            return None
         prior_attempt = bool(payout and payout["status"] in {"dispatching", "unknown"})
         live_source = bool(
             payout is not None
@@ -858,8 +906,8 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         account = (
             self._row(
                 connection,
-                "SELECT * FROM pkm_owner_payout_accounts WHERE user_id=:owner",
-                {"owner": request["user_id"]},
+                "SELECT * FROM stripe_owner_payout_accounts WHERE user_id=:owner AND stripe_mode=:stripe_mode",
+                {"owner": request["user_id"], "stripe_mode": configured_stripe_mode()},
             )
             if request is not None and payout["erased_at"] is None
             else None
@@ -975,13 +1023,11 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         account = _stripe_dict(
             self.stripe_api.Account.retrieve(claim["destination_account_id"], api_key=key)
         )
+        from hushh_mcp.services.pkm_payout_service import _account_readiness
+
         if (
             account.get("id") != claim["destination_account_id"]
-            or account.get("country") != "US"
-            or account.get("details_submitted") is not True
-            or account.get("payouts_enabled") is not True
-            or (account.get("capabilities") or {}).get("transfers") != "active"
-            or ("livemode" in account and account["livemode"] is not _provider_mode(key))
+            or not _account_readiness(account)["ready"]
         ):
             return None, "account_unavailable"
         intent = _stripe_dict(
@@ -1179,13 +1225,13 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                 str(row[0])
                 for row in c.execute(
                     text("""SELECT request_id FROM drive_request_owner_payouts
-              WHERE status IN ('transferred','manual_review')
+              WHERE stripe_mode=:stripe_mode AND status IN ('transferred','manual_review')
                 AND stripe_transfer_id IS NOT NULL
                 AND stripe_charge_id IS NOT NULL
                 AND stripe_payment_intent_id IS NOT NULL
                 AND next_check_at<=clock_timestamp()
               ORDER BY next_check_at,request_id LIMIT :limit"""),
-                    {"limit": max_orders},
+                    {"limit": max_orders, "stripe_mode": configured_stripe_mode()},
                 ).all()
             ]
         )
@@ -1319,12 +1365,12 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                 str(row[0])
                 for row in c.execute(
                     text("""SELECT request_id FROM drive_request_owner_payouts
-              WHERE status IN ('reversal_due','reversal_unknown')
+              WHERE stripe_mode=:stripe_mode AND status IN ('reversal_due','reversal_unknown')
                 AND next_check_at<=clock_timestamp()
                 AND (reversal_lease_expires_at IS NULL OR
                      reversal_lease_expires_at<=clock_timestamp())
               ORDER BY next_check_at,request_id LIMIT :limit"""),
-                    {"limit": max_orders},
+                    {"limit": max_orders, "stripe_mode": configured_stripe_mode()},
                 ).all()
             ]
         )
@@ -1360,6 +1406,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         )
         if (
             payout is None
+            or payout.get("stripe_mode") != configured_stripe_mode()
             or payout["status"] not in {"reversal_due", "reversal_unknown"}
             or payout["stripe_transfer_id"] is None
             or not payout["reversal_amount_cents"]
