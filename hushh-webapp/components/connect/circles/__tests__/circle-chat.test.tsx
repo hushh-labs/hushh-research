@@ -6,6 +6,8 @@ import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-
 import { CircleChat } from "../circle-chat";
 import * as feedEvents from "@/lib/feed/feed-events";
 
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+
 const api = vi.hoisted(() => ({ initialize: vi.fn(), state: vi.fn(), wait: vi.fn(), messages: vi.fn(), prepare: vi.fn(), send: vi.fn(), open: vi.fn(), read: vi.fn(), mute: vi.fn(), image: vi.fn(), refreshFeedRead: vi.fn() }));
 vi.mock("@/lib/services/circle-chat-service", () => ({ CircleChatService: api }));
 type Observation = { callback: IntersectionObserverCallback; options?: IntersectionObserverInit; target?: Element };
@@ -72,6 +74,21 @@ it("acknowledges only a visible conversation in the foreground", async () => {
   expect(api.read).not.toHaveBeenCalled();
   act(() => appInteractionCoordinator.handleLifecycle("active"));
   await waitFor(() => expect(api.read).toHaveBeenCalledWith(session, 1));
+});
+
+it("reconciles reactions on loaded messages and interleaves membership events", async () => {
+  render(<CircleChat session={session} circleName="Family" initialOpen />);
+  await screen.findByText("Incoming private message");
+  api.messages.mockResolvedValueOnce({ items: [], hasMore: false,
+    reactionUpdates: [{ id: "m1", reactions: [{ emoji: "❤️", count: 1, reactedByViewer: false }] }],
+    events: [{ id: "joined-1", kind: "member_joined", subjectName: "Bob", actorName: "Alice", createdAt: "2026-10-02T10:00:30Z" }],
+  });
+  act(() => window.dispatchEvent(new CustomEvent("hushh:circle-chat-changed", { detail: { userId: session.userId, circleId: session.circleId } })));
+  await screen.findByText("Alice added Bob");
+  await screen.findByRole("button", { name: /❤️, 1 reactions/ });
+  const rows = screen.getByRole("log", { name: "Circle message history" }).querySelectorAll("li[data-chat-message], li[data-circle-membership-event]");
+  expect([...rows].map((row) => row.getAttribute("data-chat-message") ?? row.getAttribute("data-circle-membership-event")))
+    .toEqual(["m1", "joined-1"]);
 });
 
 it("does not restore unread from a state response started before a successful read", async () => {
@@ -269,7 +286,10 @@ it("blocks undecodable image bytes until removed, keeping the text draft availab
   render(<CircleChat session={session} circleName="Family" initialOpen />);
   await screen.findByText("Incoming private message");
   fireEvent.change(screen.getByRole("textbox", { name: "Message" }), { target: { value: "Photo caption" } });
-  fireEvent.change(screen.getByLabelText("Attach image"), { target: { files: [new File(["bad bytes"], "broken.png", { type: "image/png" })] } });
+  const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
+  const brokenFile = new File([bytes], "broken.png", { type: "image/png" });
+  Object.defineProperty(brokenFile, "arrayBuffer", { value: async () => bytes.buffer });
+  fireEvent.change(screen.getByLabelText("Attach photo, video, or document", { selector: "input" }), { target: { files: [brokenFile] } });
   fireEvent.error(await screen.findByAltText("Image ready to send"));
   expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
   expect(api.prepare).not.toHaveBeenCalled();

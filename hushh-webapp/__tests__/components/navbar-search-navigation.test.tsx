@@ -112,6 +112,7 @@ describe("Search navigation through the shared shell", () => {
   afterEach(() => window.removeEventListener(INTERNAL_APP_NAVIGATION_REQUEST_EVENT, commitNavigation));
 
   it("selects Search immediately while its URL commit is pending", () => {
+    window.history.replaceState({}, "", ROUTES.ONE_MESSAGES);
     window.removeEventListener(INTERNAL_APP_NAVIGATION_REQUEST_EVENT, commitNavigation);
     let intentId = "";
     const deferNavigation = (event: Event) => {
@@ -138,7 +139,7 @@ describe("Search navigation through the shared shell", () => {
     }
   });
 
-  it.each([ROUTES.HOME, ROUTES.ONE_HOME, ROUTES.CONNECT, ROUTES.ONE_FEED])(
+  it.each([ROUTES.HOME, ROUTES.ONE_MESSAGES, ROUTES.ONE_HOME, ROUTES.CONNECT, ROUTES.ONE_FEED])(
     "opens Search on the first click from %s and selects only Search",
     async (pathname) => {
       window.history.replaceState({}, "", pathname);
@@ -185,7 +186,7 @@ describe("Search navigation through the shared shell", () => {
     expect(window.location.search).toBe("");
   });
 
-  it.each([ROUTES.HOME, ROUTES.ONE_HOME, ROUTES.CONNECT, ROUTES.ONE_FEED])(
+  it.each([ROUTES.HOME, ROUTES.ONE_MESSAGES, ROUTES.ONE_HOME, ROUTES.CONNECT, ROUTES.ONE_FEED])(
     "closes Search when navigating to %s without a stale return navigation",
     async (href) => {
       render(<Shell />);
@@ -213,8 +214,8 @@ describe("Search navigation through the shared shell", () => {
   });
 
   it.each([
-    ["Chat", ROUTES.HOME],
-    ["One", ROUTES.ONE_HOME],
+    ["Chat", ROUTES.ONE_MESSAGES],
+    ["One", ROUTES.HOME],
     ["Connect", ROUTES.CONNECT],
     ["Feed", ROUTES.ONE_FEED],
   ])("keeps the %s button working after Search dismissal", async (label, href) => {

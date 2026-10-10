@@ -13,6 +13,7 @@ from db.db_client import get_db
 from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletionLifecycleService
 
 MAX_SEQUENCE = 9_007_199_254_740_991
+REACTION_EMOJIS = frozenset({"❤️", "😂", "😮", "😢", "👍", "🙏"})
 _VISIBLE = """
   JOIN circle_chat_recipients r ON r.message_id = m.id AND r.recipient_user_id = :user
   JOIN one_location_circle_memberships membership ON membership.circle_id = m.circle_id
@@ -65,6 +66,7 @@ def _wire(row: dict) -> dict:
         "iv": row["iv"],
         "hasImage": row["image_iv"] is not None,
         "envelope": _json(row["envelope"]),
+        "reactions": row.get("reactions", []),
     }
 
 
@@ -247,7 +249,7 @@ class CircleChatService:
             "limit": limit + 1,
         }
         with self.db.engine.begin() as conn:
-            self._circle(conn, user, circle)
+            membership = self._circle(conn, user, circle)
             rows = _rows(
                 conn,
                 _visible_sql(
@@ -294,7 +296,16 @@ class CircleChatService:
                     sender["photoUrl"] = None
                 else:
                     photo_budget -= size
-            items = [_wire({k: v for k, v in r.items() if k != "sender_photo_url"}) for r in rows]
+            reactions = self._reactions(conn, user, [str(row["id"]) for row in rows])
+            items = [
+                _wire(
+                    {
+                        **{k: v for k, v in r.items() if k != "sender_photo_url"},
+                        "reactions": reactions.get(str(r["id"]), []),
+                    }
+                )
+                for r in rows
+            ]
             low = (
                 receipt_after
                 if receipt_after is not None
@@ -302,12 +313,85 @@ class CircleChatService:
             )
             high = max(receipt_through or 0, rows[-1]["sequence"] if rows else 0)
             receipts = self._receipts(conn, user, circle, low, high) if high > low else []
+            reaction_updates = (
+                self._reaction_updates(conn, user, circle, low, high) if high > low else []
+            )
             return {
                 "items": items,
                 "hasMore": more,
                 "senders": list(senders.values()),
                 "receipts": receipts,
+                "reactionUpdates": reaction_updates,
+                "events": self._membership_events(conn, user, circle, membership["joined_at"]),
             }
+
+    @classmethod
+    def _reaction_updates(
+        cls, conn: Any, user: str, circle: str, after: int, through: int
+    ) -> list[dict]:
+        rows = _rows(
+            conn,
+            _visible_sql(
+                "SELECT m.id FROM circle_chat_messages m ",
+                " AND m.sequence > :after AND m.sequence <= :through ORDER BY m.sequence DESC LIMIT 300",
+            ),
+            {"user": user, "circle": circle, "after": after, "through": through},
+        )
+        ids = [str(row["id"]) for row in rows]
+        reactions = cls._reactions(conn, user, ids)
+        return [
+            {"id": message_id, "reactions": reactions.get(message_id, [])} for message_id in ids
+        ]
+
+    @staticmethod
+    def _reactions(conn: Any, user: str, message_ids: list[str]) -> dict[str, list[dict]]:
+        if not message_ids:
+            return {}
+        rows = _rows(
+            conn,
+            """SELECT message_id, emoji, count(*)::int AS count,
+                bool_or(user_id = :user) AS reacted_by_viewer
+              FROM circle_chat_reactions
+              WHERE message_id = ANY(CAST(:ids AS uuid[]))
+              GROUP BY message_id, emoji ORDER BY emoji""",
+            {"user": user, "ids": message_ids},
+        )
+        result: dict[str, list[dict]] = {}
+        for row in rows:
+            result.setdefault(str(row["message_id"]), []).append(
+                {
+                    "emoji": row["emoji"],
+                    "count": row["count"],
+                    "reactedByViewer": row["reacted_by_viewer"],
+                }
+            )
+        return result
+
+    @staticmethod
+    def _membership_events(conn: Any, user: str, circle: str, joined_at: Any) -> list[dict]:
+        rows = _rows(
+            conn,
+            """SELECT event.id, event.kind, event.created_at,
+                NULLIF(subject.display_name, event.subject_user_id) AS subject_name,
+                NULLIF(actor.display_name, event.actor_user_id) AS actor_name,
+                event.subject_user_id, event.actor_user_id
+              FROM circle_chat_membership_events event
+              LEFT JOIN actor_identity_cache subject ON subject.user_id = event.subject_user_id
+              LEFT JOIN actor_identity_cache actor ON actor.user_id = event.actor_user_id
+              WHERE event.circle_id = CAST(:circle AS uuid) AND event.created_at >= :joined_at
+              ORDER BY event.created_at DESC, event.id DESC LIMIT 200""",
+            {"circle": circle, "joined_at": joined_at},
+        )
+        return [
+            {
+                "id": str(row["id"]),
+                "kind": row["kind"],
+                "subjectName": row["subject_name"] or "A member",
+                "actorName": row["actor_name"] or ("You" if row["actor_user_id"] == user else None),
+                "createdAt": row["created_at"].isoformat(),
+            }
+            for row in reversed(rows)
+        ]
 
     @staticmethod
     def _receipts(conn: Any, user: str, circle: str, after: int, through: int) -> list[dict]:
@@ -508,6 +592,64 @@ class CircleChatService:
                     "CIRCLE_CHAT_IMAGE_UNAVAILABLE", "Image is no longer available.", 404
                 )
             return {"ciphertext": rows[0]["image_ciphertext"], "iv": rows[0]["image_iv"]}
+
+    def react(self, user: str, circle: str, message: str, emoji: str, active: bool) -> dict:
+        if emoji not in REACTION_EMOJIS:
+            raise CircleChatError("CIRCLE_CHAT_REACTION_INVALID", "Choose a reaction.", 422)
+        with self.db.engine.begin() as conn:
+            AccountDeletionLifecycleService.lock_user_writes_in_transaction(conn, user_ids=[user])
+            self._circle(conn, user, circle)
+            visible = _rows(
+                conn,
+                _visible_sql(
+                    "SELECT m.id FROM circle_chat_messages m ", " AND m.id = CAST(:message AS uuid)"
+                ),
+                {"user": user, "circle": circle, "message": message},
+            )
+            if not visible:
+                raise CircleChatError(
+                    "CIRCLE_CHAT_REACTION_UNAVAILABLE", "Message is no longer available.", 404
+                )
+            params = {"user": user, "message": message, "emoji": emoji}
+            if active:
+                changed = _rows(
+                    conn,
+                    """INSERT INTO circle_chat_reactions(message_id, user_id, emoji)
+                  VALUES(CAST(:message AS uuid), :user, :emoji)
+                  ON CONFLICT(message_id, user_id, emoji) DO NOTHING RETURNING message_id""",
+                    params,
+                )
+            else:
+                changed = _rows(
+                    conn,
+                    """DELETE FROM circle_chat_reactions
+                  WHERE message_id = CAST(:message AS uuid) AND user_id = :user AND emoji = :emoji
+                  RETURNING message_id""",
+                    params,
+                )
+            reactions = self._reactions(conn, user, [message]).get(message, [])
+            if changed:
+                recipients = _rows(
+                    conn,
+                    """SELECT recipient.recipient_user_id
+                  FROM circle_chat_recipients recipient
+                  JOIN one_location_circle_memberships membership
+                    ON membership.circle_id = CAST(:circle AS uuid)
+                   AND membership.user_id = recipient.recipient_user_id
+                   AND membership.status = 'active'
+                   AND membership.joined_at = recipient.membership_joined_at
+                  WHERE recipient.message_id = CAST(:message AS uuid)""",
+                    {"circle": circle, "message": message},
+                )
+                for recipient in recipients:
+                    self._notify(
+                        conn,
+                        recipient["recipient_user_id"],
+                        circle,
+                        message,
+                        "location_circle_chat_reaction",
+                    )
+            return {"messageId": message, "reactions": reactions}
 
     def read(self, user: str, circle: str, sequence: int) -> dict:
         with self.db.engine.begin() as conn:

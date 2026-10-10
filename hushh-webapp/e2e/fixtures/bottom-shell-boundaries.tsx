@@ -87,3 +87,7 @@ export const useOptionalOneLocationInteractionSurface = () => null;
 // The voice panel's tool-result card imports an authenticated action gateway
 // at module initialization. Geometry fixtures never render a tool result.
 export const ToolResultCard = () => null;
+// Direct chat layout fixtures exercise People; CircleChat has its own production
+// fixture. Keeping this pane inert avoids pulling vault/network clients into a
+// geometry test while preserving the shared Chat shell.
+export const CircleMessagesPane = () => null;
