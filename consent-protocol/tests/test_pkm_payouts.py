@@ -8,7 +8,10 @@ is never refunded.
 
 from __future__ import annotations
 
+import json
+
 import pytest
+import stripe
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -18,6 +21,19 @@ from hushh_mcp.services import pkm_payout_service
 from hushh_mcp.services.pkm_packet_order_service import PacketOrderError, PkmPacketOrderService
 from hushh_mcp.services.pkm_payout_service import PkmPayoutService
 from tests.test_pkm_credits import _DB
+
+
+def _provider_response(monkeypatch, *, payload, status=200):
+    """Keep Stripe's real SDK parsing; replace only the outbound HTTP transport."""
+
+    class RecordedStripeHTTP(stripe.HTTPClient):
+        name = "recorded_stripe_response"
+
+        def request(self, method, url, headers, post_data=None):
+            return json.dumps(payload), status, {"request-id": "req_synthetic"}
+
+    monkeypatch.setattr(stripe, "default_http_client", RecordedStripeHTTP())
+    monkeypatch.setattr(stripe, "max_network_retries", 0)
 
 
 class _Stripe:
@@ -511,8 +527,6 @@ async def test_uat_live_never_adopts_legacy_credit_earnings_for_cash(world, monk
 
 
 async def test_live_setup_accepts_stripes_exact_test_account_verdict_only(world, monkeypatch):
-    import stripe
-
     from hushh_mcp.services.pkm_payout_service import _legacy_account_absent
 
     svc, db, fake = world
@@ -520,9 +534,12 @@ async def test_live_setup_accepts_stripes_exact_test_account_verdict_only(world,
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_live_" + "x" * 30)
     db.tables["pkm_owner_payout_accounts"] = [{"user_id": "owner", "stripe_account_id": "acct_old"}]
     message = "The account acct_old was a test account created with a testmode key, and therefore can only be used with testmode keys."
-    verdict = stripe.APIError(
-        message, http_status=400, json_body={"error": {"type": "api_error", "message": message}}
+    _provider_response(
+        monkeypatch, payload={"error": {"type": "api_error", "message": message}}, status=400
     )
+    with pytest.raises(stripe.InvalidRequestError) as provider_error:
+        stripe.Account.retrieve("acct_old", api_key="sk_live_" + "x" * 30)
+    verdict = provider_error.value
     assert _legacy_account_absent(verdict, account_id="acct_old", mode="live")
     assert not _legacy_account_absent(verdict, account_id="acct_different", mode="live")
     assert not _legacy_account_absent(verdict, account_id="acct_old", mode="test")
@@ -551,3 +568,58 @@ async def test_live_setup_accepts_stripes_exact_test_account_verdict_only(world,
     assert len(fake.accounts) == 1
     assert db.tables["stripe_owner_payout_accounts"][0]["stripe_mode"] == "live"
     assert db.tables["pkm_owner_payout_accounts"][0]["stripe_account_id"] == "acct_old"
+
+
+async def test_live_onboarding_platform_setup_failure_is_actionable_and_sanitized(
+    world, monkeypatch, caplog
+):
+    svc, db, _fake = world
+    monkeypatch.setenv("STRIPE_MODE", "live")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_live_" + "x" * 30)
+    message = (
+        "You must complete your platform profile to use Connect and create live connected "
+        "accounts. Visit your dashboard at https://dashboard.stripe.com/connect/accounts/overview "
+        "to answer the questionnaire."
+    )
+    _provider_response(
+        monkeypatch,
+        payload={"error": {"type": "invalid_request_error", "message": message}},
+        status=400,
+    )
+    svc.stripe_api = stripe
+    with pytest.raises(PacketOrderError) as failed:
+        await svc.onboarding_link(user_id="owner", surface="documents")
+    assert failed.value.code == "PAYOUT_PLATFORM_SETUP_REQUIRED"
+    assert "Hushh" in str(failed.value)
+    assert not db.tables["stripe_owner_payout_accounts"]
+    assert "request_id=req_synthetic" in caplog.text
+    assert "dashboard.stripe.com" not in caplog.text
+    assert "sk_live" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("url", "allowed"),
+    [
+        ("https://stripe.com/express/Ln7FfnNpUcCU", True),
+        ("https://connect.stripe.com/express/acct_example/login", True),
+        ("https://stripe.com/express/", False),
+        ("https://stripe.com/setup/example", False),
+        ("https://stripe.com.evil.example/express/example", False),
+        ("https://stripe.com@evil.example/express/example", False),
+        ("https://stripe.com:444/express/example", False),
+        ("http://stripe.com/express/example", False),
+    ],
+)
+async def test_bank_management_accepts_both_official_stripe_login_hosts_only(
+    world, monkeypatch, url, allowed
+):
+    svc, _db, fake = world
+    await svc.onboarding_link(user_id="owner", surface="documents")
+    _provider_response(monkeypatch, payload={"object": "login_link", "url": url})
+    # Account retrieval is already characterized; exercise actual LoginLink decoding.
+    monkeypatch.setattr(fake.Account, "create_login_link", stripe.Account.create_login_link)
+    if allowed:
+        assert await svc.management_link(user_id="owner") == {"url": url}
+    else:
+        with pytest.raises(PacketOrderError, match="Couldn't open bank settings"):
+            await svc.management_link(user_id="owner")

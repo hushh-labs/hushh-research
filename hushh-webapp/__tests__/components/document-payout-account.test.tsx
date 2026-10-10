@@ -22,12 +22,14 @@ vi.mock("@/lib/vault/session-epoch", () => ({
   snapshotVaultSessionEpoch: () => state.epoch,
   isVaultSessionEpochCurrent: (epoch: number) => epoch === state.epoch,
 }));
-vi.mock("@/lib/services/document-payout-service", () => ({
+vi.mock("@/lib/services/document-payout-service", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/services/document-payout-service")>(),
   DocumentPayoutService: { account: state.account, onboard: state.onboard, bankPayouts: state.bankPayouts, manage: state.manage, earnings: state.earnings },
 }));
 
 import { DocumentBankPayoutStatusCard, DocumentPayoutAccountCard } from "@/components/consent/document-payout-account";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
+import { ApiError } from "@/lib/services/api-client";
 
 describe("document payout account", () => {
   beforeEach(() => {
@@ -64,6 +66,62 @@ describe("document payout account", () => {
     expect(state.onboard).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Link bank" }));
     await waitFor(() => expect(state.onboard).toHaveBeenCalledTimes(2));
+  });
+
+  it("explains platform activation failures and retries secure bank setup", async () => {
+    const assign = vi.fn();
+    const realLocation = window.location;
+    Object.defineProperty(window, "location", { configurable: true, value: { assign } });
+    try {
+      state.onboard.mockRejectedValueOnce(new ApiError("Private provider details", 503, {
+        detail: { code: "PAYOUT_PLATFORM_SETUP_REQUIRED", message: "Private provider details" },
+      })).mockResolvedValueOnce({ url: "https://connect.stripe.com/setup/safe_link" });
+      render(<DocumentPayoutAccountCard compact />);
+      fireEvent.click(await screen.findByRole("button", { name: "Link bank" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("Bank setup is unavailable. Hushh needs to activate payouts.");
+      expect(screen.queryByText(/Private provider details/)).toBeNull();
+      expect(assign).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Link bank" }));
+      await waitFor(() => expect(assign).toHaveBeenCalledExactlyOnceWith("https://connect.stripe.com/setup/safe_link"));
+      expect(screen.queryByRole("alert")).toBeNull();
+    } finally { Object.defineProperty(window, "location", { configurable: true, value: realLocation }); }
+  });
+
+  it("retries an unknown account state without calling it an unlinked bank", async () => {
+    state.account.mockRejectedValueOnce(new ApiError("private", 503)).mockResolvedValueOnce({ account: null });
+    render(<DocumentPayoutAccountCard compact />);
+    const retry = await screen.findByRole("button", { name: "Retry bank check" });
+    expect(retry).toBeEnabled();
+    expect(screen.getByText("Bank status unavailable")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Link bank" })).toBeNull();
+    fireEvent.click(retry);
+    expect(await screen.findByRole("button", { name: "Link bank" })).toBeEnabled();
+    expect(state.account).toHaveBeenCalledTimes(2);
+    expect(state.onboard).not.toHaveBeenCalled();
+  });
+
+  it("keeps verified bank management available during refresh failure and accepts Stripe Express links", async () => {
+    const assign = vi.fn();
+    const realLocation = window.location;
+    Object.defineProperty(window, "location", { configurable: true, value: { assign } });
+    try {
+      state.account.mockResolvedValueOnce({ stripeMode: "live", account: {
+        detailsSubmitted: true, transfersEnabled: true, payoutsEnabled: true, ready: true, status: "ready",
+        canManageBank: true, bankStatus: "linked", bank: { name: "Example Bank", last4: "6789", status: "verified" },
+      } }).mockRejectedValueOnce(new ApiError("private", 503));
+      state.manage.mockResolvedValueOnce({ url: "https://stripe.com/express/acct_owner/login_token" });
+      render(<DocumentPayoutAccountCard />);
+      await screen.findByText("Bank linked");
+      act(() => window.dispatchEvent(new Event("focus")));
+      expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't check your bank. Try again.");
+      expect(screen.queryByText("Bank linked")).toBeNull();
+      const manage = screen.getByRole("button", { name: "Manage bank" });
+      expect(manage).toBeEnabled();
+      fireEvent.click(manage);
+      await waitFor(() => expect(assign).toHaveBeenCalledExactlyOnceWith("https://stripe.com/express/acct_owner/login_token"));
+      expect(state.manage).toHaveBeenCalledExactlyOnceWith("owner-token");
+      expect(state.onboard).not.toHaveBeenCalled();
+    } finally { Object.defineProperty(window, "location", { configurable: true, value: realLocation }); }
   });
 
   it("clears one owner's readiness while another owner account loads", async () => {

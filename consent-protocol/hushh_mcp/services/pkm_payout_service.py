@@ -146,16 +146,17 @@ def _legacy_account_absent(exc: Exception, *, account_id: str, mode: str) -> boo
     """Only an explicit provider absence/mode verdict permits fresh onboarding."""
     if getattr(exc, "code", None) == "resource_missing":
         return True
-    # Stripe currently returns APIError/400 without a code for test Connect
-    # accounts read using live credentials. Match the provider's exact verdict
-    # about this account; generic 400/auth/network failures remain unavailable.
+    # Stripe sends api_error/400 without a code for test accounts read with live
+    # credentials. Its SDK decodes HTTP 400 as InvalidRequestError, independent
+    # of the JSON error type. Match the exact account-specific verdict; generic
+    # 400/auth/network failures must never authorize a replacement account.
     import stripe
 
     body = getattr(exc, "json_body", None)
     error = body.get("error") if isinstance(body, dict) else None
     return bool(
         mode == "live"
-        and isinstance(exc, stripe.APIError)
+        and isinstance(exc, (stripe.InvalidRequestError, stripe.APIError))
         and getattr(exc, "http_status", None) == 400
         and isinstance(error, dict)
         and error.get("type") == "api_error"
@@ -164,6 +165,39 @@ def _legacy_account_absent(exc: Exception, *, account_id: str, mode: str) -> boo
             f"The account {account_id} was a test account created with a testmode key, "
             "and therefore can only be used with testmode keys."
         )
+    )
+
+
+def _platform_setup_required(exc: Exception) -> bool:
+    import stripe
+
+    body = getattr(exc, "json_body", None)
+    error = body.get("error") if isinstance(body, dict) else None
+    return bool(
+        isinstance(exc, stripe.InvalidRequestError)
+        and getattr(exc, "http_status", None) == 400
+        and isinstance(error, dict)
+        and error.get("type") == "invalid_request_error"
+        and isinstance(error.get("message"), str)
+        and error["message"].startswith(
+            "You must complete your platform profile to use Connect and create live connected "
+            "accounts."
+        )
+    )
+
+
+def _log_provider_error(operation: str, exc: Exception) -> None:
+    """Retain diagnosable provider references without logging financial details."""
+    code = getattr(exc, "code", None)
+    request_id = getattr(exc, "request_id", None)
+    logger.warning(
+        "pkm_payout.%s_failed type=%s code=%s request_id=%s",
+        operation,
+        type(exc).__name__,
+        code if isinstance(code, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", code) else "none",
+        request_id
+        if isinstance(request_id, str) and re.fullmatch(r"req_[A-Za-z0-9_]{1,100}", request_id)
+        else "none",
     )
 
 
@@ -226,6 +260,7 @@ class PkmPayoutService:
         except Exception as exc:
             if _legacy_account_absent(exc, account_id=legacy[0]["stripe_account_id"], mode=mode):
                 return None
+            _log_provider_error("legacy_account_retrieve", exc)
             raise PacketOrderError(
                 "PAYOUT_UNAVAILABLE", "Could not verify payout setup. Please retry."
             ) from None
@@ -286,7 +321,12 @@ class PkmPayoutService:
                     )
                 )
             except Exception as exc:
-                logger.warning("pkm_payout.account_create_failed type=%s", type(exc).__name__)
+                _log_provider_error("account_create", exc)
+                if _platform_setup_required(exc):
+                    raise PacketOrderError(
+                        "PAYOUT_PLATFORM_SETUP_REQUIRED",
+                        "Bank setup is unavailable. Hushh needs to activate payouts.",
+                    ) from None
                 raise PacketOrderError(
                     "PAYOUT_UNAVAILABLE", "Could not start payout setup. Please retry."
                 ) from None
@@ -337,7 +377,7 @@ class PkmPayoutService:
                 )
             )
         except Exception as exc:
-            logger.warning("pkm_payout.account_link_failed type=%s", type(exc).__name__)
+            _log_provider_error("account_link", exc)
             raise PacketOrderError(
                 "PAYOUT_UNAVAILABLE", "Could not start payout setup. Please retry."
             ) from None
@@ -353,7 +393,7 @@ class PkmPayoutService:
                 await asyncio.to_thread(self.stripe_api.Account.retrieve, account_id, api_key=key)
             )
         except Exception as exc:
-            logger.warning("pkm_payout.account_retrieve_failed type=%s", type(exc).__name__)
+            _log_provider_error("account_retrieve", exc)
             raise PacketOrderError(
                 "PAYOUT_UNAVAILABLE", "Could not verify payout setup. Please retry."
             ) from None
@@ -405,14 +445,16 @@ class PkmPayoutService:
             parsed = urlsplit(link.get("url") or "")
             if (
                 parsed.scheme != "https"
-                or parsed.hostname != "connect.stripe.com"
+                or parsed.hostname not in {"connect.stripe.com", "stripe.com"}
+                or not parsed.path.startswith("/express/")
+                or not parsed.path.removeprefix("/express/")
                 or parsed.username
                 or parsed.password
                 or parsed.port
             ):
                 raise ValueError("unexpected payout dashboard")
         except Exception as exc:
-            logger.warning("pkm_payout.dashboard_failed type=%s", type(exc).__name__)
+            _log_provider_error("dashboard", exc)
             raise PacketOrderError(
                 "PAYOUT_UNAVAILABLE", "Couldn't open bank settings. Try again."
             ) from None

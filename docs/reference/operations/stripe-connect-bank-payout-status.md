@@ -30,6 +30,21 @@ legacy mapping for rolling compatibility. Test onboarding never satisfies live
 payout readiness. UAT and production retain separate Cloud SQL instances; do not
 copy payout mappings between them. See the [live UAT rollout](./drive-request-stripe-paywall.md).
 
+A live API key does not prove Connect is activated. Before offering live bank
+setup, finish Stripe Dashboard → Connect → Set up, including any required
+identity verification and final-details review. Stripe can reject account
+creation with “complete your platform profile” even after the platform
+questionnaire is marked complete. The app returns
+`PAYOUT_PLATFORM_SETUP_REQUIRED` and explains that Hussh must activate payouts;
+the owner should not be sent into a repeated bank-setup retry loop. This provider
+prerequisite cannot be repaired by replacing an owner's bank or changing keys.
+
+Legacy sandbox account recovery accepts only Stripe's explicit, account-specific
+test-mode verdict or missing-resource response. Stripe's Python SDK decodes the
+test-mode HTTP 400 as `InvalidRequestError`; transport-level tests cover that
+actual decoding. Authentication, network, and unrelated provider failures must
+never authorize a replacement connected account.
+
 In each Stripe environment, create a **Connected accounts** event destination
 pointing to `POST /api/one/payouts/connect/webhook`. Select `account.updated`,
 `account.external_account.created`, `account.external_account.updated`,
@@ -58,6 +73,12 @@ eligible payout banks. Hussh never accepts account numbers or routing numbers.
 Deleted, non-US, or non-Express accounts cannot receive a management link.
 Restricted Express accounts remain manageable so the owner can fix a failed
 bank or finish verification.
+
+Express login links use either `https://stripe.com/express/...` or
+`https://connect.stripe.com/express/...`. Both backend and frontend accept these
+documented forms while rejecting unrelated hosts, paths, credentials, and
+ports. The link is short-lived; request a fresh link for every visit. Successful
+navigation or a return URL alone does not prove that bank setup is complete.
 
 The platform's Stripe **Connect → Payouts → External accounts** setting controls
 whether owners may keep several banks in one currency (up to ten). Enable
