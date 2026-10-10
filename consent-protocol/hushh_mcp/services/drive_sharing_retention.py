@@ -35,7 +35,13 @@ def _exists(connection, table):
     ).scalar_one()
 
 
-def _erase_private_connector_registrations(connection, *, user_id, permanent):
+def _erase_private_connector_settings(connection, *, user_id, permanent):
+    """Remove owner settings; retain only the existing uncertain-effect fences."""
+    params = {"user": user_id}
+    if _exists(connection, "drive_request_owner_pricing"):
+        connection.execute(
+            text("DELETE FROM drive_request_owner_pricing WHERE user_id=:user"), params
+        )
     # Older schemas contain curated definitions only. Never treat created_by as
     # ownership: an operator's account deletion must not delete the public catalog.
     has_private_registry = connection.execute(
@@ -47,7 +53,6 @@ def _erase_private_connector_registrations(connection, *, user_id, permanent):
     ).scalar_one()
     if not has_private_registry:
         return
-    params = {"user": user_id}
     if permanent:
         # Caller removes credential and OAuth-attempt children first. A foreign
         # owner's unexpected reference must fail the transaction, not be erased.
@@ -442,7 +447,7 @@ def erase_drive_account_in_transaction(connection, *, user_id, permanent, cipher
             text("DELETE FROM external_connector_oauth_attempts WHERE user_id=:user"), params
         )
     if not _exists(connection, "user_external_connector_connections"):
-        _erase_private_connector_registrations(connection, user_id=user_id, permanent=permanent)
+        _erase_private_connector_settings(connection, user_id=user_id, permanent=permanent)
         return
     has_versions = connection.execute(
         text("""
@@ -454,7 +459,7 @@ def erase_drive_account_in_transaction(connection, *, user_id, permanent, cipher
         connection.execute(
             text("DELETE FROM user_external_connector_connections WHERE user_id=:user"), params
         )
-        _erase_private_connector_registrations(connection, user_id=user_id, permanent=permanent)
+        _erase_private_connector_settings(connection, user_id=user_id, permanent=permanent)
         return
     # Reset preserves monotonic counters, not credentials, account labels or
     # selection. Recreating generation 1 could activate a stale callback.
@@ -476,4 +481,4 @@ def erase_drive_account_in_transaction(connection, *, user_id, permanent, cipher
     """),
         params,
     )
-    _erase_private_connector_registrations(connection, user_id=user_id, permanent=permanent)
+    _erase_private_connector_settings(connection, user_id=user_id, permanent=permanent)

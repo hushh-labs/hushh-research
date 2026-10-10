@@ -53,7 +53,7 @@ async def test_sandbox_readiness_refuses_actor_origin_mode_and_unbound_pin(
     assert (await ctx.get(path)).json()["schema_head"] == max(e.numeric_version for e in entries)
     async with ctx.pool.acquire() as c:
         await c.execute(
-            "DELETE FROM schema_migrations WHERE filename=$1", "292_consumer_scope_commerce.sql"
+            "DELETE FROM schema_migrations WHERE filename=$1", "296_consumer_scope_commerce.sql"
         )
     assert (await ctx.get(path)).json()["schema_head"] is None
     monkeypatch.setenv("SCOPE_COMMERCE_ENABLED", "false")

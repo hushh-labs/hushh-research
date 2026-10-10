@@ -86,7 +86,7 @@ async def test_postgres_balanced_append_only_with_negative_controls(commerce_db)
         # SQL rollback cannot discard an existing financial obligation.
         with pytest.raises(asyncpg.RaiseError, match="cannot discard"):
             await c.execute(
-                (MIGRATIONS / "rollback" / "292_consumer_scope_commerce.rollback.sql").read_text()
+                (MIGRATIONS / "rollback" / "296_consumer_scope_commerce.rollback.sql").read_text()
             )
         await c.execute("ROLLBACK")
         assert await c.fetchval("SELECT count(*) FROM scope_commerce_journal") > 0
@@ -95,9 +95,9 @@ async def test_postgres_balanced_append_only_with_negative_controls(commerce_db)
 async def test_migration_replay_and_unused_rollback_are_independent(commerce_db):
     _, pool = commerce_db
     async with pool.acquire() as c:
-        await c.execute((MIGRATIONS / "292_consumer_scope_commerce.sql").read_text())
+        await c.execute((MIGRATIONS / "296_consumer_scope_commerce.sql").read_text())
         await c.execute(
-            (MIGRATIONS / "rollback" / "292_consumer_scope_commerce.rollback.sql").read_text()
+            (MIGRATIONS / "rollback" / "296_consumer_scope_commerce.rollback.sql").read_text()
         )
         assert await c.fetchval("SELECT to_regclass('scope_commerce_journal')") is None
         assert await c.fetchval("SELECT to_regclass('pkm_manifests')") is not None

@@ -85,7 +85,7 @@ ERASURE_METHODS = (
 # transaction by AccountService._clear_external_connector_data.
 DRIVE_ERASURE = (
     "hushh_mcp/services/drive_sharing_retention.py",
-    ("erase_drive_account_in_transaction", "_erase_private_connector_registrations"),
+    ("erase_drive_account_in_transaction", "_erase_private_connector_settings"),
 )
 
 _TABLE_CONSTRAINT_HEADS = {"constraint", "primary", "unique", "check", "foreign", "exclude", "like"}

@@ -1061,6 +1061,26 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
+        "drive_request_owner_payouts"
+      ],
+      "id": "drive_request_owner_payouts",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "New eligible paid Drive orders enroll one owner earning. Signed charge, refund, delivery and Stripe fee evidence determine a 3% platform share and one idempotent Connect transfer after confirmed delivery."
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "drive_request_owner_pricing"
+      ],
+      "id": "drive_request_owner_pricing",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "An authenticated document owner sets one whole-dollar USD Drive request price in Profile. Request creation locks the effective price and version on the encrypted request; later edits affect future requests only."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
         "drive_request_payment_orders",
         "drive_request_payment_obligations",
         "drive_request_payment_webhook_events",
@@ -1743,6 +1763,17 @@
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
       "primary_access_path": "Owner-authenticated selection/management and durable connection-first ingestion leases. Atomic versioned publication via drive_ingestion_store.py; no global vector search or client database access."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "stripe_connect_bank_payouts",
+        "stripe_connect_bank_payout_events"
+      ],
+      "id": "stripe_connect_bank_payout_status",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "A separately signed connected-account Stripe webhook deduplicates events, verifies the latest provider state and updates aggregate bank-deposit status. The authenticated owner reads recent deposits through their current connected-account mapping."
     },
     {
       "data_class": "personal_metadata",
@@ -6403,7 +6434,7 @@
     "action_gateway": "c41f69af6c86b012fbb4b659ac9be1dd5c485a188e88e8c410444f2d1de093ac",
     "agent_registry": "39fccd758b05033a07ce46f89e7a36fa006f51e284836264ed72e66ff658428d",
     "cache_manifest": "df8bcd02aa12938a199ba389dccabd3ba0b5173beea69ae5b3e1b640462a8f70",
-    "data_plane": "6e644c0e1ca7b27d46e2f06d8cef0ebc57afc54075987c6503876a2f6380484a",
+    "data_plane": "589972f1c0b202b27e377a73ce41212440c6a9f32b9d5a0df3eabbb20ebf8652",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "db1a56bfbe51b3672a418f3bdfe707f0c4b61d8ba706c7adcfea7e91b81ab336",
     "route_index": "20d422a49c4c98ad150545ad1fde4b442ee8217ce25235fb394de7dd896e13b1",
@@ -6422,6 +6453,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 151,
     "semantic_routes": 17,
-    "table_families": 101
+    "table_families": 104
   }
 }

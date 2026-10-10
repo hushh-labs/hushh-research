@@ -308,6 +308,7 @@ tests/test_market_advisory_lock_connection.py
 # Keep the route machine code, Firebase classification, durable cleanup intent,
 # and migration-level resurrection guard in every backend and merge-queue run.
 tests/test_account_routes.py
+tests/test_account_phone_routes.py
 tests/test_account_legal_acceptance.py
 tests/test_account_legal_acceptance_postgres.py
 tests/test_firebase_auth_split.py

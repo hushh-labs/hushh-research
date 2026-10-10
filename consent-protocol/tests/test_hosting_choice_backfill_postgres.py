@@ -28,8 +28,8 @@ pytestmark = pytest.mark.skipif(find_pg_bin() is None, reason="local PostgreSQL 
 
 MIGRATION = Path(__file__).resolve().parents[1] / "db/migrations/parked/955_one_hosting_choice.sql"
 CONTINUITY = MIGRATION.with_name("958_one_shared_legacy_continuity.sql")
-RELEASE_CHOICE = MIGRATION.parent.parent / "293_one_shared_hosting_choice.sql"
-RELEASE_DOWN = MIGRATION.parent.parent / "rollback/293_one_shared_hosting_choice.rollback.sql"
+RELEASE_CHOICE = MIGRATION.parent.parent / "297_one_shared_hosting_choice.sql"
+RELEASE_DOWN = MIGRATION.parent.parent / "rollback/297_one_shared_hosting_choice.rollback.sql"
 
 #: The minimum neighbours 955 reads; columns match migrations 029, 900, 906 and 909.
 _SCHEMA = """

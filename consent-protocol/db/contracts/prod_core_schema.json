@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 295,
+  "expected_migration_version": 298,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -61,6 +61,8 @@
     "reconcile_legacy_push_owner",
     "erase_tombstoned_push_registrations",
     "restore_legacy_push_projection",
+    "preserve_drive_owner_delivery_basis",
+    "preserve_drive_request_owner_payout",
     "scope_commerce_immutable",
     "scope_commerce_balanced",
     "scope_commerce_posting_admission",
@@ -909,6 +911,51 @@
       "created_at",
       "updated_at"
     ],
+    "drive_request_owner_payouts": [
+      "request_id",
+      "gross_amount_cents",
+      "currency",
+      "commission_bps",
+      "status",
+      "expected_files",
+      "confirmed_files",
+      "retained_amount_cents",
+      "refund_amount_cents",
+      "platform_fee_cents",
+      "actual_processing_fee_cents",
+      "allocated_processing_fee_cents",
+      "owner_earning_cents",
+      "finalized_at",
+      "stripe_payment_intent_id",
+      "stripe_charge_id",
+      "stripe_balance_transaction_id",
+      "destination_account_id",
+      "stripe_transfer_id",
+      "transfer_attempt_id",
+      "first_dispatch_at",
+      "lease_expires_at",
+      "next_check_at",
+      "transferred_at",
+      "reversal_amount_cents",
+      "stripe_reversal_id",
+      "reversal_attempt_id",
+      "reversal_first_dispatch_at",
+      "reversal_lease_expires_at",
+      "reversed_at",
+      "erased_at",
+      "eligible_at_erasure",
+      "safe_error_code",
+      "created_at",
+      "updated_at"
+    ],
+    "drive_request_owner_pricing": [
+      "user_id",
+      "enabled",
+      "amount_cents",
+      "version",
+      "created_at",
+      "updated_at"
+    ],
     "drive_request_payment_obligations": [
       "request_id",
       "payer_ref",
@@ -955,7 +1002,8 @@
       "next_check_at",
       "safe_error_code",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "amount_cents"
     ],
     "drive_request_payment_webhook_events": [
       "stripe_event_id",
@@ -1049,7 +1097,9 @@
       "updated_at",
       "expires_at",
       "access_stop_requested_at",
-      "owner_allowed_at"
+      "owner_allowed_at",
+      "quoted_amount_cents",
+      "quote_version"
     ],
     "drive_share_reviews": [
       "request_id",
@@ -2719,6 +2769,27 @@
       "country",
       "livemode",
       "status",
+      "created_at",
+      "updated_at"
+    ],
+    "stripe_connect_bank_payout_events": [
+      "stripe_event_id",
+      "stripe_account_id",
+      "event_type",
+      "stripe_object_id",
+      "livemode",
+      "processed_at"
+    ],
+    "stripe_connect_bank_payouts": [
+      "stripe_payout_id",
+      "stripe_account_id",
+      "livemode",
+      "amount_cents",
+      "currency",
+      "status",
+      "status_rank",
+      "expected_arrival_at",
+      "failure_code",
       "created_at",
       "updated_at"
     ],

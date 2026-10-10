@@ -77,7 +77,7 @@ authored manifest.
 ## Shared-dev compatibility deferral — 2026-10-09
 
 Main's canonical migration 249 is destructive chat-history cleanup. This branch
-previously used that number for a public-profile bridge, now registered as 294.
+previously used that number for a public-profile bridge, now registered as 298.
 Shared-dev runs **replay**, which ignores ledger/baseline coverage and records no
 release receipts. Synchronizing the canonical SQL must not trigger another
 history cutover during an ordinary application deployment.

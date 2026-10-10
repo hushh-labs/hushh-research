@@ -15,7 +15,7 @@ from pathlib import Path
 from generate_location_onboarding_runtime_schema_contracts import table_columns
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION_NAME = "292_consumer_scope_commerce.sql"
+MIGRATION_NAME = "296_consumer_scope_commerce.sql"
 MANIFEST_PATH = ROOT / "db" / "release_migration_manifest.json"
 CONTRACT_LANES = {
     "prod_core_schema.json": "base",

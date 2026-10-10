@@ -1760,6 +1760,52 @@
       "plaintext_posture": "opaque_source_device_and_recipient_delivery_metadata",
       "expected_row_growth": "one_outbox_per_direct_message_and_one_acceptance_per_recipient_installation",
       "trust_boundary": "Verified recipient, active connection/current Circle membership, block/mute/read/deletion checks, installation owner/key lifecycle fences. No plaintext message or avatar persists in these tables."
+    },
+    {
+      "id": "drive_request_owner_pricing",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "drive_request_owner_pricing"
+      ],
+      "primary_access_path": "An authenticated document owner sets one whole-dollar USD Drive request price in Profile. Request creation locks the effective price and version on the encrypted request; later edits affect future requests only.",
+      "retention_policy": "One active preference row per owner while the account exists. The default price applies when no custom preference is enabled.",
+      "deletion_behavior": "Account reset and erasure remove the preference row. Existing payment obligations retain their original quoted amount without the profile setting.",
+      "trust_boundary": "Only the authenticated owner may read or change the preference. Server-side quote/version checks bind the requester to the price at request creation.",
+      "plaintext_posture": "owner_reference_and_bounded_price_only",
+      "expected_row_growth": "one_per_owner"
+    },
+    {
+      "id": "drive_request_owner_payouts",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "drive_request_owner_payouts"
+      ],
+      "primary_access_path": "New eligible paid Drive orders enroll one owner earning. Signed charge, refund, delivery and Stripe fee evidence determine a 3% platform share and one idempotent Connect transfer after confirmed delivery.",
+      "retention_policy": "Retain unsettled earnings and transfer or reversal evidence through financial reconciliation under the merchant retention policy. Historical orders are not backfilled.",
+      "deletion_behavior": "Account erasure removes live identity joins but retains the opaque obligation and provider settlement identifiers until any earned share, refund or reversal is resolved.",
+      "trust_boundary": "No document name, search term, bank number or user ID is stored in the retained payout row. Stripe account IDs and charge or transfer IDs remain restricted to service-role settlement paths.",
+      "plaintext_posture": "opaque_financial_identifiers_amounts_and_status_only",
+      "expected_row_growth": "one_per_new_eligible_paid_request"
+    },
+    {
+      "id": "stripe_connect_bank_payout_status",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "stripe_connect_bank_payouts",
+        "stripe_connect_bank_payout_events"
+      ],
+      "primary_access_path": "A separately signed connected-account Stripe webhook deduplicates events, verifies the latest provider state and updates aggregate bank-deposit status. The authenticated owner reads recent deposits through their current connected-account mapping.",
+      "retention_policy": "Provider payout and event receipts support settlement, reversal and duplicate-event reconciliation under the merchant retention policy.",
+      "deletion_behavior": "Deleting the owner's connected-account mapping removes their app access to these account-keyed financial receipts; any retained provider evidence remains restricted to settlement operators.",
+      "trust_boundary": "Only Stripe Connect account and payout IDs, amount, status, mode, failure code and timestamps are stored. No bank details or document request ID are present; a deposit may combine several earnings.",
+      "plaintext_posture": "provider_financial_identifiers_and_aggregate_status_only",
+      "expected_row_growth": "one_per_provider_bank_payout_plus_signed_event_receipts"
     }
   ]
 }

@@ -65,7 +65,7 @@ consent flow; missing pricing means free and still requires approval.
   starts, unused-time refunds retain actual nonreturned processing costs against
   consumer earnings.
 
-The [migration](../../db/migrations/292_consumer_scope_commerce.sql) owns tariff,
+The [migration](../../db/migrations/296_consumer_scope_commerce.sql) owns tariff,
 quote, purchase, wallet, funding-lot, reservation, immutable journal/posting,
 provider-operation and financial-obligation tables. These are financial/workflow
 metadata, not another PKM store. SQLite/offline behavior is not accounting proof.
@@ -382,7 +382,7 @@ Pause new admission with `SCOPE_COMMERCE_ENABLED=false` and
 `SCOPE_COMMERCE_PROVIDER_ENABLED=false`, while retaining account/country/cost,
 OIDC drain policy and provider secrets so refunds/payouts/recovery can finish. Account
 returns `managed_balances` and retains existing funds controls during rollback.
-[Schema rollback](../../db/migrations/rollback/292_consumer_scope_commerce.rollback.sql)
+[Schema rollback](../../db/migrations/rollback/296_consumer_scope_commerce.rollback.sql)
 refuses to discard posted journals, obligations or provider operations; after
 financial use, preserve the schema and roll back compatible application behavior.
 
@@ -2025,8 +2025,9 @@ API; missing or malformed metadata refuses review, and active recipients require
 confirmation. The existing save flow still encrypts locally and rechecks sharing.
 
 Focused source checks passed 61 frontend and 102 backend tests plus TypeScript.
-The source-bound core, hosted CI and deployment of this private Memory extension
-remain to be completed. The preceding exact-source
+The source-bound core passed for private Memory commit
+`41e84409801d250085f812d4b2fc9c8e0de1611e`; hosted CI and deployment of that
+extension remain to be completed. The preceding exact-source
 [CI 38006822318](https://github.com/hushh-labs/hushh-research/actions/runs/38006822318)
 passed, including browser, iOS and Android checks, at
 `6e1f53e4a2c7d0fd8a70fdc0bd2357f6038c1315`. Its later warm navigation changes
@@ -2035,3 +2036,70 @@ Publishing a pod image does not update an existing owner's pod: installation and
 owner admission must be verified separately through the existing update workflow.
 Reviewer encrypted fixtures, financial acceptance, authenticated Stripe MCP reads
 and current-source migration-baseline qualification remain incomplete.
+
+### Release registration reconciliation — 2026-10-09
+
+Upstream `33957f22` publishes Drive migrations 292–294. The earlier shared Dev
+source `2349b160` used those identifiers for different scope-commerce, hosting
+choice and public-profile SQL. Authenticated readbacks found Dev's 59 parked
+receipts, zero UAT release receipts and no production migration ledger. No
+surviving environment had accepted a conflicting registration or baseline prefix.
+These observations authorize no database write and do not establish a baseline.
+
+The source correction retains upstream Drive 292–294 and environment enrollment
+295. The unchanged scope-commerce, hosting-choice and profile-bridge SQL and
+rollback bodies are registered as 296–298. The exact earlier Dev manifest and
+292–294 bodies are retained under
+[`db/legacy/scope-commerce-dev-2349b160`](../../db/legacy/scope-commerce-dev-2349b160/release_migration_manifest.json).
+Accepted parked receipts, the 249 compatibility deferral and the 056/057
+preservation guards remain unchanged. Release-schema projections and filename
+consumers advance together; the information-model contract includes upstream's
+Drive families. Drive's separate economics do not change scope commerce's zero
+commission or consent contracts.
+
+The release-contract check and static information-model audit pass at head 298,
+with no unclassified tables. Combined-source CI, restored-database rehearsal,
+deployment and preservation qualification remain required. Imported Drive
+migration 293 intentionally leaves its historical locked-quote constraint
+`NOT VALID`; qualification must preserve that authored state. The absent 227
+rollback file predates this correction in both upstream and the earlier Dev
+manifest and is a separate governance issue.
+
+The counterpart's recorded Azure placement matches an accessible subscription
+and resource group. The primary has no placement or setup record. Test-phone
+specification alone does not prove Dev phone admission or Azure owner OAuth.
+
+### Owner-bound Dev phone rehearsal — 2026-10-09
+
+The designated primary reviewer can use the existing authenticated phone UI
+with a temporary, separately stored recorded transport. Its configuration is
+restricted to the exact Dev origin, deployment lane/source, approved test
+Sandbox and independently configured reviewer pair. Owner-bound challenges
+expire after ten minutes and invalidate after configuration rotation; the lane
+itself expires within 24 hours. The canonical actor identity service records the
+claim. Global Firebase phone registration and the unrelated default reviewer
+remain unchanged. See [IAM rollout policy](../../../docs/reference/iam/rollout-and-environments.md).
+
+The 45 focused account phone tests passed, including wrong-owner, wrong-phone,
+wrong-code, expired/rotated proof and production/deployment fencing checks.
+Source verification does not establish deployed phone enrollment, owner Azure
+OAuth or any financial receipt. Those remain acceptance steps after the combined
+candidate passes core and hosted CI.
+
+The registration reconciliation passed 82 focused migration checks and an
+isolated restore/suffix rehearsal of the retained checksummed backup. Original
+columns, financial records and migration receipts were preserved; the historical
+Drive quote constraint remains deliberately `NOT VALID`. A second suffix replay
+produced exact catalog/record parity, and the disposable container was removed.
+This does not authorize a fresh shared-Dev baseline.
+
+The combined core run exposed missing erasure for the imported Drive owner-price
+settings. The existing connector-settings cleanup now deletes that owner's
+pricing within the existing account transaction and preserves other owners and
+durable financial obligations. The 28 focused erasure checks passed, including a
+real PostgreSQL owner-isolation regression. Existing advisory erasure-inventory
+warnings remain separately visible; no erasure or verification gate was relaxed.
+Both reviewers still have zero scope-commerce funding, purchase and payout
+records. The task-owned recovery container was gracefully stopped and removed
+after verification of the retained backup checksum; this cleanup did not change
+the cloud database or establish a baseline.

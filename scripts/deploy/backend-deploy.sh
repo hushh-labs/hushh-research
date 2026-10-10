@@ -263,6 +263,9 @@ append_optional_secret "${_HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET_SECRET}" "HUSH
 append_optional_secret "${_REVIEWER_UID_SECRET}" "REVIEWER_UID"
 append_optional_secret "${_REVIEWER_VAULT_PASSPHRASE_SECRET}" "REVIEWER_VAULT_PASSPHRASE"
 if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
+  # Temporary owner-bound reviewer phone transport. No UAT/production binding;
+  # absent or expired configuration fails closed in the application.
+  append_optional_secret HUSHH_DEV_REVIEWER_PHONE_TEST_CONFIG_JSON HUSHH_DEV_REVIEWER_PHONE_TEST_CONFIG_JSON
   append_optional_secret REVIEWER_COUNTERPART_UID REVIEWER_COUNTERPART_UID
   append_optional_secret REVIEWER_COUNTERPART_VAULT_PASSPHRASE REVIEWER_COUNTERPART_VAULT_PASSPHRASE
 fi

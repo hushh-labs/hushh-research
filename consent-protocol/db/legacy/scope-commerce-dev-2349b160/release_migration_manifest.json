@@ -263,13 +263,10 @@
     "289_one_referral_program_settings_v2.sql",
     "290_chat_push_delivery.sql",
     "291_drive_request_owner_allowed.sql",
-    "292_drive_request_owner_payouts.sql",
-    "293_drive_request_owner_pricing.sql",
-    "294_drive_request_bank_payout_events.sql",
-    "295_vault_environment_enrollment.sql",
-    "296_consumer_scope_commerce.sql",
-    "297_one_shared_hosting_choice.sql",
-    "298_public_profile_bridge.sql"
+    "292_consumer_scope_commerce.sql",
+    "293_one_shared_hosting_choice.sql",
+    "294_public_profile_bridge.sql",
+    "295_vault_environment_enrollment.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -555,12 +552,9 @@
     "288_drive_request_feed_stream.sql": "rollback/288_drive_request_feed_stream.rollback.sql",
     "290_chat_push_delivery.sql": "rollback/290_chat_push_delivery.rollback.sql",
     "291_drive_request_owner_allowed.sql": "rollback/291_drive_request_owner_allowed.rollback.sql",
-    "295_vault_environment_enrollment.sql": "rollback/295_vault_environment_enrollment.rollback.sql",
-    "296_consumer_scope_commerce.sql": "rollback/296_consumer_scope_commerce.rollback.sql",
-    "297_one_shared_hosting_choice.sql": "rollback/297_one_shared_hosting_choice.rollback.sql",
-    "298_public_profile_bridge.sql": "rollback/298_public_profile_bridge.rollback.sql",
-    "292_drive_request_owner_payouts.sql": "rollback/292_drive_request_owner_payouts.rollback.sql",
-    "293_drive_request_owner_pricing.sql": "rollback/293_drive_request_owner_pricing.rollback.sql",
-    "294_drive_request_bank_payout_events.sql": "rollback/294_drive_request_bank_payout_events.rollback.sql"
+    "294_public_profile_bridge.sql": "rollback/294_public_profile_bridge.rollback.sql",
+    "292_consumer_scope_commerce.sql": "rollback/292_consumer_scope_commerce.rollback.sql",
+    "293_one_shared_hosting_choice.sql": "rollback/293_one_shared_hosting_choice.rollback.sql",
+    "295_vault_environment_enrollment.sql": "rollback/295_vault_environment_enrollment.rollback.sql"
   }
 }
