@@ -98,6 +98,7 @@ describe("ReferralDashboardPage", () => {
       ],
     });
     await act(async () => { render(<ReferralDashboardPage />); });
+    fireEvent.click(screen.getByRole("tab", { name: "Rewards" }));
     expect(await screen.findByText("Rewards policy unavailable")).toBeInTheDocument();
     expect(screen.queryByText("Current program reward")).toBeNull();
     expect(screen.queryByText("42 referrals")).toBeNull();
@@ -156,6 +157,7 @@ describe("ReferralDashboardPage", () => {
     });
     render(<ReferralDashboardPage />);
     await screen.findByText("Weekly challenge ends in");
+    fireEvent.click(screen.getByRole("tab", { name: "Rewards" }));
     expect(within(screen.getByRole("region", { name: "Rewards" })).getAllByRole("heading", { level: 4 })).toHaveLength(4);
     if (title && threshold) {
       expect(screen.getByRole("heading", { level: 3, name: title })).toBeInTheDocument();
@@ -211,7 +213,7 @@ describe("ReferralDashboardPage", () => {
     mocks.hasSeenReferralIntroduction.mockResolvedValue(false);
     const { container } = render(<div data-app-scroll-root="true"><ReferralDashboardPage /></div>);
     const scrollRoot = container.firstElementChild as HTMLElement;
-    expect(await screen.findByRole("heading", { name: "Life’s better. Together." })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Life’s better together." })).toBeInTheDocument();
     expect(mocks.getSummary).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: action }));
     expect(await screen.findByText("2,450")).toBeInTheDocument();
@@ -220,7 +222,7 @@ describe("ReferralDashboardPage", () => {
     scrollRoot.scrollTop = 1000;
     fireEvent.click(screen.getByRole("button", { name: "View welcome screen" }));
     expect(scrollRoot.scrollTop).toBe(0);
-    expect(screen.getByRole("heading", { name: "Life’s better. Together." })).toHaveFocus();
+    expect(screen.getByRole("heading", { name: "Life’s better together." })).toHaveFocus();
     expect(mocks.markReferralIntroductionSeen).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Back to One home" }));
     expect(mocks.push).toHaveBeenCalledWith("/one");
@@ -234,7 +236,7 @@ describe("ReferralDashboardPage", () => {
     const view = render(<ReferralDashboardPage />);
     currentUser = { uid: "user-b", getIdToken: mocks.getIdToken };
     view.rerender(<ReferralDashboardPage />);
-    expect(await screen.findByRole("heading", { name: "Life’s better. Together." })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Life’s better together." })).toBeInTheDocument();
     await act(async () => { resolvePreviousOwner(true); });
     expect(screen.getByRole("button", { name: "Go to my dashboard" })).toBeInTheDocument();
     expect(mocks.getSummary).not.toHaveBeenCalled();
