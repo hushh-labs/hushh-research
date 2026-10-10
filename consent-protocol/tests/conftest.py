@@ -51,6 +51,23 @@ def shared_pending_store(monkeypatch: pytest.MonkeyPatch):
     return install_fake_pending_store(monkeypatch)
 
 
+@pytest.fixture
+def shared_hub_owner(monkeypatch: pytest.MonkeyPatch):
+    """Explicit Shared placement for isolated connector execution fixtures.
+
+    Keep the real admission guard. Boundary tests can change this resolver to
+    private/unknown; unrelated fake stores must not accidentally hit a real DB.
+    """
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services import owner_placement_guard
+
+    resolver = AsyncMock(return_value="shared")
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", resolver)
+    monkeypatch.setattr(owner_placement_guard, "pod_mode", lambda: False)
+    return resolver
+
+
 @pytest.fixture(autouse=True)
 def isolate_runtime_env(monkeypatch: pytest.MonkeyPatch):
     # Local import: hushh_mcp.config resolves APP_SIGNING_KEY at import time,

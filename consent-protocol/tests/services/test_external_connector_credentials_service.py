@@ -54,7 +54,7 @@ class _FakeConnectionsDb:
 
 
 @pytest.fixture(autouse=True)
-def _credential_key(monkeypatch: pytest.MonkeyPatch) -> None:
+def _credential_key(shared_hub_owner, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EXTERNAL_CONNECTOR_CREDENTIAL_KEY", _TEST_KEY)
 
 
@@ -185,3 +185,251 @@ def test_v2_rejects_owner_connector_generation_version_or_expiry_substitution(fi
         row[field] = value
     with pytest.raises(ExternalConnectorCredentialError, match="needs reauthorization"):
         service.open_credential(**context, row=row)
+
+
+@pytest.mark.asyncio
+async def test_private_credentials_refuse_before_storage_or_opening(shared_hub_owner, monkeypatch):
+    from unittest.mock import Mock
+
+    from fastapi import HTTPException
+
+    db = _FakeConnectionsDb()
+    service = ExternalConnectorCredentialsService(db=db)
+    await service.store_credential(
+        user_id="owner", connector_id="notion", secret={"apiKey": "synthetic"}
+    )
+    previous = dict(db.rows)
+    shared_hub_owner.return_value = "byoc"
+    opening = Mock(side_effect=AssertionError("Private credential must remain sealed"))
+    monkeypatch.setattr(service, "open_credential", opening)
+    with pytest.raises(HTTPException) as error:
+        await service.get_credential(user_id="owner", connector_id="notion")
+    assert error.value.status_code == 409
+    with pytest.raises(HTTPException):
+        await service.store_credential(
+            user_id="owner", connector_id="notion", secret={"apiKey": "replacement"}
+        )
+    assert db.rows == previous
+    assert (await service.status(user_id="owner", connector_id="notion"))["accountLabel"] is None
+    opening.assert_not_called()
+    assert (await service.disconnect(user_id="owner", connector_id="notion"))["status"] == "revoked"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("boundary", ["fetch", "publish"])
+async def test_ingestion_placement_change_blocks_processing_and_publication(
+    shared_hub_owner, boundary
+):
+    from unittest.mock import AsyncMock, Mock
+
+    from hushh_mcp.services.drive_ingestion_service import DriveIngestionService
+    from hushh_mcp.services.google_drive_adapter import DriveContent, DriveMetadata
+
+    metadata = DriveMetadata(
+        "synthetic", "synthetic", "text/plain", "1", "2026-10-10T00:00:00Z", 4, None
+    )
+    job = {"user_id": "owner", "connection_generation": 1}
+
+    async def changed(value):
+        shared_hub_owner.return_value = "byoc"
+        return value
+
+    store = SimpleNamespace(
+        claim=AsyncMock(return_value=job),
+        current=AsyncMock(),
+        stage=AsyncMock(),
+        fail=AsyncMock(),
+        publish=AsyncMock(),
+        cipher=SimpleNamespace(open=lambda _: {"file_id": "synthetic"}),
+    )
+    processor = SimpleNamespace(prepare=AsyncMock(return_value=SimpleNamespace(validate=Mock())))
+    adapter = SimpleNamespace(
+        fetch_content=AsyncMock(return_value=DriveContent(metadata, "text/plain", b"test")),
+        get_metadata=AsyncMock(return_value=metadata),
+    )
+
+    async def changed_fetch(**_):
+        return await changed(DriveContent(metadata, "text/plain", b"test"))
+
+    async def changed_metadata(**_):
+        return await changed(metadata)
+
+    if boundary == "fetch":
+        adapter.fetch_content.side_effect = changed_fetch
+    else:
+        adapter.get_metadata.side_effect = changed_metadata
+    oauth = SimpleNamespace(
+        lifecycle=SimpleNamespace(read=AsyncMock(return_value={"connection_generation": 1})),
+        current_credential=AsyncMock(
+            return_value=({"connection_generation": 1}, {"accessToken": "synthetic"})
+        ),
+    )
+    result = await DriveIngestionService(
+        processor=processor, store=store, adapter=adapter, oauth=oauth
+    ).run_one(user_id="owner")
+    assert result == {"status": "not_ready"}
+    store.publish.assert_not_awaited()
+    assert processor.prepare.await_count == (0 if boundary == "fetch" else 1)
+
+
+@pytest.mark.asyncio
+async def test_picker_pending_rechecks_after_storage_before_opening(shared_hub_owner, monkeypatch):
+    from unittest.mock import AsyncMock, Mock
+
+    from fastapi import HTTPException
+
+    from hushh_mcp.services.drive_native_picker_service import DriveNativePickerService
+
+    async def pending(**_):
+        shared_hub_owner.return_value = "byoc"
+        return {"attempt_id": "synthetic"}
+
+    picker = DriveNativePickerService(
+        oauth=SimpleNamespace(),
+        store=SimpleNamespace(pending=AsyncMock(side_effect=pending)),
+        adapter=SimpleNamespace(),
+        selection=SimpleNamespace(),
+    )
+    opening = Mock(side_effect=AssertionError("must remain sealed"))
+    monkeypatch.setattr(picker, "_open_candidates", opening)
+    with pytest.raises(HTTPException) as refused:
+        await picker.pending(user_id="owner")
+    assert refused.value.status_code == 409
+    opening.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_curated_refresh_join_refuses_changed_placement_before_opening(
+    shared_hub_owner, monkeypatch
+):
+    from unittest.mock import AsyncMock, Mock
+
+    from fastapi import HTTPException
+
+    import hushh_mcp.services.external_connector_curated_oauth as module
+    from hushh_mcp.services.external_connector_curated_oauth import ExternalConnectorCuratedOAuth
+
+    async def read(**_):
+        shared_hub_owner.return_value = "byoc"
+        return {
+            "connection_generation": 1,
+            "status": "connected",
+            "credential_expires_at": datetime.now(UTC) + timedelta(hours=1),
+        }
+
+    monkeypatch.setattr(module.asyncio, "sleep", AsyncMock())
+    opening = Mock(side_effect=AssertionError("must remain sealed"))
+    service = ExternalConnectorCuratedOAuth(
+        registry=SimpleNamespace(),
+        credentials=SimpleNamespace(open_credential=opening),
+        lifecycle=SimpleNamespace(read=AsyncMock(side_effect=read)),
+        state_codec=SimpleNamespace(),
+    )
+    with pytest.raises(HTTPException) as refused:
+        await service._await_concurrent_refresh(
+            user_id="owner", connector_id="synthetic", generation=1, client_id="synthetic"
+        )
+    assert refused.value.status_code == 409
+    opening.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cleanup", [False, True])
+async def test_google_refresh_dispatch_refuses_private_execution_but_preserves_cleanup(
+    shared_hub_owner, cleanup
+):
+    from unittest.mock import AsyncMock, Mock
+
+    from fastapi import HTTPException
+
+    from hushh_mcp.services.google_connector_credential_execution import _refresh
+
+    async def claim(**_):
+        shared_hub_owner.return_value = "byoc"
+        return True
+
+    row = {"connection_generation": 1, "credential_version": 1, "status": "connected"}
+    service = SimpleNamespace(
+        lifecycle=SimpleNamespace(
+            claim_refresh=AsyncMock(side_effect=claim),
+            settle_refresh=AsyncMock(return_value=True),
+            read=AsyncMock(return_value=row),
+        ),
+        _post=AsyncMock(return_value={}),
+        _token_fields=Mock(
+            return_value={"expiresAt": (datetime.now(UTC) + timedelta(hours=1)).isoformat()}
+        ),
+        credentials=SimpleNamespace(
+            seal_credential=Mock(return_value={}),
+            open_credential=Mock(return_value={"accessToken": "synthetic"}),
+        ),
+    )
+    call = _refresh(
+        service,
+        user_id="owner",
+        row=row,
+        credential={"refreshToken": "synthetic"},
+        profile="selected",
+        client_id="synthetic",
+        client_secret="synthetic",  # noqa: S106 -- synthetic fixture
+        cleanup=cleanup,
+    )
+    if cleanup:
+        assert (await call)[0] == row
+        service._post.assert_awaited_once()
+    else:
+        with pytest.raises(HTTPException) as refused:
+            await call
+        assert refused.value.status_code == 409
+        service._post.assert_not_awaited()
+        service.credentials.seal_credential.assert_not_called()
+    service.lifecycle.settle_refresh.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["google", "curated"])
+async def test_code_exchange_rechecks_placement_after_configuration(
+    shared_hub_owner, monkeypatch, provider
+):
+    from unittest.mock import AsyncMock, Mock
+
+    from fastapi import HTTPException
+
+    from hushh_mcp.services import external_connector_google_oauth as google
+    from hushh_mcp.services.external_connector_curated_oauth import ExternalConnectorCuratedOAuth
+
+    credentials = SimpleNamespace(
+        decrypt_secret=Mock(side_effect=AssertionError("must remain sealed"))
+    )
+    codec = SimpleNamespace(_verify_state=lambda _: "synthetic")
+    lifecycle = SimpleNamespace(
+        claim_attempt=AsyncMock(return_value={"user_id": "owner", "connector_id": "google_drive"})
+    )
+    if provider == "google":
+        service = google.ExternalConnectorGoogleOAuth(
+            db=SimpleNamespace(),
+            registry=SimpleNamespace(),
+            credentials=credentials,
+            state_codec=codec,
+            lifecycle=lifecycle,
+        )
+        monkeypatch.setattr(google, "connector_feature_enabled", lambda *_: True)
+    else:
+        service = ExternalConnectorCuratedOAuth(
+            registry=SimpleNamespace(),
+            credentials=credentials,
+            state_codec=codec,
+            lifecycle=lifecycle,
+        )
+
+    async def configuration(*_):
+        shared_hub_owner.return_value = "byoc"
+        return SimpleNamespace(), "synthetic", "synthetic"
+
+    service._configuration = AsyncMock(side_effect=configuration)
+    service._post = AsyncMock()
+    with pytest.raises(HTTPException) as refused:
+        await service._exchange(state="synthetic", code="synthetic", owner="owner")
+    assert refused.value.status_code == 409
+    service._post.assert_not_awaited()
+    credentials.decrypt_secret.assert_not_called()

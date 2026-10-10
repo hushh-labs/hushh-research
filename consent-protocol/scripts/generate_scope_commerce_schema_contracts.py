@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Derive paid-scope database readiness contracts from the registered scope-commerce migration.
+"""Derive paid-scope and placement readiness contracts from their registered SQL owners.
 
 SQL owns table shape; the release manifest owns environment heads. Preserve
 other owned projections and reject schema drift with ``--check``.
@@ -36,6 +36,10 @@ def expected_contracts() -> dict[Path, dict]:
     if not tables or len(tables) != len(set(tables)):
         raise ValueError("Invalid scope commerce table declarations")
     projections = table_columns(migration, table_names=tables)
+    placement = (ROOT / "db/migrations/299_one_placement_reader_foundation.sql").read_text()
+    placement_projections = table_columns(
+        placement, table_names=("personal_agent_registry", "byoc_setup_jobs")
+    )
     functions = re.findall(
         r"\bCREATE\s+OR\s+REPLACE\s+FUNCTION\s+(scope_commerce_\w+)\s*\(",
         migration,
@@ -62,6 +66,19 @@ def expected_contracts() -> dict[Path, dict]:
             if not name.startswith("scope_commerce_")
         }
         payload["required_tables"] = dict(sorted({**preserved, **projections}.items()))
+        for table, columns in placement_projections.items():
+            payload["required_tables"][table] = sorted(
+                set(payload["required_tables"].get(table, [])) | set(columns)
+            )
+        vault = payload["required_tables"]["vault_keys"]
+        for column in (
+            "one_hosting_choice",
+            "one_hosting_choice_at",
+            "one_hosting_legacy_shared_at",
+        ):
+            if column not in vault:
+                vault.append(column)
+        payload["required_tables"] = dict(sorted(payload["required_tables"].items()))
         payload["required_functions"] = [
             name for name in payload["required_functions"] if not name.startswith("scope_commerce_")
         ] + functions

@@ -269,7 +269,9 @@
     "295_vault_environment_enrollment.sql",
     "296_consumer_scope_commerce.sql",
     "297_one_shared_hosting_choice.sql",
-    "298_public_profile_bridge.sql"
+    "298_public_profile_bridge.sql",
+    "299_one_placement_reader_foundation.sql",
+    "300_one_legacy_shared_continuity.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -561,6 +563,8 @@
     "298_public_profile_bridge.sql": "rollback/298_public_profile_bridge.rollback.sql",
     "292_drive_request_owner_payouts.sql": "rollback/292_drive_request_owner_payouts.rollback.sql",
     "293_drive_request_owner_pricing.sql": "rollback/293_drive_request_owner_pricing.rollback.sql",
-    "294_drive_request_bank_payout_events.sql": "rollback/294_drive_request_bank_payout_events.rollback.sql"
+    "294_drive_request_bank_payout_events.sql": "rollback/294_drive_request_bank_payout_events.rollback.sql",
+    "299_one_placement_reader_foundation.sql": "rollback/299_one_placement_reader_foundation.rollback.sql",
+    "300_one_legacy_shared_continuity.sql": "rollback/300_one_legacy_shared_continuity.rollback.sql"
   }
 }

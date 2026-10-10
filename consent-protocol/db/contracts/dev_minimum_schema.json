@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 298,
+  "expected_migration_version": 300,
   "migration_version_policy": "minimum",
   "required_functions": [
     "publish_personal_agent_notification_checkpoint",
@@ -177,15 +177,17 @@
       "completed_at"
     ],
     "byoc_setup_jobs": [
-      "user_id",
-      "job_id",
-      "project_id",
-      "status",
-      "stage",
-      "stages",
       "authorization_attempts",
       "created_at",
-      "updated_at"
+      "error_code",
+      "error_message",
+      "job_id",
+      "project_id",
+      "stage",
+      "stages",
+      "status",
+      "updated_at",
+      "user_id"
     ],
     "chat_push_device_deliveries": [
       "event_id",
@@ -1657,15 +1659,31 @@
       "cloud_object_uri"
     ],
     "personal_agent_registry": [
-      "user_id",
-      "status",
-      "deployment_target",
-      "backend",
-      "external_agent_id",
       "a2a_route",
+      "attestation_ref",
+      "backend",
+      "backend_metadata",
+      "created_at",
+      "deployment_target",
+      "external_agent_id",
+      "hushh_id",
+      "model_credential_mode",
+      "phone_e164_hash",
       "pod_key_id",
+      "pod_key_wrapping_alg",
       "pod_pubkey",
-      "backend_metadata"
+      "prompt_version",
+      "provisioned_at",
+      "region",
+      "runtime_version",
+      "space_id",
+      "status",
+      "updated_at",
+      "user_cloud_authorized_at",
+      "user_cloud_bootstrap_sa",
+      "user_cloud_project",
+      "user_cloud_region",
+      "user_id"
     ],
     "pkm_blobs": [
       "user_id",

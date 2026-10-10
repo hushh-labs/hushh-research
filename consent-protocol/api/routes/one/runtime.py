@@ -16,7 +16,11 @@ from pydantic import BaseModel, Field, SecretStr
 
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import RateLimits, limiter
-from api.routes.one.runtime_placement import observe_managed_cloud
+from api.routes.one.runtime_placement import (
+    _require_unassigned_byoc,
+    observe_managed_cloud,
+    require_byoc_setup_enabled,
+)
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.runtime_providers import build_generate_content_config
 from hushh_mcp.runtime_providers.factory import (
@@ -785,34 +789,11 @@ async def _save_byoc_project(
     firebase_uid: str,
     setup_job_id: str | None = None,
 ) -> ByocProjectSaveResponse:
-    """Record WHICH cloud is this person's, and prove hushh can actually reach it.
+    """Record the owner project; this does not provision cloud resources.
 
-    This is the route that ends BYOC's single-tenancy. Until it existed, the target
-    project was `os.getenv("HUSSH_USER_GCP_PROJECT")` -- one value for the whole
-    deployment -- so the second person to choose their own cloud would have had their
-    pod built inside the first person's project.
-
-    IT READS THE GRANT BACK RATHER THAN BELIEVING THE FORM
-
-    A person clicking "I ran the script" is not evidence that they ran it, and the
-    failure that follows a wrong answer is expensive and far away: three steps into
-    provisioning, inside someone else's cloud, with an error naming none of this. So
-    authorization is established the only way it can honestly be established -- by
-    minting a short-lived token against their bootstrap account. `mint_bootstrap_token`
-    fails loudly rather than falling back to hushh's own identity, which is exactly the
-    property being tested here.
-
-    A FAILED PROOF IS NOT AN ERROR
-
-    Naming a cloud before authorizing it is the normal order: a person needs
-    `hushhCaller` from this response *in order to* run the script. So an unauthorized
-    project is recorded (without the proof) and returned 200 with the next step, rather
-    than 4xx. The state "named but not yet authorized" is a real, expected stage of
-    onboarding, and provisioning refuses it later rather than silently falling back to
-    hushh's cloud.
-
-    IT PROVISIONS NOTHING, like its three siblings above.
-    """
+    An unavailable IAM probe leaves authorization pending. Preserve existing
+    assignments and let the recorded setup job retry; never use Hussh custody."""
+    require_byoc_setup_enabled()
     from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
     from hushh_mcp.services.user_gcp_bootstrap import BootstrapError, mint_bootstrap_token
     from hushh_mcp.services.user_gcp_project import validate_project_id
@@ -1001,33 +982,6 @@ class ByocSetupStatusResponse(BaseModel):
     attachBlocked: str | None = None  # typed reason the automatic attach stopped
 
 
-async def _require_unassigned_byoc(user_id: str) -> None:
-    """First-time cloud setup cannot migrate or replace an active owner pod."""
-    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
-
-    try:
-        row = await PersonalAgentRegistryRepo().get(user_id)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "code": "POD_ASSIGNMENT_UNVERIFIED",
-                "message": "Cloud setup could not verify your existing agent.",
-            },
-        ) from exc
-    if row and (
-        row.get("external_agent_id")
-        or row.get("status") in {"provisioning", "connecting", "provisioned"}
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "POD_ASSIGNMENT_PRESERVED",
-                "message": "Your existing pod is preserved. Cloud moves need a separate migration.",
-            },
-        )
-
-
 @router.post("/byoc/authorize/begin", response_model=ByocAuthorizeBeginResponse)
 @limiter.limit(RateLimits.AGENT_CHAT)
 async def begin_byoc_authorize(
@@ -1039,6 +993,7 @@ async def begin_byoc_authorize(
 
     The state is signed, expiring and bound to THIS caller; the grant requested
     is online-only (no refresh token exists to store)."""
+    require_byoc_setup_enabled()
     from api.routes.one.runtime_placement import require_setup_intent
     from hushh_mcp.services import byoc_oauth_authorizer as oauth
     from hushh_mcp.services.user_gcp_project import validate_project_id
@@ -1119,14 +1074,10 @@ async def complete_byoc_authorize(
     body: ByocAuthorizeCompleteRequest,
     firebase_uid: str = Depends(require_firebase_auth),
 ) -> ByocSetupAcceptedResponse:
-    """Everything after the Google consent screen, as an OBSERVABLE JOB.
+    """Exchange one single-use owner grant and start the recorded setup job.
 
-    The single-use OAuth code is burned synchronously, then the in-memory token goes
-    to a background task that runs the chain, one durable stage record per step, and
-    attaches the recorded home (``finish_recorded_setup``). The response is a claim
-    ticket: the status route serves the truth, so the person can leave and come back.
-    One HTTP request lost to three stacked timeouts (measured live 2026-08-21).
-    """
+    The status route owns progress; losing this response must not duplicate setup."""
+    require_byoc_setup_enabled()
     from hushh_mcp.services import byoc_oauth_authorizer as oauth
     from hushh_mcp.services import byoc_setup_job_service as jobs
     from hushh_mcp.services.owner_cloud_attach import finish_recorded_setup
@@ -1232,6 +1183,7 @@ async def retry_byoc_attach(
     firebase_uid: str = Depends(require_firebase_auth),
 ) -> ByocAttachRetryResponse:
     """Run the attach of this person's recorded setup again (``retry_recorded_attach``)."""
+    require_byoc_setup_enabled()
     from hushh_mcp.services.owner_cloud_attach import retry_recorded_attach
 
     return ByocAttachRetryResponse(started=await retry_recorded_attach(firebase_uid))

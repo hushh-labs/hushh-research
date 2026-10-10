@@ -20,7 +20,7 @@ REQUEST_ID = "5d0c7a4e-2f61-4c3b-9a8e-0d51a7e3b001"
 
 
 @pytest.fixture
-def setup(monkeypatch):
+def setup(shared_hub_owner, monkeypatch):
     app = FastAPI()
     app.include_router(routes.router)
     service = SimpleNamespace(
@@ -45,7 +45,7 @@ def setup(monkeypatch):
     current = AsyncMock(return_value={"user_id": "recipient"})
     # FastAPI retains the original dependency; this replaces only the fresh
     # post-await revalidation call, not the initial route admission.
-    monkeypatch.setattr(routes, "require_vault_owner_token", current)
+    monkeypatch.setattr("api.routes.drive_sharing_owner.require_vault_owner_token", current)
     return TestClient(app), app, service, current
 
 

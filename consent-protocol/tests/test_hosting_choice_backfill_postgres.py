@@ -280,3 +280,42 @@ async def test_release_only_first_run_observes_absent_pods_and_records_shared(pg
         assert marks == ["owner"]
     finally:
         engine.dispose()
+
+
+def test_canonical_reader_and_continuity_sequence_preserves_placements_and_replay(pg):
+    foundation = MIGRATION.parent.parent / "299_one_placement_reader_foundation.sql"
+    continuity = MIGRATION.parent.parent / "300_one_legacy_shared_continuity.sql"
+    for uid in ("legacy", "assigned", "pending", "explicit", "unfinished"):
+        _person(pg, uid, json.dumps(["connections"]))
+    pg.execute("UPDATE vault_keys SET setup_completed=TRUE WHERE user_id <> 'unfinished'")
+    pg.execute(
+        "INSERT INTO personal_agent_registry (user_id,deployment_target,backend_metadata) VALUES ('assigned','user_azure','{\"url\":\"retained\"}')"
+    )
+    pg.execute(
+        "ALTER TABLE personal_agent_registry ADD CONSTRAINT retained_azure_target CHECK(deployment_target IS NULL OR deployment_target='user_azure')"
+    )
+    pg.execute("INSERT INTO byoc_setup_jobs (user_id,stage) VALUES ('pending','consent_pending')")
+    pg.apply_file(RELEASE_CHOICE)
+    pg.execute(
+        "UPDATE vault_keys SET one_hosting_choice='shared',one_hosting_choice_at='2026-01-01' WHERE user_id='explicit'"
+    )
+    pg.apply_file(foundation)
+    pg.apply_file(continuity)
+    assert _choices(pg) == {
+        "legacy": "shared",
+        "assigned": None,
+        "pending": None,
+        "explicit": "shared",
+        "unfinished": None,
+    }
+    assert pg.execute(
+        "SELECT deployment_target,backend_metadata->>'url' FROM personal_agent_registry WHERE user_id='assigned'"
+    ) == [("user_azure", "retained")]
+    assert pg.execute(
+        "SELECT count(*) FROM pg_constraint WHERE conname='retained_azure_target'"
+    ) == [(1,)]
+    _person(pg, "later", None)
+    pg.execute("UPDATE vault_keys SET setup_completed=TRUE")
+    pg.apply_file(foundation)
+    pg.apply_file(continuity)
+    assert _choices(pg)["later"] is None and _choices(pg)["unfinished"] is None

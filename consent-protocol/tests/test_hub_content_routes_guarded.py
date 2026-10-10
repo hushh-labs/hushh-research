@@ -17,6 +17,7 @@ pinned at the bottom.
 
 from __future__ import annotations
 
+# ruff: noqa: F811 -- imported owning pytest fixture.
 import inspect
 from collections.abc import Iterator
 from typing import Any
@@ -37,6 +38,9 @@ from api.hub_route_classes import (
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.middlewares.chat_key import require_vault_owner_chat_key
 from hushh_mcp.services import owner_placement_guard as guard
+from tests.test_external_connector_oauth_routes import (
+    route_client,  # noqa: F401 - owning route fixture
+)
 
 OWNER = "owner-byoc-1"
 PLACEHOLDER = "00000000-0000-4000-8000-000000000001"
@@ -447,3 +451,26 @@ async def test_shared_and_anonymous_are_admitted_and_pods_run_their_own(monkeypa
     reader.reset_mock()
     assert await guard.admit_hub_content(OWNER, "test") == "pod_process"
     reader.assert_not_awaited()
+
+
+def test_placement_change_during_document_read_releases_no_names(
+    route_client, monkeypatch, shared_hub_owner
+):
+    from types import SimpleNamespace
+
+    from api.routes import external_connectors as routes
+
+    client, app, _ = route_client
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner"}
+
+    async def documents(**_kwargs):
+        shared_hub_owner.return_value = "byoc"
+        return [{"name": "PRIVATE_SYNTHETIC_NAME"}]
+
+    monkeypatch.setattr(
+        routes, "DriveSelectionService", lambda: SimpleNamespace(documents=documents)
+    )
+    response = client.get("/api/connectors/google_drive/documents")
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "AGENT_PRIVATE_RUNTIME_REQUIRED"
+    assert "PRIVATE_SYNTHETIC_NAME" not in response.text

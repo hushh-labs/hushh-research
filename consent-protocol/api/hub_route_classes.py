@@ -1,4 +1,4 @@
-"""Every hub route under /api/one, /api/kai and /api/pkm, classified exactly once.
+"""Every hub route under /api/one, /api/kai, /api/pkm and /api/connectors, classified exactly once.
 
 The hub is the control plane. A route classified ``CONTENT`` carries an owner's own
 words, records, prompts or provider content in plaintext, so it must admit its caller
@@ -32,7 +32,9 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-HUB_ROUTE_PREFIXES = ("/api/one", "/api/kai", "/api/pkm")
+from api.hub_route_inventory import CONNECTOR_INVENTORY, parse_inventory
+
+HUB_ROUTE_PREFIXES = ("/api/one", "/api/kai", "/api/pkm", "/api/connectors")
 WEBSOCKET = "WS"
 
 
@@ -464,32 +466,10 @@ GET /api/pkm/upgrade/status/{user_id}
 
 
 def _parse(text: str) -> tuple[dict[RouteKey, RouteClass], dict[RouteKey, str]]:
-    classes: dict[RouteKey, RouteClass] = {}
-    pending: dict[RouteKey, str] = {}
-    current: RouteClass | None = None
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        if line.startswith("[") and line.endswith("]"):
-            current = RouteClass(line[1:-1])
-            continue
-        if current is None:
-            raise ValueError(f"route listed before any class: {line}")
-        methods, path, *marker = line.split()
-        for method in methods.split(","):
-            key = (method, path)
-            if key in classes:
-                raise ValueError(f"route classified twice: {method} {path}")
-            classes[key] = current
-            if marker:
-                if current is not RouteClass.CONTENT or not marker[0].startswith("@pending:"):
-                    raise ValueError(f"only a CONTENT route may be pending: {line}")
-                pending[key] = marker[0].removeprefix("@pending:")
-    return classes, pending
+    return parse_inventory(text, RouteClass)
 
 
-ROUTE_CLASSES, CONTENT_GUARD_PENDING = _parse(_INVENTORY)
+ROUTE_CLASSES, CONTENT_GUARD_PENDING = _parse(_INVENTORY + "\n" + CONNECTOR_INVENTORY)
 
 
 def is_hub_route(path: str) -> bool:

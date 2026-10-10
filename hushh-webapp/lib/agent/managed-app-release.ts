@@ -25,7 +25,8 @@ const DEV_RELEASE: ManagedAppRelease = {
 
 export function currentManagedAppRelease(appUrl = process.env.NEXT_PUBLIC_APP_URL): ManagedAppRelease | null {
   try {
-    return new URL(appUrl ?? "").origin === "https://dev.one.hushh.ai" ? DEV_RELEASE : null;
+    const origin = new URL(appUrl ?? "").origin;
+    return ["https://dev.one.hushh.ai", "https://dev.one.hussh.ai"].includes(origin) ? DEV_RELEASE : null;
   } catch {
     return null;
   }

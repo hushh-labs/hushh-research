@@ -121,7 +121,9 @@ async def _agent_record(user_id: str) -> dict:
 
 async def _require_setup_admission(user_id: str) -> dict:
     from api.routes.one.runtime import _require_unassigned_byoc
+    from api.routes.one.runtime_placement import require_byoc_setup_enabled
 
+    require_byoc_setup_enabled()
     await _require_unassigned_byoc(user_id)
     return await _agent_record(user_id)
 

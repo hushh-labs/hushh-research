@@ -18,6 +18,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+def require_byoc_setup_enabled() -> None:
+    """Reader schema availability never authorizes owner-cloud mutations."""
+    from hushh_mcp.runtime_settings import personal_agent_enabled
+
+    if not personal_agent_enabled():
+        raise _refuse(503, "BYOC_UNAVAILABLE", "Cloud setup is not available in this environment.")
+
+
 #: Stage entries ``owner_cloud_attach`` appends to a recorded setup job.
 ATTACH_BLOCKED_STAGE = "attach_blocked"
 ATTACH_STARTED_STAGE = "attach_started"
@@ -148,3 +157,32 @@ def setup_status_fields(row: dict) -> dict[str, Any]:
 
 
 __all__ = ["attach_blocked", "select_shared", "setup_status_fields"]
+
+
+async def _require_unassigned_byoc(user_id: str) -> None:
+    """First-time cloud setup cannot migrate or replace an active owner pod."""
+    from api.routes.one.runtime_placement import require_byoc_setup_enabled
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+
+    require_byoc_setup_enabled()
+    try:
+        row = await PersonalAgentRegistryRepo().get(user_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "POD_ASSIGNMENT_UNVERIFIED",
+                "message": "Cloud setup could not verify your existing agent.",
+            },
+        ) from exc
+    if row and (
+        row.get("external_agent_id")
+        or row.get("status") in {"provisioning", "connecting", "provisioned"}
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "POD_ASSIGNMENT_PRESERVED",
+                "message": "Your existing pod is preserved. Cloud moves need a separate migration.",
+            },
+        )

@@ -12,6 +12,12 @@ from api.middleware import require_firebase_auth
 from api.routes.one import byoc_azure
 from hushh_mcp.services import azure_entra_authorizer as entra
 
+
+@pytest.fixture(autouse=True)
+def enabled_owner_cloud_setup(monkeypatch):
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "true")
+
+
 _UID = "firebase-uid-azure"
 _TENANT = "11111111-1111-1111-1111-111111111111"
 _SUB = "22222222-2222-2222-2222-222222222222"
@@ -419,3 +425,16 @@ def test_begin_preflights_the_exact_digest_it_will_import(spawned, monkeypatch):
     assert _client().post(_BEGIN, json={}).status_code == 200
     registry, repository, digest = seen[0]
     assert f"{registry}/{repository}@{digest}" == _IMAGE
+
+
+def test_flag_off_refuses_setup_before_provider_or_resource_access(spawned, monkeypatch):
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "false")
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("Cloud authorization must not run when rollout is disabled")
+
+    monkeypatch.setattr(byoc_azure, "_authorization_url", forbidden)
+    monkeypatch.setattr(byoc_azure, "_source_image", forbidden)
+    response = _client().post(_BEGIN, json={})
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "BYOC_UNAVAILABLE"

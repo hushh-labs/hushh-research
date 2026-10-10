@@ -176,7 +176,7 @@ def test_private_oauth_rejects_invalid_operator_return(origin, monkeypatch):
 
 
 @pytest.fixture
-def route_client(monkeypatch):
+def route_client(shared_hub_owner, monkeypatch):
     drive = SimpleNamespace(
         connection_available=AsyncMock(return_value=True),
         complete=AsyncMock(return_value={"connectorId": "google_drive", "status": "verifying"}),

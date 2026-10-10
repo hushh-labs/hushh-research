@@ -91,7 +91,9 @@ def _worker(*, permission=None, send_push=None):
 
 
 @pytest.mark.parametrize("disabled", ["drive_document_sharing", "google_drive_chat_reads"])
-def test_rollout_disable_fences_a_new_grant_before_provider_io(monkeypatch, disabled):
+def test_rollout_disable_fences_a_new_grant_before_provider_io(
+    shared_hub_owner, monkeypatch, disabled
+):
     monkeypatch.setattr(
         "hushh_mcp.services.drive_bulk_share_store.connector_feature_enabled",
         lambda feature, user_id: feature != disabled,
@@ -103,7 +105,7 @@ def test_rollout_disable_fences_a_new_grant_before_provider_io(monkeypatch, disa
 
 
 @pytest.mark.asyncio
-async def test_grant_suppresses_google_email_and_records_confirmed_receipt():
+async def test_grant_suppresses_google_email_and_records_confirmed_receipt(shared_hub_owner):
     worker, store, adapter = _worker()
     job = _job()
     job["file"]["resourceKey"] = "synthetic-resource-key"
@@ -118,6 +120,7 @@ async def test_grant_suppresses_google_email_and_records_confirmed_receipt():
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("shared_hub_owner")
 async def test_parallel_files_wait_for_real_oauth_refresh_before_granting(monkeypatch):
     """Replay the production OAuth/ACL path with only persistence and HTTP replaced."""
     worker, store, _ = _worker()
@@ -261,7 +264,7 @@ async def test_parallel_files_wait_for_real_oauth_refresh_before_granting(monkey
     ],
 )
 async def test_refresh_contention_is_bounded_and_only_exact_conflict_retries(
-    monkeypatch, caplog, code, status, retryable, calls, logged_code
+    shared_hub_owner, monkeypatch, caplog, code, status, retryable, calls, logged_code
 ):
     worker, store, adapter = _worker()
     worker.oauth.current_credential.side_effect = google_oauth.DriveOAuthError(
@@ -294,7 +297,9 @@ async def test_refresh_contention_is_bounded_and_only_exact_conflict_retries(
 
 
 @pytest.mark.asyncio
-async def test_authority_change_while_joining_refresh_prevents_further_io(monkeypatch):
+async def test_authority_change_while_joining_refresh_prevents_further_io(
+    shared_hub_owner, monkeypatch
+):
     worker, store, adapter = _worker()
     worker.oauth.current_credential.side_effect = google_oauth.DriveOAuthError(
         "refresh_in_progress", status_code=409
@@ -313,7 +318,7 @@ async def test_authority_change_while_joining_refresh_prevents_further_io(monkey
 
 
 @pytest.mark.asyncio
-async def test_uncertain_post_is_not_retried_and_reconcile_never_posts():
+async def test_uncertain_post_is_not_retried_and_reconcile_never_posts(shared_hub_owner):
     worker, store, adapter = _worker(
         permission=DrivePermissionError("permission_outcome_unknown", outcome_unknown=True)
     )
@@ -339,7 +344,7 @@ async def test_uncertain_post_is_not_retried_and_reconcile_never_posts():
 
 
 @pytest.mark.asyncio
-async def test_summary_push_has_no_file_or_account_identifiers():
+async def test_summary_push_has_no_file_or_account_identifiers(shared_hub_owner):
     calls = []
 
     def send(user_id, **kwargs):

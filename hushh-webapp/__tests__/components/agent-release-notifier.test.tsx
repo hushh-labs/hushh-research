@@ -132,6 +132,11 @@ describe("Release notices", () => {
     expect(screen.getAllByRole("button")).toHaveLength(1);
   });
 
+  it("retains the dev announcement on both audited dev domain aliases", () => {
+    expect(currentManagedAppRelease("https://dev.one.hussh.ai")).toEqual(currentManagedAppRelease("https://dev.one.hushh.ai"));
+    expect(currentManagedAppRelease("https://dev.one.hussh.ai")).not.toBeNull();
+  });
+
   it("does not advertise the dev announcement on UAT, production or an unknown origin", () => {
     for (const url of ["https://uat.one.hushh.ai", "https://one.hushh.ai", "https://dev.one.hushh.ai.attacker.invalid", "broken"]) {
       expect(currentManagedAppRelease(url)).toBeNull();

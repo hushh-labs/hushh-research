@@ -11,6 +11,7 @@ from hushh_mcp.services.connector_feature_admission import connector_feature_ena
 from hushh_mcp.services.drive_document_processor import LocalDocumentProcessor
 from hushh_mcp.services.drive_document_store import PROCESSING_DISCLOSURE_VERSION
 from hushh_mcp.services.drive_ingestion_service import DriveIngestionService
+from hushh_mcp.services.owner_placement_guard import admit_hub_content
 
 
 class DriveDocumentWorker:
@@ -55,6 +56,7 @@ class DriveDocumentWorker:
                         counts["disabled"] += 1
                         continue
                     try:
+                        await admit_hub_content(owner, "drive_document_worker")
                         outcome = await self.service.run_one(user_id=owner)
                         status = outcome.get("status")
                         counts[

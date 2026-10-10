@@ -8,6 +8,12 @@ from fastapi import HTTPException
 
 from api.routes.one import runtime as runtime_route
 
+
+@pytest.fixture(autouse=True)
+def enabled_owner_cloud_setup(monkeypatch):
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "true")
+
+
 _CHECK_UNASSIGNED = runtime_route._require_unassigned_byoc
 
 
@@ -442,3 +448,30 @@ async def test_status_route_keeps_the_job_when_the_registry_is_unreadable(monkey
     }  # fmt: skip
     status = await runtime_route.byoc_setup_status(request=None, firebase_uid="u1")
     assert status.status == "recorded"
+
+
+@pytest.mark.parametrize("surface", ["begin", "complete"])
+async def test_disabled_setup_refuses_before_cloud_or_token_access(monkeypatch, surface):
+    from unittest.mock import Mock
+
+    from hushh_mcp.services import byoc_oauth_authorizer as oauth
+
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "false")
+    touching_cloud = Mock(side_effect=AssertionError("no cloud access while disabled"))
+    monkeypatch.setattr(oauth, "begin", touching_cloud)
+    monkeypatch.setattr(oauth, "verify_state_selection", touching_cloud)
+    body = (
+        runtime_route.ByocAuthorizeBeginRequest(projectId="hussh-one-fresh1")
+        if surface == "begin"
+        else runtime_route.ByocAuthorizeCompleteRequest(code="synthetic", state="synthetic")
+    )
+    handler = (
+        runtime_route.begin_byoc_authorize
+        if surface == "begin"
+        else runtime_route.complete_byoc_authorize
+    )
+    with pytest.raises(HTTPException) as refused:
+        await handler(request=None, body=body, firebase_uid="owner")
+    assert refused.value.status_code == 503
+    assert refused.value.detail["code"] == "BYOC_UNAVAILABLE"
+    touching_cloud.assert_not_called()

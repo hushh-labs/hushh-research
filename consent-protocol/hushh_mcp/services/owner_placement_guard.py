@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
+from functools import partial
 from typing import Any
 
 from fastapi import Depends, HTTPException
@@ -168,3 +169,18 @@ __all__ = [
     "mark_inline_routes",
     "require_vault_owner_chat_key",
 ]
+
+
+async def require_hub_content_current(
+    user_id: str, surface: str, check: Callable[[], Awaitable[Any]]
+) -> None:
+    """Revalidate job authority, then placement immediately before consumption or dispatch."""
+    await check()
+    await admit_hub_content(user_id, surface)
+
+
+def hub_content_check(
+    user_id: str, check: Callable[[], Awaitable[Any]]
+) -> Callable[[], Awaitable[None]]:
+    """Provider adapters share the job and placement check immediately before dispatch."""
+    return partial(require_hub_content_current, user_id, "provider_dispatch", check)

@@ -25,6 +25,11 @@ import pytest
 from api.routes.one import runtime as runtime_routes
 
 
+@pytest.fixture(autouse=True)
+def enabled_owner_cloud_setup(monkeypatch):
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "true")
+
+
 class _FakeRepo:
     """Captures what the route wrote, and whether a row existed at all."""
 

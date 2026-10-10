@@ -741,7 +741,7 @@ async def test_migration_replay_preserves_legacy_api_key_envelope(lifecycle):
 
 
 @pytest.fixture
-def drive(lifecycle, monkeypatch):
+def drive(shared_hub_owner, lifecycle, monkeypatch):
     monkeypatch.setenv(
         "EXTERNAL_CONNECTOR_CREDENTIAL_KEY", base64.urlsafe_b64encode(os.urandom(32)).decode()
     )
