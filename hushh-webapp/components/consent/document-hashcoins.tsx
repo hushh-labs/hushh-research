@@ -38,6 +38,8 @@ function redemptionCopy(status: HashcoinRedemption["status"]): string {
 export function DocumentHashcoinPayouts() {
   const resource = usePayoutSnapshot(DocumentPayoutService.hashcoins);
   const { data, token, scope } = resource;
+  const sandboxEnabled = !resource.failed && data?.payoutMode === "test" && data.testPayouts === true;
+  const liveBankEnabled = !resource.failed && data?.payoutMode === "live" && data.testPayouts === false;
   const inFlight = useRef<typeof scope | null>(null);
   const intent = useRef<{ scope: typeof scope; id: string; amount: number } | null>(null);
   const [busyScope, setBusyScope] = useState<typeof scope | null>(null);
@@ -51,7 +53,7 @@ export function DocumentHashcoinPayouts() {
   const redeemAmount = data ? Math.min(data.sandbox.availableCoins, data.maxRedeemCoins ?? 50000) : 0;
 
   const redeem = async () => {
-    if (!token || !data || data.sandbox.held || inFlight.current === scope) return;
+    if (!sandboxEnabled || !token || !data || data.sandbox.held || inFlight.current === scope) return;
     const pending = intent.current?.scope === scope ? intent.current : null;
     const next = pending ?? (unsettled?.clientRequestId
       ? { scope, id: unsettled.clientRequestId, amount: unsettled.amountCoins }
@@ -97,7 +99,11 @@ export function DocumentHashcoinPayouts() {
         <Button type="button" size="sm" variant="none" effect="fade" onClick={resource.retry}>Retry balance</Button></div> : null}
     </section>
     <DocumentEarningsHistory />
-    <section aria-label="Payout sandbox" className="space-y-3">
+    {liveBankEnabled ? <>
+      <DocumentPayoutAccountCard handleReturn showHistory={false} />
+      <DocumentBankPayoutStatusCard refreshOnFeedChange />
+    </> : null}
+    {sandboxEnabled ? <section aria-label="Payout sandbox" className="space-y-3">
       <SettingsGroup title="Payout sandbox" density="compact">
         <SettingsRow icon={ProfileAccountWalletIcon} iconTone="capability" title="Test balance"
           description={data ? coins(data.sandbox.availableCoins) : "Loading…"}
@@ -120,6 +126,6 @@ export function DocumentHashcoinPayouts() {
           trailing={<span className="tabular-nums">{money(item.amountCoins)}</span>} />)}
       </SettingsGroup> : null}
       <DocumentBankPayoutStatusCard refreshOnFeedChange />
-    </section>
+    </section> : null}
   </div>;
 }

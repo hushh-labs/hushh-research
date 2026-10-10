@@ -34,7 +34,7 @@ describe("aggregate bank payout status", () => {
 const requestId = "11111111-1111-4111-8111-111111111111";
 const nextId = "22222222-2222-4222-8222-222222222222";
 const wallet = () => ({
-  coinName: "Hussh Coins", coinsPerDollar: 100, currency: "USD", payoutMode: "test", liveRedemptionEnabled: false, maxRedeemCoins: 50000,
+  coinName: "Hussh Coins", coinsPerDollar: 100, currency: "USD", payoutMode: "test", testPayouts: true, liveRedemptionEnabled: false, maxRedeemCoins: 50000,
   live: { balanceCoins: 911, reservedCoins: 0, availableCoins: 911, amountCents: 911, held: false },
   sandbox: { balanceCoins: 911, reservedCoins: 911, availableCoins: 0, amountCents: 911, held: false },
   latestRedemption: null, redemptionHistory: [],
@@ -51,12 +51,22 @@ describe("Hussh Coins financial boundary", () => {
     expect(await DocumentPayoutService.hashcoins("vault")).toEqual(debt);
     for (const invalid of [
       { ...wallet(), coinsPerDollar: 1 }, { ...wallet(), liveRedemptionEnabled: true }, { ...wallet(), payoutMode: "live" },
+      { ...wallet(), payoutMode: "unknown" }, { ...wallet(), testPayouts: undefined },
       { ...wallet(), sandbox: { ...wallet().sandbox, availableCoins: 911 } },
       { ...debt, live: { ...debt.live, held: false } },
     ]) {
       apiJson.mockResolvedValueOnce(invalid);
       await expect(DocumentPayoutService.hashcoins("vault")).rejects.toThrow(/Invalid Hussh Coins/);
     }
+  });
+
+  it("preserves authoritative live and disabled-sandbox modes without enabling cash redemption", async () => {
+    const live = { ...wallet(), payoutMode: "live", testPayouts: false };
+    apiJson.mockResolvedValueOnce(live);
+    expect(await DocumentPayoutService.hashcoins("vault")).toEqual(live);
+    const disabled = { ...wallet(), testPayouts: false };
+    apiJson.mockResolvedValueOnce(disabled);
+    expect(await DocumentPayoutService.hashcoins("vault")).toEqual(disabled);
   });
 
   it("forces test redemption, preserves the retry key, and rejects live transfer claims", async () => {

@@ -37,7 +37,7 @@ export type HashcoinRedemption = {
 export type HashcoinWallet = {
   coinName: "Hussh Coins"; coinsPerDollar: 100; currency: "USD";
   live: HashcoinBalance; sandbox: HashcoinBalance;
-  payoutMode: "test"; liveRedemptionEnabled: false;
+  payoutMode: "test" | "live"; testPayouts: boolean; liveRedemptionEnabled: false;
   maxRedeemCoins: number;
   latestRedemption: HashcoinRedemption | null;
   redemptionHistory: HashcoinRedemption[];
@@ -138,11 +138,13 @@ export class DocumentPayoutService {
       headers: authHeaders(vaultOwnerToken), cache: "no-store",
     }));
     if (body.coinName !== "Hussh Coins" || body.coinsPerDollar !== 100 || body.currency !== "USD" ||
-        body.payoutMode !== "test" || body.liveRedemptionEnabled !== false ||
+        !["test", "live"].includes(String(body.payoutMode)) || typeof body.testPayouts !== "boolean" ||
+        (body.payoutMode === "live" && body.testPayouts) || body.liveRedemptionEnabled !== false ||
         (body.maxRedeemCoins !== undefined && (!integer(body.maxRedeemCoins) || body.maxRedeemCoins < 1)) ||
         (body.redemptionHistory !== undefined && (!Array.isArray(body.redemptionHistory) || body.redemptionHistory.length > 10))) throw new Error("Invalid Hussh Coins wallet");
     return { coinName: "Hussh Coins", coinsPerDollar: 100, currency: "USD", live: coinBalance(body.live),
-      sandbox: coinBalance(body.sandbox), payoutMode: "test", liveRedemptionEnabled: false,
+      sandbox: coinBalance(body.sandbox), payoutMode: body.payoutMode as "test" | "live", testPayouts: body.testPayouts,
+      liveRedemptionEnabled: false,
       maxRedeemCoins: body.maxRedeemCoins as number ?? 50000,
       redemptionHistory: ((body.redemptionHistory as unknown[]) ?? []).map(redemption),
       latestRedemption: body.latestRedemption == null ? null : redemption(body.latestRedemption) };
