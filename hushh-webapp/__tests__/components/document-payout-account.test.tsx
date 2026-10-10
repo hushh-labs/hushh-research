@@ -74,7 +74,7 @@ describe("document payout account", () => {
     expect(await within(sandbox).findByText("Test transfer completed")).toBeVisible();
     expect(state.redeemTest).toHaveBeenCalledExactlyOnceWith("owner-token", 911, expect.any(String));
     expect(live).toHaveTextContent("911 Hussh Coins");
-    expect(within(sandbox).getByRole("button", { name: "Test redeem $0.00" })).toBeDisabled();
+    await waitFor(() => expect(within(sandbox).getByRole("button", { name: "Test redeem $0.00" })).toBeDisabled());
     expect(screen.queryByText(/bank payout paid/)).toBeNull();
   });
 
@@ -82,9 +82,13 @@ describe("document payout account", () => {
     state.hashcoins.mockResolvedValue({ payoutMode: "live", testPayouts: false,
       live: { balanceCoins: 911, amountCents: 911, held: false },
       sandbox: { availableCoins: 911, held: false }, latestRedemption: null });
-    state.account.mockResolvedValue({ account: null, stripeMode: "live" });
+    let finishAccount!: (value: unknown) => void;
+    state.account.mockImplementationOnce(() => new Promise((resolve) => { finishAccount = resolve; }));
     render(<DocumentHashcoinPayouts />);
-    expect(await screen.findByRole("button", { name: "Link bank" })).toBeEnabled();
+    const bankAction = await screen.findByRole("button", { name: "Link bank" });
+    expect(bankAction).toBeDisabled();
+    await act(async () => { finishAccount({ account: null, stripeMode: "live" }); });
+    await waitFor(() => expect(bankAction).toBeEnabled());
     expect(screen.getByRole("region", { name: "Document payouts" })).toHaveTextContent("US payouts");
     expect(screen.getByRole("region", { name: "Hussh Coins" })).toHaveTextContent("911 Hussh Coins");
     expect(screen.queryByRole("region", { name: "Payout sandbox" })).toBeNull();
@@ -120,7 +124,7 @@ describe("document payout account", () => {
     await act(async () => { finish({ payoutMode: "test", testPayouts: true,
       live: { balanceCoins: 911, amountCents: 911, held: false },
       sandbox: { availableCoins: 911, held: false }, latestRedemption: null }); });
-    expect(await screen.findByRole("button", { name: /Test redeem/ })).toBeEnabled();
+    await waitFor(() => expect(screen.getByRole("button", { name: /Test redeem/ })).toBeEnabled());
     state.hashcoins.mockRejectedValue(new Error("Unavailable"));
     fireEvent(window, new CustomEvent(CONSENT_STATE_CHANGED_EVENT));
     expect(await screen.findByText("Couldn't load Hussh Coins.")).toBeVisible();
@@ -153,7 +157,7 @@ describe("document payout account", () => {
     fireEvent.click(button);
     await waitFor(() => expect(state.redeemTest).toHaveBeenCalledExactlyOnceWith("owner-token", 911, request.clientRequestId));
     await act(async () => { finish(request); });
-    expect(await screen.findByRole("button", { name: "Check test redemption" })).toBeEnabled();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Check test redemption" })).toBeEnabled());
     expect(screen.getByText("Checking test redemption. Your test balance is reserved.")).toBeVisible();
   });
 
