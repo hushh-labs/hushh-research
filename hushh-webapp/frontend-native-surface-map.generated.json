@@ -2756,8 +2756,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/connected-systems/[systemId]/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.connected_system_list"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -2892,8 +2894,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/email/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.mail_connections"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -4667,8 +4671,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/messages/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.messages_connections"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -7232,8 +7238,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/puppy/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.puppy_agents"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -8366,8 +8374,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/wallet-card/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.wallet_profile_cards"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -9912,5 +9922,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "94beb54c717852695f92ec65dae24a9919b674b2b73023bfdf1a7eee451372d0"
+  "content_sha256": "1c9cab516f8b59a9db31c556042154fb1a4a331f72089e3ad85cc2a87be49a86"
 }

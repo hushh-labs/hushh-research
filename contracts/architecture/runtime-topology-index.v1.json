@@ -1994,7 +1994,13 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.connected_system_list",
+          "route.mail_connections",
+          "route.messages_connections",
+          "route.puppy_agents",
+          "route.wallet_profile_cards"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.blog.slug"
       }
@@ -2585,7 +2591,13 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.connected_system_list",
+          "route.mail_connections",
+          "route.messages_connections",
+          "route.puppy_agents",
+          "route.wallet_profile_cards"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.manishhussh"
       }
@@ -2909,7 +2921,13 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.connected_system_list",
+          "route.mail_connections",
+          "route.messages_connections",
+          "route.puppy_agents",
+          "route.wallet_profile_cards"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.connected.systems.systemid"
       }
@@ -3002,7 +3020,13 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.connected_system_list",
+          "route.mail_connections",
+          "route.messages_connections",
+          "route.puppy_agents",
+          "route.wallet_profile_cards"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.email"
       }
@@ -3880,7 +3904,13 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.connected_system_list",
+          "route.mail_connections",
+          "route.messages_connections",
+          "route.puppy_agents",
+          "route.wallet_profile_cards"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.messages"
       }
@@ -4917,7 +4947,13 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.connected_system_list",
+          "route.mail_connections",
+          "route.messages_connections",
+          "route.puppy_agents",
+          "route.wallet_profile_cards"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.puppy"
       }
@@ -5314,7 +5350,13 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.connected_system_list",
+          "route.mail_connections",
+          "route.messages_connections",
+          "route.puppy_agents",
+          "route.wallet_profile_cards"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.todos"
       }
@@ -5367,7 +5409,13 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.connected_system_list",
+          "route.mail_connections",
+          "route.messages_connections",
+          "route.puppy_agents",
+          "route.wallet_profile_cards"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.wallet.card"
       }
@@ -5510,7 +5558,13 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.connected_system_list",
+          "route.mail_connections",
+          "route.messages_connections",
+          "route.puppy_agents",
+          "route.wallet_profile_cards"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.privacy.policy"
       }
@@ -5659,7 +5713,13 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.connected_system_list",
+          "route.mail_connections",
+          "route.messages_connections",
+          "route.puppy_agents",
+          "route.wallet_profile_cards"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.research.protocol"
       }
@@ -5999,7 +6059,13 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.connected_system_list",
+          "route.mail_connections",
+          "route.messages_connections",
+          "route.puppy_agents",
+          "route.wallet_profile_cards"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.terms.of.use"
       }
@@ -6053,7 +6119,13 @@
         }
       ],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.connected_system_list",
+          "route.mail_connections",
+          "route.messages_connections",
+          "route.puppy_agents",
+          "route.wallet_profile_cards"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.welcome"
       }
@@ -6062,21 +6134,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
-    "action_gateway": "05273c47c17aeaed1c58fbe7aeb66395d49b78a9d5adcaad37d1edd45acb9443",
+    "action_gateway": "ceb21e547653da43bfb773ba0a0dde41ef8037e4178b37f348f12b48384b119c",
     "agent_registry": "01b1ae85c91c4e85dd879f023bdc41a3878b473107342bc63528de0b0c453d2e",
     "cache_manifest": "5eff3c647e67b8c7f2a50fdc079673ef4bb2282806b0d99276857309c0d9db8f",
     "data_plane": "fb9abeff994c578d23857dae543647135aa029e0c2a7c707ebb86d1b221e91fe",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "3dc81d307ef8cf9932ca3f80c2d54915515161968d0303feccea401e8afebce9",
-    "route_index": "0f6963fa9194dd99f3f191334bb53e38e7cc70f1bffb1a642cc839f184264599",
+    "route_index": "c194823d62bc2c2b7a75a5acd62f89c5ae4f4df38f6d172f4cc4d445fe8937ce",
     "route_layout": "5b45210882ec53328e3066f126d889a6fe1f09691354bbe996471c529f3592b2",
-    "surface_map": "9b84dd050d7d74fe9705d3873bae225f5c7ba7b2342212ebd3c089fe81d91c61",
+    "surface_map": "eec4cc7455b98257047c8fac8a2fd02a5fd3f6b504a5850b85bd3dc85742ac72",
     "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 227,
+    "actions": 232,
     "agents": 19,
     "aliases": 4,
     "decision_required": 2,
