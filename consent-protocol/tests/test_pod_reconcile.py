@@ -129,6 +129,68 @@ def test_duplicate_claims_are_incomplete_even_if_both_have_same_owner():
     assert not result["direction_b"]
 
 
+def test_detached_gcp_host_is_retained_beneath_current_azure_assignment():
+    row = _host_claim(
+        backend="user_azure",
+        external_agent_id="azure-pod",
+        backend_metadata={"detachedPlacements": [_host_claim()]},
+    )
+    result = _scoped([row], fleet=["recorded-pod", "actually-unclaimed"])
+    assert result["unresolved"] == result["direction_a"] == []
+    assert result["direction_b"] == [
+        {"reason": "service_no_registry_claim", "service": "actually-unclaimed"}
+    ]
+    assert result["inactive_claims"][0]["service"] == "recorded-pod"
+    row["backend_metadata"]["detachedPlacements"] = []
+    assert {item["service"] for item in _scoped([row])["direction_b"]} == {"recorded-pod"}
+
+
+@pytest.mark.parametrize("retained", [None, {}, [None], [_host_claim(hushh_id="wrong-owner")]])
+def test_invalid_detached_evidence_holds_orphan_reporting(retained):
+    row = _host_claim(backend="user_azure", backend_metadata={"detachedPlacements": retained})
+    result = _scoped([row], fleet=["unclaimed-pod"])
+    assert result["unresolved"] and not result["direction_b"]
+
+
+@pytest.mark.parametrize(
+    "metadata", [None, "unreadable", {"erasure": {}}, {"erasure": "unreadable"}]
+)
+def test_unreadable_azure_lifecycle_cannot_prove_no_retained_gcp_host(metadata):
+    result = _scoped([_host_claim(backend="user_azure", backend_metadata=metadata)])
+    assert result["unresolved"] and not result["direction_b"]
+
+
+def test_malformed_retained_tree_is_bounded_and_holds_reporting():
+    from hushh_mcp.services.pod_fleet_claims import expand_retained_claims
+
+    row = _host_claim(
+        backend="user_azure",
+        backend_metadata={
+            "detachedPlacements": [
+                _host_claim(backend_metadata={"detachedPlacements": [None] * 127})
+                for _ in range(128)
+            ]
+        },
+    )
+    assert len(expand_retained_claims([row])) <= 257
+    result = _scoped([row], fleet=["unclaimed-pod"])
+    assert result["unresolved"] and not result["direction_b"]
+
+
+def test_erasure_snapshot_keeps_host_and_pending_migration_holds_reporting():
+    row = _host_claim(
+        backend="null",
+        status="reaped",
+        external_agent_id=None,
+        backend_metadata={"erasure": {"registrySnapshot": _host_claim()}},
+    )
+    result = _scoped([row])
+    assert not result["direction_b"]
+    assert result["inactive_claims"][0]["service"] == "recorded-pod"
+    result = _scoped([_host_claim(claim_source="migration_pending")], fleet=["unclaimed-pod"])
+    assert result["unresolved"] and not result["direction_b"]
+
+
 @pytest.mark.parametrize("service", [None, "", "  ", {}, 123])
 def test_corrupt_service_field_does_not_fall_back_to_external_id(service):
     row = _host_claim()

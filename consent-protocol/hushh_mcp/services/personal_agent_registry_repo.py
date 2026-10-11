@@ -1821,17 +1821,15 @@ class PersonalAgentRegistryRepo:
     async def fetch_fleet_inventory(self) -> list[dict]:
         """Complete host-claim snapshot for the report-only fleet reconciler.
 
-        This is deliberately separate from bounded liveness probes: migrating and
-        inactive rows can still own compute. The SQL-backed client applies no
-        implicit limit, so one SELECT sees one database snapshot without paging
-        races. Cloud inventory is a separate observation, not an atomic join.
+        Current, standby and unresolved migration claims share one SQL statement
+        and database snapshot, without a liveness filter or implicit page limit.
+        Missing claim stores refuse the report. Cloud inventory is a separate
+        observation, not an atomic join. Retained snapshots are expanded by the
+        classifier; this read grants no deletion authority.
         """
-        response = (
-            self._db()
-            .table(_REGISTRY)
-            .select("hushh_id", "status", "backend", "external_agent_id", "backend_metadata")
-            .execute()
-        )
+        from hushh_mcp.services.pod_fleet_claims import FLEET_CLAIMS_SQL  # noqa: PLC0415
+
+        response = await asyncio.to_thread(self._db().execute_raw, FLEET_CLAIMS_SQL, {})
         if not isinstance(response.data, list):
             raise ValueError("Fleet registry inventory unavailable")
         return response.data

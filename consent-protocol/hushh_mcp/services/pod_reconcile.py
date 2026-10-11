@@ -1,17 +1,11 @@
-"""Fleet-first orphan reconciliation: the one check that catches a billing pod
-with NO registry row.
+"""Report live GCP hosts against current and retained ownership claims.
 
-Every existing reconciler is registry-FIRST -- it walks rows and asks about their
-hosts, so it is blind to a live, billing Cloud Run service that has no row at all
-(a pod that outlived its account delete, or whose row was lost). This is
-fleet-first: it enumerates the live fleet and OUTER-JOINs the registry on the
-deterministic service name, catching BOTH abandonment directions.
+The scoped report uses recorded coordinates, preserves detached/standby/erasure
+claims and holds orphan conclusions when evidence is incomplete. Name derivation
+remains only for offline compatibility callers without cloud coordinates.
 
-Report-only by construction. The classification is pure and consults no flag, so a
-report run can never destroy anything. The destructive reclaim (deleting billing
-compute in a possibly customer-owned project) is a SEPARATE call, gated on
-``personal_agent_fleet_reclaim_enabled`` (default off) AND an explicit
-``dry_run=False`` -- two independent guards, because this deletes someone's compute.
+Classification is pure and never deletes. Separate reclaim requires both
+``personal_agent_fleet_reclaim_enabled`` and explicit ``dry_run=False``.
 """
 
 from __future__ import annotations
@@ -86,20 +80,19 @@ def _classify_scoped_inventory(
 ) -> dict[str, list[dict[str, Any]]]:
     """Report candidates only; unresolved claims suppress orphan conclusions."""
     from hushh_mcp.services.compute_backend import (  # noqa: PLC0415
-        BACKEND_GCP,
         BACKEND_NULL,
-        BACKEND_USER_GCP,
+        BACKEND_USER_AZURE,
+    )
+    from hushh_mcp.services.pod_fleet_claims import (  # noqa: PLC0415
+        expand_retained_claims,
+        resolve_gcp_claim,
+        validate_fleet_scope,
     )
 
     def text(value: Any) -> str:
         return value.strip() if isinstance(value, str) else ""
 
-    if not text(project) or not text(region):
-        raise ValueError("Fleet project and region are required")
-    if not isinstance(fleet_names, list) or any(not text(name) for name in fleet_names):
-        raise ValueError("Fleet service inventory unavailable")
-    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
-        raise ValueError("Fleet registry inventory unavailable")
+    validate_fleet_scope(fleet_names, rows, project, region)
     fleet = {text(name) for name in fleet_names}
     claimed: dict[str, dict[str, Any]] = {}
     result: dict[str, list[dict[str, Any]]] = {
@@ -108,43 +101,42 @@ def _classify_scoped_inventory(
         "inactive_claims": [],
         "unresolved": [],
     }
-    for row in rows:
+    for row in expand_retained_claims(rows):
+        source = row.get("claim_source")
+        if source in ("invalid_retained", "migration_pending"):
+            result["unresolved"].append({"reason": "unresolved_retained_claim", "source": source})
+            continue
         backend, status = text(row.get("backend")), text(row.get("status"))
         metadata = row.get("backend_metadata")
         external = text(row.get("external_agent_id"))
         if (
             backend in ("", BACKEND_NULL)
             and not external
-            and not metadata
+            and (
+                not metadata
+                or (isinstance(metadata, dict) and set(metadata) <= {"detachedPlacements"})
+            )
             and status not in ACTIVE_STATUSES
         ):
             continue
-        reason = ""
-        if backend not in (BACKEND_GCP, BACKEND_USER_GCP):
-            reason = "unresolved_backend"
-        elif (
-            not isinstance(metadata, dict)
-            or not text(metadata.get("project"))
-            or not text(metadata.get("region"))
-        ):
-            reason = "unresolved_coordinates"
-        elif text(metadata["project"]) != text(project) or text(metadata["region"]) != text(region):
-            continue
+        if backend == BACKEND_USER_AZURE:
+            continue  # A known Azure host cannot claim a GCP service; retained claims were expanded.
+        reason, claim = resolve_gcp_claim(row, project, region)
         if reason:
             result["unresolved"].append({"reason": reason})
             continue
-        if "service" in metadata and not text(metadata["service"]):
-            result["unresolved"].append({"reason": "invalid_host_claim"})
+        if claim is None:
             continue
-        service = text(metadata.get("service")) or external
-        owner = text(row.get("hushh_id"))
-        if not service or not owner or not status or (external and external != service):
-            result["unresolved"].append({"reason": "invalid_host_claim"})
-            continue
+        service, owner = claim["service"], claim["hushh_id"]
+        if (
+            service in claimed
+            and source in ("detached", "erasure")
+            and claimed[service]["hushh_id"] == owner
+        ):
+            continue  # The erasure snapshot may repeat its current, preserved host.
         if service in claimed:
             result["unresolved"].append({"reason": "duplicate_host_claim", "service": service})
             continue
-        claim = {"service": service, "hushh_id": owner, "status": status}
         claimed[service] = claim
         if service not in fleet and status in ACTIVE_STATUSES:
             result["direction_a"].append({"reason": "row_active_no_service", **claim})

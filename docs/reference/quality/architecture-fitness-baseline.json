@@ -16826,7 +16826,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_personal_agent_registry_repo.py",
       "symbol": null,
-      "value": 742
+      "value": 772
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -28694,6 +28694,24 @@
         }
       ],
       "unchanged_policy": "Budgets, scanner, exclusions, dependency/import gates and future ratchet remain unchanged."
+    },
+    "retained_fleet_claims_20261011": {
+      "source_revision": "aed5f3ab19b9cd2df0ec2924b70c1cffc4e30045",
+      "review": "Independent read-only resource/security review accepts one exact nearest-test size slot after 106 focused passes and the broken-code negative control. Runtime validator genes and classifier remain below80 lines. No budgets, scanner, exclusions, imports or future regression policy change.",
+      "changes": [
+        {
+          "detail": "module exceeds the advisory operon budget",
+          "key": "module_size|consent-protocol/tests/test_personal_agent_registry_repo.py||module exceeds the advisory operon budget",
+          "kind": "module_size",
+          "limit": 500,
+          "path": "consent-protocol/tests/test_personal_agent_registry_repo.py",
+          "symbol": null,
+          "value": 772,
+          "previous": 742,
+          "source_sha256": "3e2e4d7da888e5f6e2039a9ac6ebcb51027d45b4ce81e170b9a10dd32c95f179",
+          "rationale": "Extend the existing SQLite snapshot regression across current, retained standby and unfinished migration claims. Preserve unbounded reads and private-field exclusion; no duplicate test suite."
+        }
+      ]
     }
   },
   "review": {

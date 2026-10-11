@@ -136,10 +136,11 @@ async def test_get_missing_returns_none():
 
 async def test_fleet_inventory_reads_beyond_one_thousand_without_liveness_filter():
     from sqlalchemy import create_engine, text
+    from sqlalchemy.pool import StaticPool
 
-    from db.db_client import TableQuery
-
-    engine = create_engine("sqlite://")
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     try:
         with engine.begin() as connection:
             connection.execute(
@@ -157,23 +158,56 @@ async def test_fleet_inventory_reads_beyond_one_thousand_without_liveness_filter
                     for n in range(1001)
                 ],
             )
-        client = SimpleNamespace(table=lambda name: TableQuery(name, engine))
+            connection.execute(
+                text(
+                    "CREATE TABLE personal_agent_standby_placements (hushh_id TEXT, backend TEXT, external_agent_id TEXT, backend_metadata TEXT)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO personal_agent_standby_placements VALUES ('synthetic-standby', 'gcp', 'retained-pod', '{}')"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE TABLE pod_migration_jobs (hushh_id TEXT, status TEXT, source_service TEXT)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO pod_migration_jobs VALUES ('synthetic-move', 'cleanup_pending', 'source-pod'), ('completed-move', 'succeeded', 'deleted-pod')"
+                )
+            )
+
+        def execute_raw(sql, params):
+            with engine.connect() as connection:
+                return SimpleNamespace(
+                    data=[dict(row) for row in connection.execute(text(sql), params).mappings()]
+                )
+
+        client = SimpleNamespace(execute_raw=execute_raw)
         rows = await PersonalAgentRegistryRepo(client=client).fetch_fleet_inventory()
-        assert len(rows) == 1001
+        assert len(rows) == 1003
         assert any(
             row["hushh_id"] == "synthetic-1000" and row["status"] == "migrating" for row in rows
         )
         assert all("phone_e164_hash" not in row for row in rows)
+        assert any(
+            row["hushh_id"] == "synthetic-standby" and row["claim_source"] == "standby"
+            for row in rows
+        )
+        assert any(
+            row["hushh_id"] == "synthetic-move" and row["claim_source"] == "migration_pending"
+            for row in rows
+        )
+        assert not any(row["hushh_id"] == "completed-move" for row in rows)
     finally:
         engine.dispose()
 
 
 @pytest.mark.parametrize("payload", [None, {}, "unavailable"])
 async def test_fleet_inventory_rejects_unavailable_result(payload):
-    query = SimpleNamespace()
-    query.select = lambda *args: query
-    query.execute = lambda: SimpleNamespace(data=payload)
-    client = SimpleNamespace(table=lambda name: query)
+    client = SimpleNamespace(execute_raw=lambda *args: SimpleNamespace(data=payload))
     with pytest.raises(ValueError, match="inventory unavailable"):
         await PersonalAgentRegistryRepo(client=client).fetch_fleet_inventory()
 

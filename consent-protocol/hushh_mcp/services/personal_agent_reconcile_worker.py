@@ -10,8 +10,8 @@ Provisioning is fire-and-forget off the phone-verify seam, so nothing retries it
 ``PersonalAgentProvisioningService.provision`` deliberately leaves a failed run's
 registry row stuck rather than rolling it back, precisely so a sweep can find it
 later -- but until now there was no sweep, and a stalled row stayed stalled
-forever. Symmetrically, every provisioned pod is a billable host that keeps
-costing money whether or not its owner ever comes back.
+forever. Selected minimum-zero hosts can sleep; storage, image custody and other
+retained resources can still bill while compute is idle.
 
 Four sweeps, one pass:
 
@@ -30,8 +30,8 @@ Four sweeps, one pass:
     activity is the intended outcome: the owner pays one cold start instead of
     weeks of idle warm floor. This is why reaping calls the compute backend
     directly rather than ``PersonalAgentProvisioningService.deprovision`` -- that
-    path revokes the standing read, tombstones the HusshID and deletes the row,
-    which is account teardown, a completely different act.
+    path starts receipt-based account erasure and retains the registry until all
+    resource obligations are settled, a different operation.
 
   upgrade
     Pods whose recorded build is behind the hub's image are moved onto it, a
@@ -66,10 +66,9 @@ idle host deletion. Cloud environment changes still require their normal rollout
 
 Known gap, stated here rather than in a runbook
 -----------------------------------------------
-``personal_agent_registry`` has no last-activity column, and ``updated_at`` has no
-``ON UPDATE`` trigger and is never written by
-``personal_agent_registry_repo.py`` -- so it is effectively the row's creation
-time. There is therefore no truthful source of pod idleness in the schema today.
+``personal_agent_registry.updated_at`` is explicitly stamped by registry writes,
+so it measures record changes, not the owner's activity. It cannot establish pod
+idleness.
 This worker owns the POLICY (the cutoff instant computed from
 ``pod_idle_reap_hours``) and takes the idle set from an injected callable; it does
 NOT claim that any particular column measures idleness. Wiring an adapter that
