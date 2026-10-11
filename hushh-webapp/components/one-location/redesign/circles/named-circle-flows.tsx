@@ -1184,10 +1184,9 @@ function CircleMemberRow({
         )}
       >
         <p className={CIRCLE_MEMBER_NAME_ROW_CLASSNAME}>
-          <span className={CIRCLE_MEMBER_NAME_CLASSNAME}>
+          <span className={CIRCLE_MEMBER_NAME_CLASSNAME} title={member.displayName}>
             {member.displayName}
           </span>
-          {member.connectedFromContacts ? <ContactSourceBadge /> : null}
         </p>
         <p
           className={cn(
@@ -1214,6 +1213,10 @@ function CircleMemberRow({
           hasRelationshipControl && CIRCLE_MEMBER_STACKED_ACTION_CLASSNAME,
         )}
       >
+        {member.connectedFromContacts ? (
+          <ContactSourceBadge className="shrink-0 whitespace-nowrap" />
+        ) : null}
+        <div className="flex shrink-0 items-center justify-end gap-1">
         {pendingLabel && !canCancelRequest ? (
           <span
             className="px-1 text-[13px] font-medium leading-5 text-muted-foreground"
@@ -1318,6 +1321,7 @@ function CircleMemberRow({
           onShare={onShare}
           onRemove={onRemove}
         />
+        </div>
       </div>
     </div>
   );
@@ -1331,6 +1335,12 @@ function CircleMembersLoading() {
       <div className="flex-1 space-y-2"><div className="h-3 w-1/2 rounded bg-muted animate-pulse motion-reduce:animate-none" /><div className="h-2 w-1/3 rounded bg-muted" /></div>
     </div>)}
   </div>;
+}
+
+/** Match the server's Circle name normalization when comparing and saving. */
+function normalizeCircleName(value: string): string {
+  // Python str.split also treats U+0085 and U+001C–001F as whitespace.
+  return value.split(/[\p{White_Space}\u001c-\u001f]+/u).filter(Boolean).join(" ");
 }
 
 export function CircleDetailFlow({
@@ -1482,7 +1492,7 @@ export function CircleDetailFlow({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [circleName, setCircleName] = useState("");
   const [peopleSheetOpen, setPeopleSheetOpen] = useState(false);
-  const [renameSheetOpen, setRenameSheetOpen] = useState(false);
+  const [renameSheetOpen, setRenameSheetOpenState] = useState(false);
   const [photoSheetOpen, setPhotoSheetOpen] = useState(false);
   const [inviteCodeSheetOpen, setInviteCodeSheetOpen] = useState(false);
   const [replaceCodeConfirmOpen, setReplaceCodeConfirmOpen] = useState(false);
@@ -1519,12 +1529,27 @@ export function CircleDetailFlow({
   const peopleRequestRef = useRef(0);
   const peopleSubmitInFlightRef = useRef(false);
   const cancelInviteInFlightRef = useRef(false);
+  const renameDraftRef = useRef({ open: false, dirty: false });
+  const renameInFlightRef = useRef(false);
+  const renameRequestRef = useRef(0);
+  const overviewNameRevisionRef = useRef(0);
+
+  const setRenameSheetOpen = (open: boolean) => {
+    renameDraftRef.current = { open, dirty: false };
+    setRenameSheetOpenState(open);
+  };
 
   const usesPagedMembers = Boolean(onLoadOverview && onLoadMembersPage);
 
-  const applyOverview = (overview: OneLocationCircleOverview) => {
+  const applyOverview = (overview: OneLocationCircleOverview, nameRevision: number) => {
+    if (nameRevision !== overviewNameRevisionRef.current) return;
     loadedScopeRef.current = { currentUserId, sessionScope };
-    setCircle(overview); setCircleName(overview.name);
+    setCircle(overview);
+    // Polling and push refreshes must not replace an active rename draft.
+    // Read the ref at response time: this read may have started before Edit.
+    if (!renameDraftRef.current.open || !renameDraftRef.current.dirty) {
+      setCircleName(overview.name);
+    }
     setInviteCode(overview.activeInviteCode ?? null);
     if (!(overview.viewerCapabilities?.canInviteMembers ?? overview.role === "owner")) {
       setPeopleSheetOpen(false);
@@ -1538,6 +1563,7 @@ export function CircleDetailFlow({
   > => {
     const requestId = ++loadRequestRef.current;
     const memberRequestId = ++memberRequestRef.current;
+    const nameRevision = overviewNameRevisionRef.current;
     setLoadError(null);
     setMembersLoading(true);
     setMemberLoadingMore(false);
@@ -1551,7 +1577,7 @@ export function CircleDetailFlow({
         ? await Promise.all([
             onLoadOverview!(circleId).then((overview) => {
               if (requestId === loadRequestRef.current) {
-                applyOverview(overview);
+                applyOverview(overview, nameRevision);
               }
               return overview;
             }),
@@ -1565,7 +1591,7 @@ export function CircleDetailFlow({
       if (requestId !== loadRequestRef.current) return null;
       // The paged overview is already visible. Reapplying it here would
       // overwrite edits or saved changes made while its roster was pending.
-      if (!usesPagedMembers) applyOverview(nextCircle);
+      if (!usesPagedMembers) applyOverview(nextCircle, nameRevision);
       if (memberRequestId !== memberRequestRef.current) return nextCircle;
       setMembersLoading(false);
       setMembersLoaded(true);
@@ -1587,6 +1613,7 @@ export function CircleDetailFlow({
     } catch (error) {
       if (requestId !== loadRequestRef.current || memberRequestId !== memberRequestRef.current) return null;
       setMembersLoading(false);
+      if (nameRevision !== overviewNameRevisionRef.current) return null;
       setLoadError(
         error instanceof Error ? error.message : "Could not load this Circle.",
       );
@@ -1608,6 +1635,10 @@ export function CircleDetailFlow({
     setRemainingCapacity(0);
     setMemberSearch("");
     setSavingName(false);
+    setRenameSheetOpen(false);
+    setCircleName("");
+    renameInFlightRef.current = false;
+    renameRequestRef.current += 1;
     peopleRequestRef.current += 1;
     void reload("");
     // Reset on selection, owner or unlock changes. Unrelated page refreshes
@@ -1616,6 +1647,7 @@ export function CircleDetailFlow({
       loadRequestRef.current += 1;
       memberRequestRef.current += 1;
       peopleRequestRef.current += 1;
+      renameRequestRef.current += 1;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [circleId, currentUserId, sessionScope]);
@@ -1651,10 +1683,10 @@ export function CircleDetailFlow({
   // Dirty-tracked rename: the trailing control only presents as an explicit
   // "Save" once the typed name differs from the one every member currently
   // sees, so an untouched field never offers a no-op write.
-  const trimmedCircleName = circleName.trim();
-  const circleNameDirty = Boolean(circle) && trimmedCircleName !== circle?.name;
+  const trimmedCircleName = normalizeCircleName(circleName);
+  const circleNameDirty = Boolean(circle) && trimmedCircleName !== normalizeCircleName(circle?.name ?? "");
   const canSaveCircleName =
-    circleNameDirty && trimmedCircleName.length >= 1 && !savingName && !busy;
+    circleNameDirty && trimmedCircleName.length >= 1 && trimmedCircleName.length <= 80 && !savingName && !busy;
   const canInviteMembers =
     circle?.viewerCapabilities?.canInviteMembers ?? Boolean(isOwner);
   const canViewInviteCode =
@@ -2113,27 +2145,37 @@ export function CircleDetailFlow({
   // locally right away (header, delete/leave copy, "Add people to …") instead of
   // waiting for a refetch.
   const renameCircle = async (): Promise<boolean> => {
-    const nextName = circleName.trim();
+    const nextName = normalizeCircleName(circleName);
     if (
       !circle ||
-      savingName ||
+      renameInFlightRef.current ||
+      !canSaveCircleName ||
       nextName.length < 1 ||
-      nextName === circle.name
+      nextName === normalizeCircleName(circle.name)
     )
       return false;
+    const requestId = ++renameRequestRef.current;
+    renameInFlightRef.current = true;
     setSavingName(true);
     try {
       const updated = await onRename(circle.id, nextName);
+      if (requestId !== renameRequestRef.current) return false;
+      overviewNameRevisionRef.current += 1;
       setCircle(updated);
       setCircleName(updated.name);
+      setRenameSheetOpen(false);
       return true;
     } catch (error) {
+      if (requestId !== renameRequestRef.current) return false;
       toast.error(
         circleFlowErrorMessage(error, "Could not rename this Circle."),
       );
       return false;
     } finally {
-      setSavingName(false);
+      if (requestId === renameRequestRef.current) {
+        renameInFlightRef.current = false;
+        setSavingName(false);
+      }
     }
   };
 
@@ -2258,15 +2300,11 @@ export function CircleDetailFlow({
             </TabsContent>
           </> : null}
           <TabsContent value="members" forceMount hidden={hasChat && detailView !== "members"} className="space-y-5">
-          {livingCircleExperience && canInviteMembers && !circle.isSystem && circle.systemKind == null && (needsFirstMember || memberSetup) ? (
+          {livingCircleExperience && canInviteMembers && !circle.isSystem && circle.systemKind == null && memberSetup && !needsFirstMember ? (
             <div data-testid="circle-member-setup" className="space-y-2" aria-live="polite">
-              <h2 className="ui-text-card-title">{needsFirstMember ? memberSetup ? "Add your first member" : "Add people to your Circle" : "Your Circle is ready"}</h2>
+              <h2 className="ui-text-card-title">Your Circle is ready</h2>
               <p className={MUTED_TEXT}>
-                {needsFirstMember
-                  ? memberSetup
-                    ? "Choose at least one connection below, or share an invite code. Chat will be ready when someone joins."
-                    : "Choose a connection below, or share an invite code to bring someone into this Circle."
-                  : "You've added your first member. Add more people below or start chatting."}
+                You've added your first member. Add more people below or start chatting.
               </p>
               {!needsFirstMember && hasChat ? (
                 <Button type="button" size="prominent" onClick={() => changeDetailView("chat")} className="w-full sm:w-auto">
@@ -2307,6 +2345,7 @@ export function CircleDetailFlow({
               modal
               open={renameSheetOpen}
               onOpenChange={(open) => {
+                if (renameInFlightRef.current) return;
                 setRenameSheetOpen(open);
                 if (!open && circle) setCircleName(circle.name);
               }}
@@ -2329,15 +2368,22 @@ export function CircleDetailFlow({
                         id={CIRCLE_NAME_INPUT_ID}
                         ref={nameInputRef}
                         value={circleName}
-                        onChange={(event) => setCircleName(event.target.value)}
+                        disabled={savingName}
+                        onChange={(event) => {
+                          const next = event.target.value;
+                          renameDraftRef.current.dirty = normalizeCircleName(next) !== normalizeCircleName(circle.name);
+                          setCircleName(next);
+                        }}
                         onKeyDown={(event) => {
                           if (event.key === "Enter") {
                             event.preventDefault();
                             void renameCircle();
                           } else if (event.key === "Escape") {
                             event.preventDefault();
-                            setRenameSheetOpen(false);
-                            setCircleName(circle.name);
+                            if (!renameInFlightRef.current) {
+                              setRenameSheetOpen(false);
+                              setCircleName(circle.name);
+                            }
                           }
                         }}
                         maxLength={80}
@@ -2357,6 +2403,7 @@ export function CircleDetailFlow({
                         type="button"
                         variant="ghost"
                         size="compact"
+                        disabled={savingName}
                         onClick={() => {
                           setRenameSheetOpen(false);
                           setCircleName(circle.name);
@@ -2371,11 +2418,7 @@ export function CircleDetailFlow({
                         size="standard"
                         disabled={!canSaveCircleName}
                         isLoading={savingName}
-                        onClick={() =>
-                          void renameCircle().then((saved) => {
-                            if (saved) setRenameSheetOpen(false);
-                          })
-                        }
+                        onClick={() => void renameCircle()}
                         className={cn(
                           BLOCKED_CTA,
                           "h-11 min-h-11 rounded-[14px]",

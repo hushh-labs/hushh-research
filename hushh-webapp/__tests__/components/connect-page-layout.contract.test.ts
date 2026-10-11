@@ -47,12 +47,14 @@ describe("Connect page layout contract", () => {
     );
 
     const connectionsMapStart = source.indexOf(
-      "sortedConnections.map((connection) => (",
+      "group.items.map((connection) => (",
     );
     const connectionsPagerStart = source.indexOf(
       "{connectionsHasMore ?",
       connectionsMapStart,
     );
+    expect(connectionsMapStart).toBeGreaterThan(0);
+    expect(connectionsPagerStart).toBeGreaterThan(connectionsMapStart);
     const connectionRows = source.slice(
       connectionsMapStart,
       connectionsPagerStart,

@@ -670,6 +670,14 @@ when the grant belongs to a person request. Clients use it to fetch current
 bundle status and encrypted exports even after the recent `requestHistory`
 projection is truncated; it is a locator, not decryption authority.
 
+The authenticated viewer profile includes nullable `contactEmail` and
+`contactPhoneNumber` only for a current active social connection. The identity
+read rechecks the canonical viewer/subject edge; pending or removed connections
+receive null contact details. `contactPhoneNumber` is a verified E.164 number
+including its country code. Neither contact field appears in the public profile.
+Clients clear the old projection when the connection graph changes and re-read
+it with `cache: no-store`.
+
 `GET /api/one/people/{person_ref}/scope-catalog?query=&page=&limit=&catalog_revision=`
 is the server-side search behind the request card's Change picker (consent
 lifecycle Contract C4). Same authentication, `404` and `private, no-store` rules

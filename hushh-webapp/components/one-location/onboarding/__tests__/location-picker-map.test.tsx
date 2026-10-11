@@ -131,7 +131,7 @@ describe("LocationPickerMap", () => {
 
     const confirm = screen.getByRole("button", { name: "Confirm location" });
     const actions = screen.getByTestId("location-picker-actions");
-    expect(actions).toHaveClass("mx-auto", "w-full", "max-w-[320px]");
+    expect(actions).toHaveClass("mx-auto", "w-fit", "max-w-full");
     expect(actions.className).not.toContain("bg-background");
     // The enclosing modal owns the safe-area inset; adding it here doubles it.
     expect(actions.className).not.toContain("safe-area-inset-bottom");

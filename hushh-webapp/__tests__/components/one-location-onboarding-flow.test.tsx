@@ -7,9 +7,10 @@ import {
   within,
 } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { useState } from "react";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 import {
-  CONTACTS_PRIVACY_DISCLOSURE,
   OneLocationOnboardingFlow,
 } from "@/components/one-location/onboarding/one-location-onboarding-flow";
 
@@ -140,6 +141,51 @@ describe("OneLocationOnboardingFlow four-step contract", () => {
     expect(screen.getByText("2 of 4")).toBeTruthy();
     expect(props.onRequestLocation).not.toHaveBeenCalled();
     expect(props.onLocationReady).not.toHaveBeenCalled();
+  });
+
+  it.each(["/one/location", "/one/setup/location"])("unwinds controlled onboarding before exiting %s", (routeId) => {
+    const props = createProps({ nativeTest: { ...createProps().nativeTest, routeId } });
+    function ControlledFlow() {
+      const [activeScreen, setScreen] = useState<"welcome" | "features" | "place" | "ready">("welcome");
+      return <OneLocationOnboardingFlow {...props} startAt={activeScreen === "welcome" ? "welcome" : "permissions"} activeScreen={activeScreen} onScreenChange={setScreen} />;
+    }
+    const { unmount } = render(<ControlledFlow />);
+    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+    expect(screen.getByTestId("one-location-onboarding-welcome")).toBeTruthy();
+    expect(props.onBack).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    act(() => { expect(unwindBackLayer(routeId)).toBe(true); });
+    expect(screen.getByTestId("one-location-onboarding-welcome")).toBeTruthy();
+    act(() => { expect(unwindBackLayer(routeId)).toBe(true); });
+    expect(props.onBack).toHaveBeenCalledTimes(1);
+    unmount();
+    expect(unwindBackLayer(routeId)).toBe(false);
+  });
+
+  it("returns a legacy permissions entry to Welcome", () => {
+    const { props } = renderFlow({ startAt: "permissions" });
+    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+    expect(screen.getByTestId("one-location-onboarding-welcome")).toBeTruthy();
+    expect(props.onBack).not.toHaveBeenCalled();
+  });
+
+  it("keeps pending location permission in its step until it settles", async () => {
+    let resolvePermission!: (ready: boolean) => void;
+    const onRequestLocation = vi.fn(() => new Promise<boolean>((resolve) => { resolvePermission = resolve; }));
+    const { props } = renderFlow({ startAt: "permissions", onRequestLocation });
+    const continueButton = screen.getByRole("button", { name: "Set up my location" });
+    fireEvent.click(continueButton);
+    fireEvent.click(continueButton);
+    expect(onRequestLocation).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Go back" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Skip" })).toBeDisabled();
+    act(() => { expect(unwindBackLayer(props.nativeTest.routeId)).toBe(true); });
+    expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
+    await act(async () => { resolvePermission(false); });
+    expect(screen.getByRole("button", { name: "Go back" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+    expect(screen.getByTestId("one-location-onboarding-welcome")).toBeTruthy();
   });
 
   it("retains the two approved intro screens and exact feature CTA", () => {
@@ -290,22 +336,15 @@ describe("OneLocationOnboardingFlow combined Ready screen", () => {
     ).toBeTruthy();
   });
 
-  it("shows the contacts privacy disclosure above the button that raises the OS prompt", async () => {
+  it("keeps Find contacts concise with an explicit contact-check action", async () => {
     await renderReady({
       contactsStepAvailable: true,
       onSyncOnboardingContacts: vi.fn(),
     });
     fireEvent.click(screen.getByRole("button", { name: "Find contacts" }));
 
-    const disclosure = screen.getByTestId("onboarding-contacts-privacy-disclosure");
-    expect(disclosure.textContent).toBe(CONTACTS_PRIVACY_DISCLOSURE);
-    expect(disclosure.textContent).toMatch(/one-way codes/);
-    expect(disclosure.textContent).toMatch(/never stores your contacts' names or numbers/);
-    expect(disclosure.textContent).toMatch(/nobody is contacted for you/);
-    const button = screen.getByRole("button", { name: "Check my contacts" });
-    expect(
-      disclosure.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(screen.queryByText(/Phone numbers are standardized/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Check my contacts" })).toBeEnabled();
   });
 
   it("syncs contacts only after Check my contacts and sends a selected request", async () => {
