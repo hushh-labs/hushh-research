@@ -109,7 +109,7 @@ function extractInterfaceMethods(source, interfaceName) {
   if (closeIndex < 0) return null;
   const body = source.slice(openIndex + 1, closeIndex);
   return new Set(
-    [...body.matchAll(/^\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/gm)].map(
+    [...body.matchAll(/^\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\??\s*\(/gm)].map(
       (methodMatch) => methodMatch[1]
     )
   );
