@@ -32,11 +32,13 @@ def test_service_only_preflight_accepts_only_the_cutover_delta(
             [
                 "consent-protocol/api/routes/one/agent_chat.py",
                 "consent-protocol/hushh_mcp/runtime_providers/factory.py",
+                "consent-protocol/hushh_mcp/services/information_chat_service.py",
+                "consent-protocol/hushh_mcp/services/location_chat_service.py",
                 ".github/workflows/deploy-uat-one-chat.yml",
             ]
         ),
     )
-    assert len(module.release_paths("a" * 40, "b" * 40)) == 3
+    assert len(module.release_paths("a" * 40, "b" * 40)) == 5
     command.assert_called_once_with("git", "merge-base", "--is-ancestor", "a" * 40, "b" * 40)
 
     monkeypatch.setattr(
@@ -66,6 +68,25 @@ def test_service_only_preflight_accepts_only_the_cutover_delta(
     assert len(module.release_paths("a" * 40, "b" * 40)) == 3
 
 
+def test_service_only_preflight_rejects_packaged_agent_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = load_release_script()
+    monkeypatch.setattr(module, "command", Mock())
+    monkeypatch.setattr(
+        module,
+        "output",
+        lambda *_args: "\n".join(
+            [
+                "consent-protocol/api/routes/one/agent_chat.py",
+                "consent-protocol/hushh_mcp/agents/pkm_memory_kernel.v3.md",
+            ]
+        ),
+    )
+    with pytest.raises(RuntimeError, match="pkm_memory_kernel.v3.md"):
+        module.release_paths("a" * 40, "b" * 40)
+
+
 def test_candidate_must_be_zero_traffic_and_have_its_own_tag() -> None:
     module = load_release_script()
     service = {
@@ -91,6 +112,54 @@ def test_candidate_must_be_zero_traffic_and_have_its_own_tag() -> None:
         module.candidate_from_service(service, "old", "one-chat-123")
 
 
+@pytest.mark.parametrize(
+    ("key", "drifted"),
+    [
+        ("HUSSH_GEMINI_TEXT_MODEL", "gemini-3.7-flash"),
+        ("HUSHH_VERTEX_LOCATIONS", "global"),
+    ],
+)
+def test_candidate_rejects_readiness_probe_runtime_drift(
+    monkeypatch: pytest.MonkeyPatch, key: str, drifted: str
+) -> None:
+    module = load_release_script()
+    image = "gcr.io/hushh-pda-uat/consent-protocol@sha256:" + "c" * 64
+    tag = "one-chat-123-1"
+    service = {
+        "status": {
+            "latestReadyRevisionName": "consent-protocol-new",
+            "traffic": [
+                {"revisionName": "consent-protocol-old", "percent": 100},
+                {
+                    "revisionName": "consent-protocol-new",
+                    "percent": 0,
+                    "tag": tag,
+                    "url": "https://tag.example",
+                },
+            ],
+        }
+    }
+    env = {**module.PROBE_RUNTIME_ENV, key: drifted}
+    revision = {
+        "spec": {
+            "serviceAccountName": module.RUNTIME_SA,
+            "containers": [
+                {
+                    "image": image,
+                    "env": [{"name": name, "value": value} for name, value in env.items()],
+                }
+            ],
+        }
+    }
+    command = Mock()
+    monkeypatch.setattr(module, "service_state", lambda: service)
+    monkeypatch.setattr(module, "revision_state", lambda _revision: revision)
+    monkeypatch.setattr(module, "command", command)
+    with pytest.raises(RuntimeError, match="differs from readiness probe"):
+        module.deploy_candidate(image, "a" * 40, "123", "1", "consent-protocol-old")
+    command.assert_called_once()
+
+
 def test_service_only_workflow_keeps_main_gate_and_full_uat_baseline() -> None:
     workflow = (ROOT / ".github/workflows/deploy-uat-one-chat.yml").read_text()
     selector = (ROOT / "hushh-webapp/scripts/ci/select-uat-target.mjs").read_text()
@@ -98,7 +167,10 @@ def test_service_only_workflow_keeps_main_gate_and_full_uat_baseline() -> None:
     assert "environment: uat" in workflow
     assert "require-deploy-sha-on-main.sh" in workflow
     assert "Main Post-Merge Smoke Gate" in workflow
+    assert "runtime-capacity-budget.py --environment uat" in workflow
     assert "uat_one_chat_backend_release.py" in workflow
+    assert "steps.deploy-backend.outcome != 'success'" in workflow
+    assert "--recover-interrupted" in workflow
     assert 'String(run?.path || "").split("@", 1)[0]' in selector
     assert "workflowFile(run) === CHAT_ONLY_WORKFLOW" in selector
 
@@ -158,3 +230,116 @@ def test_final_traffic_is_required_for_success(
     assert module.main() == 1
     receipt = json.loads((tmp_path / "uat-one-chat-release.json").read_text())
     assert receipt["status"] != "success"
+
+
+def test_promotion_receipt_is_saved_before_traffic_moves(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = load_release_script()
+    target_sha = "a" * 40
+    old = "consent-protocol-old"
+    candidate = "consent-protocol-new"
+    monkeypatch.setenv("TARGET_SHA", target_sha)
+    monkeypatch.setenv("GITHUB_RUN_ID", "123")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    monkeypatch.setattr(module, "preflight", lambda _sha: (old, "b" * 40))
+    monkeypatch.setattr(module, "build_image", lambda *_args: "image@sha256:" + "c" * 64)
+    monkeypatch.setattr(
+        module, "deploy_candidate", lambda *_args: (candidate, "https://tag.example")
+    )
+    monkeypatch.setattr(module, "probe_runtime", lambda *_args: {"one_chat_probe_ok": True})
+
+    def check_receipt_before_promotion(*_args: object) -> None:
+        receipt = json.loads((tmp_path / "uat-one-chat-promotion.json").read_text())
+        assert receipt["status"] == "prepared"
+        assert receipt["old_revision"] == old
+        assert receipt["candidate_revision"] == candidate
+        assert receipt["target_sha"] == target_sha
+
+    monkeypatch.setattr(module, "promote", check_receipt_before_promotion)
+    monkeypatch.setattr(module, "remove_candidate_tag", lambda _tag: True)
+    monkeypatch.setattr(module, "live_traffic", lambda: {candidate: 100})
+    assert module.main() == 0
+
+
+@pytest.mark.parametrize(
+    ("serving", "expected_status", "mutates"),
+    [
+        ("consent-protocol-new", "rolled_back", True),
+        ("consent-protocol-old", "already_on_previous_revision", False),
+    ],
+)
+def test_interrupted_promotion_recovers_only_known_traffic(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    serving: str,
+    expected_status: str,
+    mutates: bool,
+) -> None:
+    module = load_release_script()
+    old = "consent-protocol-old"
+    candidate = "consent-protocol-new"
+    target_sha = "a" * 40
+    module.write_promotion_receipt(tmp_path, target_sha, "123", "1", old, candidate)
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    monkeypatch.setenv("TARGET_SHA", target_sha)
+    monkeypatch.setenv("GITHUB_RUN_ID", "123")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
+    traffic = {"current": {serving: 100}}
+    monkeypatch.setattr(module, "live_traffic", lambda: traffic["current"])
+    monkeypatch.setattr(
+        module,
+        "revision_state",
+        lambda _revision: {
+            "metadata": {
+                "labels": {
+                    "serving.knative.dev/service": module.SERVICE,
+                    "account-deletion-contract": "v201",
+                    "deploy-source": module.SOURCE,
+                    "deploy-sha": target_sha,
+                    "github-run-id": "123",
+                }
+            }
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "service_state",
+        lambda: {"status": {"traffic": [{"revisionName": candidate, "tag": "one-chat-123-1"}]}},
+    )
+    monkeypatch.setattr(module, "remove_candidate_tag", lambda _tag: True)
+
+    def move_traffic(*_args: str) -> None:
+        traffic["current"] = {old: 100}
+
+    command = Mock(side_effect=move_traffic)
+    monkeypatch.setattr(module, "command", command)
+    assert module.recover_interrupted() == 0
+    assert (command.call_count == 1) is mutates
+    if mutates:
+        assert f"--to-revisions={old}=100" in command.call_args.args
+    report = json.loads((tmp_path / "uat-one-chat-recovery.json").read_text())
+    assert report["status"] == expected_status
+    assert report["traffic_after"] == {old: 100}
+
+
+def test_interrupted_promotion_refuses_unknown_traffic(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = load_release_script()
+    module.write_promotion_receipt(
+        tmp_path, "a" * 40, "123", "1", "consent-protocol-old", "consent-protocol-new"
+    )
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    monkeypatch.setenv("TARGET_SHA", "a" * 40)
+    monkeypatch.setenv("GITHUB_RUN_ID", "123")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
+    monkeypatch.setattr(module, "live_traffic", lambda: {"consent-protocol-unknown": 100})
+    command = Mock()
+    monkeypatch.setattr(module, "command", command)
+    assert module.recover_interrupted() == 1
+    command.assert_not_called()
+    report = json.loads((tmp_path / "uat-one-chat-recovery.json").read_text())
+    assert report["status"] == "blocked"
+    assert "Unknown or split backend traffic" in report["error"]

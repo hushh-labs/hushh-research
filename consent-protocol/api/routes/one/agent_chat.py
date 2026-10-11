@@ -534,7 +534,7 @@ _app = App(
 )
 _intro_app = App(
     name=f"{ONE_APP_NAME}_intro",
-    root_agent=build_one_intro_text_agent(),
+    root_agent=build_one_intro_text_agent(vertex_project=_ONE_CHAT_VERTEX_PROJECT),
     resumability_config=ResumabilityConfig(is_resumable=True),
 )
 _session_service = EncryptedAdkSessionService()

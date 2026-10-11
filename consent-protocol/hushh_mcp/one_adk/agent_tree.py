@@ -2331,7 +2331,9 @@ def _resolve_text_model(model: Any | None, *, vertex_project: str | None = None)
     return build_managed_regional_gemini_adk_model(_SPECIALIST_MODEL)
 
 
-def build_one_intro_text_agent(*, model: Any | None = None) -> LlmAgent:
+def build_one_intro_text_agent(
+    *, model: Any | None = None, vertex_project: str | None = None
+) -> LlmAgent:
     """Build One's semantic but lower-privilege pre-vault text head.
 
     This is deliberately not the full One roster. It can converse and propose
@@ -2341,7 +2343,7 @@ def build_one_intro_text_agent(*, model: Any | None = None) -> LlmAgent:
     manifest = next(child for child in _ONE_MANIFEST.subagents if child.id == "one_intro")
     return LlmAgent(
         name=manifest.name,
-        model=_resolve_text_model(model),
+        model=_resolve_text_model(model, vertex_project=vertex_project),
         description=manifest.description,
         instruction=manifest.system_instruction,
         tools=[run_intro_navigation_action, list_intro_navigation_actions],
