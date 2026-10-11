@@ -44,11 +44,16 @@ NATIVE_OAUTH_REDIRECT_URI = "https://api.uat.hushh.ai/api/connectors/oauth/nativ
 NATIVE_PICKER_REDIRECT_URI = (
     "https://api.uat.hushh.ai/api/connectors/google_drive/picker/native/callback"
 )
-REGISTERED_REDIRECT_URIS = (
+PREVIOUS_REGISTERED_REDIRECT_URIS = (
     WEB_REDIRECT_URI,
     LEGACY_WEB_REDIRECT_URI,
     NATIVE_OAUTH_REDIRECT_URI,
     NATIVE_PICKER_REDIRECT_URI,
+)
+REGISTERED_REDIRECT_URIS = (
+    *PREVIOUS_REGISTERED_REDIRECT_URIS,
+    "https://api.uat.hussh.ai/api/connectors/oauth/native/callback",
+    "https://api.uat.hussh.ai/api/connectors/google_drive/picker/native/callback",
 )
 LEGACY_REGISTERED_REDIRECT_URIS = (
     LEGACY_WEB_REDIRECT_URI,
@@ -300,13 +305,12 @@ class DriveUatRegistryProvisioner:
                 if row is None:
                     raise DriveUatRegistryProvisioningError("Drive registry policy is unavailable")
                 action = "activated"
-            elif _row_matches_policy(
-                row,
-                require_active=False,
-                redirect_uris=LEGACY_REGISTERED_REDIRECT_URIS,
+            elif any(
+                _row_matches_policy(row, require_active=False, redirect_uris=prior)
+                for prior in (LEGACY_REGISTERED_REDIRECT_URIS, PREVIOUS_REGISTERED_REDIRECT_URIS)
             ):
-                # This is the exact previously reviewed row. Add only the new
-                # web return; the old return remains valid for in-flight OAuth.
+                # Migrate only an exact previously reviewed policy, retaining
+                # every prior callback for in-flight OAuth.
                 connection.execute(
                     text(
                         """

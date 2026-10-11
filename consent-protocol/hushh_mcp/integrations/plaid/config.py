@@ -14,6 +14,7 @@ from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
 from hushh_mcp.runtime_settings import get_app_runtime_settings
+from hushh_mcp.services.oauth_redirect_policy import allowed_oauth_callback_uris
 
 logger = logging.getLogger(__name__)
 
@@ -287,11 +288,8 @@ class PlaidRuntimeConfig:
         allowed = _normalize_redirect_uri(default_redirect_uri)
         if allowed is None:
             raise RuntimeError("Plaid redirect URI requires a configured frontend origin.")
-        allowed_parts = urlsplit(allowed)
-        if (
-            requested_parts.scheme != allowed_parts.scheme
-            or requested_parts.netloc != allowed_parts.netloc
-        ):
+        allowed_callback = urlunsplit((*urlsplit(allowed)[:2], requested_parts.path, "", ""))
+        if requested not in allowed_oauth_callback_uris(allowed_callback):
             raise RuntimeError("Plaid redirect URI does not match the configured frontend origin.")
 
         return requested

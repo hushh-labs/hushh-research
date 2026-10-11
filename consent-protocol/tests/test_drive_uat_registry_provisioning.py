@@ -12,6 +12,9 @@ from typing import Any
 import pytest
 
 from hushh_mcp.services.drive_prod_registry_provisioning import (
+    LEGACY_REGISTERED_REDIRECT_URIS as PROD_LEGACY_REDIRECT_URIS,
+)
+from hushh_mcp.services.drive_prod_registry_provisioning import (
     PROD_PROJECT_ID,
     DriveProdRegistryProvisioner,
     DriveProdRegistryProvisioningError,
@@ -25,9 +28,7 @@ from hushh_mcp.services.drive_prod_registry_provisioning import (
 )
 from hushh_mcp.services.drive_uat_registry_provisioning import (
     LEGACY_REGISTERED_REDIRECT_URIS,
-    LEGACY_WEB_REDIRECT_URI,
-    NATIVE_OAUTH_REDIRECT_URI,
-    NATIVE_PICKER_REDIRECT_URI,
+    PREVIOUS_REGISTERED_REDIRECT_URIS,
     PROVISIONED_BY,
     REGISTERED_REDIRECT_URIS,
     UAT_PROJECT_ID,
@@ -243,7 +244,7 @@ def test_activation_inserts_only_the_fixed_drive_rest_policy():
         "status": "activated",
         "transportKind": "google_drive_rest",
         "policyHash": LIVE_POLICY_HASH,
-        "redirectCount": 4,
+        "redirectCount": 6,
     }
     assert connection.row == _canonical_active_row()
     insert_values = next(
@@ -253,12 +254,7 @@ def test_activation_inserts_only_the_fixed_drive_rest_policy():
     )
     assert insert_values["mcp_endpoint"] == DRIVE_BASE
     assert json.loads(insert_values["capability_policy"]) == DRIVE_POLICY
-    assert json.loads(insert_values["registered_redirect_uris"]) == [
-        WEB_REDIRECT_URI,
-        LEGACY_WEB_REDIRECT_URI,
-        NATIVE_OAUTH_REDIRECT_URI,
-        NATIVE_PICKER_REDIRECT_URI,
-    ]
+    assert json.loads(insert_values["registered_redirect_uris"]) == list(REGISTERED_REDIRECT_URIS)
     assert insert_values["created_by"] == PROVISIONED_BY
     assert not any(
         "secret" in key.lower() and key != "oauth_client_secret_env" for key in insert_values
@@ -281,7 +277,7 @@ def test_activation_migrates_only_exact_legacy_redirect_row(active):
     result = _service(connection).activate()
 
     assert result["status"] == "migrated"
-    assert result["redirectCount"] == 4
+    assert result["redirectCount"] == 6
     assert connection.row == _canonical_active_row()
     assert connection.mutation_count == 1
     assert "FROM pg_control_system()" in connection.sql[0]
@@ -450,6 +446,33 @@ def test_prod_activation_uses_only_fixed_production_policy(monkeypatch):
     assert connection.row["created_by"] == "ops_google_drive_prod_registry"
     assert all("uat." not in uri for uri in PROD_REDIRECT_URIS)
     assert all("prod." not in uri for uri in PROD_REDIRECT_URIS)
+    assert connection.mutation_count == 1
+
+
+@pytest.mark.parametrize("environment", ["uat", "production"])
+def test_exact_prior_registry_policy_adds_aliases_without_changing_authority(
+    monkeypatch, environment
+):
+    if environment == "production":
+        _set_prod_target(monkeypatch)
+        row = {**_prod_canonical_row(), "is_active": True}
+        row["registered_redirect_uris"] = list(PROD_LEGACY_REDIRECT_URIS)
+        connection = _RegistryConnection(row=row, identity=_prod_identity())
+        service = _prod_service(connection)
+        redirects = PROD_REDIRECT_URIS
+    else:
+        row = _canonical_active_row()
+        row["registered_redirect_uris"] = list(PREVIOUS_REGISTERED_REDIRECT_URIS)
+        connection = _RegistryConnection(row=row)
+        service = _service(connection)
+        redirects = REGISTERED_REDIRECT_URIS
+    assert service.activate()["status"] == "migrated"
+    assert connection.row["registered_redirect_uris"] == list(redirects)
+    assert service.activate()["status"] == "verified"
+    assert connection.mutation_count == 1
+    connection.row["registered_redirect_uris"].append("https://foreign.example/callback")
+    with pytest.raises(ValueError, match="drifted"):
+        service.activate()
     assert connection.mutation_count == 1
 
 

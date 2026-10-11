@@ -103,6 +103,62 @@ def test_oauth_redirect_uses_environment_owned_callback(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_oauth_alias_preserves_signed_callback_and_rejects_other_environment(monkeypatch):
+    legacy = _configure_gmail_oauth(monkeypatch)
+    alias = legacy.replace("hushh.ai", "hussh.ai")
+    monkeypatch.setenv(
+        "CORS_ALLOWED_ORIGINS",
+        "https://uat.one.hushh.ai,https://uat.one.hussh.ai,https://one.hussh.ai",
+    )
+    service = GmailReceiptsService()
+    state = service._build_state_token(user_id="owner", redirect_uri=alias)
+    complete = AsyncMock(return_value={"connected": True})
+    monkeypatch.setattr(service, "_complete_authorized_connect", complete)
+    assert service._resolve_oauth_redirect_uri(alias) == alias
+    await service.complete_connect(
+        user_id="owner", code="synthetic", state=state, redirect_uri=alias
+    )
+    assert complete.await_args.kwargs["redirect_uri"] == alias
+    complete.reset_mock()
+    for invalid in (legacy, "https://one.hussh.ai/one/profile/gmail/oauth/return"):
+        with pytest.raises(GmailApiError):
+            await service.complete_connect(
+                user_id="owner", code="synthetic", state=state, redirect_uri=invalid
+            )
+    complete.assert_not_awaited()
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://uat.one.hushh.ai")
+    with pytest.raises(GmailApiError):
+        service._resolve_oauth_redirect_uri(alias)
+
+
+@pytest.mark.asyncio
+async def test_older_client_completes_with_original_signed_callback_after_alias_switch(monkeypatch):
+    legacy = _configure_gmail_oauth(monkeypatch)
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://uat.one.hushh.ai,https://uat.one.hussh.ai")
+    service = GmailReceiptsService()
+    state = service._build_state_token(user_id="owner", redirect_uri=legacy)
+    _configure_gmail_oauth(monkeypatch, origin="https://uat.one.hussh.ai")
+    complete = AsyncMock(return_value={"connected": True})
+    monkeypatch.setattr(service, "_complete_authorized_connect", complete)
+    await service.complete_connect(
+        user_id="owner", code="synthetic", state=state, redirect_uri=None
+    )
+    assert complete.await_args.kwargs["redirect_uri"] == legacy
+    complete.reset_mock()
+    for invalid_state in (
+        state + "x",
+        service._build_state_token(
+            user_id="owner", redirect_uri="https://one.hussh.ai/one/profile/gmail/oauth/return"
+        ),
+    ):
+        with pytest.raises(GmailApiError):
+            await service.complete_connect(
+                user_id="owner", code="synthetic", state=invalid_state, redirect_uri=None
+            )
+    complete.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_default_connect_requests_read_scope_without_send(monkeypatch):
     _configure_gmail_oauth(monkeypatch)
     service = GmailReceiptsService()
