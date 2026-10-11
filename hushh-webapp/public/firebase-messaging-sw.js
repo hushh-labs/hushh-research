@@ -286,6 +286,59 @@ function isEmergencySmsAlert(data) {
   );
 }
 
+function smsHasExpired(data) {
+  if (data.type !== "location_share_created" || !isEmergencySmsAlert(data)) return false;
+  const expiry = String(data.expires_at || "").trim();
+  return !!expiry && (!Number.isFinite(Date.parse(expiry)) || Date.parse(expiry) <= Date.now());
+}
+
+// Opaque per-grant presentation receipts survive worker restarts. They contain
+// no message, location or key material; retain only the maximum push lifetime.
+const locationPresentationFallback = new Map();
+async function locationPresentation(grantId, update) {
+  if (!grantId) return null;
+  let db;
+  const cutoff = Date.now() - 28 * 86400 * 1000;
+  try {
+    db = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("hussh-location-presentation-v1", 1);
+      request.onupgradeneeded = () => request.result.createObjectStore("grants");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = reject;
+    });
+    return await new Promise((resolve, reject) => {
+      const transaction = db.transaction("grants", update ? "readwrite" : "readonly");
+      const store = transaction.objectStore("grants");
+      const request = store.get(grantId);
+      let value;
+      request.onsuccess = () => {
+        value = request.result?.at > cutoff ? request.result : {};
+        if (update) {
+          value = { ...value, ...update, at: Date.now() };
+          store.put(value, grantId);
+          const cursor = store.openCursor();
+          cursor.onsuccess = () => {
+            const entry = cursor.result;
+            if (!entry) return;
+            if (entry.value.at <= cutoff) entry.delete();
+            entry.continue();
+          };
+        }
+      };
+      transaction.oncomplete = () => resolve(value);
+      transaction.onerror = reject;
+      transaction.onabort = reject;
+    });
+  } catch (_) {
+    // Storage failure must not discard a fresh emergency. Still dedup for this
+    // worker lifetime; never persist a failed showNotification as delivered.
+    for (const [key, value] of locationPresentationFallback) if (value.at <= cutoff) locationPresentationFallback.delete(key);
+    const value = locationPresentationFallback.get(grantId) || {};
+    if (update) locationPresentationFallback.set(grantId, { ...value, ...update, at: Date.now() });
+    return locationPresentationFallback.get(grantId) || value;
+  } finally { db?.close(); }
+}
+
 async function deliverPushToClients(payload) {
   const clientList = await self.clients.matchAll({
     type: "window",
@@ -505,6 +558,16 @@ self.addEventListener("push", function (event) {
     };
     event.waitUntil(
       serializeChat(async () => {
+        const grantId = String(notificationData.grant_id || "").trim();
+        const smsCreated = isEmergencySms && notificationType === "location_share_created";
+        if (["location_share_revoked", "location_share_expired"].includes(notificationType)) {
+          await locationPresentation(grantId, { ended: true });
+          if (grantId) await closeDeliveredNotificationTag(`one-location-share:${grantId}`);
+        }
+        if (smsCreated) {
+          const previous = await locationPresentation(grantId);
+          if (smsHasExpired(notificationData) || previous?.ended || previous?.presented) return;
+        }
         if (isChat && notificationData.recipient_key_id && notificationData.recipient_key_id !== await self.currentChatNotificationKey()) return;
         if (isChat && Number(notificationData.chat_expires_at) < Date.now() / 1000) return;
         if (isChat && !await chatCanPresent(notificationData)) return;
@@ -548,12 +611,14 @@ self.addEventListener("push", function (event) {
           const avatar = trusted?.avatar;
           const icon = typeof avatar === "string" && avatar.startsWith("data:image/jpeg;base64,") && avatar.length <= 1023 ? avatar : notificationOptions.icon;
           if (isChat && !await chatCanPresent(notificationData)) return;
+          if (smsHasExpired(notificationData)) return;
           await self.registration.showNotification(isChat ? group || sender : title, { ...notificationOptions,
             ...(isChat ? { body: group ? `${sender}: ${text}` : text, icon, requireInteraction: false } : {}) });
           if (isChat) await chatCanPresent(notificationData, true);
         } else if (isChat) {
           await chatCanPresent(notificationData, true);
         }
+        if (smsCreated) await locationPresentation(grantId, { presented: true });
       }),
     );
   } catch (_) {

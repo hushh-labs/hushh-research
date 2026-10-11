@@ -85,6 +85,7 @@ class _MessagingStub:
             priority=None,
             visibility=None,
             vibrate_timings_millis=None,
+            sound=None,
         ):
             self.title = title
             self.body = body
@@ -94,6 +95,7 @@ class _MessagingStub:
             self.priority = priority
             self.visibility = visibility
             self.vibrate_timings_millis = vibrate_timings_millis
+            self.sound = sound
 
     class AndroidConfig:
         def __init__(self, priority=None, notification=None, ttl=None):
@@ -706,3 +708,64 @@ def test_chat_avatar_raster_budget_and_untrusted_url_rejection(monkeypatch):
     result = thumbnail("data:image/png;base64," + base64.b64encode(source.getvalue()).decode())
     assert result.startswith("data:image/jpeg;base64,")
     assert len(result) <= 1023
+
+
+@pytest.mark.parametrize("deadline,ttl", [("2030-01-01T00:01:00Z", 60), ("", 0)])
+def test_sms_transport_lifetime_and_legacy_android_sound(monkeypatch, deadline, ttl):
+    from firebase_admin import messaging
+    from firebase_admin.messaging import _MessagingService
+
+    now = 1893456000
+    monkeypatch.setattr("api.utils.fcm_messages.time.time", lambda: now)
+    for platform in ("web", "android", "ios"):
+        message = build_push_message(
+            messaging,
+            token=f"{platform}-device-id",
+            platform=platform,
+            data={"type": "location_share_created", "share_kind": "sos", "expires_at": deadline},
+            title="UAT TEST",
+            body="No emergency",
+            request_url="/one/feed",
+            notification_tag="sms-test",
+            show_alert=True,
+        )
+        wire = _MessagingService.encode_message(message)
+        if platform == "android":
+            assert wire["android"]["ttl"] == f"{ttl}s"
+            assert wire["android"]["notification"]["sound"] == "default"
+            assert wire["android"]["notification"]["channel_id"] == "one_location_sms_emergency_v1"
+        elif platform == "web":
+            assert wire["webpush"]["headers"]["TTL"] == str(ttl)
+        else:
+            assert wire["apns"]["headers"]["apns-expiration"] == str(now + ttl if ttl else 0)
+            assert wire["apns"]["payload"]["aps"]["sound"] == "one_location_sms_alarm.wav"
+
+
+@pytest.mark.parametrize("deadline", ["2000-01-01T00:00:00Z", "invalid"])
+def test_expired_sms_is_silent_on_every_transport(deadline):
+    from firebase_admin import messaging
+    from firebase_admin.messaging import _MessagingService
+
+    for platform in ("web", "android", "ios"):
+        wire = _MessagingService.encode_message(
+            build_push_message(
+                messaging,
+                token=f"{platform}-device-id",
+                platform=platform,
+                data={
+                    "type": "location_share_created",
+                    "share_kind": "sos",
+                    "expires_at": deadline,
+                },
+                title="UAT TEST",
+                body="No emergency",
+                request_url="/one/feed",
+                notification_tag="sms-test",
+                show_alert=True,
+            )
+        )
+        assert wire["data"]["notification_presentation"] == "silent"
+        assert "notification" not in wire
+        if platform == "ios":
+            assert "sound" not in wire["apns"]["payload"]["aps"]
+            assert "alert" not in wire["apns"]["payload"]["aps"]

@@ -500,6 +500,43 @@ describe("global One Location Feed-first notification policy", () => {
     );
   });
 
+  it("keeps the system fallback retryable when browser audio is blocked, until the grant ends", async () => {
+    await renderReady();
+    const data = { type: "location_share_created", grant_id: "sms-no-audio", message_id: "sms-no-audio:event", share_kind: "sos" };
+    expect(dispatchLocation(data, { source: "service_worker" }).accepted).toBe(false);
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+    expect(dispatchLocation(data, { source: "service_worker" }).accepted).toBe(false);
+    dispatchLocation({ type: "location_share_revoked", grant_id: data.grant_id });
+    expect(dispatchLocation(data, { source: "service_worker" }).accepted).toBe(true);
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["2000-01-01T00:00:00Z", "invalid"])("acknowledges stale SMS silently without requesting an OS alarm: %s", async (expires_at) => {
+    await renderReady();
+    expect(dispatchLocation({ type: "location_share_created", grant_id: "stale-sms", share_kind: "sos", expires_at }, { source: "service_worker" }).accepted).toBe(true);
+    expect(mocks.toast).not.toHaveBeenCalled();
+  });
+
+  it("deduplicates and retains terminal precedence when browser storage is unavailable", async () => {
+    await renderReady();
+    const get = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("unavailable"); });
+    const set = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("unavailable"); });
+    try {
+      const data = { type: "location_share_created", grant_id: "storage-blocked", message_id: "storage-blocked:event", share_kind: "sos" };
+      expect(dispatchLocation(data, { source: "service_worker" }).accepted).toBe(false);
+      expect(dispatchLocation(data, { source: "service_worker" }).accepted).toBe(false);
+      dispatchLocation({ type: "location_share_revoked", grant_id: data.grant_id });
+      expect(dispatchLocation(data, { source: "service_worker" }).accepted).toBe(true);
+      const delayed = { ...data, grant_id: "ended-before-create", message_id: "ended-before-create:event" };
+      dispatchLocation({ type: "location_share_expired", grant_id: delayed.grant_id });
+      expect(dispatchLocation(delayed, { source: "service_worker" }).accepted).toBe(true);
+      expect(mocks.toast).toHaveBeenCalledTimes(1);
+    } finally {
+      get.mockRestore();
+      set.mockRestore();
+    }
+  });
+
   it("retains the emergency SMS foreground alarm as the safety exception", async () => {
     await renderReady();
     dispatchLocation({
