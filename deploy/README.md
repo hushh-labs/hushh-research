@@ -55,7 +55,8 @@ the reviewed deploy-uat-one-chat.yml workflow updates the existing consent-proto
 without touching the frontend, Drive worker, schedulers, secrets, or database.
 Dispatch it with an exact green main SHA after the Main Post-Merge Smoke Gate
 succeeds. It rejects accumulated backend image and release-input changes outside
-its cutover allowlist,
+its cutover allowlist. Four Location files already on main are admitted only at
+their reviewed Git blob IDs; a later edit to those files blocks this lane. It
 creates a zero-traffic backend candidate, and uses a temporary Cloud Run Job
 under the UAT runtime identity to require a synthetic Gemini response from the
 external project. The Job must be deleted before traffic promotion. The workflow

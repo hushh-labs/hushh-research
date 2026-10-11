@@ -111,8 +111,9 @@ requires the same exact landed-main SHA and smoke gate, then checks the complete
 serving-backend-to-target backend image and release-input diff against its narrow
 allowlist. Its release
 artifact is partial and does not replace the full UAT receipt or authorize a
-production release. A blocked path check requires a normal UAT catch-up before
-retrying this service-only lane.
+production release. Its one-time Location baseline exception accepts only four
+reviewed Git blob IDs already on main; any drift or other blocked path requires
+a normal UAT catch-up before retrying this service-only lane.
 
 ### 5. Dispatch only the requested environment
 

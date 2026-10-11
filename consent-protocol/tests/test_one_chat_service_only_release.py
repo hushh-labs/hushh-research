@@ -87,6 +87,33 @@ def test_service_only_preflight_rejects_packaged_agent_prompt(
         module.release_paths("a" * 40, "b" * 40)
 
 
+def test_service_only_preflight_accepts_only_pinned_location_baseline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = load_release_script()
+    monkeypatch.setattr(module, "command", Mock())
+    target_sha = "b" * 40
+    paths = [
+        "consent-protocol/api/routes/one/agent_chat.py",
+        *module.KNOWN_LOCATION_BLOBS,
+    ]
+    drifted = None
+
+    def git_output(*args: str) -> str:
+        if args[1] == "diff":
+            return "\n".join(paths)
+        path = args[2].split(":", 1)[1]
+        if path == drifted:
+            return "0" * 40
+        return module.KNOWN_LOCATION_BLOBS[path]
+
+    monkeypatch.setattr(module, "output", git_output)
+    assert module.release_paths("a" * 40, target_sha) == paths
+    drifted = paths[-1]
+    with pytest.raises(RuntimeError, match="one_location_sms_readiness.py"):
+        module.release_paths("a" * 40, target_sha)
+
+
 def test_candidate_must_be_zero_traffic_and_have_its_own_tag() -> None:
     module = load_release_script()
     service = {

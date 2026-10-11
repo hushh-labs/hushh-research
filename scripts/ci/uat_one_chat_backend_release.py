@@ -58,6 +58,16 @@ ALLOWED_PATHS = frozenset(
     }
 )
 
+# The currently serving UAT backend predates the SMS/SOS changes already on
+# main. This one-time baseline allowance is pinned to reviewed target bytes;
+# later edits to the same paths must take the normal UAT release lane.
+KNOWN_LOCATION_BLOBS = {
+    "consent-protocol/api/routes/one/location.py": "e63c2f594254b95dbaae61e3ed86e623f26abba4",
+    "consent-protocol/hushh_mcp/one_voice/tools/sos.py": "e1a08ced236f6d6f5d95546b7eb7cfb3f02d44f3",
+    "consent-protocol/hushh_mcp/services/one_location_agent_service.py": "5a0ce2e4e2e2b9b9e4fb968ba9c356cabb2ba973",
+    "consent-protocol/hushh_mcp/services/one_location_sms_readiness.py": "dc3441f3a32b5efc5bca4af8c90a203948456fc1",
+}
+
 
 def backend_release_input(path: str) -> bool:
     """Only bytes that enter this image or govern its build need the delta gate."""
@@ -140,12 +150,16 @@ def serving_revision(service: dict[str, Any]) -> str:
 
 def release_paths(base_sha: str, target_sha: str) -> list[str]:
     command("git", "merge-base", "--is-ancestor", base_sha, target_sha)
-    paths = output("git", "diff", "--name-only", base_sha, target_sha).splitlines()
-    disallowed = sorted(
-        path
-        for path in paths
-        if backend_release_input(path) and path not in ALLOWED_PATHS
-    )
+    paths = output("git", "diff", "--no-renames", "--name-only", base_sha, target_sha).splitlines()
+    disallowed = []
+    for path in paths:
+        if not backend_release_input(path) or path in ALLOWED_PATHS:
+            continue
+        pinned_blob = KNOWN_LOCATION_BLOBS.get(path)
+        if pinned_blob and output("git", "rev-parse", f"{target_sha}:{path}") == pinned_blob:
+            continue
+        disallowed.append(path)
+    disallowed.sort()
     if disallowed:
         raise RuntimeError(
             f"Service-only UAT release refuses changed paths: {disallowed}"
