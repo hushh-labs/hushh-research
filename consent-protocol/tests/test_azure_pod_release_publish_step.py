@@ -195,3 +195,76 @@ def test_isolated_preview_never_publishes_shared_azure_pod_release(script, tmp_p
     result, calls, registry = _run(script, tmp_path, namespace="SCOPE_COMMERCE_SANDBOX_")
     assert result.returncode == 0 and "skipped" in result.stdout
     assert calls == [] and registry == []
+
+
+def test_reused_publication_archive_follows_its_image_source_and_new_run(config, tmp_path):
+    """The real reuse branch archives where a subsequent verified pin looks."""
+    import json
+    import sys
+
+    source_sha, descriptor_sha, run_id = "a" * 40, "d" * 40, "101"
+    workspace, bin_dir, deploy = (tmp_path / name for name in ("workspace", "bin", "deploy"))
+    for path in (workspace, bin_dir, deploy):
+        path.mkdir()
+    (deploy / "pod-release-reuse.json").write_text("{}")
+    (deploy / "pod-release.json").write_bytes((REPO_ROOT / "deploy/pod-release.json").read_bytes())
+    # Registry/archive validation has its own negative controls. Stub that I/O;
+    # execute the actual Cloud Build branch and actual descriptor assembler.
+    python = bin_dir / "python3"
+    python.write_text(
+        f"#!{sys.executable}\n"
+        "import os,sys\nfrom pathlib import Path\n"
+        "if Path(sys.argv[1]).name == 'reuse-pod-release.py':\n"
+        " p=Path(sys.argv[sys.argv.index('--workspace')+1])\n"
+        f" (p/'pod-image-source-sha').write_text({source_sha!r})\n"
+        f" (p/'pod-image-reference').write_text({POD_IMAGE!r})\n"
+        "else: os.execv(sys.executable,[sys.executable,*sys.argv[1:]])\n"
+    )
+    gcloud = bin_dir / "gcloud"
+    gcloud.write_text(
+        "#!/usr/bin/env bash\nset -euo pipefail\n"
+        '[[ "$1 $2" == "storage cp" ]] || exit 2\n'
+        'cp "$3" "$FAKE_ARCHIVE"\nprintf "%s\\n" "$4" > "$FAKE_DESTINATION"\n'
+    )
+    for program in (python, gcloud):
+        program.chmod(0o755)
+    script = str(_step(config, "resolve-pod-image-digest")["args"][1])
+    for key, value in {
+        "_DEPLOY_ENV": "dev",
+        "_BUILD_POD_IMAGE": "true",
+        "_SECRET_PREFIX": "",
+        "_DEPLOY_SHA": descriptor_sha,
+        "_GITHUB_RUN_ID": run_id,
+        "_IMAGE_TAG": TAG,
+        "PROJECT_ID": PROJECT,
+    }.items():
+        script = script.replace("${" + key + "}", value)
+    script = script.replace("$PROJECT_ID", PROJECT).replace("/workspace", str(workspace))
+    script = script.replace(
+        "scripts/deploy/assemble-pod-release.py",
+        str(REPO_ROOT / "scripts/deploy/assemble-pod-release.py"),
+    )
+    archive, destination = tmp_path / "archived.json", tmp_path / "destination"
+    # Execute only repository-authored build code with synthetic substitutions.
+    result = subprocess.run(  # noqa: S603
+        ["bash", "-c", script],
+        cwd=tmp_path,
+        env={
+            "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
+            "FAKE_ARCHIVE": str(archive),
+            "FAKE_DESTINATION": str(destination),
+        },
+        text=True,
+        capture_output=True,
+        timeout=15,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    published = json.loads(archive.read_text())
+    assert published["image"] == POD_IMAGE
+    assert published["sourceRevision"] == source_sha
+    assert published["publisher"]["runId"] == run_id
+    assert (
+        destination.read_text().strip()
+        == f"gs://{PROJECT}_cloudbuild/pod-releases/{source_sha}/{run_id}/release.json"
+    )

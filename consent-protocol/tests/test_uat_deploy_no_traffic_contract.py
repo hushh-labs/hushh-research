@@ -440,7 +440,8 @@ def test_calendar_voice_details_are_enabled_only_for_uat_rollout() -> None:
     production_workflow = _read(".github/workflows/deploy-production.yml")
 
     assert '_ONE_VOICE_CALENDAR_NARRATION_ENABLED: "false"' in backend_build
-    assert "ONE_VOICE_CALENDAR_NARRATION_ENABLED" in backend_build
+    # A declared default alone is not a Cloud Build substitution reference.
+    assert "${_ONE_VOICE_CALENDAR_NARRATION_ENABLED}" in backend_build
     assert "_ONE_VOICE_CALENDAR_NARRATION_ENABLED=true" in uat_workflow
     assert "_ONE_VOICE_CALENDAR_NARRATION_ENABLED=true" not in production_workflow
 
