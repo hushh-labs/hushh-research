@@ -231,7 +231,7 @@ async function mount(page: Page, enter = true) {
 }
 
 for (const width of [320, 393, 1440]) {
-  test(`Wallet matches Location header and tab geometry at ${width}px`, async ({ page }) => {
+  test(`Wallet keeps compact mobile spacing and shared desktop geometry at ${width}px`, async ({ page }, testInfo) => {
     const source = fs.readFileSync(path.join(process.cwd(), "components/one-location/redesign/location-redesign-hub.tsx"), "utf8");
     const hubClass = source.match(/data-location-hub\s+className="([^"]+)"/)?.[1];
     const headerClass = source.slice(source.indexOf('title="Location"')).match(/className="([^"]+)"/)?.[1];
@@ -253,18 +253,27 @@ for (const width of [320, 393, 1440]) {
     await mount(page);
     await expect(page.getByRole("tab", { name: "Cards", exact: true })).toBeEnabled();
     const wallet = await geometry();
+    await expect(page.getByTestId("wallet-card-browser")).toHaveCSS("padding-top", width < 640 ? "20px" : "32px");
+    await page.screenshot({ path: testInfo.outputPath(`wallet-${width}.png`) });
     await open(page, width, "light", {}, { shell: true });
     await page.addScriptTag({ content: `window.__locationReference=${JSON.stringify({ hubClass, headerClass })}` });
     await mount(page, false);
     await expect(page.getByRole("heading", { name: "Location", exact: true })).toBeVisible();
     const location = await geometry();
+    if (width < 640) {
+      expect(wallet.header.height).toBe(44);
+      expect(wallet.header.y).toBe(location.header.y);
+      expect(wallet.tabs.y - wallet.header.y - wallet.header.height).toBeGreaterThanOrEqual(6);
+      expect(wallet.tabs.y - wallet.header.y - wallet.header.height).toBeLessThanOrEqual(16);
+    }
     for (const part of ["header", "tabs"] as const) {
       for (const coordinate of ["x", "y", "width", "height"] as const) {
+        if (width < 640 && (coordinate === "y" || (part === "header" && coordinate === "height"))) continue;
         expect(Math.abs(wallet[part][coordinate] - location[part][coordinate]), `${part}.${coordinate}`).toBeLessThanOrEqual(0.5);
       }
     }
     expect(wallet.titleSize).toBe(location.titleSize);
-    expect(Math.abs(wallet.titleY - location.titleY)).toBeLessThanOrEqual(0.5);
+    if (width >= 640) expect(Math.abs(wallet.titleY - location.titleY)).toBeLessThanOrEqual(0.5);
     expect(wallet.tabWidths).toEqual(location.tabWidths);
   });
 }
