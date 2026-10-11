@@ -2393,6 +2393,13 @@ authoritative. The combined local core, exact hosted CI and Dev release still
 need qualification. Branch-owned workflow changes do not activate until their
 main-owned definition lands and is read back.
 
+The concurrent retained chat-dock update is included. Its four changed mounted
+test files pass 56 cases. Two existing browser cases reproduced ambiguous
+shell selectors; they now select the engagement publisher or retained composer
+frame explicitly. Their keyboard cancellation and unread-receipt assertions
+remain intact and pass on Chromium and WebKit. Physical iOS acceptance remains
+with the separate device session.
+
 Candidate `14876c2a3b` passed the canonical local core in 1,443 seconds and all
 23 hosted jobs in [CI run 38132031368](https://github.com/hushh-labs/hushh-research/actions/runs/38132031368),
 including browser contracts, the full frontend suite, Python, iOS and Android.

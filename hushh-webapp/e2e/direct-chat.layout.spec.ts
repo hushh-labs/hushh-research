@@ -386,11 +386,11 @@ test("incoming messages covered by a modal or moving composer keep their unread 
   await expect.poll(() => page.evaluate(() => (window as any).directChatFixture.reads.length)).toBeGreaterThan(before);
   const afterModal = await page.evaluate(() => (window as any).directChatFixture.reads.length);
   // A moving native dock can occlude an otherwise intersecting bottom marker.
-  await page.locator('[data-agent-bar-shell]').evaluate((node) => { (node as HTMLElement).style.transform = 'translateY(-120px)'; });
+  await page.locator('[data-bottom-shell-agent-slot] > [data-agent-bar-shell]').evaluate((node) => { (node as HTMLElement).style.transform = 'translateY(-120px)'; });
   await fixture(page, "fixture.incoming()");
   await expect(page.locator('[data-chat-message]').filter({ hasText: "New message 82" })).toHaveCount(1);
   expect(await page.evaluate(() => (window as any).directChatFixture.reads.length)).toBe(afterModal);
-  await page.locator('[data-agent-bar-shell]').evaluate((node) => { (node as HTMLElement).style.removeProperty('transform'); });
+  await page.locator('[data-bottom-shell-agent-slot] > [data-agent-bar-shell]').evaluate((node) => { (node as HTMLElement).style.removeProperty('transform'); });
   // Touch focus restoration can preserve an earlier transcript position.
   // A read requires returning to the actual latest message in that case.
   const latest = page.getByRole('button', { name: 'Go to latest messages' });
