@@ -9,7 +9,12 @@ import {
   type ReactNode,
 } from "react";
 import Link from "next/link";
-import { documentRequestSetupState, documentRequestSetupHref, documentRequestSetupLabel } from "@/lib/consent/document-request-setup";
+import {
+  documentRequestSetupState,
+  documentRequestSetupHref,
+  documentRequestSetupLabel,
+  GOOGLE_DRIVE_CONNECTOR_ID,
+} from "@/lib/consent/document-request-setup";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { ExternalLink, Loader2, RefreshCw } from "@/components/icons";
@@ -37,6 +42,7 @@ import {
   DocumentRequestPriceSheet,
 } from "@/components/consent/document-request-price-sheet";
 import { DocumentPayoutAccountCard } from "@/components/consent/document-payout-account";
+import { ProfileConnectorsLink } from "@/components/profile/profile-connectors-link";
 import { formatDocumentRequestPrice } from "@/lib/consent/document-request-price";
 import { documentPayoutStatusCopy } from "@/lib/consent/document-payout-status";
 import { useArmedAction } from "@/lib/ui/use-armed-action";
@@ -302,12 +308,16 @@ function requestSetup(snapshot: Snapshot | null) {
   return documentRequestSetupState({ ...snapshot.status, ...snapshot.review });
 }
 
-/** A request from outside the Trusted circle waiting for the owner's Allow or Deny. */
+/**
+ * A request from outside the Trusted circle waiting for the owner's Allow or
+ * Deny. The price is chosen inside Allow; any other setup comes first.
+ */
 function isOwnerDecision(snapshot: Snapshot | null): boolean {
+  const setup = requestSetup(snapshot);
   return snapshot?.status.direction === "incoming" &&
     snapshot.status.status === "pending" &&
     (snapshot.review?.allowAvailable === true || snapshot.review?.priceOnlyAvailable === true) &&
-    requestSetup(snapshot) !== "payouts" && requestSetup(snapshot) !== "unavailable";
+    (setup === null || setup === "price");
 }
 
 function isAutomaticSharingActive(review: SharingReview | undefined): boolean {
@@ -1197,12 +1207,18 @@ function UnlockedDocumentReview({
           </HelperText>
         ) : null}
       </div>
+      {/* Only the owner acts on setup; the requester's status line just says it waits. */}
       {setup && !ownerDecision && snapshot?.status.direction === "incoming" ? (
         <div className="space-y-2">
-          <HelperText>{setup === "payouts" ? "Link your bank before this request can continue."
-            : setup === "price" ? "Choose your default document request price."
-              : "This request will resume when payments are available."}</HelperText>
-          {setup !== "unavailable" ? <Button size="standard" asChild>
+          <HelperText>{setup === "drive" ? "Needed to find the requested files."
+            : setup === "payouts" ? "Link your bank before this request can continue."
+              : setup === "price" ? "Choose your default document request price."
+                : "This request will resume when payments are available."}</HelperText>
+          {setup === "drive" ? <Button size="standard" asChild>
+            <ProfileConnectorsLink connectorId={GOOGLE_DRIVE_CONNECTOR_ID}>
+              {documentRequestSetupLabel(setup, true)}
+            </ProfileConnectorsLink>
+          </Button> : setup !== "unavailable" ? <Button size="standard" asChild>
             <Link href={documentRequestSetupHref(setup, buildConsentCenterHref("pending", {
               requestId: `document_share_request:${requestId}`, requestView: "received",
             }))}>{documentRequestSetupLabel(setup, true)}</Link>

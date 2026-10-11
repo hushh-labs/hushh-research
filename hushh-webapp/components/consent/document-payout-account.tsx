@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { HelperText } from "@/components/app-ui/typography";
@@ -11,6 +11,8 @@ import { ProfileInnerReviewIcon } from "@/components/profile/profile-inner-icons
 import { ProfileSecondaryReceiptIcon } from "@/components/profile/profile-secondary-icons";
 import { Button } from "@/lib/morphy-ux/button";
 import { CONSENT_STATE_CHANGED_EVENT, dispatchConsentStateChanged } from "@/lib/consent/consent-events";
+import { resolveProfileRouteState } from "@/lib/navigation/profile-routes";
+import { normalizeInternalRouteHref } from "@/lib/navigation/routes";
 import { apiErrorCode } from "@/lib/services/api-client";
 import {
   DocumentPayoutService,
@@ -19,10 +21,30 @@ import {
   type DocumentEarning,
   type DocumentEarningsResponse,
 } from "@/lib/services/document-payout-service";
+import { getSessionItem, removeSessionItem, setSessionItem } from "@/lib/utils/session-storage";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { useVault } from "@/lib/vault/vault-context";
 
 const PAYOUT_READY_SOURCE = "document_payout_ready";
+// Stripe returns to a fixed Payouts URL, so the screen that sent the owner
+// here is kept for this tab. The session helpers guard every storage access.
+const PAYOUT_RETURN_KEY = "one_document_payout_return_v1";
+const PAYOUT_RETURN_TTL_MS = 60 * 60 * 1000;
+function rememberPayoutReturn(from: string | null): void {
+  if (from) setSessionItem(PAYOUT_RETURN_KEY, JSON.stringify({ from, at: Date.now() }));
+  else removeSessionItem(PAYOUT_RETURN_KEY);
+}
+function takePayoutReturn(): string | null {
+  const raw = getSessionItem(PAYOUT_RETURN_KEY);
+  removeSessionItem(PAYOUT_RETURN_KEY);
+  try {
+    const { from, at } = (JSON.parse(raw ?? "null") ?? {}) as { from?: unknown; at?: unknown };
+    const age = typeof at === "number" ? Date.now() - at : NaN;
+    return typeof from === "string" && age >= 0 && age < PAYOUT_RETURN_TTL_MS ? normalizeInternalRouteHref(from) : null;
+  } catch {
+    return null;
+  }
+}
 const money = (cents: number | null) => cents === null ? "Calculating" : new Intl.NumberFormat("en-US", {
   style: "currency", currency: "USD",
 }).format(cents / 100);
@@ -97,8 +119,14 @@ export function usePayoutSnapshot<T>(load: (token: string) => Promise<T>, {
 export function DocumentPayoutAccountCard({ active = true, compact = false, handleReturn = false, disabled = false, showHistory = true }: {
   active?: boolean; compact?: boolean; handleReturn?: boolean; disabled?: boolean; showHistory?: boolean;
 }) {
+  const router = useRouter();
+  const pathname = usePathname() ?? "";
   const searchParams = useSearchParams();
   const returnState = handleReturn ? searchParams.get("documentPayouts") : null;
+  // Only the Payouts page's own `from` names where setup began; under the
+  // pane, the query belongs to the screen beneath it.
+  const origin = handleReturn && resolveProfileRouteState(pathname).panel === "payouts"
+    ? normalizeInternalRouteHref(searchParams.get("from")) : null;
   const resource = usePayoutSnapshot(DocumentPayoutService.account, {
     active, refreshKey: returnState ?? "", bankOnly: true, ignoreReadyEvent: true,
   });
@@ -121,6 +149,13 @@ export function DocumentPayoutAccountCard({ active = true, compact = false, hand
     announced.current = { scope, ready };
     if (ready && !wasReady) dispatchConsentStateChanged({ source: PAYOUT_READY_SOURCE });
   }, [data, scope, ready]);
+  // Back to where setup began once the account first reads ready; until then
+  // the owner stays here to see what is missing.
+  useEffect(() => {
+    if (returnState !== "done" || !ready) return;
+    const from = takePayoutReturn();
+    if (from) router.replace(from);
+  }, [returnState, ready, router]);
   const start = useCallback(async (manage = false) => {
     if (!token || !active || disabled || inFlight.current === scope) return;
     const epoch = snapshotVaultSessionEpoch();
@@ -131,14 +166,17 @@ export function DocumentPayoutAccountCard({ active = true, compact = false, hand
     try {
       const { url } = await (manage ? DocumentPayoutService.manage(token) : DocumentPayoutService.onboard(token));
       if (!current()) return;
-      window.location.assign(documentPayoutLinkUrl(url, manage ? "management" : "onboarding"));
+      const link = documentPayoutLinkUrl(url, manage ? "management" : "onboarding");
+      // Only onboarding returns here. A retry after that return keeps the first origin.
+      if (!manage && !returnState) rememberPayoutReturn(origin);
+      window.location.assign(link);
     } catch (error) {
       if (current()) setActionError({ scope, text: payoutErrorCopy(error, "Couldn't open bank setup. Try again.") });
     } finally {
       if (inFlight.current === scope) inFlight.current = null;
       if (current()) setBusyScope(null);
     }
-  }, [token, active, disabled, scope]);
+  }, [token, active, disabled, scope, returnState, origin]);
   useEffect(() => {
     if (!active || returnState !== "refresh" || !token || refreshed.current === scope) return;
     refreshed.current = scope;

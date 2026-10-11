@@ -167,7 +167,11 @@ vi.mock("@/lib/consent/consent-display", () => ({
 
 vi.mock("@/lib/navigation/routes", () => ({
   buildKaiMarketRoute: () => "/one/kai",
-  ROUTES: { PROFILE_PAYOUTS: "/one/profile/payouts", PROFILE_REQUEST_PRICING: "/one/profile/request-pricing" },
+  ROUTES: {
+    ONE_FEED: "/one/feed",
+    PROFILE_PAYOUTS: "/one/profile/payouts",
+    PROFILE_REQUEST_PRICING: "/one/profile/request-pricing",
+  },
 }));
 
 import {
@@ -834,20 +838,61 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
     );
     for (const id of [DOC_ID, otherId]) {
       const row = documentRow(result, id)!;
-      expect(row.description).toBe("Link payouts");
+      expect(row.description).toBe("Requested a document");
       expect(row.actions.map(({ label }) => label)).toEqual(["Link payouts"]);
       expect(result.current.actionables.filter((item) => item.id === row.id)).toHaveLength(1);
     }
+    // The row body takes the same step as its button. It used to do nothing:
+    // a row with actions ignores `href`, and this row set no `onSelect`.
+    act(() => documentRow(result)!.onSelect?.());
     await act(async () => actionOf(documentRow(result), "setup-payouts").run());
-    expect(mocks.push).toHaveBeenCalledWith("/one/profile/payouts?from=%2Fone%2Ffeed");
+    expect(mocks.push.mock.calls).toEqual([
+      ["/one/profile/payouts?from=%2Fone%2Ffeed"],
+      ["/one/profile/payouts?from=%2Fone%2Ffeed"],
+    ]);
     expect(mocks.account).not.toHaveBeenCalled();
   });
+
+  it.each(["row", "button"] as const)(
+    "asks for Google Drive first and opens it over the Feed from the %s",
+    async (target) => {
+      window.history.replaceState(null, "", "/one/feed");
+      const pushState = vi.spyOn(window.history, "pushState");
+      const { result } = renderWith(documentEntry(DOC_ID, {
+        ownerDriveReady: false, ownerPayoutAccountReady: false,
+      }));
+      const row = documentRow(result)!;
+      expect(row).toMatchObject({ title: "Kushal Trivedi", description: "Requested a document" });
+      // One row: Drive comes before payouts and before Allow or Deny.
+      expect(row.actions.map(({ label }) => label)).toEqual(["Connect Google Drive"]);
+      expect(result.current.actionables.filter((item) => item.id === row.id)).toHaveLength(1);
+
+      await act(async () => {
+        if (target === "row") row.onSelect?.();
+        else await actionOf(row, "setup-drive").run();
+      });
+
+      expect(pushState).toHaveBeenCalledOnce();
+      const [state, , url] = pushState.mock.calls[0]!;
+      expect(url).toBe(
+        "/one/feed?profile_pane=1&profile_panel=connectors&profile_detail=connector%3Agoogle_drive",
+      );
+      // Closing Google Drive returns to the Feed, not to Connectors.
+      expect((state as Record<string, unknown>).__hushhProfilePane).toEqual({
+        depth: 1,
+        returnsToOrigin: true,
+      });
+      expect(mocks.push).not.toHaveBeenCalled();
+      pushState.mockRestore();
+      window.history.replaceState(null, "", "/");
+    },
+  );
 
   it("replaces payout setup with price setup as the streamed projection changes", async () => {
     const { result, rerender } = renderWith(documentEntry(DOC_ID, {
       ownerPayoutAccountReady: false, ownerPriceRequired: true, owner_decision_available: false,
     }));
-    expect(documentRow(result)?.description).toBe("Link payouts");
+    expect(documentRow(result)?.actions.map(({ label }) => label)).toEqual(["Link payouts"]);
     mocks.consentItems = [documentEntry(DOC_ID, {
       ownerPayoutAccountReady: true, ownerPriceRequired: true, owner_decision_available: false,
     })];

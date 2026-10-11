@@ -12,6 +12,10 @@ import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
 const MAX_FRAME_REMAINDER = 16_384;
 const MAX_RECONNECT_DELAY_MS = 30_000;
 const PERMANENT_STATUSES = new Set([400, 403, 404, 410]);
+// A burst's trailing reread waits for this much quiet, but never longer than
+// the cap after its first frame, so a continuous stream still rereads.
+const REFRESH_SETTLE_MS = 1_000;
+const REFRESH_MAX_WAIT_MS = 5_000;
 
 type FeedUser = Pick<User, "uid" | "getIdToken">;
 type SharedStream = { subscribers: number; user: FeedUser; stop: () => void };
@@ -48,7 +52,10 @@ function startDocumentFeedStream(shared: SharedStream): () => void {
     let forceTokenRefresh = false;
     const controller = new AbortController();
     let activeReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-    const refresh = (requestId?: string) => {
+    let settleTimer: ReturnType<typeof setTimeout> | null = null;
+    let burstStartedAt = 0;
+    let burstRequestId: string | undefined;
+    const emit = (requestId?: string) => {
       CacheSyncService.onConsentMutated(uid);
       // All Feed surfaces listen to this one signal and perform a forced
       // authenticated reread. Consent Center also repairs its current view.
@@ -57,6 +64,26 @@ function startDocumentFeedStream(shared: SharedStream): () => void {
         requestId: requestId ? `document_share_request:${requestId}` : undefined,
         reconcile: true,
       });
+    };
+    // Every frame fans out to each Feed surface. A burst's first frame
+    // refreshes at once; the burst then gets one trailing reread after it goes
+    // quiet, because a forced reread joins any read already in flight and that
+    // read may predate the burst's last change. Request ids that differ within
+    // a burst widen the trailing reread to the whole account.
+    const refresh = (requestId?: string) => {
+      const now = Date.now();
+      if (settleTimer === null) {
+        burstStartedAt = now;
+        burstRequestId = requestId;
+        emit(requestId);
+      } else {
+        clearTimeout(settleTimer);
+        if (burstRequestId !== requestId) burstRequestId = undefined;
+      }
+      settleTimer = setTimeout(() => {
+        settleTimer = null;
+        if (!stopped) emit(burstRequestId);
+      }, Math.min(REFRESH_SETTLE_MS, burstStartedAt + REFRESH_MAX_WAIT_MS - now));
     };
 
     const connect = async () => {
@@ -145,5 +172,6 @@ function startDocumentFeedStream(shared: SharedStream): () => void {
       controller.abort();
       void activeReader?.cancel().catch(() => {});
       if (retryTimer) clearTimeout(retryTimer);
+      if (settleTimer) clearTimeout(settleTimer);
     };
 }

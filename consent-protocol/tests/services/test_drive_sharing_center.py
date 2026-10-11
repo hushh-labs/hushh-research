@@ -26,6 +26,7 @@ from tests.services.test_drive_permission_executor import (  # noqa: F401
 )
 from tests.services.test_drive_request_bulk_postgres import request_bulk  # noqa: F401
 from tests.services.test_drive_sharing_store import (
+    live_drive,
     request,
     review,
     stored_request,
@@ -401,35 +402,61 @@ def center(store):
 
 
 @pytest.mark.asyncio
-async def test_background_setup_appears_only_in_the_owner_request(sharing):
-    created = await request(sharing)
+async def test_drive_and_background_setup_appear_only_in_the_owner_request(sharing, monkeypatch):
+    request_id = (await request(sharing))["requestId"]
     with sharing.db.engine.begin() as connection:
         connection.execute(
             text("""UPDATE drive_share_requests
               SET preparation_error_code='background_preparation_required'
               WHERE request_id=:request_id"""),
-            {"request_id": created["requestId"]},
+            {"request_id": request_id},
         )
     projection = DriveSharingCenterContributor(db=sharing.db)
-    owner = await projection.page("owner", bucket="incoming_requests", limit=20)
-    requester = await projection.page("recipient", bucket="outgoing_requests", limit=20)
+
+    async def views(query=""):
+        owner = await projection.page("owner", bucket="incoming_requests", limit=20, query=query)
+        requester = await projection.page(
+            "recipient", bucket="outgoing_requests", limit=20, query=query
+        )
+        return owner, requester
+
+    async def owner_payloads():
+        # The owner's review sheet reads these, not the Consent Center row.
+        return (
+            await sharing.request_status(user_id="owner", request_id=request_id),
+            await sharing.owner_review(user_id="owner", request_id=request_id),
+        )
+
+    # This fixture's Drive is verified for selected files only, not the live
+    # policy, so Google Drive is the owner's first step, before background access.
+    owner, requester = await views()
+    assert owner["items"][0]["scope_description"] == "Connect Google Drive"
+    assert owner["items"][0]["metadata"]["ownerDriveReady"] is False
+    assert owner["items"][0]["metadata"]["owner_attention_required"] is True
+    assert all(payload["ownerDriveReady"] is False for payload in await owner_payloads())
+    # Negative control: the requester never learns the owner's connector state.
+    assert requester["items"][0]["scope_description"] == "Google Drive files"
+    assert "ownerDriveReady" not in requester["items"][0]["metadata"]
+    assert "ownerDriveReady" not in await sharing.request_status(
+        user_id="recipient", request_id=request_id
+    )
+    assert [page["total"] for page in await views("connect google drive")] == [1, 0]
+
+    live_drive(sharing, monkeypatch)
+    owner, requester = await views()
     assert owner["items"][0]["scope_description"] == "Enable background Drive access"
+    assert "ownerDriveReady" not in owner["items"][0]["metadata"]
     assert owner["items"][0]["metadata"]["owner_attention_required"] is True
     assert requester["items"][0]["scope_description"] == "Google Drive files"
-    assert (
-        await projection.page(
-            "owner", bucket="incoming_requests", limit=20, query="background Drive access"
-        )
-    )["total"] == 1
-    assert (
-        await projection.page(
-            "recipient", bucket="outgoing_requests", limit=20, query="background Drive access"
-        )
-    )["total"] == 0
+    assert all("ownerDriveReady" not in payload for payload in await owner_payloads())
+    assert [page["total"] for page in await views("connect google drive")] == [0, 0]
+    assert [page["total"] for page in await views("background Drive access")] == [1, 0]
 
 
 @pytest.mark.asyncio
-async def test_requester_can_reopen_payment_from_consent_center(sharing):
+async def test_requester_can_reopen_payment_from_consent_center(sharing, monkeypatch):
+    # Payment follows a live Drive search; without one the owner's step is Drive.
+    live_drive(sharing, monkeypatch)
     created = await request(sharing)
     request_id = created["requestId"]
     with sharing.db.engine.begin() as connection:
@@ -572,6 +599,7 @@ async def test_metadata_only_previews_counts_and_filtered_pages(sharing, monkeyp
     )["total"] == 0
     row = page["items"][0]
     assert row["scope"] is None and isinstance(row["issued_at"], int)
+    # This owner's Drive is not live, so the owner's own row names that step.
     assert set(row["metadata"]) == {
         "request_source",
         "request_id",
@@ -587,6 +615,7 @@ async def test_metadata_only_previews_counts_and_filtered_pages(sharing, monkeyp
         "owner_price_available",
         "owner_allowed",
         "payment_required",
+        "ownerDriveReady",
     }
     assert row["metadata"]["owner_attention_required"] is True
     assert "recipient@example" not in str(snapshot) and "purpose" not in str(snapshot)
@@ -915,7 +944,7 @@ async def test_owner_decision_is_offered_only_for_fresh_requests_outside_trust(
     assert owner[fresh]["metadata"]["payment_required"] is True
     assert owner[owner_initiated]["metadata"]["payment_required"] is False
     # A current Trusted member keeps the Trusted path, even for a request with no
-    # automatic marker (one made before the owner's Drive was live).
+    # automatic marker (one made before the requester joined the circle).
     _membership(sharing, "active")
     assert (await items("owner"))[fresh]["metadata"]["owner_decision_available"] is False
     _membership(sharing, "removed")
