@@ -1,5 +1,5 @@
-import { render } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, render } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ClientRedirect } from "@/components/navigation/client-redirect";
 
@@ -17,6 +17,22 @@ vi.mock("@/lib/observability/client", () => ({
 }));
 
 describe("ClientRedirect", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    window.history.replaceState({}, "", "/");
+  });
+
+  it("retains provider continuation only on the Plaid compatibility callback without recording it", () => {
+    window.history.replaceState({}, "", "/kai/plaid/oauth/return?oauth_state_id=synthetic-state#continuation");
+    const { unmount } = render(<ClientRedirect to="/one/kai/plaid/oauth/return" preserveCallbackParameters />);
+    expect(mocks.replace).toHaveBeenLastCalledWith("/one/kai/plaid/oauth/return?oauth_state_id=synthetic-state#continuation", { scroll: false });
+    expect(mocks.trackEvent).not.toHaveBeenCalled();
+    unmount();
+    render(<ClientRedirect to="/one" />);
+    expect(mocks.replace).toHaveBeenLastCalledWith("/one", { scroll: false });
+  });
+
   it("emits a sanitized compatibility redirect event before replacing the route", () => {
     render(
       <ClientRedirect
