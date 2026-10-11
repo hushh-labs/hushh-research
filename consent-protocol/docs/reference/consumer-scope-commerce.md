@@ -2490,5 +2490,11 @@ rollback; this continuation neither dispatches production nor claims that proof.
 Primary private Azure setup, normally encrypted synthetic scope fixtures, both
 reviewer Connect/Checkout journeys, accepted quotes, real-time delivery and
 refund/payout receipts, and One's authenticated MCP reads remain acceptance work.
+
+Two local Back-suite runs exposed different Location fixture timeouts. The
+existing affected workspace cases now start with completed onboarding, and
+fake-clock polling fixtures unmount before restoring real clocks. Assertions,
+timeouts and production behavior are unchanged. All twelve affected cases pass
+in the focused run; the complete owning gate and final core remain required.
 Physical iOS testing is deferred to the independently active device session;
 physical Android remains the agreed follow-up. Keep issue #7587 In Progress.
