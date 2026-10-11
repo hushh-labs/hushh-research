@@ -56,6 +56,16 @@ export type BusinessSuggestion = {
 };
 
 export const BusinessSuggestionService = {
+  /** Permanent account completion; the server verifies every reviewed receipt. */
+  async complete(vaultOwnerToken: string, commits: Array<{ domain: string; planId: string }>): Promise<void> {
+    if (!vaultOwnerToken.trim() || !commits.length) throw new Error("A saved review is required.");
+    z.object({ saved: z.literal(true) }).parse(await apiJson<unknown>("/api/one/business/suggestion/complete", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${vaultOwnerToken}`, "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({ commits: commits.map(row => ({ domain: row.domain, plan_id: row.planId })) }),
+    }));
+  },
   /** Call after setup resolves and the vault unlocks; never persist the result. */
   async get(vaultOwnerToken: string, signal?: AbortSignal): Promise<BusinessSuggestion> {
     if (!vaultOwnerToken.trim()) throw new Error("Unlock your vault to continue.");

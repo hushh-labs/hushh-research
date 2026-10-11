@@ -36,6 +36,29 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); publishValidatedAuthSessionOwner(null); });
 describe("post-onboarding business suggestion", () => {
+  it("stays absent on a new browser session when account discovery is complete", async () => {
+    mocks.get.mockResolvedValue({ status: "no_match", candidates: [] });
+    const first = render(<BusinessProfileSuggestion {...props} />);
+    await act(async () => undefined);
+    first.unmount();
+    render(<BusinessProfileSuggestion {...props} vaultOwnerToken="renewed-token" />);
+    await act(async () => undefined);
+    expect(mocks.get).toHaveBeenCalledTimes(2);
+    expect(mocks.load).not.toHaveBeenCalled();
+    expect(screen.queryByRole("region", { name: "Is this your business?" })).toBeNull();
+  });
+  it("reviewing an existing duplicate does not complete the other offered business", async () => {
+    const second = { ...candidate, businessUid: `urn:hushh:business:directory:business:${"b".repeat(64)}`,
+      draft: { ...candidate.draft, name: "Second business" } };
+    mocks.get.mockResolvedValue({ candidates: [candidate, second] });
+    mocks.prepare.mockResolvedValue({ cards: [], incomplete: false, alreadySaved: true });
+    render(<BusinessProfileSuggestion {...props} />);
+    const buttons = await screen.findAllByRole("button", { name: "Review details", exact: true });
+    fireEvent.click(buttons[0]!);
+    await waitFor(() => expect(screen.queryByText("Example Business")).toBeNull());
+    expect(screen.getByText("Second business")).toBeInTheDocument();
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
   it.each([
     { ...candidate, synthetic: true, sourceIdentity: { source: "uat_fixture", sourceKey: "hushh.ai:v1" } },
     { ...candidate, sourceIdentity: { source: "directory", sourceKey: '{"source":"uat_test","source_key":"team-demo-v1"}' } },

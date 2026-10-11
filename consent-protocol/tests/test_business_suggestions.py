@@ -11,6 +11,7 @@ from api.middleware import require_vault_owner_token
 from api.middlewares.rate_limit import limiter, rate_limit_exceeded_handler
 from api.routes.one import business_suggestions as routes
 from hushh_mcp.services import business_suggestion_service as service
+from hushh_mcp.services.business_profile_completion import BusinessReviewNotCommitted
 
 
 @pytest.mark.asyncio
@@ -107,6 +108,7 @@ def fixture_identity(monkeypatch):
     monkeypatch.delenv("APP_RUNTIME_PROFILE", raising=False)
     monkeypatch.setattr(service, "get_firebase_auth_app", lambda: object())
     monkeypatch.setattr(service, "_setup_resolved", AsyncMock(return_value=True))
+    monkeypatch.setattr(service, "business_profile_saved", AsyncMock(return_value=False))
     record = SimpleNamespace(
         uid="owner", disabled=False, email="person@hushh.ai", email_verified=True
     )
@@ -140,6 +142,149 @@ def fixture_identity(monkeypatch):
 
     monkeypatch.setattr(service, "lookup_directory", directory_candidate)
     return record, calls
+
+
+@pytest.mark.asyncio
+async def test_saved_account_never_rediscovers_on_new_sessions(fixture_identity, monkeypatch):
+    saved = AsyncMock(return_value=True)
+    monkeypatch.setattr(service, "business_profile_saved", saved)
+    for _ in range(2):
+        result = await service.get_business_suggestion("owner")
+        assert result["status"] == "no_match"
+        assert result["candidates"] == []
+    assert fixture_identity[1] == []  # No Firebase/directory contact lookup.
+    assert saved.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_completion_read_failure_never_reoffers_profile(fixture_identity, monkeypatch):
+    monkeypatch.setattr(
+        service, "business_profile_saved", AsyncMock(side_effect=RuntimeError("db"))
+    )
+    with pytest.raises(service.BusinessSuggestionUnavailable):
+        await service.get_business_suggestion("owner")
+    assert fixture_identity[1] == []
+
+
+@pytest.mark.parametrize(
+    "stored,expected", [(None, False), (False, False), (True, True), (1, True)]
+)
+@pytest.mark.asyncio
+async def test_saved_flag_reads_only_the_current_owner(monkeypatch, stored, expected):
+    from hushh_mcp.services import business_profile_completion as completion
+
+    conn = SimpleNamespace(fetchval=AsyncMock(return_value=stored))
+    lease = MagicMock()
+    lease.__aenter__ = AsyncMock(return_value=conn)
+    lease.__aexit__ = AsyncMock(return_value=False)
+    monkeypatch.setattr(
+        completion, "get_pool", AsyncMock(return_value=SimpleNamespace(acquire=lambda: lease))
+    )
+    assert await completion.business_profile_saved("owner") is expected
+    conn.fetchval.assert_awaited_once_with(
+        "SELECT one_business_profile_saved FROM vault_keys WHERE user_id = $1", "owner"
+    )
+
+
+@pytest.mark.parametrize("acknowledged", [0, 1, 2])
+@pytest.mark.asyncio
+async def test_completion_requires_every_selected_owner_receipt(monkeypatch, acknowledged):
+    from hushh_mcp.services import business_profile_completion as completion
+
+    conn = SimpleNamespace(
+        fetchrow=AsyncMock(return_value={"one_business_profile_saved": False}),
+        fetchval=AsyncMock(return_value=acknowledged),
+        execute=AsyncMock(),
+    )
+    transaction = MagicMock()
+    transaction.__aenter__ = AsyncMock()
+    transaction.__aexit__ = AsyncMock(return_value=False)
+    conn.transaction = lambda: transaction
+    lease = MagicMock()
+    lease.__aenter__ = AsyncMock(return_value=conn)
+    lease.__aexit__ = AsyncMock(return_value=False)
+    monkeypatch.setattr(
+        completion, "get_pool", AsyncMock(return_value=SimpleNamespace(acquire=lambda: lease))
+    )
+    commits = [("professional", "pkm_plan_one_123456"), ("professional", "pkm_plan_two_123456")]
+    if acknowledged == 2:
+        await completion.complete_business_profile("owner", commits)
+        conn.execute.assert_awaited_once_with(
+            "UPDATE vault_keys SET one_business_profile_saved = TRUE WHERE user_id = $1", "owner"
+        )
+    else:
+        with pytest.raises(completion.BusinessReviewNotCommitted):
+            await completion.complete_business_profile("owner", commits)
+        conn.execute.assert_not_awaited()
+    params = conn.fetchval.await_args.args
+    assert params[1] == "owner"
+    assert params[2:4] == (
+        ["professional", "professional"],
+        ["pkm_plan_one_123456", "pkm_plan_two_123456"],
+    )
+
+
+def test_completion_route_is_owner_bound_and_rejects_client_identity(monkeypatch):
+    mark = AsyncMock()
+    monkeypatch.setattr(routes, "complete_business_profile", mark)
+    app = FastAPI()
+    app.include_router(routes.router)
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner"}
+    body = {"commits": [{"domain": "professional", "plan_id": "pkm_plan_one_123456"}]}
+    client = TestClient(app)
+    response = client.post("/api/one/business/suggestion/complete?user_id=other", json=body)
+    assert response.status_code == 200
+    assert response.json() == {"saved": True}
+    assert response.headers["cache-control"] == "private, no-store"
+    mark.assert_awaited_once_with("owner", [("professional", "pkm_plan_one_123456")])
+    for invalid in [
+        {**body, "user_id": "other"},
+        {"commits": []},
+        {"commits": body["commits"] * 65},
+    ]:
+        assert client.post("/api/one/business/suggestion/complete", json=invalid).status_code == 422
+    assert mark.await_count == 1
+
+
+@pytest.mark.parametrize(
+    "failure,status",
+    [(BusinessReviewNotCommitted("partial"), 409), (RuntimeError("private-db-error"), 503)],
+)
+def test_completion_failure_remains_private_and_retryable(monkeypatch, failure, status):
+    monkeypatch.setattr(routes, "complete_business_profile", AsyncMock(side_effect=failure))
+    app = FastAPI()
+    app.include_router(routes.router)
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner"}
+    response = TestClient(app).post(
+        "/api/one/business/suggestion/complete",
+        json={
+            "commits": [{"domain": "professional", "plan_id": "pkm_plan_one_123456"}],
+        },
+    )
+    assert response.status_code == status
+    assert response.headers["cache-control"] == "private, no-store"
+    assert "private-db-error" not in response.text
+
+
+def test_completion_denied_auth_never_marks_account(monkeypatch):
+    mark = AsyncMock()
+    monkeypatch.setattr(routes, "complete_business_profile", mark)
+    app = FastAPI()
+    app.include_router(routes.router)
+
+    def denied():
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    app.dependency_overrides[require_vault_owner_token] = denied
+    response = TestClient(app).post(
+        "/api/one/business/suggestion/complete",
+        json={
+            "commits": [{"domain": "professional", "plan_id": "pkm_plan_one_123456"}],
+        },
+    )
+    assert response.status_code == 401
+    assert response.headers["cache-control"] == "private, no-store"
+    mark.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -4,7 +4,7 @@ import { saveConnectorMemoryReview } from "@/lib/agent/connector-memory-review";
 import { pkmPlanIdForIdempotencyScope } from "@/lib/personal-knowledge-model/mutation-plan";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { SecureResourceCacheService } from "@/lib/services/secure-resource-cache-service";
-import type { BusinessSuggestion } from "@/lib/services/business-suggestion-service";
+import { BusinessSuggestionService, type BusinessSuggestion } from "@/lib/services/business-suggestion-service";
 import { isDemoBusinessSource } from "@/lib/services/business-directory-source";
 import { withPkmSaveJobLock } from "@/lib/pkm/pkm-save-job";
 import { businessMemoryEntity } from "@/lib/pkm/business-memory-origin";
@@ -203,7 +203,10 @@ export async function saveBusinessReview(input: {
     await input.assertCurrent();
     const prior = await loadBusinessReview(input.job.ownerId, input.vaultKey, input.job.businessUid);
     await input.assertCurrent();
-    if (prior?.decision === "saved") return { saved: input.job.cards.length, remaining: 0 };
+    if (prior?.decision === "saved") {
+      await completeBusinessReview(input.vaultOwnerToken, input.job, input.assertCurrent);
+      return { saved: input.job.cards.length, remaining: 0 };
+    }
     if (prior?.decision === "not_me" || (prior?.job && prior.job.revision !== input.job.revision))
       throw new Error("Another review changed this suggestion. Reopen it before saving.");
     const job = structuredClone(prior?.job || input.job);
@@ -238,8 +241,19 @@ export async function saveBusinessReview(input: {
     }
     await input.assertCurrent();
     const remaining = job.cards.length - job.committed.length;
+    // Keep the acknowledged job until account completion succeeds. A lost
+    // marker response retries only the marker, never the committed memories.
+    if (!remaining) await completeBusinessReview(input.vaultOwnerToken, job, input.assertCurrent);
     await persistBusinessReview(job.ownerId, input.vaultKey, remaining
       ? { version: 1, job } : { version: 1, decision: "saved" }, job.businessUid);
     return { saved: job.committed.length, remaining };
   });
+}
+
+async function completeBusinessReview(token: string, job: BusinessReviewJob, assertCurrent: () => Promise<void>) {
+  await assertCurrent();
+  await BusinessSuggestionService.complete(token, job.cards.map((card, index) => ({
+    domain: resolveCardTargetDomain(card), planId: pkmPlanIdForIdempotencyScope(job.scopes[index]!),
+  })));
+  await assertCurrent();
 }

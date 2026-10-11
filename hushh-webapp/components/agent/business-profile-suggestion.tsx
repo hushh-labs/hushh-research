@@ -41,6 +41,7 @@ type Review = {
 
 /** On-demand discovery; each distinct business has an independent review. */
 export function BusinessProfileSuggestion(props: Props) {
+  const [completedOwner, setCompletedOwner] = useState<string | null>(null);
   const [discovery, setDiscovery] = useState<{ ownerId: string; token: string; key: string;
     candidates: BusinessCandidate[]; incomplete: boolean; status: string } | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -79,6 +80,7 @@ export function BusinessProfileSuggestion(props: Props) {
     return () => abort.abort();
   }, [ownerId, vaultKey, vaultOwnerToken, enabled, tokenExpiresAt, attempt]);
   if (!enabled || !ownerId || !vaultKey || !vaultOwnerToken || tokenExpiresAt === null || Date.now() >= tokenExpiresAt ||
+    completedOwner === ownerId ||
     discovery?.ownerId !== ownerId || discovery.token !== vaultOwnerToken || discovery.key !== vaultKey) return null;
   const candidates = discovery.candidates.filter(candidate => candidate.synthetic === false &&
     candidate.sourceIdentity.source === "directory" && !isDemoBusinessSource(candidate.sourceIdentity.sourceKey) &&
@@ -93,12 +95,15 @@ export function BusinessProfileSuggestion(props: Props) {
       <Button variant="link" size="standard" onClick={() => setAttempt(value => value + 1)}>Retry business lookup</Button>
     </div>}
     {discovery.status === "insufficient_signals" && <HelperText>Your verified contacts could not be used for business lookup yet. Nothing has been saved.</HelperText>}
-    {candidates.length > 1 && <HelperText>I found several possible businesses. Review each one separately; you can save more than one.</HelperText>}
-    {candidates.map(candidate => <BusinessCandidateReview key={candidate.businessUid} {...props} candidate={candidate} onCandidateVisible={onCandidateVisible} />)}
+    {candidates.length > 1 && <HelperText>I found several possible businesses. Choose the details you want to review.</HelperText>}
+    {candidates.map(candidate => <BusinessCandidateReview key={candidate.businessUid} {...props} candidate={candidate}
+      onCompleted={() => setCompletedOwner(ownerId)}
+      onCandidateVisible={onCandidateVisible} />)}
   </div>;
 }
 
 function BusinessCandidateReview(props: Props & { candidate: BusinessCandidate;
+  onCompleted: () => void;
   onCandidateVisible: (id: string, visible: boolean) => void }) {
   const fieldId = useId();
   const { ownerId, vaultKey, vaultOwnerToken, enabled, tokenExpiresAt } = props;
@@ -291,6 +296,7 @@ function BusinessCandidateReview(props: Props & { candidate: BusinessCandidate;
       // card immediately. The parent callback covers a discovery refresh that
       // would otherwise recreate the same ephemeral chat message.
       setSaved(true);
+      props.onCompleted();
       props.onSaved?.(review.candidate.businessUid);
       setState(null); setOpen(false);
       return result;

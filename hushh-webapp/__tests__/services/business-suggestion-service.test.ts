@@ -12,6 +12,21 @@ const empty = {
 describe("business suggestion transport", () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
+  it("marks completion through the shared owner transport with receipt locators only", async () => {
+    apiJson.mockResolvedValue({ saved: true });
+    await BusinessSuggestionService.complete("owner-token", [{ domain: "professional", planId: "plan_1" }]);
+    expect(apiJson).toHaveBeenCalledWith("/api/one/business/suggestion/complete", {
+      method: "POST", headers: { Authorization: "Bearer owner-token", "Content-Type": "application/json" },
+      cache: "no-store", body: JSON.stringify({ commits: [{ domain: "professional", plan_id: "plan_1" }] }),
+    });
+    apiJson.mockResolvedValue({ saved: false });
+    await expect(BusinessSuggestionService.complete("owner-token", [{ domain: "professional", planId: "plan_1" }])).rejects.toThrow();
+    apiJson.mockClear();
+    await expect(BusinessSuggestionService.complete("", [{ domain: "professional", planId: "plan_1" }])).rejects.toThrow();
+    await expect(BusinessSuggestionService.complete("owner-token", [])).rejects.toThrow();
+    expect(apiJson).not.toHaveBeenCalled();
+  });
+
   it("admits real candidates only in v2 and preserves independent branch identities", async () => {
     const real = { business_uid: `urn:hushh:business:directory:hotel:${"a".repeat(64)}`, synthetic: false,
       source_identity: { source: "directory", source_key: '{"id":"1"}', vertical: "hotel" },

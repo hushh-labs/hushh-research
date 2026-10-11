@@ -6,7 +6,8 @@ import { shouldSkipPkmAgentContextKey } from "@/lib/pkm/pkm-memory-cards";
 import { buildPersonalKnowledgeModelStructureArtifacts } from "@/lib/personal-knowledge-model/manifest";
 import { encryptData, decryptData } from "@/lib/vault/encrypt";
 
-const mocks = vi.hoisted(() => ({ read: vi.fn(), persist: vi.fn(), lookup: vi.fn(), save: vi.fn() }));
+const mocks = vi.hoisted(() => ({ read: vi.fn(), persist: vi.fn(), lookup: vi.fn(), save: vi.fn(), complete: vi.fn() }));
+vi.mock("@/lib/services/business-suggestion-service", () => ({ BusinessSuggestionService: { complete: mocks.complete } }));
 vi.mock("@/lib/services/secure-resource-cache-service", () => ({ SecureResourceCacheService: { readRequired: mocks.read, writeRequired: mocks.persist } }));
 vi.mock("@/lib/agent/connector-memory-review", () => ({ saveConnectorMemoryReview: mocks.save }));
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({ PersonalKnowledgeModelService: { lookupMutationCommits: mocks.lookup } }));
@@ -30,12 +31,46 @@ beforeEach(() => {
   mocks.persist.mockImplementation(async ({ value }) => { checkpoint = structuredClone(value); });
   mocks.lookup.mockResolvedValue([{ exists: false, dataVersion: null }]);
   mocks.save.mockResolvedValue({ saved: 1, failed: 0, results: [{ success: true, result: { dataVersion: 1 } }] });
+  mocks.complete.mockResolvedValue(undefined);
 });
 const args = (cards = [card()]) => ({ job: createBusinessReviewJob("owner", candidate, "Reviewed public details", cards),
   vaultKey: "test-key", vaultOwnerToken: "test-token", assertCurrent: vi.fn(async () => undefined),
   isCurrent: () => true, sharingImpactAcknowledged: false, assertListingFresh: vi.fn(async () => undefined) });
 
 describe("business profile reviewed-memory boundary", () => {
+  it("marks permanent completion only after all selected saves are acknowledged", async () => {
+    const input = args([card("one"), card("two")]);
+    mocks.save.mockResolvedValueOnce({ results: [{ success: true, result: { dataVersion: 1 } }] })
+      .mockResolvedValueOnce({ results: [{ success: false }] });
+    expect(await saveBusinessReview(input)).toEqual({ saved: 1, remaining: 1 });
+    expect(mocks.complete).not.toHaveBeenCalled();
+    expect(checkpoint?.decision).toBeUndefined();
+    expect(await saveBusinessReview(input)).toEqual({ saved: 2, remaining: 0 });
+    expect(mocks.complete).toHaveBeenCalledOnce();
+    expect(mocks.complete.mock.calls[0]?.[0]).toBe("test-token");
+    expect(mocks.complete.mock.calls[0]?.[1]).toHaveLength(2);
+    expect(mocks.complete.mock.invocationCallOrder[0]).toBeGreaterThan(mocks.save.mock.invocationCallOrder.at(-1)!);
+    expect(checkpoint).toEqual({ version: 1, decision: "saved" });
+  });
+  it("retains acknowledged receipts when completion fails and retries without rewriting memory", async () => {
+    const input = args();
+    mocks.complete.mockRejectedValueOnce(new Error("lost completion response"));
+    await expect(saveBusinessReview(input)).rejects.toThrow("lost completion response");
+    expect(checkpoint?.decision).toBeUndefined();
+    expect(checkpoint?.job?.committed).toEqual(["one"]);
+    expect(await saveBusinessReview(input)).toEqual({ saved: 1, remaining: 0 });
+    expect(mocks.save).toHaveBeenCalledOnce();
+    expect(mocks.complete).toHaveBeenCalledTimes(2);
+    expect(mocks.complete.mock.calls[0]).toEqual(mocks.complete.mock.calls[1]);
+  });
+  it("does not complete a deferred or failed review", async () => {
+    await decideBusinessReview({ ownerId: "owner", vaultKey: "key", businessUid: candidate.businessUid,
+      decision: "later", assertCurrent: async () => undefined });
+    expect(mocks.complete).not.toHaveBeenCalled();
+    mocks.save.mockRejectedValueOnce(new Error("write failed"));
+    await expect(saveBusinessReview(args())).rejects.toThrow("write failed");
+    expect(mocks.complete).not.toHaveBeenCalled();
+  });
   it.each<BusinessCandidate>([
     { ...candidate, businessUid: "urn:hushh:business:uat:hushh.ai:v1", synthetic: true,
       sourceIdentity: { source: "uat_fixture", sourceKey: "hushh.ai:v1" } },

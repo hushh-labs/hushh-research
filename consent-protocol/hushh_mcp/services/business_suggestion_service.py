@@ -18,6 +18,7 @@ from hushh_mcp.services.business_directory_suggestions import (
     lookup_directory,
     verified_contacts,
 )
+from hushh_mcp.services.business_profile_completion import business_profile_saved
 from hushh_mcp.services.one_owner_admission import (
     OwnerIdentityUnavailable,
     lookup_fresh_owner_identity,
@@ -54,6 +55,12 @@ async def get_business_suggestion(user_id: str, *, local_loopback: bool = False)
     local_rehearsal = one_business_local_rehearsal_enabled(user_id, loopback=local_loopback)
     if not (real_enabled or local_rehearsal):
         return result
+    try:
+        if await asyncio.wait_for(business_profile_saved(user_id), timeout=5):
+            result["status"] = "no_match"
+            return result
+    except Exception:
+        raise BusinessSuggestionUnavailable() from None
     try:
         record = await asyncio.wait_for(run_in_threadpool(_lookup_identity, user_id), timeout=5)
     except Exception:

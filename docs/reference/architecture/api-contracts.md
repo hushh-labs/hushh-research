@@ -93,6 +93,28 @@ flowchart TB
 
 ## Route Categories
 
+### One business suggestion completion
+
+`GET /api/one/business/suggestion` and `POST /api/one/business/suggestion/complete`
+require `VAULT_OWNER`; the authenticated subject is the sole account authority.
+Completion accepts `{commits:[{domain,plan_id}]}` (1–64 distinct receipts). The
+server verifies every owner-bound mutation commit and matching confirmed
+`business_profile_review` content-write event before setting the permanent
+`vault_keys.one_business_profile_saved` flag. It returns `{saved:true}`; uncommitted
+receipts return 409 and unavailable storage returns retryable 503. Repeat
+completion is idempotent. Responses are private and non-cacheable.
+
+After completion, discovery returns its existing empty `no_match` envelope
+before accessing Firebase or the directory. Review, Later, failed and partial
+saves never set the flag. A lost completion response retains the acknowledged
+encrypted review job so retry marks completion without replaying PKM writes.
+This is UI progress only, independent of personality onboarding and Magic
+Intelligence; it does not verify business ownership. Migration
+`306_one_business_profile_saved.sql` must precede application rollout. There is
+no historical event-only backfill, because one event can represent a partial
+multi-card review. Web uses the existing One catch-all proxy; iOS and Android
+use the same endpoint through the existing platform API transport.
+
 ### Hussh Coins earnings and sandbox redemption
 
 Owner-only `VAULT_OWNER` endpoints under `/api/one/payouts`:
