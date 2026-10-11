@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import type { User } from "firebase/auth";
-import { ArrowLeft, Link2, Users, ShieldCheck, Zap, Trophy, WhatsappLogo, MessageSquareText, Brain, Bot, UserPlus, Flame } from "@/components/icons";
+import { ArrowLeft, Coins, Link2, Share2, Users, ShieldCheck, Zap, Trophy, WhatsappLogo, MessageSquareText, Flame } from "@/components/icons";
 import "./referral-dashboard.css";
+import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
@@ -16,9 +18,8 @@ import { useReferralStream } from "@/lib/referral/use-referral-stream";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
 import { navigateTopShellBack } from "@/lib/navigation/top-shell-back";
+import { useBackLayer } from "@/lib/navigation/back-layers";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
-import { OnboardingLocalService } from "@/lib/services/onboarding-local-service";
-import { ReferralIntroduction } from "./referral-introduction";
 import {
   ReferralService,
   type CircleLeaderboardEntry,
@@ -47,9 +48,9 @@ const COLORS = {
   text3: "#8e8e93",
   sep: "rgba(60, 60, 67, .12)",
   blue: "var(--app-accent)",
-  blueText: "#006dcc",
-  blueSoft: "rgba(0, 122, 255, .1)",
-  meSurface: "#e6f0ff",
+  blueText: "var(--app-accent-deep)",
+  blueSoft: "var(--app-accent-tint)",
+  meSurface: "var(--app-accent-surface)",
   green: "#34c759",
   greenText: "#137a35",
   gold: "var(--referral-medal-deep)",
@@ -211,59 +212,19 @@ function Section<T>({
 export function ReferralDashboardPage() {
   const { user } = useAuth();
   const ownerId = user?.uid ?? null;
-  // Remount on account changes: even an A → B → A switch gets a new local
-  // session, so an old native preference write cannot dismiss a later replay.
-  return <ReferralDashboardGate key={ownerId ?? "signed-out"} ownerId={ownerId} />;
+  // Keep cached reads and local UI state isolated when the signed-in owner changes.
+  return <ReferralDashboardContent key={ownerId ?? "signed-out"} />;
 }
 
-function ReferralDashboardGate({ ownerId }: { ownerId: string | null }) {
-  const router = useRouter();
-  const [introduction, setIntroduction] = useState<{ ownerId: string; seen: boolean } | null>(null);
-  const [savingOwnerId, setSavingOwnerId] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (ownerId) {
-      void OnboardingLocalService.hasSeenReferralIntroduction(ownerId).then((seen) => {
-        if (!cancelled) setIntroduction({ ownerId, seen });
-      });
-    }
-    return () => { cancelled = true; };
-  }, [ownerId]);
-
-  const completeIntroduction = async () => {
-    if (!ownerId || savingOwnerId === ownerId) return;
-    setSavingOwnerId(ownerId);
-    await OnboardingLocalService.markReferralIntroductionSeen(ownerId);
-    setIntroduction((current) => current?.ownerId === ownerId ? { ownerId, seen: true } : current);
-    setSavingOwnerId((current) => current === ownerId ? null : current);
-  };
-
-  if (!ownerId || introduction?.ownerId !== ownerId) {
-    return (
-      <div className="referral-dashboard flex min-h-dvh items-center justify-center text-sm">
-        <NativeTestBeacon routeId={ROUTES.ONE_REFERRALS} marker="native-route-one-referrals" authState="authenticated" dataState="loading" />
-        <p role="status">Loading your referrals…</p>
-      </div>
-    );
-  }
-
-  if (!introduction.seen) {
-    return (
-      <ReferralIntroduction
-        onContinue={() => { void completeIntroduction(); }}
-        onBack={() => navigateTopShellBack({ pathname: ROUTES.ONE_REFERRALS, navigate: ({ href, mode }) => router[mode](href) })}
-        busy={savingOwnerId === ownerId}
-      />
-    );
-  }
-
-  return <ReferralDashboardContent onReplayIntroduction={() => setIntroduction({ ownerId, seen: false })} />;
-}
-
-function ReferralDashboardContent({ onReplayIntroduction }: { onReplayIntroduction: () => void }) {
+function ReferralDashboardContent() {
   const { user } = useAuth();
   const [tab, setTab] = useState<TabKey>("you");
+  const [showHowItWorks, setShowHowItWorks] = useState(false);
+  const closeHowItWorks = useCallback(() => {
+    setShowHowItWorks(false);
+    return true;
+  }, []);
+  useBackLayer(ROUTES.ONE_REFERRALS, showHowItWorks ? 1 : 0, closeHowItWorks);
   const [board, setBoard] = useState<"individual" | "circles">("individual");
 
   // The summary gates only the You tab: the invite link and
@@ -388,19 +349,21 @@ function ReferralDashboardContent({ onReplayIntroduction }: { onReplayIntroducti
         : "loaded";
 
   return (
-    <ShellRoot dataState={dataState} tab={tab} onTabChange={setTab} link={link} onCopy={onCopy} onReplayIntroduction={onReplayIntroduction}>
-      {tab === "you" && summaryRes.status === "loading" ? (
+    <ShellRoot dataState={dataState} tab={tab} onTabChange={setTab} link={link} onCopy={onCopy} showHowItWorks={showHowItWorks} onHowItWorks={() => setShowHowItWorks(true)} onCloseHowItWorks={closeHowItWorks}>
+      {showHowItWorks ? <section aria-label="How referrals work"><RulesTab policyRes={policyRes} onRetry={reloadPolicy} /></section> : <SwipeViews tabSetId="referrals" activeValue={tab} options={TABS.map(({ key, label }) => ({ value: key, label }))} onSelectionChange={(value) => setTab(value as TabKey)} viewportMinHeight="fill" heightMode="active">
+      <div>
+      {summaryRes.status === "loading" ? (
         <div className="flex min-h-[40vh] items-center justify-center text-sm" style={{ color: COLORS.text2 }}>
           Loading your referrals…
         </div>
-      ) : tab === "you" && summaryRes.status === "error" ? (
+      ) : summaryRes.status === "error" ? (
         <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-center">
           <p className="text-sm" style={{ color: COLORS.text2 }}>Unable to load. Check your connection.</p>
           <Button onClick={reloadSummary}>Try again</Button>
         </div>
       ) : (
         <>
-          {tab === "you" && summaryRes.status === "ready" ? (
+          {summaryRes.status === "ready" ? (
             <YouTab
               summary={summaryRes.data}
               pointsRes={pointsRes}
@@ -417,33 +380,26 @@ function ReferralDashboardContent({ onReplayIntroduction }: { onReplayIntroducti
               onRetryCircle={reloadCircle}
               countdown={countdown}
               link={link}
-              onCopy={onCopy}
               onShare={onShare}
             />
           ) : null}
-          {tab === "standings" ? (
-            <StandingsTab
-              leaderboardRes={leaderboardRes}
-              onRetryLeaderboard={reloadLeaderboard}
-              circleLeaderboardRes={circleLeaderboardRes}
-              onRetryCircleLeaderboard={reloadCircleLeaderboard}
-              board={board}
-              onBoardChange={setBoard}
-            />
-          ) : null}
-
         </>
       )}
-      {tab === "rewards" ? (
-        <section aria-label="Rewards">
-          <RewardsTab milestonesRes={milestonesRes} onRetry={reloadMilestones} />
-        </section>
-      ) : null}
-      {tab === "you" ? (
-        <section className="mt-7" aria-label="How referrals work">
-          <RulesTab policyRes={policyRes} onRetry={reloadPolicy} />
-        </section>
-      ) : null}
+      </div>
+      <div>
+        <StandingsTab
+          leaderboardRes={leaderboardRes}
+          onRetryLeaderboard={reloadLeaderboard}
+          circleLeaderboardRes={circleLeaderboardRes}
+          onRetryCircleLeaderboard={reloadCircleLeaderboard}
+          board={board}
+          onBoardChange={setBoard}
+        />
+      </div>
+      <section aria-label="Rewards">
+        <RewardsTab milestonesRes={milestonesRes} onRetry={reloadMilestones} />
+      </section>
+      </SwipeViews>}
     </ShellRoot>
   );
 }
@@ -454,7 +410,7 @@ function ReferralDashboardContent({ onReplayIntroduction }: { onReplayIntroducti
  * recipe `/one/location/map` uses for an immersive, chrome-free screen (see
  * `location-map-route-layout.test.ts`). So there is no app TopShell bar and
  * no bottom "Talk to One" / navigation shell to clear here -- this component
- * is the entire page, sticky header and floating invite dock included.
+ * is the entire page, in-flow header and floating invite dock included.
  */
 function ShellRoot({
   dataState,
@@ -462,7 +418,9 @@ function ShellRoot({
   onTabChange,
   link,
   onCopy,
-  onReplayIntroduction,
+  showHowItWorks,
+  onHowItWorks,
+  onCloseHowItWorks,
   children,
 }: {
   dataState: "loading" | "loaded" | "unavailable-valid";
@@ -470,54 +428,60 @@ function ShellRoot({
   onTabChange: (tab: TabKey) => void;
   link: string;
   onCopy: () => void;
-  onReplayIntroduction: () => void;
+  showHowItWorks: boolean;
+  onHowItWorks: () => void;
+  onCloseHowItWorks: () => void;
   children: React.ReactNode;
 }) {
   const router = useRouter();
   const mainRef = useRef<HTMLElement>(null);
-  useScrollReset("referral-dashboard");
+  useScrollReset(showHowItWorks ? "referral-help" : "referral-dashboard");
 
   useEffect(() => {
     mainRef.current?.focus({ preventScroll: true });
-  }, []);
+  }, [showHowItWorks]);
 
   return (
-    <div className="referral-dashboard min-h-dvh" style={{ background: COLORS.bg, color: COLORS.text }}>
+    <div className={`referral-dashboard min-h-dvh${showHowItWorks ? " referral-help-page" : ""}`} style={{ background: COLORS.bg, color: COLORS.text }}>
       <NativeTestBeacon
         routeId={ROUTES.ONE_REFERRALS}
         marker="native-route-one-referrals"
         authState="authenticated"
         dataState={dataState}
       />
-      <header
-        className="sticky top-0 z-50 backdrop-blur-xl"
-        style={{ background: "rgba(242, 242, 247, .82)" }}
-      >
+      <div className="referral-utility-bar">
+        <div className="referral-utility-inner">
         <div className="referral-back-row flex h-16 items-center px-6">
-          <ShellActionSurface aria-label="Back to One home" title="Back to One home" onClick={() => navigateTopShellBack({ pathname: ROUTES.ONE_REFERRALS, navigate: ({ href, mode }) => router[mode](href) })} className="!h-11 !w-11 !border-transparent !bg-transparent !text-[color:var(--app-accent-deep)] !shadow-none hover:!bg-transparent">
+          <ShellActionSurface aria-label={showHowItWorks ? "Back to referrals" : "Back to One home"} title={showHowItWorks ? "Back to referrals" : "Back to One home"} onClick={() => showHowItWorks ? onCloseHowItWorks() : navigateTopShellBack({ pathname: ROUTES.ONE_REFERRALS, navigate: ({ href, mode }) => router[mode](href) })} className="!h-11 !w-11 !border-transparent !bg-transparent !text-[color:var(--app-accent-deep)] !shadow-none hover:!bg-transparent">
             <ArrowLeft className="size-5" aria-hidden="true" />
           </ShellActionSurface>
         </div>
-        <div className="referral-tab-row mx-auto max-w-[912px] px-6 pb-3">
+        {!showHowItWorks && <button onClick={onHowItWorks} className="referral-how-it-works">
+          <span aria-hidden="true" className="referral-help-icon">?</span>
+          How it works
+        </button>}
+        </div>
+      </div>
+      <header className="relative">
+        <h1 className="referral-page-name">{showHowItWorks ? "How it works" : "Referrals"}</h1>
+        {!showHowItWorks && <div className="referral-tab-row mx-auto max-w-[912px] px-6 pb-3">
           <SegmentedTabs
             value={tab}
             onValueChange={(value) => onTabChange(value as TabKey)}
             options={TABS.map(({ key, label }) => ({ value: key, label }))}
             ariaLabel="Referral sections"
+            tabSetId="referrals"
+            variant="agent-top"
             className="referral-tabs"
           />
-        </div>
+        </div>}
       </header>
 
       <main ref={mainRef} aria-label="Referral dashboard" tabIndex={-1} className="mx-auto max-w-[912px] px-6 pb-[calc(96px+env(safe-area-inset-bottom,0px))] pt-3 outline-none">
-        <section role="tabpanel" aria-label={TABS.find((item) => item.key === tab)?.label}>{children}</section>
-        <footer className="mt-6 text-center text-xs leading-[1.6]" style={{ color: COLORS.text3 }}>
-          <p>Your agents. Yours to own.</p>
-          <button onClick={onReplayIntroduction} className="min-h-11 px-3 text-xs underline underline-offset-4">View welcome screen</button>
-        </footer>
+        <div>{children}</div>
       </main>
 
-      {link ? (
+      {!showHowItWorks && link ? (
         <div
           role="group"
           aria-label="Your invite link"
@@ -533,7 +497,7 @@ function ShellRoot({
             Invite with
           </small>
           <code className="min-w-0 flex-1 truncate text-sm font-medium">{link}</code>
-          <Button size="sm" onClick={onCopy}>
+          <Button size="sm" onClick={onCopy} aria-label="Copy invite link" style={{ background: COLORS.blue }}>
             Copy
           </Button>
         </div>
@@ -580,7 +544,6 @@ function YouTab({
   onRetryCircle,
   countdown,
   link,
-  onCopy,
   onShare,
 }: {
   summary: ReferralSummary;
@@ -598,23 +561,41 @@ function YouTab({
   onRetryCircle: () => void;
   countdown: string | null;
   link: string;
-  onCopy: () => void;
   onShare: () => void;
 }) {
   return (
     <>
       <div className="referral-hero">
-        <span className="referral-hero-mark" aria-hidden="true" />
-        <h1 className="referral-hero-title">Good things grow together<span style={{ color: COLORS.blue }}>.</span></h1>
-        <p>Invite friends, build your streak, and unlock your next reward.</p>
+        <div className="referral-hero-copy">
+          <p className="referral-hero-eyebrow"><Users aria-hidden="true" />Invite &amp; earn</p>
+          <h1 className="referral-hero-title">Good things<br />grow <span>together.</span></h1>
+          <div className="referral-hero-share">
+            <a
+              className="referral-share-button"
+              href={`https://wa.me/?text=${encodeURIComponent(`Join me on Hushh One for the weekly referral challenge: ${link}`)}`}
+              target="_blank"
+              rel="noopener"
+            >
+              <WhatsappLogo weight="regular" aria-hidden="true" /> WhatsApp
+            </a>
+            <a className="referral-share-button" href={`sms:?&body=${encodeURIComponent(`Join me on Hushh One: ${link}`)}`}>
+              <MessageSquareText aria-hidden="true" /> SMS
+            </a>
+            <button onClick={onShare} className="referral-share-button referral-share-more" aria-label="More share options">
+              <Share2 aria-hidden="true" /> More
+            </button>
+          </div>
+        </div>
+        <Image
+          src="/referrals/friends-hero-one-spaced.webp"
+          alt=""
+          width={1536}
+          height={1024}
+          className="referral-hero-art"
+          loading="eager"
+          unoptimized
+        />
       </div>
-
-      <ChallengeClock
-        challengeRes={challengeRes}
-        onRetryChallenge={onRetryChallenge}
-        countdown={countdown}
-        onCopy={onCopy}
-      />
 
       <StatsGrid
         pointsRes={pointsRes}
@@ -626,38 +607,15 @@ function YouTab({
         onRetryEngagement={onRetryEngagement}
       />
 
+      <ChallengeClock
+        challengeRes={challengeRes}
+        onRetryChallenge={onRetryChallenge}
+        countdown={countdown}
+      />
+
       <div className="referral-duo grid gap-4 sm:grid-cols-2">
-        <Card className="p-[22px]">
-          <h3 className="ui-text-section-title">Invite</h3>
-          <p className="mt-1 text-sm" style={{ color: COLORS.text2 }}>
-            Earn points when an eligible referral qualifies.
-          </p>
-          <div className="mt-[18px] grid grid-cols-2 gap-2.5">
-            <a
-              className="referral-share-button flex items-center justify-center gap-2.5 rounded-[14px] px-5 text-base font-semibold"
-              href={`https://wa.me/?text=${encodeURIComponent(
-                `Join me on Hushh One for the weekly referral challenge: ${link}`,
-              )}`}
-              target="_blank"
-              rel="noopener"
-            >
-              <WhatsappLogo className="size-6" weight="regular" aria-hidden="true" />
-              WhatsApp
-            </a>
-            <a
-              className="referral-share-button flex items-center justify-center gap-2.5 rounded-[14px] px-5 text-base font-semibold"
-              href={`sms:?&body=${encodeURIComponent(`Join me on Hushh One: ${link}`)}`}
-            >
-              <MessageSquareText className="size-6" aria-hidden="true" />
-              SMS
-            </a>
-          </div>
-          <button
-            onClick={onShare}
-            className="mt-2.5 w-full text-center text-xs font-medium underline underline-offset-2" style={{ color: COLORS.text2 }}
-          >
-            More share options
-          </button>
+        <Card className="referral-activity-card p-[22px]">
+          <h3 className="ui-text-section-title">Recent referrals</h3>
           {summary.referrals.length > 0 ? (
             <ul className="mt-[14px] -mb-2.5 divide-y" style={{ borderColor: COLORS.sep }}>
               {summary.referrals.slice(0, 3).map((row, index) => (
@@ -677,25 +635,18 @@ function YouTab({
                       {row.started_on}
                     </time>
                   </div>
-                  <span className="whitespace-nowrap text-xs font-medium" style={{ color: COLORS.text2 }}>
+                  <span className="referral-status-chip whitespace-nowrap text-xs font-medium">
                     {row.status}
                   </span>
                 </li>
               ))}
             </ul>
-          ) : null}
+          ) : <p className="mt-3 text-sm" style={{ color: COLORS.text2 }}>No referrals yet.</p>}
         </Card>
 
-        <Card className="p-[22px]">
-          <h3
-            className="ui-text-section-title flex items-center gap-[9px]"
-            style={{ color: "#137a35" }}
-          >
-            <span
-              className="relative inline-flex size-[7px] rounded-full"
-              style={{ background: "#34c759" }}
-              aria-hidden="true"
-            />
+        <Card className="referral-circle-card p-[22px]">
+          <h3 className="ui-text-section-title referral-circle-heading">
+            <span className="referral-circle-symbol" aria-hidden="true"><Users size={19} /></span>
             Your circle
           </h3>
           <Section res={circleRes} onRetry={onRetryCircle} retryLabel="your circle">
@@ -707,14 +658,10 @@ function YouTab({
               />
             )}
           </Section>
-          <div
-            className="mt-4 rounded-[12px] p-3"
-            style={{ background: COLORS.fill2 }}
-          >
-            <p className="text-xs font-semibold" style={{ color: COLORS.text2 }}>Circle Wars · Preview</p>
-            <p className="mt-1 text-xs" style={{ color: COLORS.text2 }}>
-              Team battles and prizes are not active yet.
-            </p>
+          <div className="referral-circle-preview">
+            <Trophy size={20} aria-hidden="true" />
+            <span>Circle Wars</span>
+            <span className="referral-preview-label">Not active</span>
           </div>
         </Card>
       </div>
@@ -726,12 +673,10 @@ function ChallengeClock({
   challengeRes,
   onRetryChallenge,
   countdown,
-  onCopy,
 }: {
   challengeRes: Res<WeeklyChallenge>;
   onRetryChallenge: () => void;
   countdown: string | null;
-  onCopy: () => void;
 }) {
   // The seven-day track and Day 1-7 labels are a structural part of the card
   // footprint, not a thing that depends on the challenge resource: they stay
@@ -767,11 +712,11 @@ function ChallengeClock({
       className="referral-clock relative isolate overflow-hidden rounded-[20px] text-white"
       style={{
         padding: "26px 30px 28px",
-        background: "linear-gradient(180deg, #1c1c1e, #242426)",
-        boxShadow: "inset 0 0 0 1px rgba(212,165,116,.24)",
+        background: "#172333",
+        boxShadow: "inset 0 0 0 1px rgba(255,255,255,.08)",
       }}
     >
-      <p className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs font-medium" style={{ color: "#aeaeb2" }}>
+      <p className="referral-challenge-heading">
         <span className="inline-flex items-center gap-[9px]">
           <span
             className="inline-flex size-[7px] rounded-full"
@@ -781,30 +726,18 @@ function ChallengeClock({
           {headline.label}
         </span>
       </p>
-      <div className="mt-2 flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
-        <div
-          className="font-bold leading-none tabular-nums"
-          style={{ fontSize: "clamp(40px, 11vw, 68px)", letterSpacing: "-0.04em" }}
-        >
+      <div className="referral-challenge-status">
+        <span className={`tabular-nums${challengeRes.status === "ready" && challengeRes.data.active ? " referral-countdown-value" : ""}`}>
           {headline.value}
-        </div>
-        <div className="flex gap-2.5 pb-2">
-          <button
-            onClick={onCopy}
-            className="flex h-11 items-center justify-center rounded-[12px] px-4 text-sm font-semibold"
-            style={{ background: COLORS.blue }}
-          >
-            Copy invite link
-          </button>
-        </div>
-      </div>
+        </span>
       {challengeRes.status === "error" ? (
-        <button onClick={onRetryChallenge} className="mt-3 text-xs font-medium underline" style={{ color: "#aeaeb2" }}>
+        <button onClick={onRetryChallenge} className="min-h-11 text-sm font-medium underline">
           Try again
         </button>
       ) : null}
+      </div>
       <div
-        className="mt-7 grid gap-1"
+        className="referral-challenge-track grid gap-2"
         style={{ gridTemplateColumns: `repeat(${weekProgress.totalDays}, minmax(0, 1fr))` }}
         role="img"
         aria-label={
@@ -841,7 +774,7 @@ function ChallengeClock({
           );
         })}
       </div>
-      <ol className="mt-3.5 grid gap-1" style={{ gridTemplateColumns: `repeat(${weekProgress.totalDays}, minmax(0, 1fr))` }}>
+      <ol className="referral-challenge-days grid gap-2" style={{ gridTemplateColumns: `repeat(${weekProgress.totalDays}, minmax(0, 1fr))` }}>
         {Array.from({ length: weekProgress.totalDays }, (_, i) => {
           const isNow =
             weekProgress.live &&
@@ -883,9 +816,9 @@ function StatsGrid({
     onRetry?: () => void;
   }[] = [
     {
-      label: "Your points",
+      label: "Your coins",
       value: statText(pointsRes, (p) => fmt(p)),
-      sub: statSub(pointsRes, () => "Recorded total"),
+      sub: statSub(pointsRes, () => ""),
       onRetry: pointsRes.status === "error" ? onRetryPoints : undefined,
     },
     {
@@ -894,40 +827,37 @@ function StatsGrid({
         const v = lb.viewer ?? lb.entries.find((e) => e.is_viewer) ?? null;
         return v ? `#${v.rank}` : "—";
       }),
-      sub: statSub(leaderboardRes, (lb) => {
-        // A nonzero ledger balance (its own, separately-loaded stat) can
-        // exist with no published rank at all: not yet ranked, or no
-        // snapshot has published since this account joined. That is an
-        // honest "unranked" state, not an error and not a zero.
-        const v = lb.viewer ?? lb.entries.find((e) => e.is_viewer) ?? null;
-        if (!v) return "Not yet ranked";
-        return lb.stale ? "Updating" : "Latest standings";
-      }),
+      sub: statSub(leaderboardRes, () => ""),
       onRetry: leaderboardRes.status === "error" ? onRetryLeaderboard : undefined,
     },
     {
       label: "Referrals",
       value: fmt(summary.qualified_count),
-      sub: `${summary.in_progress_count} in progress`,
+      sub: "",
     },
   ];
 
   return (
-    <>
-      <dl className="referral-summary-stats my-4 grid grid-cols-3 rounded-[18px]" style={{ background: COLORS.card }}>
+    <div className="referral-overview">
+      <dl className="referral-summary-stats">
         {cells.map((cell, index) => (
           <div
             key={cell.label}
-            className={"px-3 py-4 sm:px-[22px] sm:py-[18px] " + (index > 0 ? "border-l" : "")}
+            className="referral-stat"
             style={{ borderColor: COLORS.sep }}
           >
-            <dt className="text-xs font-medium" style={{ color: COLORS.text2 }}>{cell.label}</dt>
+            <dt className="text-xs font-medium" style={{ color: COLORS.text2 }}>
+              <span className={`referral-stat-icon referral-stat-icon-${index}`} aria-hidden="true">
+                {index === 0 ? <Coins /> : index === 1 ? <Trophy /> : <Users />}
+              </span>
+              {cell.label}
+            </dt>
             <dd className="mt-1 flex items-center gap-2">
               <span className="text-[28px] font-bold leading-[34px] tracking-[-0.025em] tabular-nums">
                 {cell.value}
               </span>
             </dd>
-            <dd className="mt-0.5 text-xs" style={{ color: COLORS.text2 }}>{cell.sub}</dd>
+            {cell.sub && <dd className="mt-0.5 text-xs" style={{ color: COLORS.text2 }}>{cell.sub}</dd>}
             {cell.onRetry ? (
               <button
                 onClick={cell.onRetry}
@@ -941,7 +871,7 @@ function StatsGrid({
         ))}
       </dl>
       <StreakCard engagementRes={engagementRes} onRetry={onRetryEngagement} />
-    </>
+    </div>
   );
 }
 
@@ -958,14 +888,14 @@ function StreakCard({
         <StreakFlame engagementRes={engagementRes} />
         <div className="min-w-0">
           <h2 className="ui-text-section-title">Day streak</h2>
-          <p className="mt-1 text-sm" style={{ color: COLORS.text2 }}>
-            One qualifying referral each day.
-          </p>
         </div>
       </div>
       <div className="referral-streak-count">
-        <strong className="tabular-nums">{statText(engagementRes, (e) => String(e.streak.current_run_days))}</strong>
-        <span>{statSub(engagementRes, (e) => `${e.streak.run_length_days}-day bonus target`)}</span>
+        <div className="referral-streak-value">
+          <strong className="tabular-nums">{statText(engagementRes, (e) => String(e.streak.current_run_days))}</strong>
+          {engagementRes.status === "ready" ? <span className="referral-streak-unit">{engagementRes.data.streak.current_run_days === 1 ? "day" : "days"}</span> : null}
+        </div>
+        {engagementRes.status !== "ready" && <span>{statSub(engagementRes, () => "")}</span>}
         {engagementRes.status === "error" ? (
           <Button variant="muted" size="sm" onClick={onRetry}>Try again</Button>
         ) : null}
@@ -1010,7 +940,7 @@ function CircleCardBody({
   if (!circle.circle_id) {
     return (
       <p className="mt-2 text-sm" style={{ color: COLORS.text2 }}>
-        Choose a circle to contribute together.
+        Choose your circle.
       </p>
     );
   }
@@ -1075,18 +1005,12 @@ function StandingsTab({
       : null;
 
   return (
-    <div className="referral-standings grid gap-6 sm:grid-cols-[280px_minmax(0,1fr)] sm:items-start">
-      <aside className="sm:sticky sm:top-20">
-        <h2 className="ui-text-section-title">
-          Ranking
-          <i className="not-italic" style={{ color: COLORS.blue }}>
-            .
-          </i>
-        </h2>
+    <div className="referral-standings">
+      <div className="referral-ranking-toolbar">
         <div
           role="group"
           aria-label="Standings type"
-          className="inline-flex gap-0.5 rounded-xl p-0.5"
+          className="referral-ranking-switch inline-flex gap-0.5 rounded-xl p-0.5"
           style={{ background: COLORS.fill }}
         >
           {(["individual", "circles"] as const).map((key) => (
@@ -1108,15 +1032,18 @@ function StandingsTab({
         </div>
         {gapText ? (
           <p
-            className="mt-5 text-lg font-semibold leading-[1.3] sm:text-xl"
+            className="referral-ranking-summary"
             style={{ color: COLORS.text2 }}
           >
             {gapText}
           </p>
         ) : null}
-      </aside>
+      </div>
 
-      <Card className="p-2">
+      <Card className="referral-leaderboard-card p-2">
+        <div className="referral-leaderboard-columns" aria-hidden="true">
+          <span>Rank</span><span>{board === "individual" ? "Member" : "Circle"}</span><span>{board === "individual" ? "Coins" : "Referrals"}</span>
+        </div>
         {board === "individual" ? (
           <Section res={leaderboardRes} onRetry={onRetryLeaderboard} retryLabel="the individual standings">
             {(leaderboard) =>
@@ -1184,7 +1111,7 @@ function gapCopy(lb: LeaderboardPage): string | null {
   if (!ahead) return `You're #${v.rank}.`;
   const gap = ahead.points - v.points;
   if (gap <= 0) return `You're #${v.rank}.`;
-  return `You're #${v.rank}. ${fmt(gap)} points to pass ${ahead.handle}.`;
+  return `You're #${v.rank}. ${fmt(gap)} coins to pass ${ahead.handle}.`;
 }
 
 function BoardRow({
@@ -1244,7 +1171,7 @@ function BoardRow({
 }
 
 function EmptyBoard({ note }: { note: string }) {
-  return <p className="mt-6 text-center text-sm" style={{ color: COLORS.text2 }}>{note}</p>;
+  return <div className="referral-ranking-empty"><Trophy aria-hidden="true" /><p>{note}</p></div>;
 }
 
 const REWARD_PRODUCTS: Record<string, string> = {
@@ -1266,9 +1193,6 @@ function RewardsTab({
 }) {
   return (
     <>
-      <h2 className="ui-text-section-title mb-3">
-        Rewards
-      </h2>
       <Section res={milestonesRes} onRetry={onRetry} retryLabel="your reward progress">
         {(milestones) => {
           // A compatibility gate, never a fallback catalogue or user-value override.
@@ -1298,7 +1222,7 @@ function RewardsTab({
           const nextLabel = next?.reward.split(/,?\s+worth\s+/i) ?? [];
 
           return (
-            <div className="grid gap-[18px]">
+            <div className="referral-rewards-content grid gap-[18px]">
               {next ? (
                 <Card
                   rewardKey={next.milestone_key}
@@ -1306,11 +1230,10 @@ function RewardsTab({
                   style={{ position: "relative", overflow: "hidden" }}
                 >
                   <div>
-                    <p className="referral-reward-eyebrow">Your next reward</p>
+                    <p className="referral-reward-eyebrow"><Trophy size={14} aria-hidden="true" />Your next reward</p>
                     <h3 className="referral-reward-title ui-text-section-title">
                       {nextLabel[0]}
                     </h3>
-                    <p className="referral-reward-remaining"><strong>{fmt(next.threshold - count)} more.</strong><span>Qualified referrals to go.</span></p>
                   </div>
                   <div className="referral-reward-stage">
                     <RewardArtwork milestoneKey={next.milestone_key} title={nextLabel[0] ?? next.reward} />
@@ -1354,38 +1277,20 @@ function RewardsTab({
                       <Card
                         rewardKey={entry.milestone_key}
                         className="referral-reward-tile flex min-h-[182px] flex-col p-4 sm:min-h-[204px] sm:p-5"
-                        style={{
-                          border: `1px solid ${isNext ? "rgba(0,122,255,.24)" : "transparent"}`,
-                        }}
+                        style={{ border: `1px solid ${isNext ? "rgba(0,122,255,.24)" : "transparent"}` }}
                       >
                         <div className="mb-[18px] flex items-center justify-between gap-2">
-                          <span
-                            className="referral-product-tile-art grid shrink-0 place-items-center"
-                            style={{
-                              background: earned
-                                ? "rgba(52,199,89,.16)"
-                                : isNext
-                                  ? "rgba(0,122,255,.1)"
-                                  : COLORS.fill2,
-                              color: earned ? "#137a35" : isNext ? COLORS.blue : COLORS.text2,
-                            }}
-                          >
+                          <span className="referral-product-tile-art grid shrink-0 place-items-center">
                             <RewardArtwork milestoneKey={entry.milestone_key} title={label[0] ?? entry.reward} />
                           </span>
-                          {earned || isNext ? <span
-                            className="text-xs font-semibold sm:text-xs"
-                            style={{ color: earned ? "#137a35" : isNext ? "#006dcc" : COLORS.text2 }}
-                          >
-                            {earned ? "Unlocked" : "Up next"}
-                          </span> : null}
+                          <span
+                            className="referral-milestone-status text-xs font-semibold"
+                            aria-hidden={!earned && !isNext ? true : undefined}
+                            style={{ color: earned ? "#137a35" : "#006dcc", visibility: earned || isNext ? "visible" : "hidden" }}
+                          >{earned ? "Unlocked" : "Up next"}</span>
                         </div>
-                        <h4 className="ui-text-headline">
-                          {label[0]}
-                        </h4>
-                        <p
-                          className="mt-auto pt-5 text-xs tabular-nums"
-                          style={{ color: earned ? "#137a35" : COLORS.text2, fontWeight: earned ? 600 : 400 }}
-                        >
+                        <h4 className="ui-text-headline">{label[0]}</h4>
+                        <p className="mt-auto pt-5 text-xs tabular-nums" style={{ color: earned ? "#137a35" : COLORS.text2, fontWeight: earned ? 600 : 400 }}>
                           {earned ? `Unlocked at ${entry.threshold}` : `${fmt(entry.threshold)} referrals`}
                         </p>
                       </Card>
@@ -1393,7 +1298,6 @@ function RewardsTab({
                   );
                 })}
               </ol>
-              <p className="text-xs" style={{ color: COLORS.text2 }}>Unlocked rewards follow the program’s claim and delivery terms.</p>
             </div>
           );
         }}
@@ -1405,33 +1309,25 @@ function RewardsTab({
 function RulesTab({ policyRes, onRetry }: { policyRes: Res<ReferralPolicy>; onRetry: () => void }) {
   return (
     <>
-      <h2 className="ui-text-section-title mb-3">
-        How referrals work
-      </h2>
       <div className="referral-duo referral-rules-grid grid gap-4 sm:grid-cols-2">
         <Section res={policyRes} onRetry={onRetry} retryLabel="referral rules">{(policy) => (
           <Card className="referral-rules-points p-5">
-            <div className="referral-rules-card-title"><Zap className="size-5" aria-hidden="true" /><h3 className="ui-text-section-title">Points</h3></div>
+            <div className="referral-rules-card-title"><Coins className="size-5" aria-hidden="true" /><h3 className="ui-text-section-title">Coins</h3></div>
             <ul className="referral-points-list">
               {[
-                { title: "Qualified referral", value: `${fmt(policy.points.qualified_referral_points)} points`, icon: <ShieldCheck aria-hidden="true" /> },
-                { title: "Referral streak bonus", value: `+${fmt(policy.streak_rules.bonus_points)} points`, icon: <Flame aria-hidden="true" /> },
+                { title: "Qualified referral", value: `${fmt(policy.points.qualified_referral_points)} coins`, icon: <ShieldCheck aria-hidden="true" /> },
+                { title: "Referral streak bonus", value: `+${fmt(policy.streak_rules.bonus_points)} coins`, icon: <Flame aria-hidden="true" /> },
                 { title: "Flash referral, when active", value: `${fmt(policy.points.flash_window_total_points)} total`, icon: <Zap aria-hidden="true" /> },
-                { title: "PKM master", detail: "Save a new memory each day", value: "+10 points", icon: <Brain aria-hidden="true" /> },
-                { title: "Agent explorer", detail: "Use a different specialist", value: "+20 points", icon: <Bot aria-hidden="true" /> },
-                { title: "Connection builder", detail: "Make a new connection", value: "+5 points", icon: <UserPlus aria-hidden="true" /> },
               ].map((point) => (
                 <li key={point.title}>
                   <span className="referral-rule-icon">{point.icon}</span>
                   <div className="referral-rule-label">
                     <h4 className="referral-point-title">{point.title}</h4>
-                    {point.detail ? <p className="referral-point-detail">{point.detail}</p> : null}
                   </div>
                   <b className="referral-rule-value font-semibold tabular-nums">{point.value}</b>
                 </li>
               ))}
             </ul>
-            <p className="referral-preview-note">Memory, agent and connection rewards are coming soon.</p>
           </Card>
         )}</Section>
         <Card className="referral-rules-details p-5" aria-label="Referral rules">
@@ -1439,12 +1335,12 @@ function RulesTab({ policyRes, onRetry }: { policyRes: Res<ReferralPolicy>; onRe
           <ol className="referral-visual-rules">
             <li><span><Link2 aria-hidden="true" /></span><div><h4>Invite a friend</h4><p>Share your link with someone new.</p></div></li>
             <li><span><ShieldCheck aria-hidden="true" /></span><div><h4>They finish setup</h4><p>Sign up, verify their phone, and finish setup.</p></div></li>
-            <li><span><Trophy aria-hidden="true" /></span><div><h4>You earn points</h4><p>Every qualifying friend brings your next reward closer.</p></div></li>
+            <li><span><Trophy aria-hidden="true" /></span><div><h4>You earn coins</h4><p>Every qualifying friend brings your next reward closer.</p></div></li>
           </ol>
           <div className="referral-rule-highlights">
             <p><Flame aria-hidden="true" /><span><b>Keep your streak</b>One qualifying friend a day. Keep it going.</span></p>
             <p><ShieldCheck aria-hidden="true" /><span><b>New friends only</b>Self-referrals and unfinished sign-ups do not count.</span></p>
-            <p><Zap aria-hidden="true" /><span><b>Flash boost</b>When active, flash points replace the standard award.</span></p>
+            <p><Zap aria-hidden="true" /><span><b>Flash boost</b>When active, flash coins replace the standard award.</span></p>
           </div>
         </Card>
       </div>
