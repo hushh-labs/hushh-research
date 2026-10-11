@@ -29,6 +29,7 @@ from hushh_mcp.services.google_oauth_attempt import (
     decode_attempt,
     encode_attempt,
 )
+from hushh_mcp.services.oauth_redirect_policy import allowed_oauth_callback_uris
 
 GoogleService = Literal["gmail", "calendar", "contacts", "drive"]
 
@@ -169,9 +170,10 @@ class GoogleConnectionService:
             raise GoogleConnectionError(
                 "Google OAuth redirect configuration is invalid", status_code=503
             )
-        if supplied and not hmac.compare_digest(_clean(supplied), configured):
+        requested = _clean(supplied)
+        if requested and requested not in allowed_oauth_callback_uris(configured):
             raise GoogleConnectionError("Google OAuth redirect URI is not allowed", status_code=400)
-        return configured
+        return requested or configured
 
     @staticmethod
     def scopes(service: GoogleService, access_level: Literal["read", "manage"]) -> tuple[str, ...]:

@@ -43,10 +43,16 @@ NATIVE_OAUTH_REDIRECT_URI = "https://api.hushh.ai/api/connectors/oauth/native/ca
 NATIVE_PICKER_REDIRECT_URI = (
     "https://api.hushh.ai/api/connectors/google_drive/picker/native/callback"
 )
-REGISTERED_REDIRECT_URIS = (
+LEGACY_REGISTERED_REDIRECT_URIS = (
     WEB_REDIRECT_URI,
     NATIVE_OAUTH_REDIRECT_URI,
     NATIVE_PICKER_REDIRECT_URI,
+)
+REGISTERED_REDIRECT_URIS = (
+    *LEGACY_REGISTERED_REDIRECT_URIS,
+    "https://one.hussh.ai/one/profile/connectors/oauth/return",
+    "https://api.hussh.ai/api/connectors/oauth/native/callback",
+    "https://api.hussh.ai/api/connectors/google_drive/picker/native/callback",
 )
 
 _LOAD_CONNECTOR_SQL = text(
@@ -177,7 +183,12 @@ def _canonical_row() -> dict[str, Any]:
     }
 
 
-def _row_matches_policy(row: Mapping[str, Any], *, require_active: bool) -> bool:
+def _row_matches_policy(
+    row: Mapping[str, Any],
+    *,
+    require_active: bool,
+    redirect_uris: tuple[str, ...] = REGISTERED_REDIRECT_URIS,
+) -> bool:
     expected = _canonical_row()
     for field in (
         "connector_id",
@@ -205,7 +216,7 @@ def _row_matches_policy(row: Mapping[str, Any], *, require_active: bool) -> bool
     if (
         actual_redirects is None
         or len(actual_redirects) != len(set(actual_redirects))
-        or set(actual_redirects) != set(REGISTERED_REDIRECT_URIS)
+        or set(actual_redirects) != set(redirect_uris)
     ):
         return False
     return not require_active or row.get("is_active") is True
@@ -305,6 +316,25 @@ class DriveProdRegistryProvisioner:
                 if row is None:
                     raise DriveProdRegistryProvisioningError("Drive registry policy is unavailable")
                 action = "activated"
+            elif _row_matches_policy(
+                row, require_active=False, redirect_uris=LEGACY_REGISTERED_REDIRECT_URIS
+            ):
+                connection.execute(
+                    text(
+                        """
+                        UPDATE external_mcp_connectors
+                        SET registered_redirect_uris = CAST(:registered_redirect_uris AS JSONB),
+                            is_active = TRUE, updated_at = NOW()
+                        WHERE connector_id = :connector_id
+                        """
+                    ),
+                    {
+                        "connector_id": CONNECTOR_ID,
+                        "registered_redirect_uris": json.dumps(REGISTERED_REDIRECT_URIS),
+                    },
+                )
+                row = self._load(connection, lock=True)
+                action = "migrated"
             elif not _row_matches_policy(row, require_active=False):
                 # Do not overwrite a possibly deliberate or compromised
                 # operator row. Investigate and remediate drift explicitly.

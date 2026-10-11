@@ -14,6 +14,35 @@ from hushh_mcp.services.google_oauth_attempt import connection_generation
 from tests.google_oauth_test_support import TransactionEngine
 
 
+def test_google_callback_alias_is_exact_and_environment_scoped(monkeypatch):
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://uat.one.hushh.ai")
+    callback = "https://uat.one.hushh.ai/one/profile/google/oauth/return"
+    monkeypatch.setenv("GOOGLE_OAUTH_REDIRECT_URI", callback)
+    monkeypatch.setenv(
+        "CORS_ALLOWED_ORIGINS",
+        "https://uat.one.hushh.ai,https://uat.one.hussh.ai,https://one.hussh.ai",
+    )
+    service = GoogleConnectionService()
+    assert service._redirect_uri(callback.replace("hushh.ai", "hussh.ai")) == (
+        "https://uat.one.hussh.ai/one/profile/google/oauth/return"
+    )
+    for invalid in (
+        "https://one.hussh.ai/one/profile/google/oauth/return",
+        "https://uat.one.hussh.ai/other",
+        "https://uat.one.hussh.ai/one/profile/google/oauth/return?extra=1",
+    ):
+        with pytest.raises(GoogleConnectionError):
+            service._redirect_uri(invalid)
+
+
+def test_custom_callback_does_not_gain_a_spelling_alias_from_cors(monkeypatch):
+    from hushh_mcp.services.oauth_redirect_policy import allowed_oauth_callback_uris
+
+    callback = "https://custom.hushh.ai/one/profile/google/oauth/return"
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://custom.hushh.ai,https://custom.hussh.ai")
+    assert allowed_oauth_callback_uris(callback) == frozenset({callback})
+
+
 class _Db:
     def __init__(self, existing=None, *, accept_connection=True, accept_grant=True, grants=None):
         self.existing = existing
