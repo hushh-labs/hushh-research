@@ -339,6 +339,11 @@ function AppShellFrame({ children }: ProvidersProps) {
           : effectiveHideCommandBar
             ? "calc(var(--app-bottom-inset) + var(--bottom-chrome-fade-overscan))"
             : "calc(var(--app-safe-area-bottom-effective) + var(--app-bottom-chrome-lift) + var(--kai-command-fixed-ui) + var(--bottom-chrome-fade-overscan))",
+        // Sticky actions need only the clearance not already reserved on the
+        // scroll root. Fullscreen flows put that padding on their child shell.
+        "--app-sticky-bottom-offset": shouldLockFullscreenRoot && !hideGlobalChrome
+          ? "var(--bottom-chrome-stack-height)"
+          : "max(0px, calc(var(--bottom-chrome-stack-height) - var(--app-scroll-bottom-pad)))",
         "--bottom-chrome-visual-height": "var(--bottom-chrome-full-height)",
         "--bottom-chrome-hide-distance": "var(--app-bottom-fixed-ui)",
         // Hidden-shell routes deliberately omit the app navigation, but many
@@ -357,6 +362,7 @@ function AppShellFrame({ children }: ProvidersProps) {
       }) as CSSProperties,
     [
       effectiveHideCommandBar,
+      shouldLockFullscreenRoot,
       bottomChromeHidden,
       hideGlobalChrome,
       isPublicStandaloneRoute,

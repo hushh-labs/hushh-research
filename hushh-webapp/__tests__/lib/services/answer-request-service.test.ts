@@ -81,6 +81,7 @@ describe("payment response validation", () => {
 
 describe("request terms", () => {
   it("treats an absent period as valid and a half-filled one as not", () => {
+    expect(validAnswerPeriod()).toBe(true);
     expect(validAnswerPeriod(null, null)).toBe(true);
     expect(validAnswerPeriod("2026-01-01", null)).toBe(false);
     expect(validAnswerPeriod(null, "2026-01-01")).toBe(false);
@@ -105,3 +106,30 @@ describe("request terms", () => {
     expect(isValidAnswerPriceCents(50_100)).toBe(false);
   });
 });
+
+
+it.each([
+  ["2026-02-30", "2026-03-01"], ["2025-02-29", "2025-03-01"],
+  ["20260101", "20260201"], ["2026-1-01", "2026-02-01"],
+  ["0000-01-01", "0000-01-02"], ["not-a-date", "not-a-date"],
+])("rejects invalid date metadata %s to %s", (start, end) => {
+  expect(validAnswerPeriod(start, end)).toBe(false);
+});
+
+it("accepts a real leap day and a single-day period", () => {
+  expect(validAnswerPeriod("2024-02-29", "2024-02-29")).toBe(true);
+});
+
+it.each([undefined, null, "2026-01-01"])(
+  "preserves optional or legacy dates (%s) and question periods on the wire",
+  async (start) => {
+    const requestId = crypto.randomUUID();
+    apiFetch.mockReturnValue(json({ requestId }));
+    const question = "What did you spend on travel in January 2026?";
+    const terms = start === undefined ? { question } : {
+      question, periodStart: start, periodEnd: start === null ? null : "2026-01-31",
+    };
+    await expect(AnswerRequestService.create("token", "person", terms)).resolves.toEqual({ requestId });
+    expect(JSON.parse(apiFetch.mock.calls[0][1].body)).toEqual({ personRef: "person", ...terms });
+  },
+);

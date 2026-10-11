@@ -3,22 +3,10 @@
 /**
  * "Request scope" — ask a connected person's private agent a question.
  *
- * Deliberately the same dialog shape as Request files
- * (`document-file-request.tsx`): recipient line, "What do you need?",
- * period controls, Cancel and Send request. It reuses the same primitives so
- * the two requests on this profile read as one family.
- *
- * Two differences, both intentional:
- *
- * 1. The period is conditional. A Drive file request always covers a date
- *    range; a question often does not ("what are your food preferences?").
- *    The owner must still be able to approve an exact period when one applies,
- *    so it is opt-in and then required, rather than always-required or never
- *    asked.
- * 2. Nothing here resolves the question into scopes. That is a semantic
- *    judgement made server-side by the resolver stage and then narrowed by
- *    fail-closed validation; the owner approves the exact question, the exact
- *    scopes and the price before any money moves.
+ * Reuses the profile request dialog primitives: recipient, one question,
+ * Cancel and Send request. Any period the person asks about stays in the
+ * question. Scope resolution remains server-side, and the owner approves
+ * the exact question, scopes and price before any money moves.
  *
  * No connector setup and no trusted-circle membership: an active connection is
  * the whole gate, matching the existing request lanes.
@@ -32,17 +20,14 @@ import { AuthService } from "@/lib/services/auth-service";
 import {
   ANSWER_REQUEST_HELPER,
   AnswerRequestService,
-  validAnswerPeriod,
   validAnswerRequest,
 } from "@/lib/services/answer-request-service";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { Button } from "@/lib/morphy-ux/button";
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { BodyText, HelperText } from "@/components/app-ui/typography";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { MobileDocumentDateRange } from "@/components/consent/mobile-document-date-range";
 import {
   Dialog,
   DialogContent,
@@ -66,9 +51,6 @@ export function RequestScopeButton({
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState("");
-  const [hasPeriod, setHasPeriod] = useState(false);
-  const [start, setStart] = useState("");
-  const [end, setEnd] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<string | null>(null);
@@ -102,19 +84,10 @@ export function RequestScopeButton({
     };
   }, [personRef, user?.uid]);
 
-  const periodStart = hasPeriod ? start || null : null;
-  const periodEnd = hasPeriod ? end || null : null;
-  // An opted-in period must be complete: a half-filled range would let the
-  // owner approve a window neither person actually chose.
-  const periodReady = !hasPeriod || Boolean(start && end);
-  const valid =
-    validAnswerRequest({ question, periodStart, periodEnd }) && periodReady;
+  const valid = validAnswerRequest({ question });
 
   const reset = () => {
     setQuestion("");
-    setHasPeriod(false);
-    setStart("");
-    setEnd("");
     setError(null);
   };
 
@@ -137,8 +110,6 @@ export function RequestScopeButton({
         personRef,
         {
           question,
-          periodStart,
-          periodEnd,
         },
       );
       setCreated(requestId);
@@ -179,11 +150,11 @@ export function RequestScopeButton({
       </DialogTrigger>
       <DialogContent
         data-request-scope-dialog
-        className="max-h-[85dvh] overflow-y-auto max-sm:translate-x-0 max-sm:translate-y-0 sm:max-w-md"
+        className="max-h-[85dvh] overflow-y-auto sm:max-w-md"
         showCloseButton={Boolean(created) || availability !== "available"}
         srDescription={`Ask ${personName} a question.`}
       >
-        <DialogHeader>
+        <DialogHeader className="text-left">
           <DialogTitle>Request scope</DialogTitle>
           <HelperText as="p" className="break-words">
             To {personName}
@@ -227,24 +198,20 @@ export function RequestScopeButton({
               Paid answers are not switched on here yet, so this question
               cannot be sent. Nothing has been sent to {personName}.
             </BodyText>
-            <HelperText as="p">
-              Request files still works for anything {personName} keeps in
-              Drive, and you can ask about files they have already shared.
-            </HelperText>
             <Button type="button" size="standard" variant="none" onClick={close}>
               Close
             </Button>
           </div>
         ) : (
           <form
-            className="min-w-0 space-y-4"
+            className="min-w-0 space-y-[var(--app-form-section-gap)]"
             onSubmit={(event) => {
               event.preventDefault();
               void submit();
             }}
           >
-            <div className="space-y-2">
-              <Label htmlFor="answer-request-question">What do you need?</Label>
+            <div className="space-y-[var(--app-form-field-gap)]">
+              <Label htmlFor="answer-request-question">Question</Label>
               <Textarea
                 id="answer-request-question"
                 value={question}
@@ -252,67 +219,9 @@ export function RequestScopeButton({
                 maxLength={2000}
                 required
                 disabled={busy}
-                placeholder="How much did you spend on travel last year?"
+                placeholder="E.g. What is your age?"
               />
             </div>
-            <div className="min-w-0 space-y-2">
-              <Label
-                htmlFor="answer-request-has-period"
-                className="flex items-center gap-2"
-              >
-                <input
-                  id="answer-request-has-period"
-                  type="checkbox"
-                  checked={hasPeriod}
-                  disabled={busy}
-                  onChange={(event) => setHasPeriod(event.target.checked)}
-                />
-                This covers a specific period
-              </Label>
-            </div>
-            {hasPeriod ? (
-              <fieldset className="min-w-0" disabled={busy}>
-                <legend className="mb-2">Period (required)</legend>
-                <MobileDocumentDateRange
-                  start={start}
-                  end={end}
-                  onStartChange={setStart}
-                  onEndChange={setEnd}
-                />
-                <div className="hidden min-w-0 gap-3 sm:grid sm:grid-cols-2">
-                  <div className="min-w-0 space-y-2">
-                    <Label htmlFor="answer-period-start">Start date</Label>
-                    <Input
-                      id="answer-period-start"
-                      type="date"
-                      value={start}
-                      onChange={(event) => setStart(event.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="min-w-0 space-y-2">
-                    <Label htmlFor="answer-period-end">End date</Label>
-                    <Input
-                      id="answer-period-end"
-                      type="date"
-                      value={end}
-                      onChange={(event) => setEnd(event.target.value)}
-                      required
-                    />
-                  </div>
-                </div>
-              </fieldset>
-            ) : null}
-            {hasPeriod && !periodReady ? (
-              <HelperText role="status">
-                Choose exact start and end dates before sending this request.
-              </HelperText>
-            ) : null}
-            {hasPeriod && start && end && !validAnswerPeriod(start, end) ? (
-              <HelperText role="status">
-                Choose both dates, with the end on or after the start.
-              </HelperText>
-            ) : null}
             <HelperText as="p">{ANSWER_REQUEST_HELPER}</HelperText>
             {error ? (
               <HelperText as="p" role="alert">
