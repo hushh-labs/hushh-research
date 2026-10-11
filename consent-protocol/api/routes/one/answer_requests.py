@@ -32,6 +32,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Response
 from api.middleware import require_firebase_auth, require_firebase_auth_read_only
 from hushh_mcp.services.answer_composer import AnswerComposer, AnswerComposerError
 from hushh_mcp.services.answer_scope_resolver import AnswerScopeResolver
+from hushh_mcp.services.owner_placement_guard import admit_hub_content, hub_content_firebase
 from hushh_mcp.services.person_profile_service import (
     PersonProfileNotFoundError,
     PersonProfileService,
@@ -374,7 +375,7 @@ async def compose_answer(
     request_id: UUID,
     response: Response,
     body: dict[str, Any] = Body(...),
-    owner_user_id: str = Depends(require_firebase_auth),
+    owner_user_id: str = Depends(hub_content_firebase),
 ) -> dict[str, Any]:
     """Write the answer from the projection the owner's device just built.
 
@@ -416,6 +417,7 @@ async def compose_answer(
     ):
         raise HTTPException(status_code=422, detail="Check the approved information.")
     try:
+        await admit_hub_content(owner_user_id, "paid_answer_writer")
         written = await AnswerComposer().compose(
             question=work["question"],
             projection=projection,

@@ -1,5 +1,6 @@
 import {
   act,
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -1096,6 +1097,7 @@ async function openTemporaryLinkFlow() {
 describe("OneLocationAgentPage", () => {
   afterEach(() => {
     // Restore clocks and injected browser globals even when a test fails.
+    cleanup();
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -1107,6 +1109,11 @@ describe("OneLocationAgentPage", () => {
       state: "contacts" in navigator ? "prompt" : "unavailable",
     }));
     vi.clearAllMocks();
+    // Clear queued one-shot responses before reinstalling these defaults.
+    for (const mock of [
+      mockGetState, mockCaptureCurrentPosition, mockCreateGrant, mockRevokeGrant,
+      mockViewEnvelope, mockReverseGeocode, mockGetCircle, mockListRecipientsPage,
+    ]) mock.mockReset();
     // The shared store, holding a fix measured now — what a session with a
     // live movement watch looks like, and the precondition for the publisher.
     const busSnapshot = {

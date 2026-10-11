@@ -11,6 +11,7 @@ from unittest.mock import Mock
 import pytest
 from sqlalchemy import text
 
+from hushh_mcp.services.account_answer_erasure import erase_unpaid_answer_content
 from hushh_mcp.services.pkm_answer_payment_service import (
     AnswerPaymentError,
     PkmAnswerPaymentService,
@@ -83,6 +84,43 @@ async def paid(engine):
     service, request, digest = await _approved(engine)
     _mark_paid(engine, request, digest)
     return service, request
+
+
+@pytest.mark.parametrize("participant", [OWNER, REQUESTER])
+async def test_answer_erasure_preserves_financial_history_and_rolls_back(
+    answer_engine, participant
+):
+    _, request, digest = await _approved(answer_engine)
+    _mark_paid(answer_engine, request, digest)
+    before = row(answer_engine, "pkm_answer_requests", request)
+    with pytest.raises(RuntimeError, match="ANSWER_PAYMENT_RECONCILIATION_REQUIRED"):
+        with answer_engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE pkm_answer_requests SET question='Synthetic erasure sentinel' WHERE request_id=:r"
+                ),
+                {"r": request},
+            )
+            erase_unpaid_answer_content(connection, user_id=participant)
+    assert row(answer_engine, "pkm_answer_requests", request) == before
+    assert row(answer_engine, "pkm_answer_payment_orders", request)["status"] == "paid"
+    assert row(answer_engine, "pkm_answer_payment_obligations", request)["status"] == "paid"
+
+
+@pytest.mark.parametrize("participant", [OWNER, REQUESTER])
+async def test_answer_erasure_removes_unfunded_content_for_either_participant(
+    answer_engine, participant
+):
+    _, request, _ = await _approved(answer_engine)
+    with answer_engine.begin() as connection:
+        erase_unpaid_answer_content(connection, user_id=participant)
+        for table in ("pkm_answer_requests", "pkm_answer_request_scopes"):
+            assert (
+                connection.execute(
+                    text(f"SELECT count(*) FROM {table} WHERE request_id=:r"), {"r": request}
+                ).scalar()
+                == 0
+            )
 
 
 async def test_overlapping_checkout_reuses_durable_attempt_and_parameters(answer_engine):

@@ -59,6 +59,27 @@ async def test_composer_rejects_unapproved_projection(monkeypatch, projection):
     composer.assert_not_called()
 
 
+async def test_composer_refuses_hosting_change_before_provider_dispatch(
+    monkeypatch, shared_hub_owner
+):
+    async def answerable(**kwargs):
+        shared_hub_owner.return_value = "byoc"
+        return {"approvedScopes": ["attr.travel.trips"], "modelProcessingConsented": True}
+
+    monkeypatch.setattr(routes, "_requests", lambda: Mock(assert_answerable=answerable))
+    composer = Mock()
+    monkeypatch.setattr(routes, "AnswerComposer", composer)
+    with pytest.raises(HTTPException) as error:
+        await routes.compose_answer(
+            uuid4(),
+            Response(),
+            {"projection": {"memory": "synthetic", "values": {"attr.travel.trips": []}}},
+            "owner",
+        )
+    assert error.value.status_code == 409
+    composer.assert_not_called()
+
+
 def test_answer_payout_setup_uses_answer_credentials_and_no_drive_wake(monkeypatch):
     monkeypatch.setattr(
         routes,

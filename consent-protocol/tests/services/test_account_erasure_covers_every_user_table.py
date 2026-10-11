@@ -24,6 +24,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from hushh_mcp.services import drive_sharing_retention
+from hushh_mcp.services.account_answer_erasure import erase_unpaid_answer_content
 from hushh_mcp.services.account_service import ACCOUNT_ERASURE_RETAINED_TABLES, AccountService
 from hushh_mcp.services.scope_commerce import ScopeCommerceService
 from hushh_mcp.services.scope_commerce import sync_bridge as commerce_bridge
@@ -41,6 +42,7 @@ _DROP = re.compile(r'DROP TABLE (?:IF EXISTS )?"?([a-z_0-9]+)"?', re.I)
 # Every edge is checked against the creating migration below. The parent must
 # itself be deleted or lead to another checked cascade edge.
 _CASCADE_PARENT = {
+    "pkm_answer_payment_orders": "pkm_answer_requests",
     "circle_chat_reactions": "actor_profiles",
     "one_referral_circle_contributions": "actor_profiles",
     "one_referral_circle_selections": "actor_profiles",
@@ -140,6 +142,9 @@ def erased_tables(monkeypatch) -> set[str]:
     )
     first_delete = next(i for i, sql in enumerate(statements) if "DELETE FROM" in sql)
     assert guard < first_delete
+    answer_guard = next(i for i, sql in enumerate(statements) if "FOR UPDATE OF o" in sql)
+    assert answer_guard < first_delete
+    assert any("SELECT wallet_id FROM hashcoin_wallets" in sql for sql in statements)
     assert drive_calls == [("synthetic-owner", True)]
     commerce.assert_called_once_with(conn, user_id="synthetic-owner", permanent=True)
 
@@ -174,6 +179,15 @@ def test_every_retained_table_states_a_reason() -> None:
             f"{table} survives deletion with no stated reason. A retained table is a "
             "promise not kept unless it says why."
         )
+
+
+def test_paid_answer_erasure_refuses_before_removing_content_or_payment_records() -> None:
+    conn = MagicMock()
+    conn.execute.return_value.scalar.return_value = True
+    conn.execute.return_value.first.return_value = {"request_id": "opaque-request"}
+    with pytest.raises(RuntimeError, match="ANSWER_PAYMENT_RECONCILIATION_REQUIRED"):
+        erase_unpaid_answer_content(conn, user_id="synthetic-owner")
+    assert all("DELETE FROM" not in str(call.args[0]) for call in conn.execute.call_args_list)
 
 
 def test_retained_tables_are_never_also_erased(erased_tables) -> None:

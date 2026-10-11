@@ -185,7 +185,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "AccountService",
-      "value": 2798
+      "value": 2807
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4154,7 +4154,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "_clear_user_data_tables",
-      "value": 227
+      "value": 231
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -4163,7 +4163,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "_delete_full_account_transaction",
-      "value": 519
+      "value": 524
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -13874,7 +13874,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": null,
-      "value": 2879
+      "value": 2889
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17618,7 +17618,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/one-location-agent-page.test.tsx",
       "symbol": null,
-      "value": 9900
+      "value": 9907
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20957,7 +20957,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_commerce_preview_target.py",
       "symbol": null,
-      "value": 503
+      "value": 511
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -21344,7 +21344,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_hashcoin_wallet.py",
       "symbol": null,
-      "value": 883
+      "value": 895
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21416,7 +21416,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_pkm_answer_recovery_postgres.py",
       "symbol": null,
-      "value": 627
+      "value": 665
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21524,7 +21524,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_one_profile_research.py",
       "symbol": null,
-      "value": 734
+      "value": 747
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -28694,6 +28694,137 @@
         }
       ],
       "unchanged_policy": "Budgets, scanner, exclusions, dependency/import gates and future ratchet remain unchanged."
+    },
+    "main_contract_repairs_20261011": {
+      "source_revision": "aed5f3ab19b9cd2df0ec2924b70c1cffc4e30045",
+      "incoming_main": "5685d52f20710f3813a87f01117372052fbe023e",
+      "review": "Independent backend review of eight exact size slots. No dependency/import, budget, exclusion or scanner changes. Financial refusal/rollback, canonical provider-dispatch erasure and callback placement cases pass; bypassing the answer guard fails the negative control. Core/hosted CI and deployed acceptance remain required.",
+      "changes": [
+        {
+          "detail": "class exceeds the advisory operon budget",
+          "key": "class_size|consent-protocol/hushh_mcp/services/account_service.py|AccountService|class exceeds the advisory operon budget",
+          "kind": "class_size",
+          "limit": 250,
+          "path": "consent-protocol/hushh_mcp/services/account_service.py",
+          "symbol": "AccountService",
+          "value": 2807,
+          "previous": 2798,
+          "multiset_slot": 0,
+          "source_sha256": "6686c645ca9d73bcc10a3b0a89823e2460014bd1f8ccab02e7141f80b14c4892",
+          "rationale": "Existing reset/full erasure loops invoke four already-authored Wallet queries in child-to-parent order; full erasure reads the paid-answer fence before destructive cleanup."
+        },
+        {
+          "detail": "function exceeds the advisory gene budget",
+          "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|_delete_full_account_transaction|function exceeds the advisory gene budget",
+          "kind": "function_size",
+          "limit": 80,
+          "path": "consent-protocol/hushh_mcp/services/account_service.py",
+          "symbol": "_delete_full_account_transaction",
+          "value": 524,
+          "previous": 519,
+          "multiset_slot": 0,
+          "source_sha256": "6686c645ca9d73bcc10a3b0a89823e2460014bd1f8ccab02e7141f80b14c4892",
+          "rationale": "Four Wallet deletion entries and one transactional answer admission guard; preserves lifecycle tombstones, provider cleanup and rollback."
+        },
+        {
+          "detail": "function exceeds the advisory gene budget",
+          "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|_clear_user_data_tables|function exceeds the advisory gene budget",
+          "kind": "function_size",
+          "limit": 80,
+          "path": "consent-protocol/hushh_mcp/services/account_service.py",
+          "symbol": "_clear_user_data_tables",
+          "value": 231,
+          "previous": 227,
+          "multiset_slot": 0,
+          "source_sha256": "6686c645ca9d73bcc10a3b0a89823e2460014bd1f8ccab02e7141f80b14c4892",
+          "rationale": "Reset executes the existing four temporary-card cleanup queries, without detaching financial wallets."
+        },
+        {
+          "detail": "module exceeds the advisory operon budget",
+          "key": "module_size|consent-protocol/hushh_mcp/services/account_service.py||module exceeds the advisory operon budget",
+          "kind": "module_size",
+          "limit": 500,
+          "path": "consent-protocol/hushh_mcp/services/account_service.py",
+          "symbol": null,
+          "value": 2889,
+          "previous": 2879,
+          "multiset_slot": 0,
+          "source_sha256": "6686c645ca9d73bcc10a3b0a89823e2460014bd1f8ccab02e7141f80b14c4892",
+          "rationale": "Only existing Wallet erasure wiring and imported small answer-erasure gene; no second financial ledger or provider path."
+        },
+        {
+          "detail": "module exceeds the advisory operon budget",
+          "key": "module_size|consent-protocol/tests/services/test_pkm_answer_recovery_postgres.py||module exceeds the advisory operon budget",
+          "kind": "module_size",
+          "limit": 500,
+          "path": "consent-protocol/tests/services/test_pkm_answer_recovery_postgres.py",
+          "symbol": null,
+          "value": 665,
+          "previous": 627,
+          "multiset_slot": 0,
+          "source_sha256": "472298132474fc197a3988f9d3f307b1b563b856df3453f65edd4b5d51268f64",
+          "rationale": "Four real PostgreSQL participant cases prove financial refusal rolls back mutations and unfunded request/scopes are erased; extends the existing recovery fixture."
+        },
+        {
+          "detail": "module exceeds the advisory operon budget",
+          "key": "module_size|consent-protocol/tests/test_commerce_preview_target.py||module exceeds the advisory operon budget",
+          "kind": "module_size",
+          "limit": 500,
+          "path": "consent-protocol/tests/test_commerce_preview_target.py",
+          "symbol": null,
+          "value": 511,
+          "previous": 503,
+          "multiset_slot": 0,
+          "source_sha256": "8cf0ca38489bd67bd3bdd8740f6701cbbb69c9da5a69b743e694db316c1c13e3",
+          "rationale": "Four synthetic selectors and four binding expectations for incoming main Connect/answer secret mounts; strict shell execution and disabled-admission recovery remain."
+        },
+        {
+          "kind": "module_size",
+          "path": "consent-protocol/tests/test_hashcoin_wallet.py",
+          "detail": "module exceeds the advisory operon budget",
+          "value": 895,
+          "limit": 500,
+          "symbol": null,
+          "key": "module_size|consent-protocol/tests/test_hashcoin_wallet.py||module exceeds the advisory operon budget",
+          "previous": 883,
+          "multiset_slot": 0,
+          "source_sha256": "08bd7fab4d524fa59547b10ffab566dd7e95e086042c30f06a7f8202bbdb3536",
+          "rationale": "Existing live provider-dispatch race exercises the actual connector erasure port, then the canonical actor trigger; refuses a shortcut that detaches wallets before the advisory barrier."
+        },
+        {
+          "kind": "module_size",
+          "path": "consent-protocol/tests/test_one_profile_research.py",
+          "detail": "module exceeds the advisory operon budget",
+          "value": 747,
+          "limit": 500,
+          "symbol": null,
+          "key": "module_size|consent-protocol/tests/test_one_profile_research.py||module exceeds the advisory operon budget",
+          "previous": 734,
+          "multiset_slot": 0,
+          "source_sha256": "90a069ca00a857fe2e5f0452e46eb8807c5d9070a137f0da0dc4275ae8234972",
+          "rationale": "Existing owner-boundary case rechecks hosting changes before provider work; explicit Shared fixture preserves private-owner refusal."
+        }
+      ]
+    },
+    "location_fixture_isolation_20261011": {
+      "source_revision": "aed5f3ab19b9cd2df0ec2924b70c1cffc4e30045",
+      "review": "Independent client review of the exact seven-line fixture repair; 179 Location cases pass in 37.67 seconds. Timeouts, assertions, production behavior and verification gates are unchanged.",
+      "changes": [
+        {
+          "kind": "module_size",
+          "path": "hushh-webapp/__tests__/components/one-location-agent-page.test.tsx",
+          "detail": "module exceeds the advisory operon budget",
+          "value": 9907,
+          "limit": 500,
+          "symbol": null,
+          "key": "module_size|hushh-webapp/__tests__/components/one-location-agent-page.test.tsx||module exceeds the advisory operon budget",
+          "ratchet_reason": "finding worsened",
+          "previous": 9900,
+          "multiset_slot": 0,
+          "source_sha256": "a123e7ce4b5d27da20a76c51807b04fa1ca851195cdf8faaf15863f50d6f7fce",
+          "rationale": "Unmount before timer/global restoration; reset eight asynchronous mock queues whose defaults are reinstalled. Prevents cross-case response leakage without changing module mock contracts."
+        }
+      ]
     },
     "retained_fleet_claims_20261011": {
       "source_revision": "aed5f3ab19b9cd2df0ec2924b70c1cffc4e30045",

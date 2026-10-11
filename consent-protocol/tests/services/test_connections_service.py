@@ -1929,8 +1929,8 @@ def test_search_directory_fallback_matches_partial_contact_identifiers(query):
     assert [item["userId"] for item in out["items"]] == ["user-c"]
     with patch("hushh_mcp.services.connections_service.get_db", lambda: _RecordingDB([[], [], []])):
         phone = svc.search_directory("user-a", query="+1 555 010 0002")
-        prefix = svc.search_directory("user-a", query="kushaltrivedi54@")
-        partial_phone = svc.search_directory("user-a", query="555010")
+        prefix = svc.search_directory("user-a", query="kushaltrivedi54@", name_only=True)
+        partial_phone = svc.search_directory("user-a", query="555010", name_only=True)
         name = svc.search_directory("user-a", query="Kushal")
     assert [item["userId"] for item in phone["items"]] == ["user-c"]
     assert [item["userId"] for item in name["items"]] == ["user-c"]

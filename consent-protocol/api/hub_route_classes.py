@@ -53,6 +53,8 @@ RouteKey = tuple[str, str]
 # One line per path: "<METHODS> <path> [@pending:<lane>]", grouped under its class.
 _INVENTORY = """
 [CONTENT]
+POST /api/one/profile-research
+POST /api/one/answer-requests/{request_id}/compose
 POST /api/one/career/resume/parse
 POST /api/one/email/scheduled/drain
 POST /api/one/voice/draft/open
@@ -177,6 +179,8 @@ POST /api/pkm/domains/{domain}/scope-exposure
 GET /api/pkm/memory/mutation-impact/{user_id}/{domain}
 GET /api/pkm/scopes/{user_id}
 [CIPHERTEXT]
+POST /api/one/answer-requests/{request_id}/deliver
+GET /api/one/answer-requests/{request_id}/answer
 DELETE,PUT /api/one/circles/{circle}/chat/messages/{message}/reactions/{emoji}
 GET /api/one/circles/{circle}/chat
 GET /api/one/circles/{circle}/chat/keys/{key}

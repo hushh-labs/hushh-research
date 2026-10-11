@@ -14,6 +14,7 @@ from hushh_mcp.one_adk.profile_research import ProfileReport, run_profile_resear
 from hushh_mcp.services import profile_research_service as service
 
 SOURCE = "https://example.test/team/alex"
+pytestmark = pytest.mark.usefixtures("shared_hub_owner")
 OWNER_TOKEN = "fixture-owner-token"  # A fixture label, never a credential.
 REPORT = {
     "match_status": "matched",
@@ -536,9 +537,12 @@ async def test_canonical_onboarding_name_fallback_keeps_contact_verification(
 
 
 @pytest.mark.parametrize(
-    "condition", ["disabled", "not_ready", "wrong_owner", "revoked", "kill_inflight"]
+    "condition",
+    ["disabled", "not_ready", "wrong_owner", "revoked", "kill_inflight", "hosting_changed"],
 )
-async def test_no_draft_crosses_an_ineligible_or_changed_owner_boundary(monkeypatch, condition):
+async def test_no_draft_crosses_an_ineligible_or_changed_owner_boundary(
+    monkeypatch, condition, shared_hub_owner
+):
     monkeypatch.setenv(
         "ONE_PROFILE_RESEARCH_ENABLED", "false" if condition == "disabled" else "true"
     )
@@ -568,6 +572,9 @@ async def test_no_draft_crosses_an_ineligible_or_changed_owner_boundary(monkeypa
             live = False
         if condition == "kill_inflight":
             monkeypatch.setenv("ONE_PROFILE_RESEARCH_ENABLED", "false")
+        if condition == "hosting_changed":
+            shared_hub_owner.return_value = "byoc"
+            await kwargs["require_access"]()
         return {"report": REPORT, "search_suggestions": []}
 
     invoke = service.offer_profile_research(
@@ -581,6 +588,12 @@ async def test_no_draft_crosses_an_ineligible_or_changed_owner_boundary(monkeypa
     if condition in {"wrong_owner", "revoked"}:
         with pytest.raises(PermissionError):
             await invoke
+    elif condition == "hosting_changed":
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as error:
+            await invoke
+        assert error.value.status_code == 409
     else:
         result = await invoke
         assert result == {
@@ -616,7 +629,7 @@ def test_report_rejects_duplicate_sections_no_match_findings_and_unsafe_sources(
             ProfileReport.model_validate(report)
 
 
-def test_route_ignores_client_identity_and_denies_before_research(monkeypatch):
+def test_route_ignores_client_identity_and_denies_before_research(monkeypatch, shared_hub_owner):
     from fastapi import FastAPI, HTTPException
     from fastapi.testclient import TestClient
 
@@ -660,7 +673,7 @@ def test_route_ignores_client_identity_and_denies_before_research(monkeypatch):
     assert response.headers["cache-control"] == "private, no-store"
 
 
-def test_route_hides_provider_errors_and_owner_revocation(monkeypatch):
+def test_route_hides_provider_errors_and_owner_revocation(monkeypatch, shared_hub_owner):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
@@ -695,7 +708,7 @@ def test_route_hides_provider_errors_and_owner_revocation(monkeypatch):
     assert response.status_code == 403 and "private-owner" not in response.text
 
 
-def test_rate_limit_is_private_and_does_not_start_a_fourth_research(monkeypatch):
+def test_rate_limit_is_private_and_does_not_start_a_fourth_research(monkeypatch, shared_hub_owner):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from slowapi.errors import RateLimitExceeded

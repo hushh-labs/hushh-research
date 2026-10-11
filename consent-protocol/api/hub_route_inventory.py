@@ -99,6 +99,28 @@ POST /api/connectors/registrations
 
 NETWORK_INVENTORY = """
 [NETWORK]
+DELETE /api/one/wallet/card-access/grants/{grant_id}
+GET /api/one/answer-requests/answerable
+GET /api/one/answer-requests/availability
+GET /api/one/answer-requests/inbox
+GET /api/one/answer-requests/payout-account
+GET /api/one/answer-requests/{request_id}/payment
+GET /api/one/answer-requests/{request_id}/state
+GET /api/one/payouts/hashcoins
+GET /api/one/wallet/card-access/cards/{card_id}
+GET /api/one/wallet/card-access/connections
+GET /api/one/wallet/card-access/grants/{grant_id}
+POST /api/one/answer-requests
+POST /api/one/answer-requests/payout-account/{action}
+POST /api/one/answer-requests/{request_id}/approve
+POST /api/one/answer-requests/{request_id}/cancel
+POST /api/one/answer-requests/{request_id}/decline
+POST /api/one/answer-requests/{request_id}/payment/checkout
+POST /api/one/payouts/connect/sandbox-webhook
+POST /api/one/payouts/hashcoins/redeem
+POST /api/one/wallet/card-access/cards/{card_id}/grants
+POST /api/one/wallet/card-access/grants/{grant_id}/verify
+POST /api/one/wallet/card-access/registrations
 DELETE /api/one/messages/conversations/{conversation_id}/messages/{message_id}/reaction
 GET /api/one/messages/conversations/{conversation_id}/messages/{message_id}/attachment
 GET /api/one/payouts/account

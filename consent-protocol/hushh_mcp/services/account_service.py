@@ -10,6 +10,7 @@ from typing import Any, Dict, Literal
 from sqlalchemy import text
 
 from db.db_client import get_db, get_db_connection
+from hushh_mcp.services.account_answer_erasure import guard_answer_erasure
 from hushh_mcp.services.account_deletion_lifecycle_service import (
     AccountDeletionLifecycleService,
     _postgres_sqlstate,
@@ -1615,6 +1616,10 @@ class AccountService:
                 # The preference world model is private intelligence about the owner,
                 # keyed by user_id. It belongs in the pod, so a reset must not leave a
                 # copy behind on the control plane.
+                "wallet_card_access_audit",
+                "wallet_card_access_grants",
+                "wallet_card_share_requests",
+                "wallet_card_registrations",
                 "one_wallet_cards",
             ],
             params=params,
@@ -2111,6 +2116,7 @@ class AccountService:
                     )
                 results["account_deletion_tombstone"] = True
                 results["firebase_cleanup_intent_count"] = len(cleanup_user_ids)
+                guard_answer_erasure(conn, user_id=user_id)
                 self._delete_personal_agent_state(
                     conn,
                     params=params,
@@ -2379,6 +2385,10 @@ class AccountService:
                     "one_location_envelopes",
                     "one_location_share_grants",
                     "one_location_recipient_keys",
+                    "wallet_card_access_audit",
+                    "wallet_card_access_grants",
+                    "wallet_card_share_requests",
+                    "wallet_card_registrations",
                     "one_wallet_cards",
                     # Last derived-data cleanup, before the identity/vault spine.
                     "circle_chat_messages",

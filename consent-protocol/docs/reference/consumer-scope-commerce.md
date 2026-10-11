@@ -2262,6 +2262,10 @@ through the existing packed Cloud Build settings without exceeding its limit.
 
 The newer main profile-research feature stays default-off. Its shared, owner-bound
 research is ephemeral, but selected-owner private processing is not implemented.
+The hub now applies its canonical content-admission guard to profile research and
+paid-answer composition; private owners are refused before either handler runs.
+Profile callbacks revalidate the owner session and placement before model/tool
+dispatch and result release; composition checks placement again before dispatch.
 The subsequent hardening minimizes Search queries and verifies each Search
 receipt; the managed root still receives account identifiers, so the private
 processing qualification remains required.
@@ -2272,14 +2276,29 @@ private execution before enabling it for private owners. Synchronization does
 not claim private profile-research support. ADK task roots retain their native
 structured output under the pinned runtime; ordinary chat callers remain chat.
 
-Fresh Dev readback at 05:24Z confirms HTTPS is healthy and both application
-surfaces serve `455c86fe`. It supersedes the earlier DNS interruption evidence.
-Paid/provider/live admission remains disabled. Dev still has 59 parked migration
-receipts and no canonical baseline. Funding, purchases, journals, withdrawals,
-provider work and seller records remain empty: source tests do not establish
-reviewer funding, scope delivery, bank payout or authenticated Stripe MCP reads.
-A synchronized source candidate still requires the unchanged core/CI gates and
-governed deployment before deployed acceptance.
+Dev readback at 05:24Z recorded 59 parked migration receipts, no canonical
+baseline and empty funding, purchase, journal, withdrawal, provider-work and seller
+records, with paid/provider/live admission disabled. The later 07:05Z readback
+verifies both services Ready at `f0517d5f`, each receiving 100% of traffic; the
+canonical HTTPS origin returns 200. This supersedes the earlier serving-SHA and
+DNS interruption evidence, without claiming a fresh financial readback. Source
+tests do not establish reviewer funding, scope delivery, bank payout or
+authenticated Stripe MCP reads.
+Main's separate paid-answer lane does not yet reconcile after removing its live
+identity-bearing orders. Account erasure therefore refuses any answer payment or
+financial history, including settled history, in the existing transaction. Unfunded
+answer content is removed for either participant. Temporary card-sharing records
+are erased in child-to-parent order; the canonical Hashcoin actor trigger detaches
+and holds owners under its existing provider-dispatch barrier while liabilities
+remain. Orphan wallets block deletion until recovery; resets preserve those wallets.
+Removing the conservative answer fence
+requires that lane's verified identity-free settlement and erasure contract.
+Focused contract, financial refusal/rollback and placement-change checks pass.
+The Location fixture now unmounts before restoring clocks/globals and resets
+queued asynchronous responses; all 179 Location cases and the canonical 422-case
+Back suite pass with unchanged assertions and timeouts. A synchronized source
+candidate still requires the unchanged core/CI gates and governed deployment
+before deployed acceptance.
 
 The unchanged branch architecture ratchet requires explicit review of incoming
 main's size findings. Its 225 exact reviewed slots retain both parent behaviors,

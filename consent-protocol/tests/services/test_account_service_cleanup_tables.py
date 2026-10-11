@@ -1485,7 +1485,8 @@ async def test_provider_grants_are_released_only_after_the_erasure_commits(monke
 
     @contextmanager
     def committing_db():
-        yield MagicMock()
+        with _db(MagicMock()) as conn:
+            yield conn
         events.append("committed")
 
     async def release(snapshot):

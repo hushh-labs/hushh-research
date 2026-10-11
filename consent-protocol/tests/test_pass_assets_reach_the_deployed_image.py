@@ -139,11 +139,30 @@ def test_cloudbuild_sourced_shell_helpers_survive_the_upload_filter() -> None:
     """Local preflight passes are useless when Cloud Build never receives its script."""
     build = yaml.safe_load((REPO_ROOT / "deploy/backend.cloudbuild.yaml").read_text())
     referenced = set()
+    sources = []
     for step in build["steps"]:
         for argument in step.get("args", []):
-            referenced.update(
-                re.findall(r"(?m)^\s*source\s+(deploy/[A-Za-z0-9_./-]+\.sh)\b", argument)
-            )
+            script = REPO_ROOT / argument
+            if argument.endswith(".sh") and script.is_file():
+                referenced.add(argument)
+                sources.append((Path(argument), script.read_text()))
+            else:
+                sources.append((Path("."), argument))
+    while sources:
+        parent, source = sources.pop()
+        helpers = re.findall(
+            r"(?m)^\s*source\s+((?:deploy|scripts/deploy)/[A-Za-z0-9_./-]+\.sh)\b",
+            source,
+        )
+        helpers.extend(
+            (parent.parent / name).as_posix()
+            for name in re.findall(r'\$\(dirname "\$\{BASH_SOURCE\[0\]\}"\)/([\w.-]+\.sh)', source)
+        )
+        for helper in helpers:
+            if helper not in referenced:
+                referenced.add(helper)
+                sources.append((Path(helper), (REPO_ROOT / helper).read_text()))
+    assert "scripts/deploy/backend-deploy.sh" in referenced
     assert referenced, "Exercise the actual external preflight helper, not an empty upload list"
     patterns = (REPO_ROOT / ".gcloudignore").read_text().splitlines()
     upload_filter = pathspec.GitIgnoreSpec.from_lines(patterns)
