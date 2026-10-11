@@ -239,7 +239,8 @@ describe("document Feed stream", () => {
   });
 
   it("cancels a late response after the response-header deadline", async () => {
-    vi.useFakeTimers();
+    // Keep the wall-clock-aligned 45s repair outside this 16.1s timeout/retry window.
+    vi.useFakeTimers({ now: 0 });
     let finish!: (value: unknown) => void;
     mocks.apiFetchStream.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }))
       .mockResolvedValueOnce({ ok: true, status: 200, body: stream("") });
