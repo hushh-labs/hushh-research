@@ -337,10 +337,10 @@ final class AppUITests: XCTestCase {
             XCTFail("NATIVE_ADMISSION_REQUIRES_RUNNING_APP"); return
         }
         app.activate()
-        let hosts = app.webViews.matching(identifier: "native-webview")
-        XCTAssertTrue(hosts.firstMatch.waitForExistence(timeout: 15), "NATIVE_ADMISSION_HOST_UNAVAILABLE")
-        XCTAssertEqual(hosts.count, 1, "NATIVE_ADMISSION_HOST_COUNT_INVALID")
-        let web = hosts.firstMatch
+        // A valid native modal excludes the underlying WebView from AX.
+        // Settle only authored recovery/dismissal layers before asking for
+        // the host; its absence while covered is not a transport failure.
+        print("NATIVE_ADMISSION_GATE privacy_cover=\(app.otherElements["session-privacy-shield"].exists) native_drawer=\(app.otherElements["native-private-drawer"].exists)")
         if ProcessInfo.processInfo.environment["HUSHH_REHEARSAL_RETRY_PRIVACY"] == "true" {
             // An automatic authenticator prompt can keep the app inactive and
             // cover its fallback. Cancel only a recognized system prompt;
@@ -373,6 +373,13 @@ final class AppUITests: XCTestCase {
             }
             print("NATIVE_PRIVACY_RECOVERY_COMPLETED")
         }
+        if ProcessInfo.processInfo.environment["HUSHH_REHEARSAL_RETURN_CHAT"] == "true" {
+            returnToRehearsalChat(app)
+        }
+        let hosts = app.webViews.matching(identifier: "native-webview")
+        XCTAssertTrue(hosts.firstMatch.waitForExistence(timeout: 15), "NATIVE_ADMISSION_HOST_UNAVAILABLE")
+        XCTAssertEqual(hosts.count, 1, "NATIVE_ADMISSION_HOST_COUNT_INVALID")
+        let web = hosts.firstMatch
         printNativeControlStatuses(web)
         for identifier in ["native-dock-editor", "chat-history-toggle", "chat-history-close", "profile-close"] {
             let control = app.descendants(matching: .any).matching(identifier: identifier).firstMatch
@@ -406,9 +413,6 @@ final class AppUITests: XCTestCase {
         if let email = ProcessInfo.processInfo.environment["HUSHH_UI_TEST_REVIEWER_EMAIL"], !email.isEmpty {
             let ownerLabel = NSPredicate(format: "label == %@", email)
             print("NATIVE_REVIEWER_ADMISSION configured=true static_matches=\(web.staticTexts.matching(ownerLabel).count) exact_matches=\(web.descendants(matching: .any).matching(ownerLabel).count)")
-        }
-        if ProcessInfo.processInfo.environment["HUSHH_REHEARSAL_RETURN_CHAT"] == "true" {
-            returnToRehearsalChat(app)
         }
         let unlock = web.buttons["Unlock"].firstMatch
         let composer = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message One")).firstMatch

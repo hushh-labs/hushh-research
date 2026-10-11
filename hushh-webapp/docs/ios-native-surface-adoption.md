@@ -50,15 +50,28 @@ The runtime contract remains
 `aa822769e2547459e63e38784b039f3b80ed905c1d426cb7834606fab1fc3f69`.
 
 Installation, signature/assets verification and authenticated wireless transport
-pass. Three attach-only physical admissions stop before test execution with
-`AUTOMATION_AUTHORIZATION_TIMEOUT` and `RUNNER_CONNECTION_FAILED`; vault unlock
-is not attempted. Simulator XCTest admission passes, but the simulator is on
-the guest screen, so it is not authenticated Chat evidence. The canonical UAT
-reviewer preflight also passes; this does not establish native unlock or OS test
-authorization. No reset, account substitution or deployment is used to bypass
-these boundaries. Earlier device evidence below applies only to its recorded
-candidate. Physical visual, accessibility and performance acceptance, exact-head
-CI and full native-family qualification remain unproven.
+pass. Earlier attach-only attempts stopped before execution with automation/runner
+timeouts. The 2026-10-11 retry now enters XCTest over Wi-Fi. Admission exposed a
+harness ordering error: an owned modal legitimately excludes the WebView from
+accessibility. Authored dismissal must precede the single-host assertion; no
+privacy, unlock or single-WebView assertion is removed. The corrected admission
+passes on the already-unlocked Chat without credentials, reset or sign-out.
+
+The installed `90936adc0f` product with rebuilt admission runner (SHA-256
+`34e69b48bbdb11f398eb30d4719974484eada05d5b50d178df770fbdba3b5bf9`)
+passes ten physical warm-session shared Chat cycles: Cloud/Puppy, Profile
+open/close, actual software keyboard, draft return and One/Chat mode continuity.
+No turn is submitted. This verifies the **shared React dock**, not custom native
+glass. The combined qualification batch separately fails after two native
+History cycles: Close does not restore Chat; subsequent navigation/dock checks
+cannot reach their base. A separate authored recovery restores the same unlocked
+session. Preserve that failure independently of the successful isolated Chat
+test. The terminal content-refresh race is under corrective verification below.
+
+Simulator guest admission and canonical UAT reviewer preflight are not substitutes
+for authenticated physical acceptance. Earlier evidence below applies only to
+its recorded candidate. Full visual/accessibility/performance acceptance,
+exact-head CI and native-family qualification remain unproven.
 
 ### Whole native drawer migration boundary — 2026-10-11
 
