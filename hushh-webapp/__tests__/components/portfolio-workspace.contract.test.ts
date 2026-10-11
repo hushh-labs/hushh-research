@@ -63,13 +63,16 @@ describe("Portfolio workspace hierarchy", () => {
     expect(detail).toContain('width="reading"');
     expect(detail).toContain("dashboardSection={section}");
 
-    const breadcrumbs = read("lib/navigation/top-shell-breadcrumbs.ts");
+    // Per-route Back resolution (including this one) lives in the
+    // declarative graph top-shell-breadcrumbs.ts walks, not in
+    // top-shell-breadcrumbs.ts itself.
+    const backGraph = read("lib/navigation/back-navigation-graph.ts");
     for (const section of sections) {
-      expect(breadcrumbs).toContain(
+      expect(backGraph).toContain(
         `ROUTES.KAI_PORTFOLIO_${section.toUpperCase()}`,
       );
     }
-    expect(breadcrumbs).toContain("backHref: ROUTES.KAI_PORTFOLIO");
+    expect(backGraph).toContain("backHref: ROUTES.KAI_PORTFOLIO");
   });
 
   it("keeps the retired optimize paths redirect-only", () => {

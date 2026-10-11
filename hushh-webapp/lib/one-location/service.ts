@@ -1225,6 +1225,30 @@ export class OneLocationService {
     return response.smsContactUserIds;
   }
 
+  /** Fresh, roster-scoped identities; never truncate SMS to the directory page. */
+  static async getSmsRecipientRoster(vaultOwnerToken: string): Promise<{
+    smsContactUserIds: string[];
+    recipients: OneLocationRecipient[];
+  }> {
+    const response = await apiJson<{
+      smsContactUserIds: string[];
+      recipients?: OneLocationRecipientApiRow[];
+    }>("/api/one/location/sms-contacts", { headers: authHeaders(vaultOwnerToken) });
+    if (!Array.isArray(response.smsContactUserIds) ||
+        response.smsContactUserIds.some((id) => typeof id !== "string" || !id)) {
+      throw new Error("Emergency contacts could not be verified.");
+    }
+    // Rolling deployments can still return the older IDs-only response.
+    const recipients = response.recipients
+      ? response.recipients.map(normalizeRecipient)
+      : await OneLocationService.listRecipients(vaultOwnerToken);
+    const ids = new Set(response.smsContactUserIds);
+    return {
+      smsContactUserIds: [...ids],
+      recipients: recipients.filter((recipient) => ids.has(recipient.userId)),
+    };
+  }
+
   /** Read-only, fresh ciphertext inventory for the immersive Your Map route. */
   static async getMapState(
     vaultOwnerToken: string,

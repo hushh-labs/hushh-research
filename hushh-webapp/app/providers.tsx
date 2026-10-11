@@ -85,6 +85,7 @@ import {
 } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { recordDestinationEntry } from "@/lib/navigation/section-back-origin";
+import { useWebHistoryBack } from "@/lib/navigation/web-history-back";
 import { isFocusedConnectCircleTask } from "@/lib/navigation/connect-routes";
 import { isFocusedLocationBottomTask } from "@/lib/navigation/location-routes";
 import {
@@ -180,6 +181,11 @@ function AppShellFrame({ children }: ProvidersProps) {
     const base = pathname || "/";
     recordDestinationEntry(search ? `${base}?${search}` : base);
   }, [pathname, search]);
+  // Native browser back (web only -- iOS/Android have their own handlers,
+  // see components/app-ui/app-edge-back-gesture.tsx and
+  // lib/navigation/android-back.ts) must resolve through the same shared
+  // Back contract those two already use.
+  useWebHistoryBack(pathname || "/", search);
   const isPublicKnowledgeWorkspace =
     pathname === ROUTES.WELCOME &&
     ["research", "blog", "developers"].includes(searchParams?.get("tab") ?? "");

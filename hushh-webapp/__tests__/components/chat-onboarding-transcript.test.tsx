@@ -171,7 +171,7 @@ describe("onboarding conversation", () => {
     expect(resolved()).toBe("false");
     fireEvent.click(await screen.findByRole("button", { name: "Call me Kushal" }));
     expect(resolved()).toBe("false");
-    fireEvent.click(await screen.findByRole("button", { name: "Email" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Mail" }));
     expect(resolved()).toBe("false");
     fireEvent.click(await screen.findByRole("button", { name: "Short and direct" }));
     fireEvent.click(await screen.findByRole("button", { name: "Save to memory" }));
@@ -208,7 +208,7 @@ describe("onboarding conversation", () => {
     render(<Harness />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Call me Kushal" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Email" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Mail" }));
 
     const connect = await screen.findByTestId("chat-onboarding-connect");
     expect(connect.textContent).toContain("Connect Gmail");
@@ -255,7 +255,7 @@ describe("onboarding conversation", () => {
     });
   });
 
-  it("lets unrelated typing through, and only an explicit choice arms the name field", async () => {
+  it("Something else closes recommendations and leaves ordinary chat input alone", async () => {
     setReducedMotion(true);
     render(<Harness />);
     await screen.findByRole("button", { name: "Call me Kushal" });
@@ -263,12 +263,13 @@ describe("onboarding conversation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Something else" }));
     await waitFor(() =>
-      expect(screen.getByTestId("capture").textContent).toBe("Type what I should call you"),
+      expect(screen.getByTestId("capture").textContent).toBe("null"),
     );
-    // A question is not a name: it goes to One, and the name question waits.
+    // A question goes to One without repeating name or focus recommendations.
     fireEvent.click(screen.getByRole("button", { name: "type-unrelated" }));
     await waitFor(() => expect(screen.getByTestId("capture").textContent).toBe("null"));
-    expect(screen.getAllByRole("button", { name: "Call me Kushal" }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "Call me Kushal" })).toBeNull();
+    expect(screen.queryByTestId("chat-onboarding-chips")).toBeNull();
   });
 
   it("moves between chips with the arrow keys", async () => {
