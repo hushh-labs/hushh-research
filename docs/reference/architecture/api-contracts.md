@@ -108,8 +108,9 @@ After completion, discovery returns its existing empty `no_match` envelope
 before accessing Firebase or the directory. Review, Later, failed and partial
 saves never set the flag. A lost completion response retains the acknowledged
 encrypted review job so retry marks completion without replaying PKM writes.
-This is UI progress only, independent of personality onboarding and Magic
-Intelligence; it does not verify business ownership. Migration
+This is UI progress for Magic Intelligence's optional Business subsection,
+independent of personality progress and personal-profile saves; it does not
+verify business ownership. Migration
 `306_one_business_profile_saved.sql` must precede application rollout. There is
 no historical event-only backfill, because one event can represent a partial
 multi-card review. Web uses the existing One catch-all proxy; iOS and Android
@@ -1040,15 +1041,26 @@ owner authority, through the existing One Next proxy on web and `ApiService`
 Capacitor HTTP on native. No new screen or native plugin is introduced in this
 slice; physical-device acceptance is not claimed. The service rejects unknown
 versions and inconsistent candidate/status shapes. Consumers must call after
-setup resolves and the vault unlocks. Ordinary suggestion responses stay in memory. Both business and Magic Intelligence
-cards wait for loaded owner progress and finished personality onboarding; they
+setup resolves and the vault unlocks. Ordinary suggestion responses stay in memory. Magic Intelligence's personal research and optional Business lookup
+wait for loaded owner progress and finished personality onboarding; they
 do not mount or request discovery while questions, confirmation, saving or
-failed-save recovery are active. Follow-up cards render after the final
+failed-save recovery are active. The single Magic offer renders after the final
 personality turn, including when ordinary chat messages interrupt onboarding.
 
-The main chat workspace mounts `BusinessProfileSuggestion` after current auth
-and unlocked-vault admission, requiring known, unexpired owner authority.
-It opens an unverified real directory suggestion with Review, Later and Not my business.
+The main chat workspace mounts one compact Magic Intelligence offer: a short
+notice that One found more information and a Review details action. Opening it
+only reveals drafts; it never prepares or saves memory. Public career, education
+and personal findings are primary. Public business findings and real directory
+listings share one optional Business subsection; business findings start unchecked.
+`BusinessProfileSuggestion` is an embedded review controller with known,
+unexpired owner authority, not a separate chat identity or outer card. Its
+lookup, preparation or save can fail or remain pending without blocking a
+personal review. Directory reviews retain their own exact receipts and
+permanent completion flag; a personal save never completes an unsaved Business
+review. Controllers remain mounted while details collapse, retaining approved
+recovery jobs. Back unwinds a nested edit/review or Business subsection before
+collapsing Magic and then reaching route navigation; busy mutations consume Back.
+An unverified real directory listing retains Review, Later and Not my business.
 Editing a name or website invalidates prior proposals. A scheme-less website domain
 is normalized to HTTPS before preparation; explicit HTTP(S) URLs remain supported,
 and unsafe protocols or embedded credentials are rejected. Review uses the existing
