@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { commerceEvidence, CommerceRehearsalWait, uuid, COMMERCE_REHEARSAL } from "./scope-commerce-rehearsal-contract.mjs";
+import { commerceEvidence, CommerceRehearsalWait, uuid, COMMERCE_REHEARSAL, commerceMoneyButtonName } from "./scope-commerce-rehearsal-contract.mjs";
 import { checkedCall, commercialResponse, coldCommerceRecovery } from "./scope-commerce-rehearsal-browser.mjs";
 import { requireOperatorAction } from "./scope-commerce-rehearsal-lifecycle.mjs";
 
@@ -109,7 +109,7 @@ export async function refundUnusedFunding(runtime, role) {
   actor.admission.replace({ type: "refundPreview", pathname: `${prefix}/refund-preview`, expected: { amountCents: lot.refundable_cents } });
   await actor.harness.navigateInApp(actor.session.page, "/one/profile/account");
   const response = commercialResponse(actor.session.page, runtime.options.appOrigin, "POST", `${prefix}/refund-preview`);
-  const review = actor.session.page.getByRole("button", { name: `Review refund of $${(lot.refundable_cents / 100).toFixed(2)}`, exact: true });
+  const review = actor.session.page.getByRole("button", { name: commerceMoneyButtonName("refund", lot.refundable_cents) });
   commerceEvidence(await review.count() === 1, "EXACT_SOURCE_REFUND_SELECTION_AMBIGUOUS");
   await review.click();
   const received = await response;

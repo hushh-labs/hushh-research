@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { createCommerceMutationAdmission } from "../scripts/scope-commerce-rehearsal-admission.mjs";
 import { newCommerceState, validateCommerceState, actionId, acquireCommerceStateLease, saveCommerceState, loadCommerceState } from "../scripts/scope-commerce-rehearsal-state.mjs";
-import { verifyProviderPreflight, verifyApplicationReadiness, verifyPreparation, verifyQuote, unusedCalendarRefund } from "../scripts/scope-commerce-rehearsal-contract.mjs";
+import { verifyProviderPreflight, verifyApplicationReadiness, verifyPreparation, verifyQuote, unusedCalendarRefund, commerceMoneyButtonName } from "../scripts/scope-commerce-rehearsal-contract.mjs";
 import { parseCommerceArguments } from "../scripts/verify-reviewer-scope-commerce.mjs";
 import { createOperatorReviewerTokenProvider } from "../scripts/reviewer-operator-token-provider.mjs";
 
@@ -80,6 +80,7 @@ test("cold operator admission waits for the owner-bound challenge without inject
       addInitScript: async (_script, args) => assert.equal(args.vaultPassphrase, ""),
       goto: async () => {}, waitForFunction: async () => {},
       getByRole: () => ({ isVisible: async () => false, first() { return this; } }),
+      getByTestId: id => { assert.equal(id, "vault-use-passphrase-instead"); return { isVisible: async () => false }; },
       locator: selector => { assert.ok(["#unlock-passphrase", '[data-testid="vault-use-passphrase-instead"]'].includes(selector)); return { isVisible: async () => selector === "#unlock-passphrase" }; },
       evaluate: async (_script, expectedUid) => {
         if (expectedUid === undefined) return { path: "/login", title: "Synthetic admission", bootstrapState: "authenticating" };
@@ -309,6 +310,20 @@ test("unused calendar refunds retain half-up cents and a real partial term", () 
   assert.equal(unusedCalendarRefund(450, 0, 3_600_000, "1970-01-01T00:01:00.000000+00:00"), 443);
   assert.throws(() => unusedCalendarRefund(450, 0, 3_600_000, "invalid"), /REFUND_TIMESTAMP_INVALID/);
   assert.throws(() => unusedCalendarRefund(450, 0, 3_600_001, 60_000), /REFUND_TERM_INVALID/);
+});
+
+test("financial buttons bind the reviewed USD amount while displaying coins", () => {
+  const purchase = commerceMoneyButtonName("purchase", 1);
+  assert.match("Confirm 1 Hussh coin ($0.01) from balance", purchase);
+  assert.doesNotMatch("Confirm 999 Hussh coins ($0.01) from balance", purchase);
+  assert.doesNotMatch("Confirm 2 Hussh coins ($0.02) from balance", purchase);
+  assert.doesNotMatch("Confirm free access", purchase);
+  assert.doesNotMatch("Confirm 1 Hussh coin ($0x01) from balance", purchase);
+  assert.match("Review refund of 50 Hussh coins ($0.50)", commerceMoneyButtonName("refund", 50));
+  assert.match("Review refund of 100,000 Hussh coins ($1,000.00)", commerceMoneyButtonName("refund", 100_000));
+  assert.doesNotMatch("Review refund of 50 Hussh coins ($0.50) extra", commerceMoneyButtonName("refund", 50));
+  for (const cents of [0, -1, 0.5, 100_001, NaN]) assert.throws(() => commerceMoneyButtonName("purchase", cents));
+  assert.throws(() => commerceMoneyButtonName("withdrawal", 50));
 });
 
 test("the accepted human quote freezes exact buyer, recipient, amount and calendar expiry", () => {

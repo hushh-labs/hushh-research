@@ -2459,8 +2459,42 @@ route is now classified `AUTHORITY`; no plaintext route or guard is changed.
 All 84 nearest hub-privacy and business-suggestion cases pass. The complete
 canonical core must pass on the corrected candidate before push and deployment.
 
+The acceptance continuation also corrected two rehearsal selectors that still
+expected USD-only labels after the coin denomination shipped. They now match the
+reviewed USD amount in the actual coins/USD purchase and source-refund controls;
+exact quote/source-lot mutation admission and ambiguous-refund refusal remain
+unchanged. The nearest 16 reviewer contracts and 14 mounted payment-panel cases
+pass, including a negative control that rejects the former USD-only selection.
+The existing cold-challenge mock now implements the passphrase-alternative
+locator used by the current harness; its owner and memory-only assertions remain.
+These are source checks, not successful Checkout or refund receipts.
+
+The concurrent root integration at `10c301cac9` is preserved in the combined
+candidate. Main owns migrations through 314; the six pending private migrations
+now occupy 315–320, including scope commerce at 316. All twelve SQL/rollback
+bodies match the frozen infrastructure lineage after restoring one altered
+comment; current continuity prerequisites are reader 319 and hosting choice 317.
+The manifest and three schema contracts agree on head 320. Request intake now
+defaults open independently of the closed payment/composer lanes; authenticated
+intake evaluation remains runtime evidence to collect. UAT's incoming profile
+research defaults admit its verified phase-one pilot, while private placement
+guards remain; this Dev task does not deploy UAT or claim private research support.
+
+Independent review also records an existing production older-source rollback
+dependency gap: the retained runtime-secret synchronizer requires adjacent
+`scope_commerce_runtime_policy.py`, which that retention step omits. Current-source
+shared Dev includes the helper. The repo-operations production workflow must
+retain/restore it and exercise the copied CLI before an older-source production
+rollback; this continuation neither dispatches production nor claims that proof.
+
 Primary private Azure setup, normally encrypted synthetic scope fixtures, both
 reviewer Connect/Checkout journeys, accepted quotes, real-time delivery and
 refund/payout receipts, and One's authenticated MCP reads remain acceptance work.
+
+Two local Back-suite runs exposed different Location fixture timeouts. The
+existing affected workspace cases now start with completed onboarding, and
+fake-clock polling fixtures unmount before restoring real clocks. Assertions,
+timeouts and production behavior are unchanged. All twelve affected cases pass
+in the focused run; the complete owning gate and final core remain required.
 Physical iOS testing is deferred to the independently active device session;
 physical Android remains the agreed follow-up. Keep issue #7587 In Progress.

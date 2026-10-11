@@ -3829,6 +3829,7 @@ describe("OneLocationAgentPage", () => {
   }, 10_000);
 
   it("abandons a pending share capture when the Location page unmounts", async () => {
+    window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
     mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
@@ -3867,6 +3868,7 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("retries revoking a grant that resolves after the composer is cancelled", async () => {
+    window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
     const circleSummary = {
       id: "circle_during_delivery",
       name: "Delivery Circle",
@@ -4229,6 +4231,7 @@ describe("OneLocationAgentPage", () => {
   }, 10000);
 
   it("opens Circle member Share directly on the details step with that member selected", async () => {
+    window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
     const circle = {
       id: "circle-1",
       name: "Family",
@@ -4329,6 +4332,7 @@ describe("OneLocationAgentPage", () => {
   });
 
   it("reconciles the live SOS roster after adding a person to SMS Circle", async () => {
+    window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
     const smsCircle = {
       id: "circle-sms",
       name: "SMS Circle",
@@ -5864,6 +5868,7 @@ describe("OneLocationAgentPage", () => {
         expect(mockViewEnvelope).toHaveBeenCalledTimes(afterFirstRead);
         expect(toast.error).not.toHaveBeenCalled();
       } finally {
+        cleanup();
         vi.useRealTimers();
       }
     });
@@ -5895,6 +5900,7 @@ describe("OneLocationAgentPage", () => {
         });
         expect(mockViewEnvelope.mock.calls.length).toBe(afterFirstRead + 1);
       } finally {
+        cleanup();
         vi.useRealTimers();
       }
     });
@@ -5925,6 +5931,7 @@ describe("OneLocationAgentPage", () => {
         });
         expect(mockViewEnvelope.mock.calls.length).toBe(afterFirstRead + 1);
       } finally {
+        cleanup();
         vi.useRealTimers();
       }
     });
@@ -5968,6 +5975,7 @@ describe("OneLocationAgentPage", () => {
           afterRecovery,
         );
       } finally {
+        cleanup();
         vi.useRealTimers();
       }
     });
@@ -5996,6 +6004,7 @@ describe("OneLocationAgentPage", () => {
         expect(mockViewEnvelope.mock.calls.length).toBeGreaterThan(wedged);
       } finally {
         warn.mockRestore();
+        cleanup();
         vi.useRealTimers();
       }
     });
