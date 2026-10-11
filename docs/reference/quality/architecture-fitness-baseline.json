@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2400,
+  "finding_count": 2401,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1130,7 +1130,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/pkm_payout_service.py",
       "symbol": "PkmPayoutService",
-      "value": 450
+      "value": 505
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1373,7 +1373,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/stripe_connect_bank_payouts.py",
       "symbol": "StripeConnectBankPayouts",
-      "value": 536
+      "value": 537
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4055,7 +4055,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_voice/tools/sos.py",
       "symbol": "add_emergency_contact",
-      "value": 96
+      "value": 102
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -8204,7 +8204,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/pkm_payout_service.py",
       "symbol": "onboarding_link",
-      "value": 100
+      "value": 102
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -9131,7 +9131,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/stripe_connect_bank_payouts.py",
       "symbol": "process_webhook",
-      "value": 114
+      "value": 115
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -13469,7 +13469,7 @@
       "limit": 500,
       "path": "consent-protocol/api/consent_listener.py",
       "symbol": null,
-      "value": 1183
+      "value": 1235
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13721,7 +13721,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/one/location.py",
       "symbol": null,
-      "value": 2441
+      "value": 2501
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13865,7 +13865,7 @@
       "limit": 500,
       "path": "consent-protocol/db/migration_authority.py",
       "symbol": null,
-      "value": 769
+      "value": 812
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14171,7 +14171,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_voice/tools/sos.py",
       "symbol": null,
-      "value": 1335
+      "value": 1344
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15134,7 +15134,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/pkm_payout_service.py",
       "symbol": null,
-      "value": 666
+      "value": 727
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15350,7 +15350,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/stripe_connect_bank_payouts.py",
       "symbol": null,
-      "value": 659
+      "value": 661
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15926,7 +15926,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/one_voice/test_tools_sos.py",
       "symbol": null,
-      "value": 1318
+      "value": 1330
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16475,7 +16475,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_one_location_agent_service.py",
       "symbol": null,
-      "value": 9159
+      "value": 9200
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16799,7 +16799,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_consent_listener_asyncio.py",
       "symbol": null,
-      "value": 518
+      "value": 604
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17195,7 +17195,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_migration_authority.py",
       "symbol": null,
-      "value": 783
+      "value": 803
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17276,7 +17276,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_one_location_routes.py",
       "symbol": null,
-      "value": 1502
+      "value": 1622
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17384,7 +17384,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pkm_payouts.py",
       "symbol": null,
-      "value": 649
+      "value": 945
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17798,7 +17798,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_stripe_connect_bank_payouts.py",
       "symbol": null,
-      "value": 779
+      "value": 789
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18050,7 +18050,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/document-payout-account.test.tsx",
       "symbol": null,
-      "value": 853
+      "value": 868
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18158,7 +18158,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/one-location-agent-page.test.tsx",
       "symbol": null,
-      "value": 9913
+      "value": 9922
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18221,7 +18221,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/profile-research-card.test.tsx",
       "symbol": null,
-      "value": 528
+      "value": 701
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18284,7 +18284,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/top-app-bar.contract.test.ts",
       "symbol": null,
-      "value": 612
+      "value": 615
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18302,7 +18302,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/vault-flow-create-validation.test.tsx",
       "symbol": null,
-      "value": 913
+      "value": 993
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18329,7 +18329,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/consent-notification-provider-location.test.tsx",
       "symbol": null,
-      "value": 844
+      "value": 887
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18590,7 +18590,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/cache-sync-mutation-cascade.test.ts",
       "symbol": null,
-      "value": 698
+      "value": 709
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18869,7 +18869,7 @@
       "limit": 500,
       "path": "hushh-webapp/app/providers.tsx",
       "symbol": null,
-      "value": 914
+      "value": 922
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19031,7 +19031,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/profile-research-card.tsx",
       "symbol": null,
-      "value": 503
+      "value": 573
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19247,7 +19247,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/consent/notification-provider.tsx",
       "symbol": null,
-      "value": 2479
+      "value": 2504
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19769,7 +19769,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-location/redesign/__tests__/sos-panel.test.tsx",
       "symbol": null,
-      "value": 632
+      "value": 717
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19841,7 +19841,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-location/redesign/location-redesign-hub.tsx",
       "symbol": null,
-      "value": 6828
+      "value": 6830
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20084,7 +20084,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/vault/vault-flow.tsx",
       "symbol": null,
-      "value": 2356
+      "value": 2377
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20327,7 +20327,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/cache/cache-sync-service.ts",
       "symbol": null,
-      "value": 968
+      "value": 973
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20759,7 +20759,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/one-location/service.ts",
       "symbol": null,
-      "value": 2343
+      "value": 2367
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21453,6 +21453,15 @@
       "path": "hushh-webapp/scripts/testing/run-uat-analytics-smoke.mjs",
       "symbol": null,
       "value": 679
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/navigation/back-navigation-graph.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/lib/navigation/back-navigation-graph.ts",
+      "symbol": null,
+      "value": 1293
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -31945,6 +31954,291 @@
         }
       ],
       "boundary": "Exactly nine source-hash-reviewed slots; budgets, scanner, exclusions and unrelated occurrence-ranked findings unchanged."
+    },
+    "main_f690_release_readiness_20261011": {
+      "parent_revision": "0e26cfdd84bb84ef6ffb518a5fa5d2bee35fcb8c",
+      "main_revision": "f690840323e35ff7b87551be2832a0c142a170b7",
+      "reviewed_at": "2026-10-11",
+      "reviewers": [
+        "adk_authority_review",
+        "main_ui_fitness_review"
+      ],
+      "evidence": "docs/reference/quality/adk-orchestration-docs-audit.md#reviewed-integration-debt",
+      "slots": [
+        {
+          "key": "class_size|consent-protocol/hushh_mcp/services/stripe_connect_bank_payouts.py|StripeConnectBankPayouts|class exceeds the advisory operon budget",
+          "path": "consent-protocol/hushh_mcp/services/stripe_connect_bank_payouts.py",
+          "before": 536,
+          "after": 537,
+          "source_sha256": "5c095e8c0636ea19598823cd32cd3e19ac0b1cb7d689f7744b80028780f4b7ef",
+          "reason": "Frozen main payout/Feed/SMS/replay boundary growth, independently reviewed; candidate unions retain scheduler identity and checksum authority."
+        },
+        {
+          "key": "class_size|consent-protocol/hushh_mcp/services/pkm_payout_service.py|PkmPayoutService|class exceeds the advisory operon budget",
+          "path": "consent-protocol/hushh_mcp/services/pkm_payout_service.py",
+          "before": 450,
+          "after": 505,
+          "source_sha256": "23c0371687ed11a1ef55cd1cb326ab84ff4d2e7957582c3f9f134ec6aa2dbb34",
+          "reason": "Frozen main payout/Feed/SMS/replay boundary growth, independently reviewed; candidate unions retain scheduler identity and checksum authority."
+        },
+        {
+          "key": "function_size|consent-protocol/hushh_mcp/services/stripe_connect_bank_payouts.py|process_webhook|function exceeds the advisory gene budget",
+          "path": "consent-protocol/hushh_mcp/services/stripe_connect_bank_payouts.py",
+          "before": 114,
+          "after": 115,
+          "source_sha256": "5c095e8c0636ea19598823cd32cd3e19ac0b1cb7d689f7744b80028780f4b7ef",
+          "reason": "Frozen main payout/Feed/SMS/replay boundary growth, independently reviewed; candidate unions retain scheduler identity and checksum authority."
+        },
+        {
+          "key": "function_size|consent-protocol/hushh_mcp/one_voice/tools/sos.py|add_emergency_contact|function exceeds the advisory gene budget",
+          "path": "consent-protocol/hushh_mcp/one_voice/tools/sos.py",
+          "before": 96,
+          "after": 102,
+          "source_sha256": "a96650cba8d31884c94841803f3c96d5d755846f08211ff99d3e53d4f9396275",
+          "reason": "Frozen main payout/Feed/SMS/replay boundary growth, independently reviewed; candidate unions retain scheduler identity and checksum authority."
+        },
+        {
+          "key": "function_size|consent-protocol/hushh_mcp/services/pkm_payout_service.py|onboarding_link|function exceeds the advisory gene budget",
+          "path": "consent-protocol/hushh_mcp/services/pkm_payout_service.py",
+          "before": 100,
+          "after": 102,
+          "source_sha256": "23c0371687ed11a1ef55cd1cb326ab84ff4d2e7957582c3f9f134ec6aa2dbb34",
+          "reason": "Frozen main payout/Feed/SMS/replay boundary growth, independently reviewed; candidate unions retain scheduler identity and checksum authority."
+        },
+        {
+          "key": "module_size|hushh-webapp/__tests__/components/one-location-agent-page.test.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/__tests__/components/one-location-agent-page.test.tsx",
+          "before": 9913,
+          "after": 9922,
+          "source_sha256": "c01d147c394241e4d30acc62bcbadc71c3ff66aca2dae815abd807542c9b880a",
+          "reason": "Frozen main presentation/cache/Back graph growth, independently reviewed; navigation debt moved behind the existing facade and authorization remains unchanged."
+        },
+        {
+          "key": "module_size|consent-protocol/tests/services/test_one_location_agent_service.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/services/test_one_location_agent_service.py",
+          "before": 9159,
+          "after": 9200,
+          "source_sha256": "f731571d8051c2597554aed5909f02060853b478fd85a445a455f63fae96742e",
+          "reason": "Frozen main payout/Feed/SMS/replay boundary growth, independently reviewed; candidate unions retain scheduler identity and checksum authority."
+        },
+        {
+          "key": "module_size|hushh-webapp/components/one-location/redesign/location-redesign-hub.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/components/one-location/redesign/location-redesign-hub.tsx",
+          "before": 6828,
+          "after": 6830,
+          "source_sha256": "7f295544eed3fd950d886be1b00b8543edc4d394a6410e4a5cfbcfd08f16e781",
+          "reason": "Frozen main presentation/cache/Back graph growth, independently reviewed; navigation debt moved behind the existing facade and authorization remains unchanged."
+        },
+        {
+          "key": "module_size|hushh-webapp/components/consent/notification-provider.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/components/consent/notification-provider.tsx",
+          "before": 2479,
+          "after": 2504,
+          "source_sha256": "5d49633df221dc70d05dd17e070882b48c844fe30731af492b08f627c1941b14",
+          "reason": "Frozen main presentation/cache/Back graph growth, independently reviewed; navigation debt moved behind the existing facade and authorization remains unchanged."
+        },
+        {
+          "key": "module_size|consent-protocol/api/routes/one/location.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/api/routes/one/location.py",
+          "before": 2441,
+          "after": 2501,
+          "source_sha256": "8bc346972aab091c029c717bae5592c4cef801b6063ceb243960bb3481258c76",
+          "reason": "Frozen main payout/Feed/SMS/replay boundary growth, independently reviewed; candidate unions retain scheduler identity and checksum authority."
+        },
+        {
+          "key": "module_size|hushh-webapp/components/vault/vault-flow.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/components/vault/vault-flow.tsx",
+          "before": 2356,
+          "after": 2377,
+          "source_sha256": "ef5f0ee971f8ccbefc914a1edce0c6918dfc4384db1bbf290dae914dcd86add7",
+          "reason": "Frozen main presentation/cache/Back graph growth, independently reviewed; navigation debt moved behind the existing facade and authorization remains unchanged."
+        },
+        {
+          "key": "module_size|hushh-webapp/lib/one-location/service.ts||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/lib/one-location/service.ts",
+          "before": 2343,
+          "after": 2367,
+          "source_sha256": "44d1c1dcf218b1f38b47dd0ff86117f0ab557c7b1a39b86d23c2d2bc0484db98",
+          "reason": "Frozen main presentation/cache/Back graph growth, independently reviewed; navigation debt moved behind the existing facade and authorization remains unchanged."
+        },
+        {
+          "key": "module_size|consent-protocol/tests/test_one_location_routes.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/test_one_location_routes.py",
+          "before": 1502,
+          "after": 1622,
+          "source_sha256": "98f6083929b8e206b4e4bd8e0c30913d46f0cbe711e723fc85c6d6ddf22e3359",
+          "reason": "Frozen main payout/Feed/SMS/replay boundary growth, independently reviewed; candidate unions retain scheduler identity and checksum authority."
+        },
+        {
+          "key": "module_size|consent-protocol/hushh_mcp/one_voice/tools/sos.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/hushh_mcp/one_voice/tools/sos.py",
+          "before": 1335,
+          "after": 1344,
+          "source_sha256": "a96650cba8d31884c94841803f3c96d5d755846f08211ff99d3e53d4f9396275",
+          "reason": "Frozen main payout/Feed/SMS/replay boundary growth, independently reviewed; candidate unions retain scheduler identity and checksum authority."
+        },
+        {
+          "key": "module_size|consent-protocol/tests/one_voice/test_tools_sos.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/one_voice/test_tools_sos.py",
+          "before": 1318,
+          "after": 1330,
+          "source_sha256": "ca8b0b25e492a0d77162251f273e25bfc46116caf0631814115290707c4c3550",
+          "reason": "Frozen main payout/Feed/SMS/replay boundary growth, independently reviewed; candidate unions retain scheduler identity and checksum authority."
+        },
+        {
+          "key": "module_size|hushh-webapp/lib/navigation/back-navigation-graph.ts||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/lib/navigation/back-navigation-graph.ts",
+          "before": null,
+          "after": 1293,
+          "source_sha256": "d447dc62e9477793bb29d38364489812db4be33740b7b42a1b4cd2bd87c10baf",
+          "reason": "Frozen main presentation/cache/Back graph growth, independently reviewed; navigation debt moved behind the existing facade and authorization remains unchanged."
+        },
+        {
+          "key": "module_size|consent-protocol/api/consent_listener.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/api/consent_listener.py",
+          "before": 1183,
+          "after": 1235,
+          "source_sha256": "f5d4ab3e4272b51d0828b77603b17d1edea6fdc8a5e506a7470c801f98bb8780",
+          "reason": "Frozen main payout/Feed/SMS/replay boundary growth, independently reviewed; candidate unions retain scheduler identity and checksum authority."
+        },
+        {
+          "key": "module_size|hushh-webapp/__tests__/components/vault-flow-create-validation.test.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/__tests__/components/vault-flow-create-validation.test.tsx",
+          "before": 913,
+          "after": 993,
+          "source_sha256": "5f9875e709a78e55efe17d6cff10f7b9f113fde5c347df40a70444f91b8825dd",
+          "reason": "Frozen main presentation/cache/Back graph growth, independently reviewed; navigation debt moved behind the existing facade and authorization remains unchanged."
+        },
+        {
+          "key": "module_size|hushh-webapp/lib/cache/cache-sync-service.ts||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/lib/cache/cache-sync-service.ts",
+          "before": 968,
+          "after": 973,
+          "source_sha256": "00896481f951c0228b9afc0faff706fd8a6312e912ce540de8c49797310b5c98",
+          "reason": "Frozen main presentation/cache/Back graph growth, independently reviewed; navigation debt moved behind the existing facade and authorization remains unchanged."
+        },
+        {
+          "key": "module_size|consent-protocol/tests/test_pkm_payouts.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/test_pkm_payouts.py",
+          "before": 649,
+          "after": 945,
+          "source_sha256": "d89a670abb92213ebbde489983037c0f77c1310d9e05499a83e7a9f6119d159e",
+          "reason": "Frozen main payout/Feed/SMS/replay boundary growth, independently reviewed; candidate unions retain scheduler identity and checksum authority."
+        },
+        {
+          "key": "module_size|hushh-webapp/app/providers.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/app/providers.tsx",
+          "before": 914,
+          "after": 922,
+          "source_sha256": "c0ea5f0b141cc84f6f5a9dd50465e5bd8257214f35477b0dc2ab287d7ded0ca8",
+          "reason": "Frozen main presentation/cache/Back graph growth, independently reviewed; navigation debt moved behind the existing facade and authorization remains unchanged."
+        },
+        {
+          "key": "module_size|hushh-webapp/__tests__/consent-notification-provider-location.test.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/__tests__/consent-notification-provider-location.test.tsx",
+          "before": 844,
+          "after": 887,
+          "source_sha256": "370cb7199e615002405f8dd170451ab352e5cb1671dbc30af8308c5c2489ab6f",
+          "reason": "Frozen main presentation/cache/Back graph growth, independently reviewed; navigation debt moved behind the existing facade and authorization remains unchanged."
+        },
+        {
+          "key": "module_size|hushh-webapp/__tests__/components/document-payout-account.test.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/__tests__/components/document-payout-account.test.tsx",
+          "before": 853,
+          "after": 868,
+          "source_sha256": "13cd82f2a6a43db7e3871dc2b2c24af381efb94a235d0b506268958b3bf34519",
+          "reason": "Frozen main presentation/cache/Back graph growth, independently reviewed; navigation debt moved behind the existing facade and authorization remains unchanged."
+        },
+        {
+          "key": "module_size|consent-protocol/db/migration_authority.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/db/migration_authority.py",
+          "before": 769,
+          "after": 812,
+          "source_sha256": "7562b745c9e2cae74d0b33c180ec3cd9c8b7f5480975658eaeef1f9110fbe9b3",
+          "reason": "Frozen main payout/Feed/SMS/replay boundary growth, independently reviewed; candidate unions retain scheduler identity and checksum authority."
+        },
+        {
+          "key": "module_size|consent-protocol/tests/test_migration_authority.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/test_migration_authority.py",
+          "before": 783,
+          "after": 803,
+          "source_sha256": "2259c0af12e4c12174737586304d43643451debc1e940cdfb87391017af3e70e",
+          "reason": "Frozen main payout/Feed/SMS/replay boundary growth, independently reviewed; candidate unions retain scheduler identity and checksum authority."
+        },
+        {
+          "key": "module_size|consent-protocol/tests/test_stripe_connect_bank_payouts.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/test_stripe_connect_bank_payouts.py",
+          "before": 779,
+          "after": 789,
+          "source_sha256": "1b45d5d3583a9dacbff473d981fe9a51e4522691a29485dd90e7f8cb37f018d6",
+          "reason": "Frozen main payout/Feed/SMS/replay boundary growth, independently reviewed; candidate unions retain scheduler identity and checksum authority."
+        },
+        {
+          "key": "module_size|consent-protocol/hushh_mcp/services/pkm_payout_service.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/hushh_mcp/services/pkm_payout_service.py",
+          "before": 666,
+          "after": 727,
+          "source_sha256": "23c0371687ed11a1ef55cd1cb326ab84ff4d2e7957582c3f9f134ec6aa2dbb34",
+          "reason": "Frozen main payout/Feed/SMS/replay boundary growth, independently reviewed; candidate unions retain scheduler identity and checksum authority."
+        },
+        {
+          "key": "module_size|hushh-webapp/components/one-location/redesign/__tests__/sos-panel.test.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/components/one-location/redesign/__tests__/sos-panel.test.tsx",
+          "before": 632,
+          "after": 717,
+          "source_sha256": "c42a358a8bbe232f8be79e7a262ea4abfc60609485941d4c977be6e10369964c",
+          "reason": "Frozen main presentation/cache/Back graph growth, independently reviewed; navigation debt moved behind the existing facade and authorization remains unchanged."
+        },
+        {
+          "key": "module_size|hushh-webapp/__tests__/services/cache-sync-mutation-cascade.test.ts||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/__tests__/services/cache-sync-mutation-cascade.test.ts",
+          "before": 698,
+          "after": 709,
+          "source_sha256": "ee7bc919a59718f0dd5cf2fe3d061340af3dbafa6c6bcbaa2cba3f6181befcf8",
+          "reason": "Frozen main presentation/cache/Back graph growth, independently reviewed; navigation debt moved behind the existing facade and authorization remains unchanged."
+        },
+        {
+          "key": "module_size|hushh-webapp/__tests__/components/profile-research-card.test.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/__tests__/components/profile-research-card.test.tsx",
+          "before": 528,
+          "after": 701,
+          "source_sha256": "f3f765af2560316fc6840b9f6ef64f496027eb9707095b968230058933662cc9",
+          "reason": "Frozen main presentation/cache/Back graph growth, independently reviewed; navigation debt moved behind the existing facade and authorization remains unchanged."
+        },
+        {
+          "key": "module_size|consent-protocol/hushh_mcp/services/stripe_connect_bank_payouts.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/hushh_mcp/services/stripe_connect_bank_payouts.py",
+          "before": 659,
+          "after": 661,
+          "source_sha256": "5c095e8c0636ea19598823cd32cd3e19ac0b1cb7d689f7744b80028780f4b7ef",
+          "reason": "Frozen main payout/Feed/SMS/replay boundary growth, independently reviewed; candidate unions retain scheduler identity and checksum authority."
+        },
+        {
+          "key": "module_size|hushh-webapp/__tests__/components/top-app-bar.contract.test.ts||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/__tests__/components/top-app-bar.contract.test.ts",
+          "before": 612,
+          "after": 615,
+          "source_sha256": "743d9d98b88dc59e53f46d35197c867f100b8bb5d8e3021df9ce5b64e53877a8",
+          "reason": "Frozen main presentation/cache/Back graph growth, independently reviewed; navigation debt moved behind the existing facade and authorization remains unchanged."
+        },
+        {
+          "key": "module_size|consent-protocol/tests/test_consent_listener_asyncio.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/test_consent_listener_asyncio.py",
+          "before": 518,
+          "after": 604,
+          "source_sha256": "1ef7a5b83aff9618fddf70146c92a9a66589a156dc7e6277f30d43dfae88f49e",
+          "reason": "Frozen main payout/Feed/SMS/replay boundary growth, independently reviewed; candidate unions retain scheduler identity and checksum authority."
+        },
+        {
+          "key": "module_size|hushh-webapp/components/agent/profile-research-card.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/components/agent/profile-research-card.tsx",
+          "before": 503,
+          "after": 573,
+          "source_sha256": "29d1b1e1ebddd49130ec0776cc2fea089287d11a187172a7ee781f9d30ffcd9c",
+          "reason": "Frozen main presentation/cache/Back graph growth, independently reviewed; navigation debt moved behind the existing facade and authorization remains unchanged."
+        }
+      ],
+      "boundary": "Exactly 34 independently reviewed occurrence-ranked slots (18 backend, 16 frontend). Preserve budgets, scanner, exclusions and every unrelated baseline value. Retained debt remains visible; not a deployment receipt."
     }
   },
   "status": "advisory"

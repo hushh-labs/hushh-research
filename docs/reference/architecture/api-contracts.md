@@ -185,8 +185,9 @@ After completion, discovery returns its existing empty `no_match` envelope
 before accessing Firebase or the directory. Review, Later, failed and partial
 saves never set the flag. A lost completion response retains the acknowledged
 encrypted review job so retry marks completion without replaying PKM writes.
-This is UI progress only, independent of personality onboarding and Magic
-Intelligence; it does not verify business ownership. Migration
+This is UI progress for Magic Intelligence's optional Business subsection,
+independent of personality progress and personal-profile saves; it does not
+verify business ownership. Migration
 `306_one_business_profile_saved.sql` must precede application rollout. There is
 no historical event-only backfill, because one event can represent a partial
 multi-card review. Web uses the existing One catch-all proxy; iOS and Android
@@ -1165,15 +1166,26 @@ owner authority, through the existing One Next proxy on web and `ApiService`
 Capacitor HTTP on native. No new screen or native plugin is introduced in this
 slice; physical-device acceptance is not claimed. The service rejects unknown
 versions and inconsistent candidate/status shapes. Consumers must call after
-setup resolves and the vault unlocks. Ordinary suggestion responses stay in memory. Both business and Magic Intelligence
-cards wait for loaded owner progress and finished personality onboarding; they
+setup resolves and the vault unlocks. Ordinary suggestion responses stay in memory. Magic Intelligence's personal research and optional Business lookup
+wait for loaded owner progress and finished personality onboarding; they
 do not mount or request discovery while questions, confirmation, saving or
-failed-save recovery are active. Follow-up cards render after the final
+failed-save recovery are active. The single Magic offer renders after the final
 personality turn, including when ordinary chat messages interrupt onboarding.
 
-The main chat workspace mounts `BusinessProfileSuggestion` after current auth
-and unlocked-vault admission, requiring known, unexpired owner authority.
-It opens an unverified real directory suggestion with Review, Later and Not my business.
+The main chat workspace mounts one compact Magic Intelligence offer: a short
+notice that One found more information and a Review details action. Opening it
+only reveals drafts; it never prepares or saves memory. Public career, education
+and personal findings are primary. Public business findings and real directory
+listings share one optional Business subsection; business findings start unchecked.
+`BusinessProfileSuggestion` is an embedded review controller with known,
+unexpired owner authority, not a separate chat identity or outer card. Its
+lookup, preparation or save can fail or remain pending without blocking a
+personal review. Directory reviews retain their own exact receipts and
+permanent completion flag; a personal save never completes an unsaved Business
+review. Controllers remain mounted while details collapse, retaining approved
+recovery jobs. Back unwinds a nested edit/review or Business subsection before
+collapsing Magic and then reaching route navigation; busy mutations consume Back.
+An unverified real directory listing retains Review, Later and Not my business.
 Editing a name or website invalidates prior proposals. A scheme-less website domain
 is normalized to HTTPS before preparation; explicit HTTP(S) URLs remain supported,
 and unsafe protocols or embedded credentials are rejected. Review uses the existing
@@ -1323,7 +1335,7 @@ separate work; a static export or native compile is not sign-in proof.
 
 The Request scope dialog contains a recipient, one labelled question field and Cancel / Send request. Dates are optional throughout this lane. Periods written in the question remain part of the exact approved question; historical explicit date ranges remain visible and constrain the approved projection. Drive retains its own required date form.
 
-`/api/one/answer-requests` uses Firebase participant authentication and an active connection, without Trusted circle membership or connector setup. Request intake and owner review are gated only by `PKM_ANSWER_REQUESTS_ENABLED` and never by the payment or composer flags: asking a connected person a question, and that person approving scopes and setting a price, move no money. Checkout, the composer and the owner work queue keep their own payment gate. Reading an already delivered answer is ungated, because entitlement is enforced by the delivery row and the requester-scoped read rather than by a rollout flag. Feed and Consent Center use the same answer review card and participant status. The owner approves the exact question, narrowed scopes and whole-dollar price with explicit model-processing consent; approval never creates a standing grant.
+`/api/one/answer-requests` uses Firebase participant authentication and an active connection, without Trusted circle membership or connector setup. Request intake and owner review are gated only by `PKM_ANSWER_REQUESTS_ENABLED`, which is open unless explicitly set to `false`, and never by the payment or composer flags: asking a connected person a question, and that person approving scopes and setting a price, move no money. Checkout, the composer and the owner work queue keep their own payment gate. Reading an already delivered answer is ungated, because entitlement is enforced by the delivery row and the requester-scoped read rather than by a rollout flag. Feed and Consent Center use the same answer review card and participant status. The owner approves the exact question, narrowed scopes and whole-dollar price with explicit model-processing consent; approval never creates a standing grant.
 
 | Method | Path under `/api/one/answer-requests` | Contract |
 | --- | --- | --- |
@@ -1494,7 +1506,8 @@ not the product owner for live location.
 | ------ | ---- | ---- | ----------- |
 | GET | `/api/one/location/state` | VAULT_OWNER Bearer | Read-only projection of eligible recipients, named Circle summaries, incoming targeted Circle invitations, owner grants, received grants, pending requests, referrals, and the current server-owned automatic-approval preference (`enabled`, scope, server `enabledAt`, and monotonic `ruleVersion`) for the authenticated user. Due expiries are projected without mutating rows or sending push; the bounded retention maintenance route owns expiry settlement and notification fan-out. A preference read failure fails the state request instead of displaying a live rule as off |
 | PATCH | `/api/one/location/auto-approve-preference` | VAULT_OWNER Bearer | Enable a server-timestamped standing rule for `all_contacts` or one active, person-created Circle owned by the caller, or disable it and clear its scope. Every change increments `ruleVersion` and writes metadata-only audit evidence |
-| POST | `/api/one/location/sms-contacts` | VAULT_OWNER Bearer | Idempotently add an active, location-ready connection or named-Circle co-member to the authenticated owner's Save My Soul contacts; Circle eligibility and selection are committed under the same membership locks |
+| GET | `/api/one/location/sms-contacts` | VAULT_OWNER Bearer | Return the complete owner-scoped `{smsContactUserIds, recipients}` roster, independent of the ranked recipient picker limit. Refresh incomplete identity shadows through the canonical verified-phone service before projecting readiness; bounded provider failures leave final phone/key/membership gates intact. Response is `private, no-store`; the recipient projection is additive for older clients |
+| POST | `/api/one/location/sms-contacts` | VAULT_OWNER Bearer | Idempotently add an active, location-ready connection or named-Circle co-member to the authenticated owner's Save My Soul contacts; refresh an eligible recipient's incomplete identity shadow before validation. Circle eligibility and selection are committed under the same membership locks |
 | DELETE | `/api/one/location/sms-contacts/{recipient_user_id}` | VAULT_OWNER Bearer | Idempotently remove one owner-scoped Save My Soul contact without changing the underlying connection |
 | GET | `/api/one/location/recipients` | VAULT_OWNER Bearer | With no query parameters, preserve the legacy bounded `{recipients}` picker response. Supplying `page`, `limit<=100`, or `query` returns `{items,page,hasMore,totalCount}` from the identical connection/shared-Circle eligibility predicate, with stable filtering/ordering and page-local key/contact-provenance annotation. Search covers only the displayed safe-name/email-handle ladder and displayed masked phone suffix; hidden email domains and full phones are not searchable. Relationship eligibility never itself grants location. |
 | POST | `/api/one/location/recipient-keys` | VAULT_OWNER Bearer | Register/rotate the authenticated user's recipient public key under the recipient-key transaction lock; private key remains device-local, a key id cannot be rebound to different material, and active grants bound to replaced keys are revoked atomically |

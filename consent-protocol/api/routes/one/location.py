@@ -65,6 +65,7 @@ from hushh_mcp.services.one_location_place_rating_service import (
     OneLocationPlaceRatingService,
     PlaceRatingError,
 )
+from hushh_mcp.services.one_location_sms_readiness import refresh_sms_recipient_identities
 from hushh_mcp.services.scheduler_identity import (
     SchedulerIdentityError,
     legacy_shared_token_allowed,
@@ -731,6 +732,57 @@ def _require_retention_auth(request: Request) -> None:
         )
 
 
+async def _sms_roster_identity_ready(
+    token_data: dict = Depends(require_vault_owner_token),
+) -> dict:
+    try:
+        await refresh_sms_recipient_identities(_service(), owner_user_id=_user_id(token_data))
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+    return token_data
+
+
+async def _sms_grant_identity_ready(
+    payload: CreateGrantRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+) -> dict:
+    try:
+        if requires_recipient_phone_verification(
+            share_kind=payload.share_kind, reason=payload.reason
+        ):
+            await refresh_sms_recipient_identities(
+                _service(),
+                owner_user_id=_user_id(token_data),
+                recipient_user_id=payload.recipient_user_id,
+            )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+    return token_data
+
+
+async def _sms_envelope_identity_ready(
+    payload: CreateGrantWithEnvelopeRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+) -> dict:
+    return await _sms_grant_identity_ready(payload, token_data)
+
+
+async def _sms_add_identity_ready(
+    payload: AddSmsContactRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+) -> dict:
+    try:
+        await refresh_sms_recipient_identities(
+            _service(),
+            owner_user_id=_user_id(token_data),
+            recipient_user_id=payload.recipient_user_id,
+            adding_contact=True,
+        )
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+    return token_data
+
+
 @router.get("/location/state")
 def get_location_state(token_data: dict = Depends(require_vault_owner_token)):
     try:
@@ -739,7 +791,7 @@ def get_location_state(token_data: dict = Depends(require_vault_owner_token)):
         raise _handle_error(exc) from exc
 
 
-@router.post("/location/sms-contacts")
+@router.post("/location/sms-contacts", dependencies=[Depends(_sms_add_identity_ready)])
 def add_location_sms_contact(
     payload: AddSmsContactRequest,
     token_data: dict = Depends(require_vault_owner_token),
@@ -790,13 +842,21 @@ def list_location_sos_email_recipients(
         return {"ownerDisplayName": "", "openInOneUrl": "", "recipients": []}
 
 
-@router.get("/location/sms-contacts")
+@router.get("/location/sms-contacts", dependencies=[Depends(_sms_roster_identity_ready)])
 def get_location_sms_contacts(
     response: Response, token_data: dict = Depends(require_vault_owner_token)
 ):
     _set_private_no_store(response)
+    service = _service()
+    owner = _user_id(token_data)
+    ids = service.list_sms_contact_ids(owner_user_id=owner)
     return {
-        "smsContactUserIds": _service().list_sms_contact_ids(owner_user_id=_user_id(token_data))
+        "smsContactUserIds": ids,
+        "recipients": service.list_verified_recipients(
+            owner_user_id=owner, user_ids=ids, limit=max(1, len(ids))
+        )
+        if ids
+        else [],
     }
 
 
@@ -2158,7 +2218,7 @@ async def maps_route_eta(
         ) from exc
 
 
-@router.post("/location/grants")
+@router.post("/location/grants", dependencies=[Depends(_sms_grant_identity_ready)])
 def create_location_grant(
     payload: CreateGrantRequest,
     token_data: dict = Depends(require_vault_owner_token),
@@ -2187,7 +2247,7 @@ def create_location_grant(
         raise _handle_error(exc) from exc
 
 
-@router.post("/location/grants/with-envelope")
+@router.post("/location/grants/with-envelope", dependencies=[Depends(_sms_envelope_identity_ready)])
 def create_location_grant_with_envelope(
     payload: CreateGrantWithEnvelopeRequest,
     token_data: dict = Depends(require_vault_owner_token),

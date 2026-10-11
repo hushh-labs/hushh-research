@@ -1164,7 +1164,7 @@
       "id": "feed_events",
       "lifecycle_status": "current",
       "owner": "backend-runtime-governance",
-      "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking. Counterpart identity uses audit primary keys, indexed grant IDs, or indexed owner/recipient event candidates with exact source and audience checks; current photos join the identity cache. Closed agent outcomes also project canonical provider proposal/connection/job and Circle relationship transitions (migration269)."
+      "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking. Counterpart identity uses audit primary keys, indexed grant IDs, or indexed owner/recipient event candidates with exact source and audience checks; current photos join the identity cache. Closed agent outcomes also project canonical provider proposal/connection/job and Circle relationship transitions (migration269). Migration313 emits a committed owner-only feed_changed hint after every changed Feed row, including read state and deletion; the shared backend listener fans out to authenticated owner streams. Hints contain no row contents and have no replay authority: connect, listener recovery and overflow reset require a snapshot. A future broker may replace NOTIFY behind this same invalidation contract."
     },
     {
       "data_class": "workflow_state",
@@ -6694,12 +6694,12 @@
     "action_gateway": "845c70d82d5e472bb18040700ea80fceaa8168091d7cde370d1ef48e9b8bb1da",
     "agent_registry": "06fc01bef0b5fa5e44f8daa80af41b8d6a109b77f94c6006c0644c1915d41ae8",
     "cache_manifest": "2f4ccfba59c856698838753971f14d3aa12e0dced3f8834cfe33ad8f98f75656",
-    "data_plane": "ac17616db674813d1773d0d61f41b5db1902f6eb5ab967d07cae7081f666c1a9",
+    "data_plane": "f744300e7432e9de2c221d0b381741d7e6c2dc75d2a4ef84ff86c7cab47107a4",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "5fb9a81824a10aeaa2034f90a2642fb6d19acf1caab29a28e482447493b40b2a",
     "route_index": "69b778e9a50b58b07245052c24a10f640f23d764943533211e4e497a3a2e34b8",
     "route_layout": "8ce04c7c5fc2ff4704de02f91d1b959e4d91e8aa36d0b9e41da6243e30e401ab",
-    "surface_map": "43c88098b449ea02bd0069784015a0ecbc5465cdb8d9e197483aac6a9ac57dae",
+    "surface_map": "dd5943968184b29dc335d8cf0100e289a869de22cf088f06585f2430cd0f9a6d",
     "topology_contract": "58ba11f84a774c8b3daa916d2985f8ec81e04413aa050c9fff4785be3b246df0",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },

@@ -282,6 +282,11 @@ class TestCrossProcessUserStateNotifications:
 
     def test_listener_subscribes_and_unsubscribes_both_postgres_channels(self):
         async def _run():
+            from api import consent_listener
+
+            queue = await consent_listener.subscribe_consent_queue(
+                "recovered-owner", snapshot_resets=True
+            )
             calls: list[tuple] = []
             subscribed = asyncio.Event()
 
@@ -331,6 +336,8 @@ class TestCrossProcessUserStateNotifications:
             assert any(call[:2] == ("remove", USER_STATE_CHANNEL) for call in calls)
             assert ("execute", f"UNLISTEN {USER_STATE_CHANNEL}") in calls
             assert ("release", connection) in calls
+            assert queue.get_nowait() == {"type": consent_listener.LOCAL_RESYNC_EVENT_TYPE}
+            await consent_listener.unsubscribe_consent_queue("recovered-owner", queue)
 
         asyncio.run(_run())
 
@@ -516,3 +523,82 @@ async def test_answer_doorbell_claim_is_global_and_participant_bound(monkeypatch
     assert queued == ["owner-1", "owner-1", "requester-1"]
     assert pushed == ["owner-1", "requester-1"]
     assert len(keys) == 2
+
+
+@pytest.mark.asyncio
+async def test_snapshot_burst_bounds_tasks_and_preserves_overflow_reset(monkeypatch):
+    from api import consent_listener as listener
+
+    stalled = await listener.subscribe_consent_queue("burst-owner", snapshot_resets=True)
+    active = await listener.subscribe_consent_queue("burst-owner", snapshot_resets=True)
+    foreign = await listener.subscribe_consent_queue("other-owner", snapshot_resets=True)
+    before = set(listener._background_notify_tasks)
+    try:
+        for index in range(500):
+            kind = "document_share_feed_changed" if index == 0 else "feed_changed"
+            listener._user_state_notify_callback(
+                None,
+                1,
+                listener.USER_STATE_CHANNEL,
+                json.dumps({"user_id": "burst-owner", "type": kind}),
+            )
+            assert active.get_nowait()["type"] == kind
+        assert set(listener._background_notify_tasks) == before
+        assert stalled.qsize() <= listener._CONSENT_NOTIFY_QUEUE_MAXSIZE
+        assert stalled.get_nowait() == {"type": listener.LOCAL_RESYNC_EVENT_TYPE}
+        assert foreign.empty()
+    finally:
+        await listener.unsubscribe_consent_queue("burst-owner", stalled)
+        await listener.unsubscribe_consent_queue("burst-owner", active)
+        await listener.unsubscribe_consent_queue("other-owner", foreign)
+
+
+@pytest.mark.asyncio
+async def test_listen_probe_detects_half_open_connection(monkeypatch):
+    from api import consent_listener as listener
+
+    class HalfOpen:
+        def is_closed(self):
+            return False
+
+        async def fetchval(self, query):
+            assert query == "SELECT 1"
+            await asyncio.Event().wait()
+
+    monkeypatch.setattr(listener, "LISTENER_PROBE_TIMEOUT_SECONDS", 0.01)
+    with pytest.raises(TimeoutError):
+        await listener._probe_listen_connection(HalfOpen())
+
+
+@pytest.mark.asyncio
+async def test_bank_notify_invalidates_both_local_display_modes_before_feed_wake(monkeypatch):
+    from api import consent_listener as listener
+    from hushh_mcp.services import payout_account_status_cache
+
+    queue = await listener.subscribe_consent_queue("bank-owner", snapshot_resets=True)
+    invalidations = []
+
+    def invalidate(*, user_id, mode):
+        assert queue.empty()  # A racing snapshot read must see invalidation first.
+        invalidations.append((user_id, mode))
+
+    monkeypatch.setattr(payout_account_status_cache, "invalidate_payout_account_status", invalidate)
+    try:
+        listener._user_state_notify_callback(
+            None,
+            1,
+            listener.USER_STATE_CHANNEL,
+            json.dumps({"user_id": "bank-owner", "type": "bank_payout_changed"}),
+        )
+        assert invalidations == [("bank-owner", "test"), ("bank-owner", "live")]
+        assert queue.get_nowait()["type"] == "bank_payout_changed"
+        listener._user_state_notify_callback(
+            None,
+            1,
+            listener.USER_STATE_CHANNEL,
+            json.dumps({"user_id": "bank-owner", "type": "feed_changed"}),
+        )
+        assert len(invalidations) == 2
+        assert queue.get_nowait()["type"] == "feed_changed"
+    finally:
+        await listener.unsubscribe_consent_queue("bank-owner", queue)

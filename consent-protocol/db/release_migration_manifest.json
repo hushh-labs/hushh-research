@@ -283,7 +283,8 @@
     "309_one_shared_hosting_choice.sql",
     "310_public_profile_bridge.sql",
     "311_one_placement_reader_foundation.sql",
-    "312_one_legacy_shared_continuity.sql"
+    "312_one_legacy_shared_continuity.sql",
+    "313_feed_realtime_changes.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -441,7 +442,8 @@
       "283_gmail_send_grant_generation.sql",
       "285_one_wallet_card_auto_provision.sql",
       "286_one_referral_link_open_notify.sql",
-      "306_one_business_profile_saved.sql"
+      "306_one_business_profile_saved.sql",
+      "313_feed_realtime_changes.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -593,6 +595,7 @@
     "310_public_profile_bridge.sql": "rollback/310_public_profile_bridge.rollback.sql",
     "311_one_placement_reader_foundation.sql": "rollback/311_one_placement_reader_foundation.rollback.sql",
     "312_one_legacy_shared_continuity.sql": "rollback/312_one_legacy_shared_continuity.rollback.sql",
-    "306_one_business_profile_saved.sql": "rollback/306_one_business_profile_saved.rollback.sql"
+    "306_one_business_profile_saved.sql": "rollback/306_one_business_profile_saved.rollback.sql",
+    "313_feed_realtime_changes.sql": "rollback/313_feed_realtime_changes.rollback.sql"
   }
 }

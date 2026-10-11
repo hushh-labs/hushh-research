@@ -37,6 +37,7 @@ import {
 import { CONNECTION_GRAPH_CHANGED_EVENT } from "@/lib/connections/connection-graph-events";
 import { ONE_LOCATION_STATE_CHANGED_EVENT } from "@/lib/one-location/one-location-state-events";
 import { CONSENT_READ_AFTER_WRITE_WINDOW_MS } from "@/lib/cache/consent-read-after-write";
+import { currentFeedInvalidationEpoch } from "@/lib/cache/feed-invalidation-epoch";
 import { ApiService } from "@/lib/services/api-service";
 import { ConsentCenterService } from "@/lib/services/consent-center-service";
 
@@ -65,6 +66,16 @@ describe("CacheSyncService mutation cascades", () => {
   });
 
   // ---------- 1. onConsentMutated ----------
+  it("remote Feed changes invalidate only Feed projections and fence pre-change reads", () => {
+    const epoch = currentFeedInvalidationEpoch(userId);
+    CacheSyncService.onFeedChanged(userId);
+    expect(currentFeedInvalidationEpoch(userId)).not.toBe(epoch);
+    expect(spyInvalidate.mock.calls.map(([key]) => key)).toEqual([
+      CACHE_KEYS.FEED_LIST(userId), CACHE_KEYS.FEED_UNREAD_COUNT(userId),
+    ]);
+    expect(spyInvalidatePattern).not.toHaveBeenCalled();
+  });
+
   it("onConsentMutated invalidates consent, RIA, and vault caches plus pattern prefixes", () => {
     CacheSyncService.onConsentMutated(userId);
 

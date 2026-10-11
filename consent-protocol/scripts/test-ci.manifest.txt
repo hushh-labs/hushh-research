@@ -1174,3 +1174,6 @@ tests/services/test_marketplace_investor_discovery.py
 tests/services/test_pkm_answer_recovery_postgres.py
 tests/test_pkm_answer_config.py
 tests/test_pkm_answer_routes.py
+tests/test_sse_routes.py
+tests/test_feed_realtime_postgres.py
+tests/test_payout_account_refresh_route.py

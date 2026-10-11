@@ -34,7 +34,7 @@ on the new origin after correcting the standalone relay's certificate trust setu
 ## Main readiness — October 11
 
 **Hold the application merge and BYOC rollout.** The integrated candidate freezes
-main `b80dbbdd6d93`, retains the reviewed ADK presentation delta `5c86617f2c`
+main `f690840323e35`, retains the reviewed ADK presentation delta `5c86617f2c`
 and preserves active worktrees. [PR 7555](https://github.com/hushh-labs/hushh-research/pull/7555)
 requires review and exact combined-SHA validation. Prior
 [23-check validation](https://github.com/hushh-labs/hushh-research/actions/runs/38132031368)
@@ -43,7 +43,7 @@ applies to `14876c2a3b8d`, not this candidate.
 | Gate | Current result / next evidence |
 | --- | --- |
 | CI/deploy convergence | GitHub Actions governs; Cloud Build builds. All environments use the same changed-SHA verification selector. Selected dev reviewer checks fail closed, and frontend-only preservation runs independently of migrations. Production supports automatic service selection and preserves deployment helpers when checking out an older rollback target. Full hosted browser/security gates remain required. Workflow edits need governed landing and a live rehearsal. |
-| Existing users / Shared | Explicit owner choice plus the strictly evidenced legacy cohort. Assigned, pending or unresolved pods cannot become Shared by default. Canonical migration 312 and parked dev 958 require environment adoption evidence. Existing-user changelog admission exists; UAT/production content remains unconfigured until a reviewed rollout. New users do not receive the update modal. |
+| Existing users / Shared | Explicit owner choice plus the strictly evidenced legacy cohort. Assigned, pending or unresolved pods cannot become Shared by default. Canonical migration 312 (schema head 313) and parked dev 958 require environment adoption evidence. Existing-user changelog admission exists; UAT/production content remains unconfigured until a reviewed rollout. New users do not receive the update modal. |
 | Updates / erasure | Exact-release approval, isolated recovery and normal Dev 15 installation pass. Active-work drain, production release provenance, erasure and retained-resource disposition still require live receipts. No automatic owner upgrade. |
 | Puppy / phone | BYOC-only signed owner/device/pod authority; personal dev inference, cancellation and idle wake pass. New outbound expiry/revocation/incarnation and idle-race protections pass focused tests but are not deployed. Physical phone/Mac independent internet acceptance remains unverified. Native phone HTTP/SSE admission and Mac device WSS are distinct transports. |
 | Both-cloud launch | Native Google/connector journeys, production IAM/retention/recovery, hub capacity and independent UAT acceptance remain release gates. Matched-resource cold p95 is about 71s on each cloud, above the 30s target. |
@@ -63,7 +63,7 @@ migrations move from 306–311 to 307–312 in original order, with rollback, fi
 and schema references reconciled. Read-only ADC filename-ledger checks found none
 recorded in dev or UAT; production has no migration ledger, which is recorded as
 an evidence limit. Existing applied and parked migration checksums are unchanged.
-Destructive history migration 249 remains deferred.
+Incoming Feed migration 313 is appended without changing 306–312; schema head is 313. Request intake now defaults open, while payments/composition and exact scope approval remain separately gated. Destructive history migration 249 remains deferred.
 
 No main merge, UAT/production deployment, stable publication or owner installation
 was performed in this readiness pass. Source readiness does not clear the live
@@ -130,11 +130,14 @@ tails extend paid time. Spending thresholds warn without stopping service.
 The [governed architecture baseline](./architecture-fitness-baseline.json) records
 inherited debt, exact occurrence-ranked spans, parent revisions, reviewer reasons
 and source hashes. Historical synchronization and extraction receipts remain
-there and in Git history. The latest main integration reviews exactly nine new
-or increased slots: independent request gates, real directory admission, nearest
-boundary tests, Wallet geometry, generated compatibility and executed deployment
-rollback coverage. Independent frontend and pipeline reviews found no additional
-blocking source defect. Budgets (500/250/80), scanner, exclusions and unrelated
+there and in Git history. The earlier `b80` integration admitted nine reviewed
+slots. Frozen main `f690840323e35` adds 34 independently reviewed slots
+(18 backend, 16 frontend): Feed/payout authority and cache races, SMS identity,
+historical replay repair, presentation boundaries and the extracted Back graph.
+Existing scheduler identity and checksum guards survive the merge. The real
+Chromium check proves Back correction and native Forward preservation; the
+stream proxy preserves downstream cancellation and upstream cleanup.
+Budgets (500/250/80), scanner, exclusions and unrelated
 allowances are unchanged. Baseline acceptance is not deployment acceptance.
 
 ## Owners and next gate
@@ -167,7 +170,7 @@ The former branch-only profile bridge was pending canonical 302 in that historic
 deferred in shared-dev pending separate cutover evidence. Current acceptance belongs to the
 matrix above; Git history retains the chronology.
 
-The final main-readiness integration freezes main `b80dbbdd6d93` and carries
+The final main-readiness integration freezes main `f690840323e35` and carries
 the 13-path ADK retained-dock delta `5c86617f2c`, preserving private Puppy,
 voice readiness and ongoing ADK edits. Incoming request intake remains independent
 of payment admission; composition retains both private-content and paid-lane

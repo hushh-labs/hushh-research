@@ -16,6 +16,7 @@ from typing import Annotated, AsyncGenerator, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, Path, Request
+from fastapi.concurrency import run_in_threadpool
 from sse_starlette.sse import EventSourceResponse
 
 from api.utils.firebase_auth import verify_firebase_bearer
@@ -31,6 +32,11 @@ router = APIRouter(prefix="/api/consent", tags=["SSE"])
 # Bounded path-parameter aliases (CWE-400: uncontrolled resource consumption).
 _UserId = Annotated[str, Path(min_length=1, max_length=128)]
 _RequestId = Annotated[str, Path(min_length=1, max_length=128)]
+
+FEED_STREAM_LIFETIME_SECONDS = 120
+FEED_AUTH_RECHECK_SECONDS = 30
+FEED_HEARTBEAT_SECONDS = 30
+FEED_SEND_TIMEOUT_SECONDS = 10
 
 
 def _env_truthy(name: str, fallback: str = "false") -> bool:
@@ -257,32 +263,66 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
 
 
 async def document_feed_event_generator(
-    user_id: str, request: Request
+    user_id: str, request: Request, *, authorization: str | None = None
 ) -> AsyncGenerator[dict, None]:
-    """Stream opaque Drive doorbells, repairing missed changes by snapshot.
+    """Owner-scoped snapshot hints, never a durable replay or access grant.
 
-    The subscription precedes the reset frame. A commit racing the initial
-    authenticated Feed reread is therefore queued and delivered afterwards.
-    Every reconnect sends a reset; LISTEN/NOTIFY is never treated as durable
-    state or as grant authority.
+    Subscribe before resetting. General Feed hints need no document UUID.
+    Revalidate through the shared Firebase authority on a wall-clock schedule,
+    even during a busy queue, and close so every connection has a finite life.
     """
-    from api.consent_listener import subscribe_consent_queue, unsubscribe_consent_queue
+    from api import consent_listener
 
-    queue = await subscribe_consent_queue(user_id)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + FEED_STREAM_LIFETIME_SECONDS
+    recheck_at = loop.time() + FEED_AUTH_RECHECK_SECONDS
+    heartbeat_at = loop.time() + FEED_HEARTBEAT_SECONDS
+    queue = await consent_listener.subscribe_consent_queue(user_id, snapshot_resets=True)
     try:
         yield {"event": "feed_reset", "data": "{}"}
         while True:
-            if await request.is_disconnected():
+            now = loop.time()
+            if now >= deadline or await request.is_disconnected():
                 break
-            try:
-                data = await asyncio.wait_for(queue.get(), timeout=30)
-            except asyncio.TimeoutError:
-                yield {"event": "heartbeat", "data": "{}"}
+            if authorization is not None and now >= recheck_at:
+                try:
+                    await run_in_threadpool(_authorize_sse_user, user_id, authorization)
+                except HTTPException:
+                    # Headers have already been sent. Close without revealing
+                    # auth/account details; the next handshake fails normally.
+                    break
+                recheck_at = loop.time() + FEED_AUTH_RECHECK_SECONDS
                 continue
-            if data.get("type") == "bank_payout_changed":
+            if now >= heartbeat_at:
+                heartbeat_at = now + FEED_HEARTBEAT_SECONDS
+                yield {
+                    "event": "heartbeat",
+                    "data": json.dumps({"live": consent_listener.is_listener_active()}),
+                }
+                continue
+            wake_at = min(deadline, heartbeat_at, recheck_at if authorization else deadline)
+            try:
+                data = await asyncio.wait_for(queue.get(), timeout=max(0, wake_at - now))
+            except asyncio.TimeoutError:
+                continue
+            # A hint can race the auth timer. Recheck before releasing it,
+            # rather than allowing one last frame past the recheck boundary.
+            if loop.time() >= deadline:
+                break
+            if authorization is not None and loop.time() >= recheck_at:
+                try:
+                    await run_in_threadpool(_authorize_sse_user, user_id, authorization)
+                except HTTPException:
+                    break
+                recheck_at = loop.time() + FEED_AUTH_RECHECK_SECONDS
+            event_type = data.get("type")
+            if event_type in {"bank_payout_changed", consent_listener.LOCAL_RESYNC_EVENT_TYPE}:
                 yield {"event": "feed_reset", "data": "{}"}
                 continue
-            if data.get("type") != "document_share_feed_changed":
+            if event_type == "feed_changed":
+                yield {"event": "feed_changed", "data": "{}"}
+                continue
+            if event_type != "document_share_feed_changed":
                 continue
             try:
                 event_id = str(UUID(str(data.get("event_id") or "")))
@@ -297,7 +337,7 @@ async def document_feed_event_generator(
     except asyncio.CancelledError:
         pass
     finally:
-        await unsubscribe_consent_queue(user_id, queue)
+        await consent_listener.unsubscribe_consent_queue(user_id, queue)
 
 
 @router.get("/document-feed/{user_id}")
@@ -311,9 +351,10 @@ async def document_feed_events(
     Unlike the legacy consent-fallback stream, this endpoint is available
     alongside FCM. Its reset frame instructs a fresh authenticated snapshot.
     """
-    _authorize_sse_user(user_id, authorization)
+    await run_in_threadpool(_authorize_sse_user, user_id, authorization)
     return EventSourceResponse(
-        document_feed_event_generator(user_id, request),
+        document_feed_event_generator(user_id, request, authorization=authorization),
+        send_timeout=FEED_SEND_TIMEOUT_SECONDS,
         headers={
             "Cache-Control": "no-cache, no-store",
             "Connection": "keep-alive",
@@ -337,7 +378,7 @@ async def consent_events(
         raise HTTPException(status_code=400, detail="user_id required")
 
     _ensure_consent_sse_enabled()
-    _authorize_sse_user(user_id, authorization)
+    await run_in_threadpool(_authorize_sse_user, user_id, authorization)
 
     return EventSourceResponse(
         consent_event_generator(user_id, request),
