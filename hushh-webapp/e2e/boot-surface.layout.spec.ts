@@ -5,6 +5,7 @@ import path from "node:path";
 import sharp from "sharp";
 import { verifyRecoveryWheelAccess } from "./fixtures/vault-recovery-wheel";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
+import { HUSHH_MARK_PATH } from "../lib/brand/hushh-mark";
 
 /**
  * The boot surface, measured in a real browser.
@@ -138,8 +139,9 @@ async function open(page: Page, options: OpenOptions) {
     body: `<!doctype html><html class="${[dark ? "dark" : "", native ? "native-ios" : ""].join(" ")}"><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>${css}</style></head><body><div id="root"></div></body></html>`,
   }));
   const mark = fs.readFileSync(path.join(process.cwd(), "public/brand/hushh-mark.png"));
-  await page.route("**/brand/hushh-mark.png", (route) => route.fulfill({ contentType: "image/png", body: mark }));
-  await page.route("**/_next/image?**", (route) => new URL(route.request().url()).searchParams.get("url") === "/brand/hushh-mark.png"
+  const markUrl = new URL(HUSHH_MARK_PATH, "http://localhost");
+  await page.route((url) => url.pathname === markUrl.pathname, (route) => route.fulfill({ contentType: "image/png", body: mark }));
+  await page.route("**/_next/image?**", (route) => new URL(new URL(route.request().url()).searchParams.get("url") ?? "/", "http://localhost").pathname === markUrl.pathname
     ? route.fulfill({ contentType: "image/png", body: mark }) : route.continue());
   await page.goto(`http://localhost/boot-surface${stage ? `#stage=${stage}` : ""}`);
   await page.addScriptTag({ content: script });

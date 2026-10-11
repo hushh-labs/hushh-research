@@ -214,10 +214,8 @@ async function open(
   });
   const fixture = shell ? shellMarkup() : '<div id="root"></div>';
   const html = `<!doctype html><html class="${theme === "dark" ? "dark" : ""}"><head><base href="${origin}/"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body class="bg-background text-foreground" data-ambient-chrome-primed="true" style="margin:0">${fixture}</body></html>`;
-  if (secure) {
-    await page.route(`${origin}/`, route => route.fulfill({ body: html, contentType: "text/html" }));
-    await page.goto(`${origin}/`);
-  } else await page.setContent(html);
+  await page.route(`${origin}/`, route => route.fulfill({ body: html, contentType: "text/html" }));
+  await page.goto(`${origin}/`);
   await awaitProductFont(page);
   await page.addScriptTag({ content: `window.__walletScenario = ${JSON.stringify(scenario)};${PROBES}` });
   if (reader) await page.addScriptTag({ content: "window.__encryptedCardReader = true;" });
