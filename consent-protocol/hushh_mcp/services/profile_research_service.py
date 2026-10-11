@@ -38,18 +38,21 @@ async def offer_profile_research(
     if getattr(record, "uid", None) != user_id or getattr(record, "disabled", True):
         raise PermissionError("Account identity changed")
     name = str(getattr(record, "display_name", None) or "").strip()
-    if not name or len(name) > 160 or any(ord(char) < 32 for char in name):
-        return {"status": "insufficient_identity", "pkm_written": False}
     email = getattr(record, "email", None) if getattr(record, "email_verified", False) else None
     phone = getattr(record, "phone_number", None)
-    if not phone:
+    if not name or not phone:
         from hushh_mcp.services.actor_identity_service import ActorIdentityService
 
         identities = await asyncio.wait_for(ActorIdentityService().get_many([user_id]), 5)
         identity = identities.get(user_id, {})
-        if identity.get("phone_verified") is True:
+        # Gmail onboarding seeds the canonical owner name without rewriting Firebase.
+        if not name and isinstance(identity.get("display_name"), str):
+            name = identity["display_name"].strip()
+        if not phone and identity.get("phone_verified") is True:
             phone = identity.get("phone_number")
     await require_access()
+    if not name or len(name) > 160 or any(ord(char) < 32 for char in name):
+        return {"status": "insufficient_identity", "pkm_written": False}
     if (email is not None and (not isinstance(email, str) or len(email) > 320)) or (
         phone is not None and (not isinstance(phone, str) or len(phone) > 64)
     ):

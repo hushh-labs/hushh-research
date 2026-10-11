@@ -213,7 +213,8 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
   an explanation and Skip, without preparing memory. Failed research can retry.
   Host policy does not rewrite facts or choose their meaning.
 - Admission: current first-party owner/chat key, completed account setup,
-  fresh owner name and verified contact identifiers, bounded owner checks and
+  fresh Firebase identity plus the canonical onboarding name when Firebase's
+  name is absent, verified contact identifiers, bounded owner checks and
   `ONE_PROFILE_RESEARCH_ENABLED` (default off). Drafts use turn-local storage,
   private no-store responses and a session-only chat card; they bypass transcript
   persistence and automatic memory capture.

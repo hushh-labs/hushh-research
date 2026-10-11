@@ -239,6 +239,72 @@ async def test_current_owner_identifiers_only_and_no_persistence(monkeypatch, ca
 
 
 @pytest.mark.parametrize(
+    "shadow_name,phone_verified",
+    [("Alex Example", True), ("Alex Example", False), ("x" * 161, True), ("Alex\nExample", True)],
+)
+async def test_canonical_onboarding_name_fallback_keeps_contact_verification(
+    monkeypatch, shadow_name, phone_verified
+):
+    monkeypatch.setenv("ONE_PROFILE_RESEARCH_ENABLED", "true")
+    calls = []
+
+    async def identities(self, ids):
+        assert ids == ["owner"]
+        return {
+            "owner": {
+                "display_name": shadow_name,
+                "email": "shadow@example.test",
+                "email_verified": True,
+                "phone_number": "+15555550123",
+                "phone_verified": phone_verified,
+            }
+        }
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.actor_identity_service.ActorIdentityService.get_many", identities
+    )
+
+    async def admitted(*args):
+        return object()
+
+    async def complete(*args):
+        return True
+
+    async def researcher(**kwargs):
+        calls.append(kwargs["identity"])
+        return {"report": REPORT, "search_suggestions": []}
+
+    record = SimpleNamespace(
+        uid="owner",
+        disabled=False,
+        display_name=None,
+        email="unverified@example.test",
+        email_verified=False,
+        phone_number=None,
+    )
+    result = await service.offer_profile_research(
+        user_id="owner",
+        consent_token=OWNER_TOKEN,
+        researcher=researcher,
+        owner_check=admitted,
+        setup_check=complete,
+        identity_lookup=lambda uid: record,
+    )
+    if shadow_name == "Alex Example":
+        assert result["status"] == "offered"
+        assert calls == [
+            {
+                "full_name": shadow_name,
+                "email": None,
+                "phone_number": "+15555550123" if phone_verified else None,
+            }
+        ]
+    else:
+        assert result == {"status": "insufficient_identity", "pkm_written": False}
+        assert calls == []
+
+
+@pytest.mark.parametrize(
     "condition", ["disabled", "not_ready", "wrong_owner", "revoked", "kill_inflight"]
 )
 async def test_no_draft_crosses_an_ineligible_or_changed_owner_boundary(monkeypatch, condition):
