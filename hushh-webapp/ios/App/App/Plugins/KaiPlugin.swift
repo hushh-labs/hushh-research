@@ -13,12 +13,11 @@ struct KaiStreamLifecycleErrorClassifier {
 
     static func bridgeCode(statusCode: Int, body: String) -> String {
         let bodyData = body.data(using: .utf8) ?? Data()
-        if !bodyData.isEmpty,
-           bodyData.count <= maxStreamErrorBodyBytes,
-           let payload = try? JSONSerialization.jsonObject(
-               with: bodyData,
-               options: [.fragmentsAllowed]
-           ) {
+        let payload: Any? = (!bodyData.isEmpty && bodyData.count <= maxStreamErrorBodyBytes)
+            ? try? JSONSerialization.jsonObject(with: bodyData, options: [.fragmentsAllowed])
+            : nil
+
+        if let payload {
             var remainingNodes = 64
             if let code = lifecycleCode(
                 in: payload,
@@ -29,10 +28,26 @@ struct KaiStreamLifecycleErrorClassifier {
             }
         }
 
-        // A rejected owner capability is non-terminal until the backend says
-        // account-not-found, but the WebView must still lock its in-memory
-        // Vault. Keep this local bridge code stable and free of backend prose.
-        if statusCode == 401 || statusCode == 403 {
+        guard statusCode == 401 || statusCode == 403 else {
+            return "HUSHH_HTTP_\(statusCode)"
+        }
+
+        // A bare 401/403 can also be an ordinary feature/permission refusal
+        // after a valid owner check (e.g. a disabled connector). Only an
+        // explicit invalid-owner code or message should clear Vault custody,
+        // mirroring the web classifier (`classifyVaultOwnerAuthFailure`).
+        if let payload {
+            var remainingNodes = 64
+            if containsExactString(
+                "AUTH_VAULT_OWNER_INVALID",
+                in: payload,
+                depth: 0,
+                remainingNodes: &remainingNodes
+            ) {
+                return "AUTH_VAULT_OWNER_INVALID"
+            }
+        }
+        if carriesVaultOwnerInvalidTextMarker(payload: payload, rawBody: body) {
             return "AUTH_VAULT_OWNER_INVALID"
         }
         return "HUSHH_HTTP_\(statusCode)"
@@ -72,6 +87,54 @@ struct KaiStreamLifecycleErrorClassifier {
             }
         }
         return nil
+    }
+
+    private static func containsExactString(
+        _ target: String,
+        in value: Any,
+        depth: Int,
+        remainingNodes: inout Int
+    ) -> Bool {
+        guard depth <= 6, remainingNodes > 0 else { return false }
+        remainingNodes -= 1
+
+        if let text = value as? String {
+            return text == target
+        }
+        if let object = value as? [String: Any] {
+            for child in object.values.prefix(32) {
+                if containsExactString(target, in: child, depth: depth + 1, remainingNodes: &remainingNodes) {
+                    return true
+                }
+            }
+        } else if let array = value as? [Any] {
+            for child in array.prefix(32) {
+                if containsExactString(target, in: child, depth: depth + 1, remainingNodes: &remainingNodes) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    /// Response text fragments that mean the vault-owner token itself is
+    /// invalid, mirroring the web classifier (`classifyVaultOwnerAuthFailure`).
+    private static let vaultOwnerInvalidTextMarkers = [
+        "token has been revoked",
+        "invalid token",
+        "token validation failed",
+    ]
+
+    private static func carriesVaultOwnerInvalidTextMarker(payload: Any?, rawBody: String) -> Bool {
+        var reason: String?
+        if let object = payload as? [String: Any] {
+            reason =
+                (object["error"] as? String) ??
+                (object["detail"] as? String) ??
+                (object["details"] as? String)
+        }
+        let text = (reason ?? rawBody).lowercased()
+        return vaultOwnerInvalidTextMarkers.contains { text.contains($0) }
     }
 }
 

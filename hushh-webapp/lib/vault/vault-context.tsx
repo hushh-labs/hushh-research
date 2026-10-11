@@ -414,7 +414,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
   // renewal decides whether that expired lineage was actually revoked.
   useEffect(() => {
     const handleLockRequest = (event: Event) => {
-      const customEvent = event as CustomEvent<{ reason: string; path?: string }>;
+      const customEvent = event as CustomEvent<{ reason: string; path?: string; userId?: string }>;
 
       if (
         typeof customEvent.detail?.path === "string" &&
@@ -424,6 +424,19 @@ export function VaultProvider({ children }: VaultProviderProps) {
       ) {
         updateTokenClock((value) => value + 1);
         void retryOwnerTokenRenewal();
+        return;
+      }
+
+      // An event scoped to the account that started it must still belong to
+      // the currently signed-in owner: a late response for a replaced
+      // session (e.g. a delayed revoke) must never lock the account that
+      // replaced it. Events with no userId (generic stream auth failures)
+      // already validate the current owner before dispatch, so they keep
+      // locking unconditionally here.
+      if (
+        customEvent.detail?.userId &&
+        customEvent.detail.userId !== authStateRef.current.user?.uid
+      ) {
         return;
       }
 

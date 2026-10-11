@@ -422,6 +422,35 @@ describe("VaultProvider app-resume expiry recovery", () => {
     expect(mocks.issueVaultOwnerToken).not.toHaveBeenCalled();
   });
 
+  it("does not let a delayed revoke response for account A lock account B", () => {
+    mocks.authUser = {
+      uid: "account-b",
+      displayName: "Account B",
+      email: "b@example.test",
+      photoURL: null,
+    };
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+
+    act(() => window.dispatchEvent(new CustomEvent("vault-lock-requested", {
+      detail: { reason: "VAULT_OWNER token revoked", userId: "account-a" },
+    })));
+
+    expect(screen.getByTestId("vault-status").textContent).toBe("unlocked");
+    expect(screen.getByTestId("vault-token").textContent).toBe("vault-token");
+  });
+
+  it("still locks an explicit revoke scoped to the currently signed-in account", () => {
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+
+    act(() => window.dispatchEvent(new CustomEvent("vault-lock-requested", {
+      detail: { reason: "VAULT_OWNER token revoked", userId: "vault-owner" },
+    })));
+
+    expect(screen.getByTestId("vault-status").textContent).toBe("locked");
+  });
+
   it("ignores a pre-renewal API failure but honors a current-token revocation", async () => {
     let finishRequest!: (response: Response) => void;
     const fetchMock = vi.spyOn(globalThis, "fetch").mockReturnValueOnce(new Promise((resolve) => { finishRequest = resolve; }));
