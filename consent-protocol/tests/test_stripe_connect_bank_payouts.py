@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -18,6 +19,7 @@ from sqlalchemy import event as sa_event
 from sqlalchemy.pool import StaticPool
 
 import api.routes.one.payouts as payout_routes
+import hushh_mcp.services.stripe_connect_bank_payouts as bank_payouts
 from api.middleware import require_vault_owner_token
 from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
 from hushh_mcp.services.stripe_connect_bank_payouts import (
@@ -33,6 +35,10 @@ class FakeStripe:
     def __init__(self, *, livemode=False):
         self.livemode = livemode
         self.retrieve_calls = []
+        self.list_calls = []
+        self.list_payouts = []
+        self.list_error = None
+        self.on_list = None
         self.payout_status = "pending"
         self.account_payouts_enabled = True
         self.external_accounts = {
@@ -53,6 +59,29 @@ class FakeStripe:
 
         class Payout:
             @staticmethod
+            def list(**kwargs):
+                outer.list_calls.append(kwargs)
+                if outer.list_error is not None:
+                    raise outer.list_error
+                if outer.on_list is not None:
+                    outer.on_list()
+                payouts = outer.list_payouts
+                if "starting_after" in kwargs:
+                    cursor = kwargs["starting_after"]
+                    payouts = payouts[
+                        next(
+                            (
+                                index + 1
+                                for index, payout in enumerate(payouts)
+                                if payout["id"] == cursor
+                            ),
+                            len(payouts),
+                        ) :
+                    ]
+                limit = kwargs["limit"]
+                return {"object": "list", "data": payouts[:limit], "has_more": len(payouts) > limit}
+
+            @staticmethod
             def retrieve(payout_id, **kwargs):
                 outer.retrieve_calls.append((payout_id, kwargs))
                 return {
@@ -62,6 +91,7 @@ class FakeStripe:
                     "status": outer.payout_status,
                     "amount": 911,
                     "currency": "usd",
+                    "created": 1_700_000_000,
                     "arrival_date": 1_800_000_000,
                     "failure_code": "no_account" if outer.payout_status == "failed" else None,
                 }
@@ -153,6 +183,7 @@ def world(monkeypatch, request):
           stripe_mode TEXT NOT NULL,
           details_submitted BOOLEAN NOT NULL,payouts_enabled BOOLEAN NOT NULL,
           account_ready BOOLEAN NOT NULL DEFAULT FALSE,
+          bank_payout_scan_started_at TIMESTAMP,bank_payout_scan_cursor TEXT,
           updated_at TIMESTAMP,PRIMARY KEY(user_id,stripe_mode))""")
         )
         connection.execute(
@@ -176,6 +207,12 @@ def world(monkeypatch, request):
               VALUES ('owner','acct_owner_inactive',:inactive_mode,0,0),
                 ('owner','acct_owner',:mode,0,0),('other','acct_other',:mode,0,0)"""),
             {"mode": mode, "inactive_mode": "test" if mode == "live" else "live"},
+        )
+        # Reconciliation cases below target the named owner; the unrelated
+        # account remains present as a cross-owner binding negative control.
+        connection.execute(
+            text("""UPDATE stripe_owner_payout_accounts
+          SET bank_payout_scan_started_at='2999-01-01' WHERE stripe_account_id='acct_other'""")
         )
     fake = FakeStripe(livemode=mode == "live")
     service = StripeConnectBankPayouts(db=SimpleNamespace(engine=engine), stripe_api=fake)
@@ -261,6 +298,17 @@ async def test_bank_change_rejects_external_object_bound_to_another_owner(world)
     with pytest.raises(ConnectBankPayoutError, match="invalid_event"):
         await service.process_webhook(payload=raw, signature=signature(raw))
     assert fake.retrieve_calls == []
+
+
+@pytest.mark.asyncio
+async def test_signed_payout_cancellation_updates_bank_status_immediately(world):
+    service, fake, _ = world
+    fake.payout_status = "canceled"
+    assert (
+        await service.process_webhook(**signed_event(event_id="evt_cancel", kind="payout.canceled"))
+        == "updated"
+    )
+    assert (await service.owner_summary(user_id="owner"))["payouts"][0]["status"] == "canceled"
 
 
 @pytest.mark.parametrize("world", ["test", "live"], indirect=True)
@@ -519,3 +567,213 @@ async def test_bank_summary_exposes_mode_for_both_empty_and_existing_accounts(wo
     expected = "live" if fake.livemode else "test"
     for owner in ("owner", "absent"):
         assert (await service.owner_summary(user_id=owner))["stripeMode"] == expected
+
+
+def listed_payout(payout_id, *, live=False, status="pending", amount=911, created=1_700_000_000):
+    return {
+        "id": payout_id,
+        "object": "payout",
+        "livemode": live,
+        "status": status,
+        "amount": amount,
+        "currency": "usd",
+        "created": created,
+        "arrival_date": 1_800_000_000,
+        "failure_code": "no_account" if status == "failed" else None,
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("world", ["test", "live"], indirect=True)
+async def test_scan_recovers_missed_creation_and_paginates_without_crossing_modes(world):
+    service, fake, engine = world
+    fake.list_payouts = [
+        listed_payout("po_new", live=fake.livemode, created=1_700_000_002),
+        listed_payout("po_older", live=fake.livemode, status="paid", created=1_700_000_001),
+    ]
+    first = await service.reconcile_due(max_payouts_per_account=1)
+    assert first == {
+        "bank_accounts_checked": 1,
+        "bank_payouts_changed": 1,
+        "bank_provider_deferred": 0,
+    }
+    with engine.begin() as connection:
+        assert (
+            connection.execute(
+                text(
+                    "SELECT bank_payout_scan_cursor FROM stripe_owner_payout_accounts WHERE stripe_account_id='acct_owner'"
+                )
+            ).scalar_one()
+            == "po_new"
+        )
+        connection.execute(
+            text("""UPDATE stripe_owner_payout_accounts
+          SET bank_payout_scan_started_at='2000-01-01' WHERE stripe_account_id='acct_owner'""")
+        )
+    second = await service.reconcile_due(max_payouts_per_account=1)
+    assert second["bank_payouts_changed"] == 1
+    assert [row["id"] for row in (await service.owner_summary(user_id="owner"))["payouts"]] == [
+        "po_new",
+        "po_older",
+    ]
+    with engine.begin() as connection:
+        assert (
+            connection.execute(
+                text(
+                    "SELECT bank_payout_scan_cursor FROM stripe_owner_payout_accounts WHERE stripe_account_id='acct_owner'"
+                )
+            ).scalar_one_or_none()
+            is None
+        )
+        rows = connection.execute(
+            text("""SELECT stripe_payout_id,status FROM stripe_connect_bank_payouts
+          ORDER BY stripe_payout_id""")
+        ).all()
+        assert rows == [("po_new", "pending"), ("po_older", "paid")]
+        connection.execute(
+            text("""UPDATE stripe_owner_payout_accounts
+          SET bank_payout_scan_started_at='2000-01-01' WHERE stripe_account_id='acct_owner'""")
+        )
+    assert (await service.reconcile_due(max_payouts_per_account=1))["bank_payouts_changed"] == 0
+    assert [call.get("starting_after") for call in fake.list_calls] == [None, "po_new", None]
+    expected_key = ("sk_live_" if fake.livemode else "sk_test_") + "x" * 30
+    assert all(
+        call["stripe_account"] == "acct_owner"
+        and call["api_key"] == expected_key
+        and call["max_network_retries"] == 0
+        for call in fake.list_calls
+    )
+    assert len(service.notices) == 2  # repeat scan is idempotent
+
+
+@pytest.mark.asyncio
+async def test_scan_cannot_regress_paid_or_failed_webhook_snapshot(world):
+    service, fake, engine = world
+    fake.payout_status = "paid"
+    assert (
+        await service.process_webhook(**signed_event(event_id="evt_paid", kind="payout.paid"))
+        == "updated"
+    )
+    fake.list_payouts = [listed_payout("po_one", status="pending")]
+    assert (await service.reconcile_due())["bank_payouts_changed"] == 0
+    assert len(service.notices) == 1
+    with engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE stripe_owner_payout_accounts
+          SET bank_payout_scan_started_at='2000-01-01' WHERE stripe_account_id='acct_owner'""")
+        )
+    fake.list_payouts = [listed_payout("po_one", status="failed")]
+    assert (await service.reconcile_due())["bank_payouts_changed"] == 1
+    fake.payout_status = "paid"
+    assert (
+        await service.process_webhook(**signed_event(event_id="evt_stale", kind="payout.paid"))
+        == "updated"
+    )
+    payout = (await service.owner_summary(user_id="owner"))["payouts"][0]
+    assert payout["status"] == "failed"
+    assert payout["failureCode"] == "no_account"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("world", ["test", "live"], indirect=True)
+async def test_scan_rejects_wrong_provider_mode_without_advancing_cursor(world):
+    service, fake, engine = world
+    fake.list_payouts = [listed_payout("po_wrong", live=not fake.livemode)]
+    with pytest.raises(ConnectBankPayoutError, match="provider_mismatch"):
+        await service.reconcile_due()
+    with engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("SELECT COUNT(*) FROM stripe_connect_bank_payouts")
+            ).scalar_one()
+            == 0
+        )
+        assert (
+            connection.execute(
+                text(
+                    "SELECT bank_payout_scan_cursor FROM stripe_owner_payout_accounts WHERE stripe_account_id='acct_owner'"
+                )
+            ).scalar_one_or_none()
+            is None
+        )
+    assert service.notices == []
+
+
+@pytest.mark.asyncio
+async def test_scan_provider_outage_retries_same_cursor_and_owner_rebind_is_fenced(world):
+    service, fake, engine = world
+    fake.list_error = TimeoutError("private_provider_timeout")
+    assert (await service.reconcile_due())["bank_provider_deferred"] == 1
+    assert service.notices == []
+    with engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("SELECT COUNT(*) FROM stripe_connect_bank_payouts")
+            ).scalar_one()
+            == 0
+        )
+        connection.execute(
+            text("""UPDATE stripe_owner_payout_accounts
+          SET bank_payout_scan_started_at='2000-01-01' WHERE stripe_account_id='acct_owner'""")
+        )
+    fake.list_error = None
+    fake.list_payouts = [listed_payout("po_recovered")]
+    assert (await service.reconcile_due())["bank_payouts_changed"] == 1
+
+    with engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE stripe_owner_payout_accounts
+          SET bank_payout_scan_started_at='2000-01-01' WHERE stripe_account_id='acct_owner'""")
+        )
+    fake.list_payouts = [listed_payout("po_after_rebind")]
+
+    def rebind():
+        with engine.begin() as connection:
+            connection.execute(
+                text("""UPDATE stripe_owner_payout_accounts SET user_id='replacement'
+              WHERE stripe_account_id='acct_owner'""")
+            )
+
+    fake.on_list = rebind
+    assert (await service.reconcile_due())["bank_payouts_changed"] == 0
+    with engine.begin() as connection:
+        assert (
+            connection.execute(
+                text(
+                    "SELECT COUNT(*) FROM stripe_connect_bank_payouts WHERE stripe_payout_id='po_after_rebind'"
+                )
+            ).scalar_one()
+            == 0
+        )
+    assert len(service.notices) == 1
+
+
+@pytest.mark.asyncio
+async def test_scan_timeout_does_not_advance_cursor_after_provider_thread_finishes(
+    world, monkeypatch
+):
+    service, fake, engine = world
+    monkeypatch.setattr(bank_payouts, "_PROVIDER_READ_TIMEOUT_SECONDS", 0.001)
+    fake.list_payouts = [listed_payout("po_late")]
+    fake.on_list = lambda: time.sleep(0.02)
+    with engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE stripe_owner_payout_accounts
+          SET bank_payout_scan_cursor='po_previous' WHERE stripe_account_id='acct_owner'""")
+        )
+    assert (await service.reconcile_due())["bank_provider_deferred"] == 1
+    await asyncio.sleep(0.03)  # the timed-out thread returns; it owns no database write path
+    with engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("""SELECT bank_payout_scan_cursor FROM stripe_owner_payout_accounts
+              WHERE stripe_account_id='acct_owner'""")
+            ).scalar_one()
+            == "po_previous"
+        )
+        assert (
+            connection.execute(
+                text("SELECT COUNT(*) FROM stripe_connect_bank_payouts")
+            ).scalar_one()
+            == 0
+        )

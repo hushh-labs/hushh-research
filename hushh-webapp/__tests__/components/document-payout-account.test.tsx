@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
   earnings: vi.fn(),
   hashcoins: vi.fn(),
   redeemTest: vi.fn(),
+  redeemLive: vi.fn(),
   epoch: 1,
 }));
 
@@ -30,13 +31,20 @@ vi.mock("@/lib/vault/session-epoch", () => ({
 }));
 vi.mock("@/lib/services/document-payout-service", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/services/document-payout-service")>(),
-  DocumentPayoutService: { account: state.account, onboard: state.onboard, bankPayouts: state.bankPayouts, manage: state.manage, earnings: state.earnings, hashcoins: state.hashcoins, redeemTest: state.redeemTest },
+  DocumentPayoutService: { account: state.account, onboard: state.onboard, bankPayouts: state.bankPayouts, manage: state.manage, earnings: state.earnings, hashcoins: state.hashcoins, redeemTest: state.redeemTest, redeemLive: state.redeemLive },
 }));
 
-import { DocumentBankPayoutStatusCard, DocumentPayoutAccountCard } from "@/components/consent/document-payout-account";
+import { DocumentBankPayoutStatusCard, DocumentPayoutAccountCard, PAYOUT_FALLBACK_POLL_MS, usePayoutSnapshot } from "@/components/consent/document-payout-account";
 import { DocumentHashcoinPayouts } from "@/components/consent/document-hashcoins";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { ApiError } from "@/lib/services/api-client";
+
+function PayoutPollHarness() {
+  usePayoutSnapshot(state.hashcoins);
+  usePayoutSnapshot(state.earnings);
+  usePayoutSnapshot(state.bankPayouts, { bankOnly: true });
+  return null;
+}
 
 describe("document payout account", () => {
   beforeEach(() => {
@@ -57,6 +65,53 @@ describe("document payout account", () => {
       sandbox: { balanceCoins: 911, reservedCoins: 0, availableCoins: 911, amountCents: 911, held: false }, latestRedemption: null,
     });
     state.redeemTest.mockReset();
+    state.redeemLive.mockReset();
+  });
+
+  it("recovers visible payout snapshots on a bounded poll, coalesces slow reads, and stops for hidden or changed owners", async () => {
+    vi.useFakeTimers();
+    let hidden = false;
+    const hiddenSpy = vi.spyOn(document, "hidden", "get").mockImplementation(() => hidden);
+    let finishSlowWallet!: (value: unknown) => void;
+    state.hashcoins.mockImplementationOnce(() => Promise.resolve({}))
+      .mockImplementationOnce(() => new Promise((resolve) => { finishSlowWallet = resolve; }))
+      .mockResolvedValue({});
+    try {
+      const view = render(<PayoutPollHarness />);
+      await act(async () => { await Promise.resolve(); });
+      for (const load of [state.hashcoins, state.earnings, state.bankPayouts]) {
+        expect(load).toHaveBeenCalledExactlyOnceWith("owner-token");
+      }
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(PAYOUT_FALLBACK_POLL_MS); });
+      expect(state.hashcoins).toHaveBeenCalledTimes(2);
+      await act(async () => { await vi.advanceTimersByTimeAsync(PAYOUT_FALLBACK_POLL_MS * 2); });
+      expect(state.hashcoins).toHaveBeenCalledTimes(2);
+      await act(async () => { finishSlowWallet({}); });
+      expect(state.hashcoins).toHaveBeenCalledTimes(3);
+
+      hidden = true;
+      const beforeHidden = [state.hashcoins.mock.calls.length, state.earnings.mock.calls.length, state.bankPayouts.mock.calls.length];
+      await act(async () => { await vi.advanceTimersByTimeAsync(PAYOUT_FALLBACK_POLL_MS * 2); });
+      expect([state.hashcoins.mock.calls.length, state.earnings.mock.calls.length, state.bankPayouts.mock.calls.length]).toEqual(beforeHidden);
+
+      hidden = false;
+      state.token = "second-owner";
+      state.epoch++;
+      view.rerender(<PayoutPollHarness />);
+      await act(async () => { await Promise.resolve(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(PAYOUT_FALLBACK_POLL_MS); });
+      for (const load of [state.hashcoins, state.earnings, state.bankPayouts]) {
+        expect(load.mock.calls.filter(([token]) => token === "second-owner")).toHaveLength(2);
+      }
+      view.unmount();
+      const afterUnmount = [state.hashcoins.mock.calls.length, state.earnings.mock.calls.length, state.bankPayouts.mock.calls.length];
+      await act(async () => { await vi.advanceTimersByTimeAsync(PAYOUT_FALLBACK_POLL_MS); });
+      expect([state.hashcoins.mock.calls.length, state.earnings.mock.calls.length, state.bankPayouts.mock.calls.length]).toEqual(afterUnmount);
+    } finally {
+      hiddenSpy.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it("shows real Hussh Coins above a distinct sandbox and never calls a test transfer a real deposit", async () => {
@@ -101,6 +156,45 @@ describe("document payout account", () => {
     expect(screen.queryByRole("region", { name: "Payout sandbox" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Test redeem|Check test redemption/ })).toBeNull();
     expect(state.redeemTest).not.toHaveBeenCalled();
+    expect(state.redeemLive).not.toHaveBeenCalled();
+  });
+
+  it("redeems one eligible live earning to Stripe without claiming a bank deposit", async () => {
+    state.hashcoins.mockResolvedValue({
+      coinName: "Hussh Coins", coinsPerDollar: 100, currency: "USD", payoutMode: "live", testPayouts: false,
+      liveRedemptionEnabled: true, maxRedeemCoins: 50000,
+      live: { balanceCoins: 1822, reservedCoins: 0, availableCoins: 1822, amountCents: 1822, held: false, nextRedeemCoins: 911 },
+      sandbox: { balanceCoins: 911, reservedCoins: 0, availableCoins: 911, amountCents: 911, held: false },
+      latestRedemption: null, redemptionHistory: [],
+    });
+    state.account.mockResolvedValue({ stripeMode: "live", account: {
+      detailsSubmitted: true, transfersEnabled: true, payoutsEnabled: true,
+      ready: true, status: "ready", bankStatus: "linked", canManageBank: true,
+    } });
+    state.redeemLive.mockResolvedValue({ id: "11111111-1111-4111-8111-111111111111", amountCoins: 911, status: "succeeded", stripeMode: "live", reversalStatus: "none" });
+    render(<DocumentHashcoinPayouts />);
+    const cashOut = await screen.findByRole("region", { name: "Cash out Hussh Coins" });
+    expect(screen.getByRole("region", { name: "Hussh Coins" })).toHaveTextContent("1,822 Hussh Coins");
+    expect(cashOut).toHaveTextContent("911 Hussh Coins ready");
+    fireEvent.click(within(cashOut).getByRole("button", { name: "Redeem $9.11" }));
+    await waitFor(() => expect(state.redeemLive).toHaveBeenCalledExactlyOnceWith("owner-token", 911, expect.any(String)));
+    expect(await within(cashOut).findByText("Sent to Stripe. Bank deposit follows your payout settings.")).toBeVisible();
+    expect(state.redeemTest).not.toHaveBeenCalled();
+    expect(screen.queryByRole("region", { name: "Payout sandbox" })).toBeNull();
+  });
+
+  it("shows a refunded live transfer as reversed, not bank paid", async () => {
+    const reversed = { id: "11111111-1111-4111-8111-111111111111", amountCoins: 911,
+      status: "succeeded", stripeMode: "live", reversalStatus: "reversed" };
+    state.hashcoins.mockResolvedValue({ payoutMode: "live", testPayouts: false, liveRedemptionEnabled: true,
+      live: { balanceCoins: -911, reservedCoins: 0, availableCoins: 0, amountCents: -911, held: true, nextRedeemCoins: 0 },
+      sandbox: { balanceCoins: 0, reservedCoins: 0, availableCoins: 0, amountCents: 0, held: false },
+      latestRedemption: null, redemptionHistory: [reversed] });
+    render(<DocumentHashcoinPayouts />);
+    const cashOut = await screen.findByRole("region", { name: "Cash out Hussh Coins" });
+    expect(cashOut).toHaveTextContent("Transfer reversed");
+    expect(cashOut).not.toHaveTextContent("Sent to Stripe");
+    expect(within(cashOut).getByRole("button", { name: "Redeem $0.00" })).toBeDisabled();
   });
 
   it.each([
