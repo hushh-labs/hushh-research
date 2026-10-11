@@ -1,11 +1,13 @@
 # Private Files library
 
-**Dev status — 2026-10-10:** the personal Azure owner completed the exact approved
-Dev 12 installation on the same pod. Live encrypted upload/download resume,
-byte-exact integrity, move/undo, trash/restore and opted-in queue organization
-passed; cancellation retained the original. Initial analysis-off preferences
-were restored. Prior Google qualification remains dated evidence. Production and
-broad rollout remain gated. Read the
+**Dev status — 2026-10-11:** the personal Azure owner completed the exact approved
+Dev 15 installation on the same pod. Post-update encrypted transfer resume,
+byte-exact integrity, move/undo and trash/restore passed. An unsupported
+organization request preserved the original; successful opted-in organization
+and cancellation remain dated Dev 12 evidence. Google Cloud's isolated
+qualification includes encrypted Files recovery and authenticated Cloud Tasks
+organization; a complete normal-owner Google journey is not established by
+those fixtures. Production and broad rollout remain gated. Read the
 [readiness audit](../quality/adk-orchestration-docs-audit.md#acceptance-matrix)
 and [private-agent north star](../architecture/private-agent-north-star.md) together.
 
@@ -83,7 +85,8 @@ Storage usage is an owner-requested scan, not a billing total. Retention is a
 provider observation; there is no unsaved warning or cost-calculator setting.
 Analysis withdrawal and stricter exclusions remain available after model-provider
 loss. A committed upload reports organization failure separately. These local
-corrections await their own verified deployment.
+corrections are included in the recorded dev serving source; deployed responsive
+acceptance remains separate from their local layout measurements.
 Hosting contains hosting controls, not a Files launcher or embedded explorer.
 Discovery does not establish installed capability or consent; the workspace
 checks the owner's admitted pod and Files setup before enabling library tools.
@@ -306,9 +309,11 @@ erasure race. Fresh Microsoft authorization verifies custody before mutation;
 unverified provider results retain their reservation. Success requires readback of
 the exact queue, managed identity, storage binding and single-instance rule.
 
-This source is not a live Azure Files acceptance receipt. Schema deployment,
-predecessor-image recovery, owner approval and live identity/queue/model
-qualification remain release gates. Do not activate Files with a manual flag.
+The October 7 source review alone did not establish live acceptance. The current
+status above and revision-bound readiness audit distinguish subsequent isolated
+recovery, normal owner installation, and dated queue/model results. Fresh setup,
+production schema and release-channel qualification remain separate gates.
+Do not activate Files with a manual flag.
 
 ## Implementation owners
 

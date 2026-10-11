@@ -16,6 +16,10 @@ audit retains its separate evidence-led cadence; it is not the template for a st
    supporting evidence unless the requested decision specifically depends on them.
 5. Close with a clear recommendation and ordered milestones with observable exit outcomes.
    Do not invent delivery dates, adoption, reliability percentages or completion scores.
+6. For a whole-system readout, establish the owner experience and the complete execution,
+   information, authority and lifecycle flow before discussing individual cloud results.
+   Show supported providers at the same abstraction level. An acceptance anecdote is
+   supporting evidence; it must not become the platform narrative.
 
 ## Keep evidence honest and readable
 
@@ -36,6 +40,7 @@ audit retains its separate evidence-led cadence; it is not the template for a st
 | How does usage change estimated cost? | Cost curves with labelled scenarios | Full pricing basis, fixed costs and exclusions; no unsupported break-even claim |
 | What makes up one total? | Stacked bars or waterfall | Additive components of the same scenario; do not stack percentiles or overlapping charges |
 | Where do authority and information reside? | Architecture or information-boundary diagram | Direction, ownership and current/future status; no invented flow volumes |
+| How does a persistent agent use sleeping compute? | Lifecycle or swimlane diagram | Separate retained information, active compute, event wake and idle release; no implied device wake capability |
 | What comes next? | Ordered milestone sequence | Exit outcomes, not fabricated dates or percentage progress |
 
 Every chart earns its place by answering one question. A report does not need a chart quota
