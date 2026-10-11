@@ -6,7 +6,7 @@ import { isDegradedPreviewCard } from "@/lib/profile/pkm-agent-lab-preview";
 import type { BusinessMemoryOrigin } from "@/lib/pkm/business-memory-origin";
 import { businessProfilePreviewDiagnostics, validBusinessProfilePreview } from "@/lib/agent/business-profile-contract";
 
-export type ConnectorMemorySource = "first_connect_insights" | "drive_read_review" | "business_profile_review";
+export type ConnectorMemorySource = "first_connect_insights" | "drive_read_review" | "business_profile_review" | "profile_research_review";
 type MemorySession = {
   userId: string;
   vaultOwnerToken: string;
@@ -36,7 +36,7 @@ export async function prepareConnectorMemoryReview(input: MemorySession & {
   // also work after a cold refresh. No new cache or plaintext storage.
   await AgentPkmContextStore.load({
     userId: input.userId, vaultKey: input.vaultKey, vaultOwnerToken: input.vaultOwnerToken,
-    ...(input.source === "business_profile_review" ? { forceRefresh: true } : {}),
+    ...(["business_profile_review", "profile_research_review"].includes(input.source) ? { forceRefresh: true } : {}),
   });
   await input.assertCurrent();
   const businessCandidates = input.source === "business_profile_review"
@@ -60,7 +60,8 @@ export async function prepareConnectorMemoryReview(input: MemorySession & {
     memoryProfile: input.source === "business_profile_review" ? "business_directory_v1" : "general",
     allowEmpty: true,
     findDuplicate: candidate => AgentPkmContextStore.findLocalDuplicate({ userId: input.userId, candidate }),
-    findReconciliationCandidates: input.source === "business_profile_review" ? () => businessCandidates : undefined,
+    findReconciliationCandidates: input.source === "business_profile_review" ? () => businessCandidates
+      : input.source === "profile_research_review" ? passage => AgentPkmContextStore.findProfileReconciliationCandidates({ userId: input.userId, text: passage }) : undefined,
     beforeEffect: input.assertCurrent,
     isEffectCurrent: input.isCurrent,
   });

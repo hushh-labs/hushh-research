@@ -370,7 +370,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Chat actions complete only after the correlated browser or capability settlement succeeds.",
+          "completion_boundary": "Chat actions complete only after the correlated browser or capability settlement succeeds. The onboarding public-profile card stays a draft until the owner confirms the exact memory preview; Edit and Review unwind locally on Back.",
           "next_route": "/",
           "return_policy": "resolve_root",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -10117,5 +10117,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "4c2d20d229df1382865bb90ebd0dcfb8052f1a5f46d83991fce090e3232c65ce"
+  "content_sha256": "7c1b4024613858dda16cc1ec2aaf41860cfa7f624f21580c46e3d26e6cc90e0e"
 }

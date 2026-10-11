@@ -13,6 +13,7 @@ import {
   type ReceiptCanonicalIndex,
 } from "@/lib/profile/gmail-receipt-memory-index";
 import { maskSecretSpans } from "@/lib/pkm/secret-span-guard";
+import { businessMemoryEntity } from "@/lib/pkm/business-memory-origin";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import {
   OWNER_STYLE_BRANCH,
@@ -63,13 +64,15 @@ type PkmInventory = {
   safetyOmittedNodeCount: number;
 };
 
+type ProfileBusinessCandidate = PkmReconciliationCandidate & { originMetadata: Record<string, unknown> };
+
 type AgentPkmWorkingSet = {
   userId: string;
   vaultEpoch: number;
   metadata: PersonalKnowledgeModelMetadata | null;
   inventory: PkmInventory;
   /** Current business records only; UID bookkeeping never enters chat context. */
-  businesses: Map<string, PkmReconciliationCandidate[]>;
+  businesses: Map<string, ProfileBusinessCandidate[]>;
   businessInventoryComplete: boolean;
   /** The owner's Settings style choices, sent apart from the packet. */
   ownerStyle: OwnerStyleSettings;
@@ -395,26 +398,33 @@ function snapshotsToBlob(
   );
 }
 
-function businessInventory(blob: Record<string, unknown>): Map<string, PkmReconciliationCandidate[]> {
-  const result = new Map<string, PkmReconciliationCandidate[]>();
+function businessInventory(blob: Record<string, unknown>): Map<string, ProfileBusinessCandidate[]> {
+  const result = new Map<string, ProfileBusinessCandidate[]>();
   for (const [domain, data] of Object.entries(blob)) {
     if (isLabelOnly(domain) || shouldSkipPkmAgentContextKey(domain) || !isPlainRecord(data)) continue;
-    const branch = data.businesses;
-    if (!isPlainRecord(branch) || !isPlainRecord(branch.entities)) continue;
-    for (const [id, value] of Object.entries(branch.entities)) {
-      if (!isPlainRecord(value) || value.status === "deleted" || value.active === false || shouldSkipPkmAgentContextKey(id)) continue;
+    const visited = new WeakSet<object>();
+    const visit = (value: unknown, path: string[]) => {
+      if (!isPlainRecord(value) || visited.has(value) || path.length > 32 || value.status === "deleted" || value.active === false) return;
+      visited.add(value);
       const origin = value._business_origin;
       const uid = isPlainRecord(origin) && typeof origin.business_uid === "string" ? origin.business_uid : "";
-      if (!uid) continue;
-      const fields = Object.fromEntries(Object.entries(value).filter(([key, child]) =>
-        !shouldSkipPkmAgentContextKey(key) && typeof child === "string" && child.trim(),
-      ).map(([key, child]) => [key, maskSecretSpans(child as string)]));
-      const message = JSON.stringify(fields);
-      if (!Object.keys(fields).length || message.length > 4000) continue;
-      const existing = result.get(uid) || [];
-      existing.push({ domain, entity_id: id, entity_scope: "businesses", message, active: true });
-      result.set(uid, existing);
-    }
+      if (uid && path.at(-2) === "entities") {
+        const fields = Object.fromEntries(Object.entries(value).filter(([key, child]) =>
+          !shouldSkipPkmAgentContextKey(key) && typeof child === "string" && child.trim(),
+        ).map(([key, child]) => [key, maskSecretSpans(child as string)]));
+        const message = JSON.stringify(fields);
+        const existing = result.get(uid) || [];
+        existing.push({ domain, entity_id: path.at(-1)!, entity_scope: path.slice(0, -2).join("."),
+          message: message.length <= 4000 ? message : "{}", active: true,
+          originMetadata: structuredClone(origin as Record<string, unknown>) });
+        result.set(uid, existing);
+      }
+      for (const [key, child] of Object.entries(value)) {
+        if (shouldSkipPkmAgentContextKey(key) || ["__proto__", "prototype", "constructor"].includes(key)) continue;
+        visit(child, [...path, key]);
+      }
+    };
+    visit(data, []);
   }
   return result;
 }
@@ -721,7 +731,47 @@ export class AgentPkmContextStore {
       throw new Error("Existing business details could not be checked. Try again.");
     const candidates = workingSet.businesses.get(params.businessUid) || [];
     if (candidates.length > 1) throw new Error("This business has conflicting saved records. Review your saved details first.");
-    return candidates.map(candidate => ({ ...candidate }));
+    return candidates.map(({ originMetadata: _origin, ...candidate }) => ({ ...candidate }));
+  }
+
+  /** Semantic merge context, excluding immutable identity bookkeeping. */
+  static findProfileReconciliationCandidates(params: { userId: string; text: string }): PkmReconciliationCandidate[] {
+    const workingSet = currentWorkingSet(params.userId);
+    if (!workingSet?.businessInventoryComplete)
+      throw new Error("Existing details could not be checked. Try again.");
+    const businesses = [...workingSet.businesses.values()].flatMap(candidates =>
+      candidates.map(({ originMetadata: _origin, ...candidate }) => candidate));
+    const personal = this.findReconciliationCandidates(params);
+    const wanted = tokenize(params.text);
+    const ranked = new Map<string, { candidate: PkmReconciliationCandidate; score: number }>();
+    for (const candidate of [...personal, ...businesses]) {
+      const tokens = tokenize(candidate.message);
+      const score = [...wanted].filter(token => tokens.has(token)).length;
+      if (!score) continue;
+      const key = `${candidate.domain}|${candidate.entity_scope}|${candidate.entity_id}`;
+      if ((ranked.get(key)?.score ?? -1) < score) ranked.set(key, { candidate, score });
+    }
+    // Relevance retrieves bounded context; the model still owns merge meaning.
+    // Unrelated businesses must not crowd out existing personal details.
+    return [...ranked.values()].sort((left, right) => right.score - left.score).slice(0, 10).map(row => row.candidate);
+  }
+
+  /** A research model can extend a known business; it cannot mint its provenance. */
+  static profileBusinessTarget(userId: string, card: import("@/lib/agent/agent-pkm-memory").AgentPkmPreviewCard, targetDomain: string) {
+    const workingSet = currentWorkingSet(userId);
+    if (!workingSet?.businessInventoryComplete) throw new Error("Existing businesses need a fresh review.");
+    let target = String(card.merge_decision?.target_entity_path || "");
+    if (!target) {
+      try { target = businessMemoryEntity(card).path.join("."); } catch { return null; }
+    }
+    const matches = [...workingSet.businesses.entries()].flatMap(([businessUid, candidates]) =>
+      candidates.filter(candidate => candidate.domain === targetDomain &&
+        `${candidate.entity_scope}.entities.${candidate.entity_id}` === target).map(candidate => ({ businessUid, candidate })));
+    if (!matches.length) return null;
+    if (matches.length !== 1 || workingSet.businesses.get(matches[0]!.businessUid)?.length !== 1 ||
+      !["extend_entity", "correct_entity"].includes(String(card.merge_decision?.merge_mode || "")))
+      throw new Error("The proposed update would replace or combine existing businesses. Review your saved details first.");
+    return { businessUid: matches[0]!.businessUid, metadata: structuredClone(matches[0]!.candidate.originMetadata) };
   }
 
   static async load(params: {

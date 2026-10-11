@@ -168,6 +168,7 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     # co-presence in production must not also close a business directory.
     "one_places_directory_enabled": "ONE_PLACES_DIRECTORY_ENABLED",
     "one_business_directory_enabled": "ONE_BUSINESS_DIRECTORY_ENABLED",
+    "one_profile_research_enabled": "ONE_PROFILE_RESEARCH_ENABLED",
     # Withdraws One Live Voice mail reads and nothing else. Its own key rather
     # than GMAIL_CHAT_READS, which is owner-available by construction and so has
     # no runtime effect; making that one effective would close typed-chat mail
@@ -486,6 +487,11 @@ def one_career_enabled() -> bool:
 def one_business_directory_enabled() -> bool:
     """Real read-only suggestions have an independent default-off rollout gate."""
     return _clean_env("ONE_BUSINESS_DIRECTORY_ENABLED").lower() == "true"
+
+
+def one_profile_research_enabled() -> bool:
+    """Default-off rollout for One's reviewed public-profile card."""
+    return _clean_env("ONE_PROFILE_RESEARCH_ENABLED").lower() == "true"
 
 
 def one_business_local_rehearsal_enabled(user_id: str, *, loopback: bool) -> bool:
