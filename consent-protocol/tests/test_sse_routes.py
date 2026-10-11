@@ -35,7 +35,8 @@ async def test_document_feed_stream_resets_then_sends_only_opaque_committed_door
     queue: asyncio.Queue = asyncio.Queue()
     unsubscribed = []
 
-    async def subscribe(_user_id):
+    async def subscribe(_user_id, *, snapshot_resets=False):
+        assert snapshot_resets
         return queue
 
     async def unsubscribe(user_id, subscribed):
@@ -73,7 +74,8 @@ async def test_bank_payout_doorbell_resets_owner_feed_without_request_attributio
 
     queue: asyncio.Queue = asyncio.Queue()
 
-    async def subscribe(_user_id):
+    async def subscribe(_user_id, *, snapshot_resets=False):
+        assert snapshot_resets
         return queue
 
     async def unsubscribe(_user_id, _queue):
@@ -267,3 +269,129 @@ async def test_consent_sse_unsubscribes_its_private_queue_on_disconnect(monkeypa
 
 async def _return_true():
     return True
+
+
+@pytest.mark.asyncio
+async def test_general_feed_hint_and_listener_gap_only_emit_snapshot_metadata():
+    import asyncio
+
+    request = SimpleNamespace(is_disconnected=lambda: asyncio.sleep(0, result=False))
+    stream = document_feed_event_generator("feed-owner", request)
+    assert (await anext(stream))["event"] == "feed_reset"
+    await consent_listener._push_to_consent_queue(
+        "feed-owner", {"type": "feed_changed", "private_content": "must-not-escape"}
+    )
+    assert await anext(stream) == {"event": "feed_changed", "data": "{}"}
+    await consent_listener.broadcast_local_resync()
+    assert await anext(stream) == {"event": "feed_reset", "data": "{}"}
+    await stream.aclose()
+    assert "feed-owner" not in consent_listener._consent_notify_queues
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("busy", [False, True])
+async def test_feed_stream_revalidates_shared_authority_even_with_busy_queue(monkeypatch, busy):
+    import asyncio
+
+    from fastapi import HTTPException
+
+    calls = []
+
+    def denied(token):
+        calls.append(token)
+        raise HTTPException(status_code=401, detail="expired")
+
+    monkeypatch.setattr(sse_routes, "verify_firebase_bearer", denied)
+    monkeypatch.setattr(sse_routes, "FEED_AUTH_RECHECK_SECONDS", 0 if busy else 0.01)
+    request = SimpleNamespace(is_disconnected=lambda: asyncio.sleep(0, result=False))
+    stream = document_feed_event_generator("expired-owner", request, authorization="Bearer expired")
+    assert (await anext(stream))["event"] == "feed_reset"
+    if busy:
+        for _ in range(110):
+            await consent_listener._push_to_consent_queue("expired-owner", {"type": "feed_changed"})
+    with pytest.raises(StopAsyncIteration):
+        await asyncio.wait_for(anext(stream), timeout=1)
+    assert calls == ["Bearer expired"]
+    assert "expired-owner" not in consent_listener._consent_notify_queues
+
+
+@pytest.mark.asyncio
+async def test_feed_stream_finite_lifetime_does_not_depend_on_idle_queue(monkeypatch):
+    import asyncio
+
+    monkeypatch.setattr(sse_routes, "FEED_STREAM_LIFETIME_SECONDS", 0)
+    request = SimpleNamespace(is_disconnected=lambda: asyncio.sleep(0, result=False))
+    stream = document_feed_event_generator("finite-owner", request)
+    assert (await anext(stream))["event"] == "feed_reset"
+    await consent_listener._push_to_consent_queue("finite-owner", {"type": "feed_changed"})
+    with pytest.raises(StopAsyncIteration):
+        await anext(stream)
+    assert "finite-owner" not in consent_listener._consent_notify_queues
+
+
+@pytest.mark.asyncio
+async def test_feed_overflow_resets_without_erasing_legacy_consent_events(monkeypatch):
+    import asyncio
+
+    async def backfill(self, **kwargs):
+        return [{"request_id": "initial", "action": "REQUESTED"}]
+
+    monkeypatch.setattr(ConsentDBService, "get_recent_consent_events", backfill)
+    request = SimpleNamespace(is_disconnected=lambda: asyncio.sleep(0, result=False))
+    feed = document_feed_event_generator("mixed-owner", request)
+    legacy = consent_event_generator("mixed-owner", request)
+    try:
+        assert (await anext(feed))["event"] == "feed_reset"
+        assert (await anext(legacy))["id"] == "initial"
+        for index in range(101):
+            await consent_listener._push_to_consent_queue(
+                "mixed-owner", {"request_id": f"request-{index}", "action": "REQUESTED"}
+            )
+        for _ in range(120):
+            await consent_listener._push_to_consent_queue("mixed-owner", {"type": "feed_changed"})
+        await consent_listener.broadcast_local_resync()
+        # The legacy subscriber retains its newest 100 actionable events,
+        # unaffected by opaque Feed hints or the listener reconnect reset.
+        events = [await asyncio.wait_for(anext(legacy), timeout=1) for _ in range(100)]
+        assert [event["id"] for event in events] == [f"request-{i}" for i in range(1, 101)]
+        assert (await asyncio.wait_for(anext(feed), timeout=1))["event"] == "feed_reset"
+        assert (await asyncio.wait_for(anext(feed), timeout=1))["event"] == "feed_changed"
+    finally:
+        await feed.aclose()
+        await legacy.aclose()
+    assert "mixed-owner" not in consent_listener._consent_notify_queues
+
+
+@pytest.mark.asyncio
+async def test_feed_response_times_out_blocked_send_and_releases_subscription(monkeypatch):
+    import asyncio
+
+    from sse_starlette.sse import SendTimeoutError
+
+    monkeypatch.setattr(
+        sse_routes, "verify_firebase_bearer", lambda _authorization: "stalled-owner"
+    )
+    monkeypatch.setattr(sse_routes, "FEED_SEND_TIMEOUT_SECONDS", 0.01)
+    request = SimpleNamespace(is_disconnected=lambda: asyncio.sleep(0, result=False))
+    response = await sse_routes.document_feed_events(
+        "stalled-owner", request, authorization="Bearer synthetic-token"
+    )
+    blocked = asyncio.Event()
+    body_started = False
+
+    async def send(message):
+        nonlocal body_started
+        if message["type"] == "http.response.body":
+            body_started = True
+            assert "stalled-owner" in consent_listener._consent_notify_queues
+            await blocked.wait()
+
+    async def receive():
+        await blocked.wait()
+        return {"type": "http.disconnect"}
+
+    with pytest.raises(ExceptionGroup) as failure:
+        await asyncio.wait_for(response({"type": "http"}, receive, send), timeout=1)
+    assert failure.value.subgroup(SendTimeoutError) is not None
+    assert body_started
+    assert "stalled-owner" not in consent_listener._consent_notify_queues

@@ -21,6 +21,7 @@ from sqlalchemy import text
 from hushh_mcp.services.drive_request_payment_service import _config as payment_config
 from hushh_mcp.services.drive_request_payment_service import _stripe_dict
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
+from hushh_mcp.services.payout_account_status_cache import invalidate_payout_account_status
 from hushh_mcp.services.pkm_payout_service import _account_readiness, resume_document_owner_setup
 from hushh_mcp.services.stripe_mode import (
     configured_connect_mode,
@@ -270,6 +271,7 @@ class StripeConnectBankPayouts(ExternalConnectorLifecycleStore):
                 ).scalar_one_or_none()
             )
             if owner:
+                invalidate_payout_account_status(user_id=owner, mode=self.mode)
                 await resume_document_owner_setup(self.db, owner)
         return result
 

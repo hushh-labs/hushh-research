@@ -278,7 +278,50 @@ def _assert_checksum(entry: MigrationManifestEntryV2, row: dict[str, Any] | None
         raise MigrationAuthorityError(f"Applied migration checksum changed: {entry.filename}")
 
 
+def _replay_drive_feed_sql(entry: MigrationManifestEntryV2) -> str:
+    # 288's exact allowlist test narrowed later document_share_* vocabulary on
+    # replay. Preserve the immutable file and ledger/baseline hash; adapt only
+    # the published body, retaining installed vocabulary and rows.
+    checksum = hashlib.sha256(entry.sql.encode("utf-8")).hexdigest()
+    if (
+        checksum != "b13a15ee0d27a4c78efd99718adb1996ecb8c54254dbf1377a250d8791424ee6"
+        or entry.checksum_sha256 != checksum
+    ):
+        raise MigrationAuthorityError("Legacy Drive Feed replay source checksum changed")
+    start = entry.sql.index("DO $$")
+    end = entry.sql.index("END $$;", start) + len("END $$;")
+    repair = """DO $$
+DECLARE
+  installed TEXT[];
+  allowed TEXT;
+  required TEXT[] := ARRAY[
+    'document_share_decided','document_share_outcome',
+    'document_share_payment_confirmed','document_share_payment_ready',
+    'document_share_payment_refunded','document_share_request',
+    'document_share_request_sent','document_share_review_ready',
+    'document_share_revocation_outcome','document_share_revoked'];
+BEGIN
+  SELECT ARRAY(SELECT DISTINCT hit[1] FROM regexp_matches(
+    pg_get_constraintdef(c.oid), '''(document_share_[^'']+)''', 'g') AS hit
+    ORDER BY hit[1]) INTO installed
+  FROM pg_constraint c
+  WHERE c.conrelid='drive_share_events'::regclass
+    AND c.conname='drive_share_events_event_type_check';
+  IF NOT COALESCE(installed @> required, FALSE) THEN
+    SELECT string_agg(DISTINCT quote_literal(value), ',' ORDER BY quote_literal(value)) INTO allowed
+      FROM unnest(COALESCE(installed, ARRAY[]::TEXT[]) || required) AS value;
+    ALTER TABLE drive_share_events DROP CONSTRAINT IF EXISTS drive_share_events_event_type_check;
+    EXECUTE format(
+      'ALTER TABLE drive_share_events ADD CONSTRAINT drive_share_events_event_type_check CHECK (event_type IN (%s))',
+      allowed);
+  END IF;
+END $$;"""
+    return entry.sql[:start] + repair + entry.sql[end:]
+
+
 def _replay_sql(entry: MigrationManifestEntryV2) -> str:
+    if entry.migration_id == "288" and entry.filename == "288_drive_request_feed_stream.sql":
+        return _replay_drive_feed_sql(entry)
     # Migration 295 shipped a bare CREATE POLICY. Preserve its immutable source
     # and ledger/baseline hashes, while making its known body replayable inside
     # the original transaction. Never adapt other or drifted migration bodies.

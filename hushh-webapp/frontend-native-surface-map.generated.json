@@ -84,6 +84,10 @@
       "file": "app/api/consent/data/route.ts"
     },
     {
+      "template": "/api/consent/document-feed/{userId}",
+      "file": "app/api/consent/document-feed/[userId]/route.ts"
+    },
+    {
       "template": "/api/consent/events/{userId}",
       "file": "app/api/consent/events/[userId]/route.ts"
     },
@@ -10117,5 +10121,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "b45239e4ce031e75a96339f0409dd331a0dfe96f00be4cfef8024facb04b627c"
+  "content_sha256": "4bbb2d712998d35c60bfd5079714b160f433f73333d6797c838908a8e92d070d"
 }
