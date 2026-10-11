@@ -10,6 +10,7 @@ import { ProfileAccountBankIcon } from "@/components/profile/profile-your-accoun
 import { ProfileInnerReviewIcon } from "@/components/profile/profile-inner-icons";
 import { ProfileSecondaryReceiptIcon } from "@/components/profile/profile-secondary-icons";
 import { Button } from "@/lib/morphy-ux/button";
+import { isNative } from "@/lib/capacitor/platform";
 import { CONSENT_STATE_CHANGED_EVENT, dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 import { resolveProfileRouteState } from "@/lib/navigation/profile-routes";
 import { normalizeInternalRouteHref } from "@/lib/navigation/routes";
@@ -20,6 +21,7 @@ import {
   type DocumentBankPayout,
   type DocumentEarning,
   type DocumentEarningsResponse,
+  type DocumentPayoutAccount,
 } from "@/lib/services/document-payout-service";
 import { getSessionItem, removeSessionItem, setSessionItem } from "@/lib/utils/session-storage";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -31,6 +33,8 @@ const PAYOUT_READY_SOURCE = "document_payout_ready";
 const PAYOUT_RETURN_KEY = "one_document_payout_return_v1";
 const PAYOUT_RETURN_TTL_MS = 60 * 60 * 1000;
 export const PAYOUT_FALLBACK_POLL_MS = 45_000;
+// Focus and visibilitychange both fire on one return to the tab.
+const RESUME_REFRESH_GAP_MS = 1_000;
 function rememberPayoutReturn(from: string | null): void {
   if (from) setSessionItem(PAYOUT_RETURN_KEY, JSON.stringify({ from, at: Date.now() }));
   else removeSessionItem(PAYOUT_RETURN_KEY);
@@ -75,6 +79,7 @@ export function usePayoutSnapshot<T>(load: (token: string) => Promise<T>, {
     let cancelled = false;
     let pending = false;
     let queued = false;
+    let resumedAt = -Infinity;
     const current = () => !cancelled && isVaultSessionEpochCurrent(epoch);
     const refresh = async () => {
       if (!current()) return;
@@ -101,17 +106,23 @@ export function usePayoutSnapshot<T>(load: (token: string) => Promise<T>, {
       if ((ignoreReadyEvent && detail?.source === PAYOUT_READY_SOURCE) || (bankOnly && detail?.requestId)) return;
       void refresh();
     };
-    const onFocus = () => { if (!document.hidden) void refresh(); };
+    // One read per return to the tab. A read already in flight is fresh
+    // enough, so a return never queues another behind it.
+    const onResume = () => {
+      if (document.hidden || pending || Date.now() - resumedAt < RESUME_REFRESH_GAP_MS) return;
+      resumedAt = Date.now();
+      void refresh();
+    };
     if (refreshOnFeedChange) window.addEventListener(CONSENT_STATE_CHANGED_EVENT, onChange);
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onFocus);
+    window.addEventListener("focus", onResume);
+    document.addEventListener("visibilitychange", onResume);
     return () => {
       cancelled = true;
       liveScope.current = null;
       window.clearInterval(poll);
       window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, onChange);
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onFocus);
+      window.removeEventListener("focus", onResume);
+      document.removeEventListener("visibilitychange", onResume);
     };
   }, [active, vaultOwnerToken, scope, load, refreshKey, retry, bankOnly, refreshOnFeedChange, ignoreReadyEvent]);
   const data = snapshot?.scope === scope ? snapshot.value : null;
@@ -122,9 +133,17 @@ export function usePayoutSnapshot<T>(load: (token: string) => Promise<T>, {
     retry: () => setRetry((value) => value + 1) };
 }
 
+/** The card's last bank read, so a screen can gate on it without a second read. */
+export type PayoutAccountState = {
+  account: DocumentPayoutAccount | null; loading: boolean; failed: boolean; stripeMode?: "test" | "live";
+};
+
 /** One Connect account serves packet and document earnings; each keeps its ledger. */
-export function DocumentPayoutAccountCard({ active = true, compact = false, handleReturn = false, disabled = false, showHistory = true }: {
+export function DocumentPayoutAccountCard({
+  active = true, compact = false, handleReturn = false, disabled = false, showHistory = true, onAccountChange,
+}: {
   active?: boolean; compact?: boolean; handleReturn?: boolean; disabled?: boolean; showHistory?: boolean;
+  onAccountChange?: (state: PayoutAccountState) => void;
 }) {
   const router = useRouter();
   const pathname = usePathname() ?? "";
@@ -137,9 +156,13 @@ export function DocumentPayoutAccountCard({ active = true, compact = false, hand
   const resource = usePayoutSnapshot(DocumentPayoutService.account, {
     active, refreshKey: returnState ?? "", bankOnly: true, ignoreReadyEvent: true,
   });
-  const { data, token, scope } = resource;
+  const { data, token, scope, loading, failed } = resource;
   const account = data?.account ?? null;
   const ready = account?.ready === true;
+  const stripeMode = data?.stripeMode;
+  useEffect(() => {
+    onAccountChange?.({ account, loading, failed, stripeMode });
+  }, [onAccountChange, account, loading, failed, stripeMode]);
   const [busyScope, setBusyScope] = useState<typeof scope | null>(null);
   const [actionError, setActionError] = useState<{ scope: typeof scope; text: string } | null>(null);
   const inFlight = useRef<typeof scope | null>(null);
@@ -163,8 +186,12 @@ export function DocumentPayoutAccountCard({ active = true, compact = false, hand
     const from = takePayoutReturn();
     if (from) router.replace(from);
   }, [returnState, ready, router]);
-  const start = useCallback(async (manage = false) => {
+  const start = useCallback(async (manage = false, expiredLink = false) => {
     if (!token || !active || disabled || inFlight.current === scope) return;
+    // Stripe's bank settings never return here, so on the web they open in a
+    // new tab and this one keeps its unlocked vault. Opened inside the click.
+    const tab = manage && !isNative() ? window.open("about:blank", "_blank") : null;
+    if (tab) tab.opener = null;
     const epoch = snapshotVaultSessionEpoch();
     const current = () => currentScope.current === scope && isVaultSessionEpochCurrent(epoch);
     inFlight.current = scope;
@@ -172,12 +199,16 @@ export function DocumentPayoutAccountCard({ active = true, compact = false, hand
     setActionError(null);
     try {
       const { url } = await (manage ? DocumentPayoutService.manage(token) : DocumentPayoutService.onboard(token));
-      if (!current()) return;
+      if (!current()) { tab?.close(); return; }
       const link = documentPayoutLinkUrl(url, manage ? "management" : "onboarding");
       // Only onboarding returns here. A retry after that return keeps the first origin.
-      if (!manage && !returnState) rememberPayoutReturn(origin);
-      window.location.assign(link);
+      if (!manage && !returnState && refreshed.current !== scope) rememberPayoutReturn(origin);
+      if (tab) tab.location.replace(link);
+      // The fresh link takes the expired one's place, so Back can't reopen it.
+      else if (expiredLink) window.location.replace(link);
+      else window.location.assign(link);
     } catch (error) {
+      tab?.close();
       if (current()) setActionError({ scope, text: payoutErrorCopy(error, "Couldn't open bank setup. Try again.") });
     } finally {
       if (inFlight.current === scope) inFlight.current = null;
@@ -187,8 +218,13 @@ export function DocumentPayoutAccountCard({ active = true, compact = false, hand
   useEffect(() => {
     if (!active || returnState !== "refresh" || !token || refreshed.current === scope) return;
     refreshed.current = scope;
-    void start();
-  }, [active, returnState, start, token, scope]);
+    // Drop Stripe's marker first, so returning to this page can't start setup again.
+    const query = new URLSearchParams(searchParams.toString());
+    query.delete("documentPayouts");
+    const rest = query.toString();
+    router.replace(rest ? `${pathname}?${rest}` : pathname, { scroll: false });
+    void start(false, true);
+  }, [active, returnState, start, token, scope, searchParams, pathname, router]);
   if (!active || !token) return null;
   const busy = busyScope === scope;
   const canManage = Boolean(account?.detailsSubmitted && (account.canManageBank ?? ready));
@@ -198,15 +234,17 @@ export function DocumentPayoutAccountCard({ active = true, compact = false, hand
   const bankLabel = account?.bank
     ? [account.bank.name || "Bank", account.bank.last4 ? `•••• ${account.bank.last4}` : null].filter(Boolean).join(" ")
     : null;
+  // Stripe reports only the default bank, the one that receives deposits.
   const description = resource.failed ? "Bank status unavailable"
     : account?.bankStatus === "needs_attention" ? "Update your bank"
     : account?.bankStatus === "missing" ? "Bank needed"
     : bankCheckUnavailable ? "Bank check unavailable"
     : account?.status === "restricted" ? "Verification needed"
-    : bankLabel || (data?.stripeMode === "test" ? "Test payouts" : "US payouts");
+    : bankLabel ? `${bankLabel} · Default for deposits`
+    : stripeMode === "test" ? "Test payouts" : "US payouts";
   return (
     <section aria-label="Document payouts" className="space-y-4">
-      <SettingsGroup title={compact ? undefined : "Bank account"} embedded={compact} density="compact">
+      <SettingsGroup title={compact ? undefined : stripeMode === "test" ? "Test bank account" : "Bank account"} embedded={compact} density="compact">
         <SettingsRow icon={ProfileAccountBankIcon} iconTone="capability"
           title={ready && !resource.failed ? "Bank linked" : "Payout bank"} description={description}
           ariaLabel={retryBankCheck ? "Retry bank check" : label} chevron disabled={busy || disabled || resource.loading}
@@ -222,7 +260,7 @@ export function DocumentPayoutAccountCard({ active = true, compact = false, hand
       </SettingsGroup>
       {bankCheckUnavailable && !resource.failed ? <Button type="button" size="sm" effect="fade" variant="none"
         disabled={busy || disabled} onClick={resource.retry}>Retry</Button> : null}
-      {canManage && !compact ? <HelperText className="profile-account-note">Manage banks in Stripe. Replace your payout bank before removing it.</HelperText> : null}
+      {canManage && !compact ? <HelperText className="profile-account-note">Change your bank in Stripe. Deposits go to the bank shown here.</HelperText> : null}
       {resource.failed ? <div><HelperText role="alert" className="profile-account-note">{payoutErrorCopy(resource.error, "Couldn't check your bank. Try again.")}</HelperText>
         {canManage ? <Button type="button" size="sm" effect="fade" variant="none" onClick={resource.retry}>Retry</Button> : null}</div> : null}
       {actionError?.scope === scope ? <HelperText role="alert" className="profile-account-note">{actionError.text}</HelperText> : null}
@@ -331,7 +369,7 @@ function bankPayoutCopy(payout: DocumentBankPayout): string {
 export function DocumentBankPayoutStatusCard({ compact = false, refreshOnFeedChange = false, onVisibleChange }: {
   compact?: boolean; refreshOnFeedChange?: boolean; onVisibleChange?: (visible: boolean) => void;
 }) {
-  const resource = usePayoutSnapshot(DocumentPayoutService.bankPayouts, { bankOnly: true, refreshOnFeedChange });
+  const resource = usePayoutSnapshot(DocumentPayoutService.bankPayouts, { bankOnly: true, refreshOnFeedChange, ignoreReadyEvent: true });
   const payouts = resource.data?.payouts;
   const test = resource.data?.stripeMode === "test";
   const latest = payouts?.[0] ?? null;
