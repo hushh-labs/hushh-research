@@ -17,7 +17,9 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -46,6 +48,14 @@ _CONFIG_ARGS = (
     "nws_nearby_v4_api_base_url nws_nearby_v4_api_key_source_project "
     "nws_nearby_v4_api_key_source_secret"
 ).split()
+
+
+@pytest.fixture(autouse=True)
+def _restore_generated_runtime_environment():
+    # Hydration directly inserts even initially absent keys beyond the setting
+    # under test. Restore the full environment so later tests retain their mode.
+    with patch.dict(os.environ):
+        yield
 
 
 def _load_sync_module():
