@@ -941,11 +941,27 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             connection.execute(
                 text("""UPDATE hashcoin_wallets w SET held=FALSE
               WHERE w.wallet_id IN (:wallet,:sandbox) AND w.erased_at IS NULL
+              AND (SELECT COALESCE(sum(amount_coins),0)
+                FROM hashcoin_ledger_entries e WHERE e.wallet_id=w.wallet_id)>=0
               AND NOT EXISTS (SELECT 1 FROM drive_request_owner_payouts p
                 WHERE p.status='hashcoins_held' AND
-                  (p.wallet_id=w.wallet_id OR p.sandbox_wallet_id=w.wallet_id))"""),
+                  (p.wallet_id=w.wallet_id OR p.sandbox_wallet_id=w.wallet_id))
+              AND NOT EXISTS (SELECT 1 FROM hashcoin_redemptions r
+                LEFT JOIN drive_request_owner_payouts p ON p.request_id=r.source_request_id
+                WHERE r.wallet_id=w.wallet_id AND r.stripe_mode='live'
+                  AND r.reversal_status<>'reversed'
+                  AND (r.provider_review_reason IS NOT NULL OR
+                    (p.status='hashcoins_reversed' AND
+                      r.status IN ('dispatching','unknown','succeeded'))))"""),
                 {"wallet": row["wallet_id"], "sandbox": row["sandbox_wallet_id"]},
             )
+        if (held and row["status"] != "hashcoins_held") or release:
+            for wallet in connection.execute(
+                text("""SELECT DISTINCT user_id FROM hashcoin_wallets
+                  WHERE wallet_id IN (:wallet,:sandbox) AND user_id IS NOT NULL"""),
+                {"wallet": row["wallet_id"], "sandbox": row["sandbox_wallet_id"]},
+            ).mappings():
+                HashcoinWalletService._notify(connection, dict(wallet))
 
     async def _adopt_production_transfer_accounts(self, request_ids: list[str]) -> None:
         """Existing live earnings must not wait for the owner to reopen Profile.

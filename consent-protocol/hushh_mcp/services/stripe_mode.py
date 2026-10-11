@@ -75,3 +75,35 @@ def connect_config() -> tuple[str, str]:
     if not key.startswith(f"sk_{mode}_") or len(key) < 24:
         raise ValueError("stripe_connect_key_mode_mismatch")
     return key, mode
+
+
+def live_hashcoin_platform_key_configured() -> bool:
+    """Prove this UAT Connect key is the same platform key as document Checkout."""
+    try:
+        if (
+            (os.getenv("ENVIRONMENT") or "").strip().lower() != "uat"
+            or stripe_environment() != "uat"
+            or configured_stripe_mode() != "live"
+        ):
+            return False
+        key, mode = connect_config()
+        payment_key = (os.getenv("STRIPE_SECRET_KEY") or "").strip()
+        return mode == "live" and stripe_key_mode(payment_key) == "live" and key == payment_key
+    except ValueError:
+        return False
+
+
+def live_hashcoin_redemption_enabled() -> bool:
+    """Allow new real withdrawals only behind an explicit UAT feature flag."""
+    payment_webhook_secret = (os.getenv("STRIPE_WEBHOOK_SECRET") or "").strip()
+    connect_webhook_secret = (os.getenv("STRIPE_CONNECT_WEBHOOK_SECRET") or "").strip()
+    return (
+        (os.getenv("DRIVE_REQUEST_HASHCOINS_ENABLED") or "").strip().lower() == "true"
+        and (os.getenv("DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED") or "").strip().lower() == "true"
+        and live_hashcoin_platform_key_configured()
+        and payment_webhook_secret.startswith("whsec_")
+        and len(payment_webhook_secret) >= 20
+        and connect_webhook_secret.startswith("whsec_")
+        and len(connect_webhook_secret) >= 20
+        and connect_webhook_secret != payment_webhook_secret
+    )

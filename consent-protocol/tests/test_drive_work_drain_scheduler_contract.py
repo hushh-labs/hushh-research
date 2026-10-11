@@ -660,14 +660,34 @@ def test_uat_sandbox_connect_does_not_change_live_checkout_binding():
 
 
 @pytest.mark.parametrize(
-    "mode,secret_ready,expected", [("test", True, 0), ("live", True, 1), ("test", False, 1)]
+    ("connect_mode", "payment_mode", "connect_key", "live_flag", "secret_state", "expected"),
+    [
+        ("test", "live", "STRIPE_SECRET_KEY", "false", "ENABLED", 0),
+        ("test", "live", "STRIPE_SECRET_KEY", "false", "MISSING", 1),
+        ("test", "live", "STRIPE_SECRET_KEY", "true", "ENABLED", 1),
+        ("live", "live", "STRIPE_LIVE_SECRET_KEY", "false", "ENABLED", 0),
+        ("live", "live", "STRIPE_LIVE_SECRET_KEY", "true", "ENABLED", 0),
+        ("live", "test", "STRIPE_LIVE_SECRET_KEY", "true", "ENABLED", 1),
+        ("live", "live", "STRIPE_SECRET_KEY", "true", "ENABLED", 1),
+        ("live", "live", "STRIPE_LIVE_SECRET_KEY", "true", "DISABLED", 1),
+    ],
 )
-def test_hashcoin_deploy_preflight_checks_isolated_secret_project(mode, secret_ready, expected):
+def test_hashcoin_deploy_preflight_checks_isolated_secret_project(
+    connect_mode, payment_mode, connect_key, live_flag, secret_state, expected
+):
     script = """
 set -euo pipefail
 gcloud() {
-  [[ "$*" == "secrets describe "*" --project=hushh-pda-uat" ]] || return 2
-  [[ "$SECRET_READY" == "true" ]]
+  if [[ "$*" == "secrets describe "*" --project=hushh-pda-uat" ]]; then
+    [[ "$SECRET_STATE" != MISSING ]]
+    return
+  fi
+  if [[ "$*" == "secrets versions describe latest "*" --project=hushh-pda-uat --format=value(state)" ]]; then
+    [[ "$SECRET_STATE" != MISSING ]] || return 1
+    printf '%s\\n' "$SECRET_STATE"
+    return
+  fi
+  return 2
 }
 source deploy/drive/verify_hashcoin_config.sh hushh-pda-uat
 """
@@ -677,10 +697,16 @@ source deploy/drive/verify_hashcoin_config.sh hushh-pda-uat
         env={
             **os.environ,
             "_DRIVE_REQUEST_HASHCOINS_ENABLED": "true",
-            "_STRIPE_CONNECT_MODE": mode,
-            "_STRIPE_CONNECT_SECRET_KEY_SECRET": "STRIPE_SECRET_KEY",
+            "_DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED": live_flag,
+            "_STRIPE_MODE": payment_mode,
+            "_STRIPE_SECRET_KEY_SECRET": "STRIPE_LIVE_SECRET_KEY"
+            if payment_mode == "live"
+            else "STRIPE_SECRET_KEY",
+            "_STRIPE_CONNECT_MODE": connect_mode,
+            "_STRIPE_CONNECT_SECRET_KEY_SECRET": connect_key,
+            "_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET": "STRIPE_LIVE_CONNECT_WEBHOOK_SECRET",
             "_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET": "STRIPE_CONNECT_WEBHOOK_SECRET",
-            "SECRET_READY": str(secret_ready).lower(),
+            "SECRET_STATE": secret_state,
         },
         capture_output=True,
         text=True,

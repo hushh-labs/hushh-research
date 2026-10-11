@@ -18510,6 +18510,160 @@
     },
     {
       "aliases": [
+        "Redeem Hussh Coins",
+        "redeem my earnings",
+        "cash out my coins"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_owner_token"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.payouts.redeem",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Transfers one eligible document earning from Hussh Coins to the owner's verified live Stripe account. Bank deposit follows the owner's Stripe payout settings.",
+      "execution": {
+        "binding_ref": "semantic_action:profile.payouts.redeem",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "profile.payouts.redeem"
+        }
+      },
+      "goal_id": "goal.profile.payouts.redeem",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Redeem Hussh Coins",
+      "navigation": {
+        "fallback": "profile.payouts.redeem",
+        "routes": [
+          "/one/profile/payouts"
+        ],
+        "screens": [
+          "profile_payouts"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "Hussh Coins",
+        "redeem",
+        "bank payout"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Back to Agents",
         "back to agents"
       ],
@@ -38950,7 +39104,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "ba25ee7a63a4fc955d5161cc63b0857ddd8801d4f9cbe53b3f26fcb20ea72787",
+      "projection_digest": "fef55e9f46937326ce8855437965551b32030724c7431905b006fcbf4d6b1449",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -38969,7 +39123,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
       },
-      "source_revision": "f5ab7ee0b4be478b",
+      "source_revision": "c58f84b46c451af7",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -40487,7 +40641,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "f5ab7ee0b4be478b",
+    "source_revision": "c58f84b46c451af7",
     "web": {
       "actions": [
         {
@@ -40530,7 +40684,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "320e793c01a50160077d0614966a3f3678f9895d43d9464b63a9c71edb4b9de4",
+      "projection_digest": "0de6759d29d8d9bcc3648fe735e30889abe5d1845356dc919a7dcc165978b09d",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -40549,7 +40703,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
       },
-      "source_revision": "f5ab7ee0b4be478b",
+      "source_revision": "c58f84b46c451af7",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -42106,7 +42260,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "f5ab7ee0b4be478b",
+  "revision": "c58f84b46c451af7",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -43009,6 +43163,7 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.payouts.redeem",
         "profile.payouts.test_redeem",
         "profile.reset_account",
         "profile.set_contact_discoverable",
@@ -43059,6 +43214,7 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.payouts.redeem",
         "profile.payouts.test_redeem",
         "profile.reset_account",
         "profile.set_contact_discoverable",
@@ -43091,6 +43247,7 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.payouts.redeem",
         "profile.payouts.test_redeem",
         "profile.reset_account",
         "profile.set_contact_discoverable",
@@ -43226,6 +43383,7 @@
     },
     {
       "action_ids": [
+        "profile.payouts.redeem",
         "profile.payouts.test_redeem",
         "route.profile_payouts"
       ],
@@ -43924,9 +44082,16 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:profile.payouts.redeem"
+    ],
     "breaking": [],
-    "changed": [],
+    "changed": [
+      "screens:screen:/one/profile",
+      "screens:screen:/one/profile/account",
+      "screens:screen:/one/profile/account/phone",
+      "screens:screen:/one/profile/payouts"
+    ],
     "compatible": [],
     "deprecated": [],
     "from_revision": "807f7c1adc601995",
@@ -46159,18 +46324,18 @@
     "capability_graph_evolution": "96b63878194651962b7fd3deceaac9d6223f7b170c16c67f813a3c72ca911946",
     "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "3ac47552bcd39ef7d6a5749dac34af846a41aa6eb37508bd2b1a40488b6bc7ca",
+    "kai_action_gateway": "b57ae04f7519a4ed4e3df054ce393d2ad6f004ee6b8be6c99fb8641fb9f22179",
     "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
     "location_knowledge_package": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "01b1ae85c91c4e85dd879f023bdc41a3878b473107342bc63528de0b0c453d2e",
-    "route_orchestration_index": "9f6c7e0bb77d3fe2c1df9c476d3de5e09ee56a65f51de1f301733da8d03839dd",
+    "route_orchestration_index": "9d7b3a12a33d7349366c6e0531bd0c3ebe00ad74f182703284227cf06ac935ed",
     "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
   },
-  "source_revision": "f5ab7ee0b4be478b",
+  "source_revision": "c58f84b46c451af7",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "f5ab7ee0b4be478b",
+    "current_graph_revision": "c58f84b46c451af7",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {

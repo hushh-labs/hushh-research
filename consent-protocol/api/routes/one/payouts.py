@@ -247,7 +247,11 @@ def _hashcoin_error(exc: Exception) -> HTTPException:
         return HTTPException(status_code=503, detail={"code": exc.code, "message": str(exc)})
     if isinstance(exc, HashcoinError):
         code, message = {
-            "insufficient_balance": ("HASHCOINS_INSUFFICIENT", "Not enough test coins."),
+            "insufficient_balance": ("HASHCOINS_INSUFFICIENT", "Not enough redeemable coins."),
+            "live_source_unavailable": (
+                "REDEMPTION_SOURCE_UNAVAILABLE",
+                "This earning is not available for withdrawal. Refresh and try again.",
+            ),
             "wallet_held": ("HASHCOINS_HELD", "These earnings are under review."),
             "redemption_mismatch": ("REDEMPTION_CONFLICT", "Use the original redemption amount."),
             "invalid_amount": ("INVALID_AMOUNT", "Enter a valid coin amount."),
@@ -255,14 +259,14 @@ def _hashcoin_error(exc: Exception) -> HTTPException:
                 "LIVE_REDEMPTION_DISABLED",
                 "Real bank withdrawals are not available yet.",
             ),
-        }.get(exc.code, ("PAYOUT_UNAVAILABLE", "Test payouts are unavailable. Try again."))
+        }.get(exc.code, ("PAYOUT_UNAVAILABLE", "Payouts are unavailable. Try again."))
         return HTTPException(status_code=409, detail={"code": code, "message": message})
     logger.warning("hashcoin.request_failed type=%s", type(exc).__name__)
     return HTTPException(
         status_code=503,
         detail={
             "code": "PAYOUT_UNAVAILABLE",
-            "message": "Test payouts are unavailable. Try again.",
+            "message": "Payouts are unavailable. Try again.",
         },
     )
 

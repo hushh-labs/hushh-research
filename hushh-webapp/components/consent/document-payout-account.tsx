@@ -30,6 +30,7 @@ const PAYOUT_READY_SOURCE = "document_payout_ready";
 // here is kept for this tab. The session helpers guard every storage access.
 const PAYOUT_RETURN_KEY = "one_document_payout_return_v1";
 const PAYOUT_RETURN_TTL_MS = 60 * 60 * 1000;
+export const PAYOUT_FALLBACK_POLL_MS = 45_000;
 function rememberPayoutReturn(from: string | null): void {
   if (from) setSessionItem(PAYOUT_RETURN_KEY, JSON.stringify({ from, at: Date.now() }));
   else removeSessionItem(PAYOUT_RETURN_KEY);
@@ -90,6 +91,11 @@ export function usePayoutSnapshot<T>(load: (token: string) => Promise<T>, {
       }
     };
     void refresh();
+    // SSE is the fast path. A bounded visible-page read repairs a missed
+    // notification while Payouts remains open, without polling in background.
+    const poll = window.setInterval(() => {
+      if (!document.hidden) void refresh();
+    }, PAYOUT_FALLBACK_POLL_MS);
     const onChange = (event: Event) => {
       const detail = (event as CustomEvent<{ source?: string; requestId?: string }>).detail;
       if ((ignoreReadyEvent && detail?.source === PAYOUT_READY_SOURCE) || (bankOnly && detail?.requestId)) return;
@@ -102,6 +108,7 @@ export function usePayoutSnapshot<T>(load: (token: string) => Promise<T>, {
     return () => {
       cancelled = true;
       liveScope.current = null;
+      window.clearInterval(poll);
       window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, onChange);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onFocus);
