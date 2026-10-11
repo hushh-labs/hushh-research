@@ -18,7 +18,13 @@ import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vau
 import { useVault } from "@/lib/vault/vault-context";
 
 /** Future-request default; an existing quote keeps its agreed price. */
-export function DocumentRequestPricingCard() {
+export function DocumentRequestPricingCard({ onSaved }: {
+  /**
+   * Runs once per confirmed default price, after the consent-state dispatch.
+   * "Ask each time" leaves waiting requests unpriced, so the owner stays here.
+   */
+  onSaved?: () => void;
+}) {
   const { vaultOwnerToken } = useVault();
   const priceId = useId();
   const session = useRef(0);
@@ -84,6 +90,7 @@ export function DocumentRequestPricingCard() {
       setDollars(next.enabled ? String(next.amountCents / 100) : "");
       setNotice(next.enabled ? "Default price saved." : "You'll set a price for each request.");
       dispatchConsentStateChanged({ source: "document_request_pricing" });
+      if (next.enabled) onSaved?.();
     } catch (cause) {
       if (!current()) return;
       if (apiErrorCode(cause) === "price_changed") {

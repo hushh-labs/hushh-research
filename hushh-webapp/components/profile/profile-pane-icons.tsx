@@ -29,6 +29,13 @@ function PaneIcon({
   );
 }
 
+export function ProfilePaneCopyIcon(props: ProfilePaneIconProps) {
+  return <PaneIcon {...props}>
+    <path className="profile-pane-icon-accent" d="M9 5V3h12v12h-2" />
+    <rect x="3" y="9" width="12" height="12" rx="1.5" />
+  </PaneIcon>;
+}
+
 export function ProfilePaneAccountIcon(props: ProfilePaneIconProps) {
   return (
     <PaneIcon {...props}>
@@ -220,4 +227,8 @@ export function ProfilePaneScanIcon(props: ProfilePaneIconProps) {
 
 export function ProfilePaneHistoryIcon(props: ProfilePaneIconProps) {
   return <PaneIcon {...props}><circle cx="12" cy="12" r="9" /><path className="profile-pane-icon-accent" d="M12 6v6l4 2" /></PaneIcon>;
+}
+
+export function ProfilePaneSearchIcon(props: ProfilePaneIconProps) {
+  return <PaneIcon {...props}><circle cx="10.5" cy="10.5" r="6.5" /><path className="profile-pane-icon-accent" d="m15.5 15.5 5 5" /></PaneIcon>;
 }

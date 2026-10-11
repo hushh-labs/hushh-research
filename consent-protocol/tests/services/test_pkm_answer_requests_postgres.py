@@ -14,6 +14,7 @@ proxy or any non-test target outright.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -36,12 +37,16 @@ from tests.services.test_external_connector_lifecycle_postgres import (  # noqa:
 OWNER = "owner-account-A"
 REQUESTER = "requester-account-B"
 MIGRATIONS = [
+    # latest expansion is appended below; preserve production migration ordering.
     Path(__file__).resolve().parents[2] / "db" / "migrations" / "300_pkm_answer_requests.sql",
     Path(__file__).resolve().parents[2]
     / "db"
     / "migrations"
     / "301_pkm_answer_refunds_payouts.sql",
 ]
+MIGRATIONS.append(
+    Path(__file__).resolve().parents[2] / "db/migrations/305_pkm_answer_payment_recovery.sql"
+)
 
 # The owner's registry. attr.financial.holdings is deliberately present so a
 # resolver over-reach can be distinguished from a legitimate narrow answer.
@@ -71,7 +76,7 @@ def answer_engine(connector_postgres_url):  # noqa: F811
         # document so it is a record of a person, not a bag of fields.
         connection.exec_driver_sql(
             """CREATE TABLE IF NOT EXISTS actor_identity_cache (
-                 user_id TEXT PRIMARY KEY, display_name TEXT, email TEXT)"""
+                 user_id TEXT PRIMARY KEY, display_name TEXT, email TEXT, photo_url TEXT, custom_photo_url TEXT)"""
         )
         # Consent lifecycle authority. Asserted empty by the standing-grant
         # test: this lane must not write one.
@@ -80,10 +85,6 @@ def answer_engine(connector_postgres_url):  # noqa: F811
                  id BIGSERIAL PRIMARY KEY, token_id TEXT NOT NULL, user_id TEXT NOT NULL,
                  agent_id TEXT NOT NULL, scope TEXT NOT NULL, action TEXT NOT NULL,
                  issued_at BIGINT NOT NULL)"""
-        )
-        connection.exec_driver_sql(
-            """CREATE TABLE IF NOT EXISTS users (
-                 id TEXT PRIMARY KEY, email TEXT, display_name TEXT, photo_url TEXT)"""
         )
         # Migration 298's mode-isolated account, and migration 280's legacy
         # one. The payout worker prefers the former so a live answer is never
@@ -152,7 +153,6 @@ def clean(answer_engine):
     with answer_engine.begin() as connection:
         connection.exec_driver_sql("DELETE FROM consent_audit")
         connection.exec_driver_sql("DELETE FROM actor_identity_cache")
-        connection.exec_driver_sql("DELETE FROM users")
         connection.exec_driver_sql("DELETE FROM stripe_owner_payout_accounts")
         connection.exec_driver_sql("DELETE FROM pkm_owner_payout_accounts")
         # Child-first: webhook events, refunds and payouts all reference the
@@ -186,7 +186,9 @@ def clean(answer_engine):
             {"u": OWNER},
         )
         connection.execute(
-            text("INSERT INTO users (id, photo_url) VALUES (:u, 'https://example.test/a.png')"),
+            text(
+                "UPDATE actor_identity_cache SET photo_url='https://example.test/a.png' WHERE user_id=:u"
+            ),
             {"u": OWNER},
         )
         for handle, label in OWNER_SCOPES:
@@ -202,6 +204,25 @@ def clean(answer_engine):
 
 def _db(engine):
     return SimpleNamespace(engine=engine)
+
+
+def _fixture_catalog(engine):
+    # This minimal PostgreSQL fixture models the already canonical catalog
+    # port, not the production opaque registry-to-manifest projection.
+    async def catalog(requester_user_id, owner_user_id):
+        del requester_user_id
+        with engine.begin() as connection:
+            return [
+                dict(row)
+                for row in connection.execute(
+                    text(
+                        "SELECT scope_handle AS scope, scope_label AS label FROM pkm_scope_registry WHERE user_id=:owner AND visibility_posture='consent_required'"
+                    ),
+                    {"owner": owner_user_id},
+                ).mappings()
+            ]
+
+    return catalog
 
 
 class StubResolver:
@@ -220,7 +241,9 @@ class StubResolver:
 
 
 async def _ask(engine, resolver):
-    service = PkmAnswerRequestService(_db(engine), resolver=resolver)
+    service = PkmAnswerRequestService(
+        _db(engine), resolver=resolver, catalog_reader=_fixture_catalog(engine)
+    )
     created = await service.create(
         requester_user_id=REQUESTER,
         owner_user_id=OWNER,
@@ -237,13 +260,15 @@ def _mark_paid(engine, request_id, digest, amount=1000):
             text(
                 """INSERT INTO pkm_answer_payment_orders
                    (request_id,owner_user_id,requester_user_id,amount_cents,
-                    terms_digest,status,paid_at)
-                   VALUES (:r,:o,:q,:a,:d,'paid',clock_timestamp())"""
+                    terms_digest,status,paid_at,stripe_mode,stripe_payment_intent_id)
+                   VALUES (:r,:o,:q,:a,:d,'paid',clock_timestamp(),'test','pi_x')"""
             ),
             {"r": request_id, "o": OWNER, "q": REQUESTER, "a": amount, "d": digest},
         )
         connection.execute(
-            text("UPDATE pkm_answer_requests SET status='answering' WHERE request_id=:r"),
+            text(
+                "UPDATE pkm_answer_requests SET status='answering', answer_deadline_at=clock_timestamp()+INTERVAL '72 hours' WHERE request_id=:r"
+            ),
             {"r": request_id},
         )
 
@@ -276,6 +301,7 @@ class TestHappyPath:
             request_id=request_id,
             scopes=["attr.travel.trips"],
             amount_cents=1000,
+            model_processing_consent=True,
         )
         expected = compute_terms_digest(
             question="How much did you spend on travel last year?",
@@ -333,6 +359,7 @@ class TestOwnerIdentityTravelsWithTheWork:
             request_id=request_id,
             scopes=["attr.travel.trips"],
             amount_cents=1000,
+            model_processing_consent=True,
         )
         _mark_paid(answer_engine, request_id, approved["termsDigest"])
 
@@ -345,13 +372,13 @@ class TestOwnerIdentityTravelsWithTheWork:
     async def test_a_missing_identity_does_not_strand_the_answer(self, answer_engine):  # noqa: F811
         with answer_engine.begin() as connection:
             connection.exec_driver_sql("DELETE FROM actor_identity_cache")
-            connection.exec_driver_sql("DELETE FROM users")
-        service, request_id = await _ask(answer_engine, StubResolver(["attr.travel.trips"]))
+            service, request_id = await _ask(answer_engine, StubResolver(["attr.travel.trips"]))
         approved = await service.approve(
             owner_user_id=OWNER,
             request_id=request_id,
             scopes=["attr.travel.trips"],
             amount_cents=1000,
+            model_processing_consent=True,
         )
         _mark_paid(answer_engine, request_id, approved["termsDigest"])
         work = await service.claim_answerable(owner_user_id=OWNER)
@@ -379,6 +406,7 @@ class TestScopeIsolation:
                 request_id=request_id,
                 scopes=["attr.travel.trips", "attr.financial.holdings"],
                 amount_cents=1000,
+                model_processing_consent=True,
             )
 
     async def test_a_skipped_resolver_is_recorded_not_guessed(self, answer_engine):
@@ -386,14 +414,20 @@ class TestScopeIsolation:
         inbox = await service.pending_for_owner(owner_user_id=OWNER)
         assert inbox[0]["resolutionMode"] == "skipped"
         assert inbox[0]["resolutionSkippedReason"] == "resolver_failed"
-        # Critically: no scopes were invented to cover the gap.
-        assert inbox[0]["proposedScopes"] == []
+        # Explicit manual selection offers only the existing safe catalog.
+        assert {row["scope"] for row in inbox[0]["proposedScopes"]} == {
+            "attr.travel.trips",
+            "attr.preferences.food",
+            "attr.financial.holdings",
+        }
 
 
 class TestConnectionGate:
     async def test_a_stranger_cannot_ask(self, answer_engine):
         service = PkmAnswerRequestService(
-            _db(answer_engine), resolver=StubResolver(["attr.travel.trips"])
+            _db(answer_engine),
+            catalog_reader=_fixture_catalog(answer_engine),
+            resolver=StubResolver(["attr.travel.trips"]),
         )
         with pytest.raises(AnswerRequestError, match="connection_required"):
             await service.create(
@@ -406,7 +440,9 @@ class TestConnectionGate:
         with answer_engine.begin() as connection:
             connection.exec_driver_sql("UPDATE connections SET status='revoked'")
         service = PkmAnswerRequestService(
-            _db(answer_engine), resolver=StubResolver(["attr.travel.trips"])
+            _db(answer_engine),
+            catalog_reader=_fixture_catalog(answer_engine),
+            resolver=StubResolver(["attr.travel.trips"]),
         )
         with pytest.raises(AnswerRequestError, match="connection_required"):
             await service.create(
@@ -424,10 +460,13 @@ class TestPaymentGate:
             request_id=request_id,
             scopes=["attr.travel.trips"],
             amount_cents=1000,
+            model_processing_consent=True,
         )
         with answer_engine.begin() as connection:
             connection.execute(
-                text("UPDATE pkm_answer_requests SET status='answering' WHERE request_id=:r"),
+                text(
+                    "UPDATE pkm_answer_requests SET status='answering', answer_deadline_at=clock_timestamp()+INTERVAL '72 hours' WHERE request_id=:r"
+                ),
                 {"r": request_id},
             )
         with pytest.raises(AnswerPaymentError, match="payment_required"):
@@ -446,6 +485,7 @@ class TestPaymentGate:
             request_id=request_id,
             scopes=["attr.travel.trips"],
             amount_cents=1000,
+            model_processing_consent=True,
         )
         _mark_paid(answer_engine, request_id, approved["termsDigest"])
         # The owner's terms change after the money settled.
@@ -464,6 +504,7 @@ class TestPaymentGate:
             request_id=request_id,
             scopes=["attr.travel.trips"],
             amount_cents=1000,
+            model_processing_consent=True,
         )
         _mark_paid(answer_engine, request_id, approved["termsDigest"])
         with pytest.raises(AnswerRequestError, match="invalid_envelope"):
@@ -482,6 +523,7 @@ class TestRecovery:
             request_id=request_id,
             scopes=["attr.travel.trips"],
             amount_cents=1000,
+            model_processing_consent=True,
         )
         _mark_paid(answer_engine, request_id, approved["termsDigest"])
         with answer_engine.begin() as connection:
@@ -514,6 +556,7 @@ class TestRecovery:
             request_id=request_id,
             scopes=["attr.travel.trips"],
             amount_cents=1000,
+            model_processing_consent=True,
         )
         _mark_paid(answer_engine, request_id, approved["termsDigest"])
         with answer_engine.begin() as connection:
@@ -552,6 +595,7 @@ class TestRecovery:
             request_id=request_id,
             scopes=["attr.travel.trips"],
             amount_cents=1000,
+            model_processing_consent=True,
         )
         await service.cancel(requester_user_id=REQUESTER, request_id=request_id)
         with answer_engine.begin() as connection:
@@ -574,6 +618,7 @@ class TestFeed:
             request_id=request_id,
             scopes=["attr.travel.trips"],
             amount_cents=1000,
+            model_processing_consent=True,
         )
         _mark_paid(answer_engine, request_id, approved["termsDigest"])
         await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
@@ -613,6 +658,7 @@ class TestObligationMirror:
             request_id=request_id,
             scopes=["attr.travel.trips"],
             amount_cents=1000,
+            model_processing_consent=True,
         )
         _mark_paid(answer_engine, request_id, approved["termsDigest"])
         with answer_engine.begin() as connection:
@@ -632,3 +678,80 @@ class TestObligationMirror:
         # A 64-char hash that cannot be read back to the requester's id.
         assert len(row["payer_ref"]) == 64
         assert REQUESTER not in row["payer_ref"]
+
+
+@pytest.mark.parametrize("transition", ["cancel", "revoke"])
+async def test_late_resolver_respects_terminal_state_and_connection(answer_engine, transition):
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    class DelayedResolver:
+        async def propose_scopes(self, **kwargs):
+            entered.set()
+            await release.wait()
+            return ["attr.travel.trips"]
+
+    service = PkmAnswerRequestService(
+        _db(answer_engine),
+        resolver=DelayedResolver(),
+        catalog_reader=_fixture_catalog(answer_engine),
+    )
+    task = asyncio.create_task(
+        service.create(
+            requester_user_id=REQUESTER,
+            owner_user_id=OWNER,
+            question="Where did you travel last year?",
+        )
+    )
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        with answer_engine.begin() as connection:
+            request_id = str(
+                connection.execute(text("SELECT request_id FROM pkm_answer_requests")).scalar_one()
+            )
+        if transition == "cancel":
+            await service.cancel(requester_user_id=REQUESTER, request_id=request_id)
+        else:
+            with answer_engine.begin() as connection:
+                connection.execute(text("UPDATE connections SET status='revoked'"))
+        release.set()
+        with pytest.raises(AnswerRequestError) as error:
+            await asyncio.wait_for(task, 5)
+        assert str(error.value) == (
+            "request_not_resolvable" if transition == "cancel" else "connection_required"
+        )
+        with answer_engine.begin() as connection:
+            assert (
+                connection.execute(
+                    text("SELECT count(*) FROM pkm_answer_request_scopes")
+                ).scalar_one()
+                == 0
+            )
+            assert connection.execute(
+                text("SELECT status FROM pkm_answer_requests")
+            ).scalar_one() == ("cancelled" if transition == "cancel" else "pending_resolution")
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_approval_rechecks_current_private_scope_posture(answer_engine):
+    service, request_id = await _ask(answer_engine, StubResolver(["attr.travel.trips"]))
+    with answer_engine.begin() as connection:
+        connection.execute(text("UPDATE pkm_scope_registry SET visibility_posture='private'"))
+    with pytest.raises(AnswerRequestError, match="scope_not_offered"):
+        await service.approve(
+            owner_user_id=OWNER,
+            request_id=request_id,
+            scopes=["attr.travel.trips"],
+            amount_cents=1000,
+            model_processing_consent=True,
+        )
+    with answer_engine.begin() as connection:
+        assert (
+            connection.execute(text("SELECT status FROM pkm_answer_requests")).scalar_one()
+            == "awaiting_owner"
+        )
+        assert (
+            connection.execute(text("SELECT count(*) FROM pkm_answer_payment_orders")).scalar_one()
+            == 0
+        )

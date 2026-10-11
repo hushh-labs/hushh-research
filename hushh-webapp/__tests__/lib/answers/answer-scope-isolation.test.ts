@@ -2,13 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const buildConsentExportForScope = vi.fn();
 vi.mock("@/lib/consent/export-builder", () => ({
-  buildConsentExportForScope: (...args: unknown[]) => buildConsentExportForScope(...args),
+  buildConsentExportForScope: (...args: unknown[]) =>
+    buildConsentExportForScope(...args),
 }));
 // Reading a whole PKM domain is the bug this file exists to prevent. If the
 // sweep ever reaches for the domain resource again, this mock records it.
 const getStaleFirst = vi.fn();
 vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
-  PkmDomainResourceService: { getStaleFirst: (...a: unknown[]) => getStaleFirst(...a) },
+  PkmDomainResourceService: {
+    getStaleFirst: (...a: unknown[]) => getStaleFirst(...a),
+  },
 }));
 
 const answerable = vi.fn();
@@ -21,11 +24,16 @@ vi.mock("@/lib/services/answer-request-service", () => ({
     deliver: (...a: unknown[]) => deliver(...a),
   },
 }));
+const encrypt = vi.fn();
 vi.mock("@/lib/one-marketplace/encryption", () => ({
-  encryptSliceForRecipient: async () => ({ sealed: "ciphertext" }),
+  encryptSliceForRecipient: (...a: unknown[]) => encrypt(...a),
 }));
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
-import { buildAnswerPayload, runAnswerDeliverySweep } from "@/lib/answers/answer-delivery-sweep";
+import {
+  buildAnswerPayload,
+  runAnswerDeliverySweep,
+} from "@/lib/answers/answer-delivery-sweep";
 import { projectApprovedAnswer } from "@/lib/answers/answer-projection";
 import type { AnswerableWork } from "@/lib/services/answer-request-service";
 
@@ -50,6 +58,7 @@ beforeEach(() => {
   answerable.mockReset();
   compose.mockReset();
   deliver.mockReset();
+  encrypt.mockReset().mockResolvedValue({ sealed: "ciphertext" });
   compose.mockResolvedValue({ answerMode: "projection", answer: null });
   deliver.mockResolvedValue(undefined);
 });
@@ -72,7 +81,9 @@ describe("an approved field cannot expose another field in the same domain", () 
     // The whole-domain read path is never touched. This is the regression:
     // reading `travel` wholesale is what leaked siblings.
     expect(getStaleFirst).not.toHaveBeenCalled();
-    expect(Object.keys(payload.approvedInformation)).toEqual(["attr.travel.trips"]);
+    expect(Object.keys(payload.approvedInformation)).toEqual([
+      "attr.travel.trips",
+    ]);
   });
 
   it("drops a sibling projection the owner never approved", async () => {
@@ -81,7 +92,11 @@ describe("an approved field cannot expose another field in the same domain", () 
     const projected = projectApprovedAnswer({
       approvedScopes: ["attr.travel.trips"],
       projections: [
-        { scope: "attr.travel.trips", payload: { trips: ["Tokyo"] }, contentRevision: 7 },
+        {
+          scope: "attr.travel.trips",
+          payload: { trips: ["Tokyo"] },
+          contentRevision: 7,
+        },
         {
           scope: "attr.travel.passport_notes",
           payload: { passport_notes: "P<IND1234567" },
@@ -97,7 +112,10 @@ describe("an approved field cannot expose another field in the same domain", () 
 
   it("names a scope that could not be exported instead of quietly omitting it", async () => {
     buildConsentExportForScope
-      .mockResolvedValueOnce({ payload: { trips: ["Tokyo"] }, sourceContentRevision: 7 })
+      .mockResolvedValueOnce({
+        payload: { trips: ["Tokyo"] },
+        sourceContentRevision: 7,
+      })
       .mockRejectedValueOnce(new Error("no longer available to share"));
 
     const { payload } = await buildAnswerPayload(
@@ -105,12 +123,17 @@ describe("an approved field cannot expose another field in the same domain", () 
       params,
     );
 
-    expect(Object.keys(payload.approvedInformation)).toEqual(["attr.travel.trips"]);
+    expect(Object.keys(payload.approvedInformation)).toEqual([
+      "attr.travel.trips",
+    ]);
     expect(payload.unavailableScopes).toEqual(["attr.preferences.food"]);
   });
 
   it("reports no content when every approved scope is empty, so the order refunds", async () => {
-    buildConsentExportForScope.mockResolvedValue({ payload: {}, sourceContentRevision: 7 });
+    buildConsentExportForScope.mockResolvedValue({
+      payload: {},
+      sourceContentRevision: 7,
+    });
     const { hasContent } = await buildAnswerPayload(work(), params);
     expect(hasContent).toBe(false);
   });
@@ -134,7 +157,11 @@ describe("the requested period is applied before the answer is sealed", () => {
       params,
     );
 
-    const trips = (payload.approvedInformation["attr.travel.trips"] as { trips: { city: string }[] }).trips;
+    const trips = (
+      payload.approvedInformation["attr.travel.trips"] as {
+        trips: { city: string }[];
+      }
+    ).trips;
     expect(trips.map((trip) => trip.city)).toEqual(["Tokyo"]);
     expect(payload.excludedByPeriod).toBe(2);
     expect(payload.period).toEqual({ start: "2026-01-01", end: "2026-12-31" });
@@ -144,7 +171,9 @@ describe("the requested period is applied before the answer is sealed", () => {
     // Removing a record whose date this code cannot read would silently drop
     // information the owner agreed to share.
     buildConsentExportForScope.mockResolvedValue({
-      payload: { trips: [{ city: "Tokyo" }, { date: "2020-01-01", city: "Osaka" }] },
+      payload: {
+        trips: [{ city: "Tokyo" }, { date: "2020-01-01", city: "Osaka" }],
+      },
       sourceContentRevision: 7,
     });
 
@@ -153,7 +182,11 @@ describe("the requested period is applied before the answer is sealed", () => {
       params,
     );
 
-    const trips = (payload.approvedInformation["attr.travel.trips"] as { trips: { city: string }[] }).trips;
+    const trips = (
+      payload.approvedInformation["attr.travel.trips"] as {
+        trips: { city: string }[];
+      }
+    ).trips;
     expect(trips.map((trip) => trip.city)).toEqual(["Tokyo"]);
     expect(payload.excludedByPeriod).toBe(1);
   });
@@ -164,7 +197,11 @@ describe("the requested period is applied before the answer is sealed", () => {
       sourceContentRevision: 7,
     });
     const { payload } = await buildAnswerPayload(work(), params);
-    const trips = (payload.approvedInformation["attr.travel.trips"] as { trips: { city: string }[] }).trips;
+    const trips = (
+      payload.approvedInformation["attr.travel.trips"] as {
+        trips: { city: string }[];
+      }
+    ).trips;
     expect(trips).toHaveLength(1);
     expect(payload.excludedByPeriod).toBe(0);
   });
@@ -196,7 +233,10 @@ describe("a failed answer is retried and refunded, never counted as delivered", 
   it("still delivers when there is genuinely nothing to say, so the order refunds", async () => {
     // An empty answer is not a failed answer: the delivery records that there
     // was nothing in the approved scopes, and the backend refunds it.
-    buildConsentExportForScope.mockResolvedValue({ payload: {}, sourceContentRevision: 7 });
+    buildConsentExportForScope.mockResolvedValue({
+      payload: {},
+      sourceContentRevision: 7,
+    });
     answerable.mockResolvedValue([work()]);
 
     const result = await runAnswerDeliverySweep({
@@ -234,4 +274,45 @@ describe("a failed answer is retried and refunded, never counted as delivered", 
     expect(result).toMatchObject({ delivered: 1, retry: 0 });
     expect(deliver).toHaveBeenCalledTimes(1);
   });
+});
+
+describe("lock fences asynchronous answer work", () => {
+  it.each(["export", "compose", "encrypt"])(
+    "stops after lock during %s",
+    async (stage) => {
+      let release!: (value: never) => void;
+      const pending = new Promise((resolve) => {
+        release = resolve;
+      });
+      answerable.mockResolvedValue([work()]);
+      buildConsentExportForScope.mockResolvedValue({
+        payload: { trips: [{ city: "Tokyo" }] },
+      });
+      compose.mockResolvedValue({ answerMode: "agent", answer: "One trip." });
+      const selected =
+        stage === "export"
+          ? buildConsentExportForScope
+          : stage === "compose"
+            ? compose
+            : encrypt;
+      selected.mockReturnValue(pending);
+      const sweep = runAnswerDeliverySweep({
+        ...params,
+        firebaseIdToken: "token",
+      });
+      await vi.waitFor(() => expect(selected).toHaveBeenCalled());
+      advanceVaultSessionEpoch();
+      release(
+        (stage === "export"
+          ? { payload: { trips: [{ city: "Tokyo" }] } }
+          : stage === "compose"
+            ? { answerMode: "agent", answer: "One trip." }
+            : { sealed: "ciphertext" }) as never,
+      );
+      await sweep;
+      expect(deliver).not.toHaveBeenCalled();
+      if (stage === "export") expect(compose).not.toHaveBeenCalled();
+      if (stage !== "encrypt") expect(encrypt).not.toHaveBeenCalled();
+    },
+  );
 });

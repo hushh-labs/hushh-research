@@ -65,7 +65,7 @@ function FaceField({
 export function WalletCardFace({ summary, cardholderName, revealed, children, className }: WalletCardFaceProps) {
   const artwork = paymentCardArtwork(summary.cardId);
   const network = cardNetworkLabel(summary.brand);
-  const title = summary.nickname || network;
+  const title = summary.nickname?.trim();
   const groups = revealed
     ? formatCardNumber(summary.brand, revealed.pan).split(" ")
     : maskedCardNumberGroups(summary.brand, summary.last4);
@@ -88,7 +88,7 @@ export function WalletCardFace({ summary, cardholderName, revealed, children, cl
         <span className={styles.content}>
           <span data-slot="wallet-card-top" className={styles.top}>
             <span className={styles.title}>
-              {title}
+              {title && title.toLowerCase() !== network.toLowerCase() ? title : null}
             </span>
             <CardNetworkWordmark brand={summary.brand} className={styles.network} />
           </span>

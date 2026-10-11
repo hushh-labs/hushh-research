@@ -28,20 +28,36 @@ export type DocumentBankPayoutsResponse = { currency: "USD"; payouts: DocumentBa
 
 export type HashcoinBalance = {
   balanceCoins: number; reservedCoins: number; availableCoins: number; amountCents: number; held: boolean;
+  nextRedeemCoins?: number;
 };
 export type HashcoinRedemption = {
   id: string; clientRequestId?: string; amountCoins: number;
-  status: "pending" | "succeeded" | "failed" | "unknown"; stripeMode: "test";
+  status: "pending" | "succeeded" | "failed" | "unknown"; stripeMode: "test" | "live";
+  /** "unrecognized" is client-only: a newer server state this build can't name. */
+  reversalStatus?: "none" | "due" | "unknown" | "reversed" | "manual_review" | "unrecognized";
   createdAt?: string;
 };
 export type HashcoinWallet = {
   coinName: "Hussh Coins"; coinsPerDollar: 100; currency: "USD";
   live: HashcoinBalance; sandbox: HashcoinBalance;
-  payoutMode: "test" | "live"; testPayouts: boolean; liveRedemptionEnabled: false;
+  payoutMode: "test" | "live"; testPayouts: boolean; liveRedemptionEnabled: boolean;
   maxRedeemCoins: number;
   latestRedemption: HashcoinRedemption | null;
   redemptionHistory: HashcoinRedemption[];
+  /** The open redemption was unreadable, so new ones wait until it reads again. */
+  redeemBlocked?: boolean;
 };
+
+/** A Hussh Coins response broke its contract; `field` names where, never the value. */
+export class PayoutContractError extends Error {
+  readonly field: string;
+
+  constructor(message: string, field: string) {
+    super(message);
+    this.name = "PayoutContractError";
+    this.field = field;
+  }
+}
 
 const EARNING_STATUSES = ["awaiting_delivery", "awaiting_refund", "awaiting_fee", "awaiting_account",
   "due", "dispatching", "unknown", "manual_review", "transferred", "reversal_due",
@@ -67,9 +83,12 @@ export type DocumentEarning = {
 };
 export type DocumentEarningsResponse = { currency: "USD"; transactions: DocumentEarning[]; nextCursor: string | null; stripeMode?: "test" | "live" };
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
 function object(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid payout response");
-  return value as Record<string, unknown>;
+  if (!isObject(value)) throw new Error("Invalid payout response");
+  return value;
 }
 function stripeMode(body: Record<string, unknown>): { stripeMode?: "test" | "live" } {
   if (body.stripeMode === undefined) return {};
@@ -106,56 +125,93 @@ function connectLink(value: unknown, purpose: "onboarding" | "management"): { ur
   return { url: documentPayoutLinkUrl(object(value).url, purpose) };
 }
 
-function coinBalance(value: unknown): HashcoinBalance {
-  const row = object(value);
-  if (!["reservedCoins", "availableCoins"].every((key) => integer(row[key])) ||
+function coinBalance(row: unknown, field: "live" | "sandbox"): HashcoinBalance {
+  if (!isObject(row) || !["reservedCoins", "availableCoins"].every((key) => integer(row[key])) ||
       !Number.isSafeInteger(row.balanceCoins) || !Number.isSafeInteger(row.amountCents) ||
       typeof row.held !== "boolean" || row.amountCents !== row.balanceCoins || (Number(row.balanceCoins) < 0 && row.held !== true) ||
       row.availableCoins !== (row.held ? 0 : Math.max(Number(row.balanceCoins) - Number(row.reservedCoins), 0))) {
-    throw new Error("Invalid Hussh Coins balance");
+    throw new PayoutContractError("Invalid Hussh Coins balance", field);
+  }
+  if (row.nextRedeemCoins !== undefined && (!integer(row.nextRedeemCoins) || row.nextRedeemCoins > 50000 || row.nextRedeemCoins > row.availableCoins)) {
+    throw new PayoutContractError("Invalid Hussh Coins balance", `${field}.nextRedeemCoins`);
   }
   return { balanceCoins: row.balanceCoins as number, reservedCoins: row.reservedCoins as number,
-    availableCoins: row.availableCoins as number, amountCents: row.amountCents as number, held: row.held };
+    availableCoins: row.availableCoins as number, amountCents: row.amountCents as number, held: row.held,
+    ...(row.nextRedeemCoins !== undefined ? { nextRedeemCoins: row.nextRedeemCoins as number } : {}) };
 }
 
-function redemption(value: unknown): HashcoinRedemption {
-  const row = object(value);
-  if (typeof row.id !== "string" || !DOCUMENT_REQUEST_UUID.test(row.id) ||
-      !integer(row.amountCoins) || row.amountCoins < 1 || row.stripeMode !== "test" ||
-      !["pending", "succeeded", "failed", "unknown"].includes(String(row.status)) ||
-      (row.createdAt !== undefined && !date(row.createdAt)) ||
-      (row.clientRequestId !== undefined && (typeof row.clientRequestId !== "string" || !DOCUMENT_REQUEST_UUID.test(row.clientRequestId)))) {
-    throw new Error("Invalid Hussh Coins redemption");
-  }
-  return { id: row.id, amountCoins: row.amountCoins, status: row.status as HashcoinRedemption["status"],
-    stripeMode: "test", ...(row.clientRequestId ? { clientRequestId: row.clientRequestId as string } : {}),
+function redemption(row: unknown, mode: "test" | "live"): HashcoinRedemption {
+  const invalid = (field: string) => new PayoutContractError("Invalid Hussh Coins redemption", field);
+  if (!isObject(row)) throw invalid("redemption");
+  if (typeof row.id !== "string" || !DOCUMENT_REQUEST_UUID.test(row.id)) throw invalid("id");
+  if (row.clientRequestId !== undefined && (typeof row.clientRequestId !== "string" || !DOCUMENT_REQUEST_UUID.test(row.clientRequestId))) throw invalid("clientRequestId");
+  if (!integer(row.amountCoins) || row.amountCoins < 1 || row.amountCoins > 50000) throw invalid("amountCoins");
+  if (row.stripeMode !== mode) throw invalid("stripeMode");
+  if (typeof row.status !== "string") throw invalid("status");
+  if (mode === "live" && typeof row.reversalStatus !== "string") throw invalid("reversalStatus");
+  if (row.createdAt !== undefined && !date(row.createdAt)) throw invalid("createdAt");
+  // A state this build does not know reads as unknown, never as settled. Test rows carry no reversal.
+  return { id: row.id, amountCoins: row.amountCoins, stripeMode: mode,
+    status: (["pending", "succeeded", "failed"] as const).find((status) => status === row.status) ?? "unknown",
+    ...(row.clientRequestId ? { clientRequestId: row.clientRequestId as string } : {}),
+    ...(mode === "live" ? { reversalStatus: (["none", "due", "unknown", "reversed", "manual_review"] as const)
+      .find((status) => status === row.reversalStatus) ?? "unrecognized" } : {}),
     ...(row.createdAt ? { createdAt: row.createdAt as string } : {}) };
+}
+/** Wallet rows that break the contract drop out; redeem responses stay strict. */
+function walletRedemption(row: unknown, mode: "test" | "live"): HashcoinRedemption | null {
+  try {
+    return redemption(row, mode);
+  } catch (error) {
+    if (error instanceof PayoutContractError) return null;
+    throw error;
+  }
 }
 
 export class DocumentPayoutService {
   static async hashcoins(vaultOwnerToken: string): Promise<HashcoinWallet> {
-    const body = object(await apiJson<unknown>("/api/one/payouts/hashcoins", {
+    const body = await apiJson<unknown>("/api/one/payouts/hashcoins", {
       headers: authHeaders(vaultOwnerToken), cache: "no-store",
-    }));
-    if (body.coinName !== "Hussh Coins" || body.coinsPerDollar !== 100 || body.currency !== "USD" ||
-        !["test", "live"].includes(String(body.payoutMode)) || typeof body.testPayouts !== "boolean" ||
-        (body.payoutMode === "live" && body.testPayouts) || body.liveRedemptionEnabled !== false ||
-        (body.maxRedeemCoins !== undefined && (!integer(body.maxRedeemCoins) || body.maxRedeemCoins < 1)) ||
-        (body.redemptionHistory !== undefined && (!Array.isArray(body.redemptionHistory) || body.redemptionHistory.length > 10))) throw new Error("Invalid Hussh Coins wallet");
-    return { coinName: "Hussh Coins", coinsPerDollar: 100, currency: "USD", live: coinBalance(body.live),
-      sandbox: coinBalance(body.sandbox), payoutMode: body.payoutMode as "test" | "live", testPayouts: body.testPayouts,
-      liveRedemptionEnabled: false,
-      maxRedeemCoins: body.maxRedeemCoins as number ?? 50000,
-      redemptionHistory: ((body.redemptionHistory as unknown[]) ?? []).map(redemption),
-      latestRedemption: body.latestRedemption == null ? null : redemption(body.latestRedemption) };
+    });
+    const invalid = (field: string) => new PayoutContractError("Invalid Hussh Coins wallet", field);
+    if (!isObject(body)) throw invalid("wallet");
+    if (body.coinName !== "Hussh Coins") throw invalid("coinName");
+    if (body.coinsPerDollar !== 100) throw invalid("coinsPerDollar");
+    if (body.currency !== "USD") throw invalid("currency");
+    if (body.payoutMode !== "test" && body.payoutMode !== "live") throw invalid("payoutMode");
+    if (typeof body.testPayouts !== "boolean" || (body.payoutMode === "live" && body.testPayouts)) throw invalid("testPayouts");
+    if (typeof body.liveRedemptionEnabled !== "boolean" ||
+        (body.liveRedemptionEnabled && (body.payoutMode !== "live" || body.testPayouts))) throw invalid("liveRedemptionEnabled");
+    if (body.maxRedeemCoins !== undefined && (typeof body.maxRedeemCoins !== "number" || !Number.isFinite(body.maxRedeemCoins))) throw invalid("maxRedeemCoins");
+    if (body.redemptionHistory !== undefined && !Array.isArray(body.redemptionHistory)) throw invalid("redemptionHistory");
+    const mode = body.payoutMode;
+    const live = coinBalance(body.live, "live");
+    const latestRedemption = body.latestRedemption == null ? null : walletRedemption(body.latestRedemption, mode);
+    return { coinName: "Hussh Coins", coinsPerDollar: 100, currency: "USD",
+      live: body.liveRedemptionEnabled ? { ...live, nextRedeemCoins: live.nextRedeemCoins ?? 0 } : live,
+      sandbox: coinBalance(body.sandbox, "sandbox"), payoutMode: mode, testPayouts: body.testPayouts,
+      liveRedemptionEnabled: body.liveRedemptionEnabled,
+      maxRedeemCoins: Math.min(Math.max(Math.floor(body.maxRedeemCoins ?? 50000), 1), 50000),
+      redemptionHistory: (body.redemptionHistory ?? []).slice(0, 10).map((row) => walletRedemption(row, mode)).filter((row) => row !== null),
+      // An unreadable open redemption may still hold coins, so block new ones instead of guessing.
+      latestRedemption, ...(body.latestRedemption != null && !latestRedemption ? { redeemBlocked: true } : {}) };
+  }
+
+  static async redeem(vaultOwnerToken: string, amountCoins: number, clientRequestId: string, mode: "test" | "live"): Promise<HashcoinRedemption> {
+    if (!integer(amountCoins) || amountCoins < 1 || amountCoins > 50000 ||
+        !DOCUMENT_REQUEST_UUID.test(clientRequestId) || !["test", "live"].includes(mode)) throw new Error("Invalid redemption");
+    return redemption(await apiJson<unknown>("/api/one/payouts/hashcoins/redeem", {
+      method: "POST", headers: { ...authHeaders(vaultOwnerToken), "Content-Type": "application/json" },
+      body: JSON.stringify({ amountCoins, clientRequestId, mode }), cache: "no-store",
+    }), mode);
   }
 
   static async redeemTest(vaultOwnerToken: string, amountCoins: number, clientRequestId: string): Promise<HashcoinRedemption> {
-    if (!integer(amountCoins) || amountCoins < 1 || !DOCUMENT_REQUEST_UUID.test(clientRequestId)) throw new Error("Invalid test redemption");
-    return redemption(await apiJson<unknown>("/api/one/payouts/hashcoins/redeem", {
-      method: "POST", headers: { ...authHeaders(vaultOwnerToken), "Content-Type": "application/json" },
-      body: JSON.stringify({ amountCoins, clientRequestId, mode: "test" }), cache: "no-store",
-    }));
+    return this.redeem(vaultOwnerToken, amountCoins, clientRequestId, "test");
+  }
+
+  static async redeemLive(vaultOwnerToken: string, amountCoins: number, clientRequestId: string): Promise<HashcoinRedemption> {
+    return this.redeem(vaultOwnerToken, amountCoins, clientRequestId, "live");
   }
 
   static async account(vaultOwnerToken: string): Promise<DocumentPayoutAccountResponse> {

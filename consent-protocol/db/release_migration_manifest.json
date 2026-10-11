@@ -272,7 +272,11 @@
     "298_stripe_mode_isolation.sql",
     "299_hashcoin_wallet.sql",
     "300_pkm_answer_requests.sql",
-    "301_pkm_answer_refunds_payouts.sql"
+    "301_pkm_answer_refunds_payouts.sql",
+    "302_wallet_temporary_card_access.sql",
+    "303_hashcoin_live_redemption.sql",
+    "304_connect_bank_payout_reconciliation.sql",
+    "305_pkm_answer_payment_recovery.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -457,7 +461,8 @@
       "161_atomic_pkm_scope_exposure.sql",
       "226_pkm_manifest_path_repair.sql",
       "300_pkm_answer_requests.sql",
-      "301_pkm_answer_refunds_payouts.sql"
+      "301_pkm_answer_refunds_payouts.sql",
+      "305_pkm_answer_payment_recovery.sql"
     ],
     "developer": [
       "070_developer_registry.sql",
@@ -569,6 +574,10 @@
     "298_stripe_mode_isolation.sql": "rollback/298_stripe_mode_isolation.rollback.sql",
     "299_hashcoin_wallet.sql": "rollback/299_hashcoin_wallet.rollback.sql",
     "300_pkm_answer_requests.sql": "rollback/300_pkm_answer_requests.rollback.sql",
-    "301_pkm_answer_refunds_payouts.sql": "rollback/301_pkm_answer_refunds_payouts.rollback.sql"
+    "301_pkm_answer_refunds_payouts.sql": "rollback/301_pkm_answer_refunds_payouts.rollback.sql",
+    "302_wallet_temporary_card_access.sql": "rollback/302_wallet_temporary_card_access.rollback.sql",
+    "303_hashcoin_live_redemption.sql": "rollback/303_hashcoin_live_redemption.rollback.sql",
+    "304_connect_bank_payout_reconciliation.sql": "rollback/304_connect_bank_payout_reconciliation.rollback.sql",
+    "305_pkm_answer_payment_recovery.sql": "rollback/305_pkm_answer_payment_recovery.rollback.sql"
   }
 }

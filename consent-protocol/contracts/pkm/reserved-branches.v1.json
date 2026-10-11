@@ -11,6 +11,7 @@
 
   "$comment_writers": "The closed writer catalog. A writer id is the normalized `source` of a PKM write authorization (hushh-webapp/lib/personal-knowledge-model/mutation-plan.ts normalizedWriterId), which reaches the server as mutation_plan.writer_id; the server derives `pkm_upgrade_orchestrator` for an upgrade-claim write and falls back to structure_decision.source_agent otherwise. Every label used in code must appear here (hushh-webapp/__tests__/lib/pkm/reserved-branches.test.ts fails otherwise). class: `feature` is an app feature's own control; `memory_agent` is the chat and capture pipeline, which may never write a reserved branch; `migration` is the PKM upgrade gate, whose authority is the server-verified upgrade claim, so it is never refused here. Writer identity is a governed catalog, not cryptography: the owner's client can always write its own vault, and the threat addressed is our own agent pipelines.",
   "writers": {
+    "one_living_memory_source_projection": {"feature": "living_memory", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_source_projection"]},
     "plaid_vault_connect": {"feature": "finance", "class": "feature", "surfaces": ["web", "ios", "android"], "authorization_modes": ["owner_confirmed"]},
     "plaid_vault_refresh": {"feature": "finance", "class": "feature", "surfaces": ["web", "ios", "android"], "authorization_modes": ["owner_connected_source_sync"]},
     "plaid_vault_view_upgrade": {"feature": "finance", "class": "feature", "surfaces": ["web", "ios", "android"], "authorization_modes": ["owner_connected_source_sync"]},
@@ -105,6 +106,7 @@
     "first_connect_insights": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
     "drive_read_review": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
     "business_profile_review": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
+    "profile_research_review": {"feature": "memory", "class": "memory_agent", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
     "pkm_structure_agent": {"feature": "memory", "class": "memory_agent", "surfaces": [], "authorization_modes": []},
 
     "pkm_upgrade_orchestrator": {"feature": "pkm_upgrade", "class": "migration", "surfaces": ["system_upgrade"], "authorization_modes": ["upgrade_claim"]}
@@ -112,6 +114,7 @@
 
   "$comment_entries": "branch_prefix is a dotted path under the domain; `*` reserves every top-level branch of the domain except those in `except`. A path matches an entry when it equals the prefix or lies beneath it. agent_memory_sibling is where chat facts about the area are kept (null where no chat fact belongs). offer_action names a route in contracts/kai/one-route-orchestration-index.v1.json and an action in the generated gateway (null where nothing should be offered); {label} in label_template is the short noun the structure agent returns for the re-routed fact (\"Home\", \"Amex Gold\"). shareable and send_to_model are declared now and enforced by later releases.",
   "entries": [
+    {"domain": "one_living_sources","branch_prefix": "*","except": [],"owner_feature": "living_memory","writer_ids": ["one_living_memory_source_projection"],"agent_memory_sibling": null,"shareable": "never","send_to_model": "never","offer_action": null},
     {
       "domain": "financial",
       "branch_prefix": "*",

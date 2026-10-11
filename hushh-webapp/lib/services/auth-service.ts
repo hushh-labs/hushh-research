@@ -603,6 +603,15 @@ export class AuthService {
     providerId: "google.com" | "apple.com",
     isCurrent: () => boolean,
   ): Promise<string> {
+    return this.reauthenticateIdentity(expectedUserId, providerId, isCurrent);
+  }
+
+  /** Fresh current-user provider proof; ordinary token refresh is insufficient. */
+  static async reauthenticateIdentity(
+    expectedUserId: string,
+    providerId: "google.com" | "apple.com",
+    isCurrent: () => boolean,
+  ): Promise<string> {
     if (providerId === "google.com") {
       return this.reauthenticateGoogleIdentity(expectedUserId, isCurrent);
     }

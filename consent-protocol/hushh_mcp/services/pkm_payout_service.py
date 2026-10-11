@@ -39,6 +39,7 @@ LEGACY_ACCOUNTS = "pkm_owner_payout_accounts"
 ONBOARDING_RETURN_PATHS = {
     "marketplace": "/one/marketplace",
     "documents": "/one/profile/payouts",
+    "answers": "/one/profile/payouts",
 }
 
 
@@ -205,21 +206,26 @@ async def resume_document_owner_setup(db: Any, user_id: str) -> None:
     """A committed readiness change wakes durable requests; the worker also retries."""
     try:
         from hushh_mcp.services.drive_sharing_store import DriveSharingStore
-        from hushh_mcp.services.drive_work_wake import wake_drive_work
+        from hushh_mcp.services.drive_work_wake import wake_drive_work_stages
 
         await DriveSharingStore(db=db).resume_owner_setup(user_id=user_id)
-        await wake_drive_work("suggestions")
-        await wake_drive_work("sharing")
+        await wake_drive_work_stages("suggestions", "sharing")
     except Exception as exc:
         logger.warning("document_payout.resume_deferred type=%s", type(exc).__name__)
 
 
 class PkmPayoutService:
     def __init__(
-        self, *, stripe_api: Any = None, mode: str | None = None, api_key: str | None = None
+        self,
+        *,
+        stripe_api: Any = None,
+        mode: str | None = None,
+        api_key: str | None = None,
+        resume_documents: bool = True,
     ) -> None:
         import stripe
 
+        self._resume_documents = resume_documents
         self._db = None
         self.stripe_api = stripe_api or stripe
         self._explicit_account_mode = mode
@@ -318,13 +324,17 @@ class PkmPayoutService:
     # --- owner -------------------------------------------------------------
 
     async def onboarding_link(
-        self, *, user_id: str, surface: Literal["marketplace", "documents"] = "marketplace"
+        self,
+        *,
+        user_id: str,
+        surface: Literal["marketplace", "documents", "answers"] = "marketplace",
     ) -> dict[str, Any]:
         """Create (once) the owner's Express account and a fresh onboarding link."""
         key = self._account_key()
         origin = _app_origin()
         return_path = ONBOARDING_RETURN_PATHS[surface]
         account = await self._account(user_id)
+        remote: dict[str, Any] | None = None
         if account is None:
             try:
                 created = _stripe_dict(
@@ -375,17 +385,23 @@ class PkmPayoutService:
                         "PAYOUT_UNAVAILABLE", "Could not start payout setup. Please retry."
                     ) from None
                 account_id = account["stripe_account_id"]
+            else:
+                # Check the new account from its create response; a re-read only adds latency.
+                remote = created
         else:
             account_id = account["stripe_account_id"]
         # An existing mapping must never be replaced with another Connect account.
         # Stripe may have disabled or deleted the account since the last visit.
-        remote = await self._retrieve_account(account_id, key=key)
+        if remote is None:
+            remote = await self._retrieve_account(account_id, key=key)
         if remote.get("deleted") or (remote.get("country") and remote["country"] != "US"):
             raise PacketOrderError(
                 "PAYOUT_ACCOUNT_DISABLED",
                 "This payout account needs support before setup can continue.",
             )
-        query_key = "documentPayouts" if surface == "documents" else "payouts"
+        query_key = {"documents": "documentPayouts", "answers": "answerPayouts"}.get(
+            surface, "payouts"
+        )
         try:
             link = _stripe_dict(
                 await asyncio.to_thread(
@@ -443,7 +459,7 @@ class PkmPayoutService:
             .eq("user_id", user_id)
             .eq("stripe_mode", self.account_mode)
         )
-        if account.get("account_ready") is not readiness["ready"]:
+        if self._resume_documents and account.get("account_ready") is not readiness["ready"]:
             await resume_document_owner_setup(self.db, user_id)
         return {**account, **patch, "readiness": readiness}
 

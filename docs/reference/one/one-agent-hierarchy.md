@@ -4,6 +4,26 @@ Location commands use the restricted semantic Location package and the shared ac
 
 ## Visual Map
 
+After durable onboarding completion, the ephemeral Magic Intelligence card invokes One's
+bounded `one_profile_research` ADK task with the current account's name and
+verified email/phone when available. The task uses One's existing public
+`google_search` child; it has no PKM, action or conversation-history tools.
+Its prompt starts with public name searches, treats an organization domain as
+an optional hint, and allows one broader name-only follow-up in the same budget.
+Contact identifiers are matching context; a public phone match is not required.
+Personal research is independent of Business Intelligence. A person with no
+business can review and save career, education and public personal findings.
+Business sections are optional. Search calls run sequentially, with at most one
+follow-up, so an unavailable attempt cannot borrow another attempt's receipts.
+Structured task output and Search grounding receipts form the editable card.
+The report stays outside ordinary transcript persistence and automatic capture.
+Selected statements use the existing PKM agents for an exact preview; final
+confirmation alone authorizes encrypted writes. Business identity fences apply
+only when a proposed write touches an existing business record; ordinary sharing
+fences still apply. Back closes Edit/Review before route navigation.
+`ONE_PROFILE_RESEARCH_ENABLED` defaults off pending live quality evaluation;
+see the [semantic declaration](../../../consent-protocol/docs/reference/backend-semantic-boundary.md).
+
 ```mermaid
 flowchart TD
   user["User"]

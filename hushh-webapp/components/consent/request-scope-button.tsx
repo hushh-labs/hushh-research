@@ -26,6 +26,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useAuth } from "@/hooks/use-auth";
 
 import { AuthService } from "@/lib/services/auth-service";
 import {
@@ -62,6 +63,7 @@ export function RequestScopeButton({
   personName,
   className,
 }: RequestScopeButtonProps) {
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState("");
   const [hasPeriod, setHasPeriod] = useState(false);
@@ -70,22 +72,35 @@ export function RequestScopeButton({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<string | null>(null);
-  // The lane ships disabled. Ask before offering the CTA at all, so an
-  // environment without it never shows a button that refuses on submit.
-  const [enabled, setEnabled] = useState(false);
+  // Every active connection can open this, exactly like Request files. A
+  // deployment that has not switched the paid-answer lane on says so inside
+  // the dialog; a disabled trigger left the person clicking a dead control
+  // with no reason and no next step. The real guard is server-side: the
+  // create endpoint still 503s when the lane is off.
+  //
+  // Tri-state, because "we have not asked yet" and "the answer was no" are
+  // different things to show. Starting at 'unavailable' would flash the wrong
+  // reason on every open.
+  const [availability, setAvailability] = useState<
+    "checking" | "available" | "unavailable"
+  >("checking");
 
   useEffect(() => {
+    setAvailability("checking");
     let cancelled = false;
     void (async () => {
       const token = await AuthService.getIdToken().catch(() => null);
-      if (!token) return;
-      const available = await AnswerRequestService.available(token);
-      if (!cancelled) setEnabled(available);
+      // No token is not a configuration answer, but it is still not sendable,
+      // and `available` already fails closed on anything it cannot confirm.
+      const available = token
+        ? await AnswerRequestService.available(token)
+        : false;
+      if (!cancelled) setAvailability(available ? "available" : "unavailable");
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [personRef, user?.uid]);
 
   const periodStart = hasPeriod ? start || null : null;
   const periodEnd = hasPeriod ? end || null : null;
@@ -117,21 +132,27 @@ export function RequestScopeButton({
     try {
       const token = await AuthService.getIdToken();
       if (!token) throw new Error("Sign in to send this request.");
-      const { requestId } = await AnswerRequestService.create(token, personRef, {
-        question,
-        periodStart,
-        periodEnd,
-      });
+      const { requestId } = await AnswerRequestService.create(
+        token,
+        personRef,
+        {
+          question,
+          periodStart,
+          periodEnd,
+        },
+      );
       setCreated(requestId);
       reset();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "This request could not be sent.");
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "This request could not be sent.",
+      );
     } finally {
       setBusy(false);
     }
   };
-
-  if (!enabled) return null;
 
   return (
     <Dialog
@@ -159,7 +180,7 @@ export function RequestScopeButton({
       <DialogContent
         data-request-scope-dialog
         className="max-h-[85dvh] overflow-y-auto max-sm:translate-x-0 max-sm:translate-y-0 sm:max-w-md"
-        showCloseButton={Boolean(created)}
+        showCloseButton={Boolean(created) || availability !== "available"}
         srDescription={`Ask ${personName} a question.`}
       >
         <DialogHeader>
@@ -171,8 +192,8 @@ export function RequestScopeButton({
         {created ? (
           <div className="min-w-0 space-y-4">
             <BodyText role="status">
-              Request sent. {personName} reviews the question and the exact information it
-              would use, then sets a price.
+              Request sent. {personName} reviews the question and the exact
+              information it would use, then sets a price.
             </BodyText>
             <Button asChild size="prominent">
               <Link
@@ -196,6 +217,24 @@ export function RequestScopeButton({
               Ask another question
             </Button>
           </div>
+        ) : availability === "checking" ? (
+          <BodyText role="status">Checking whether this can be sent…</BodyText>
+        ) : availability === "unavailable" ? (
+          // A reason and a next step, not a dead control. Deliberately does
+          // not name an env flag: the person reading it cannot set one.
+          <div className="min-w-0 space-y-4">
+            <BodyText role="status">
+              Paid answers are not switched on here yet, so this question
+              cannot be sent. Nothing has been sent to {personName}.
+            </BodyText>
+            <HelperText as="p">
+              Request files still works for anything {personName} keeps in
+              Drive, and you can ask about files they have already shared.
+            </HelperText>
+            <Button type="button" size="standard" variant="none" onClick={close}>
+              Close
+            </Button>
+          </div>
         ) : (
           <form
             className="min-w-0 space-y-4"
@@ -217,7 +256,10 @@ export function RequestScopeButton({
               />
             </div>
             <div className="min-w-0 space-y-2">
-              <Label htmlFor="answer-request-has-period" className="flex items-center gap-2">
+              <Label
+                htmlFor="answer-request-has-period"
+                className="flex items-center gap-2"
+              >
                 <input
                   id="answer-request-has-period"
                   type="checkbox"
@@ -279,7 +321,11 @@ export function RequestScopeButton({
             ) : null}
             <FlowActionGroup
               primary={
-                <Button type="submit" size="prominent" disabled={!valid || busy}>
+                <Button
+                  type="submit"
+                  size="prominent"
+                  disabled={!valid || busy}
+                >
                   {busy ? "Sending…" : "Send request"}
                 </Button>
               }

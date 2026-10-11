@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 301,
+  "expected_migration_version": 305,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -72,7 +72,11 @@
     "guard_hashcoin_direct_transfer",
     "reject_hashcoin_ledger_mutation",
     "detach_hashcoin_wallet_owner",
-    "guard_hashcoin_redemption"
+    "guard_hashcoin_redemption",
+    "activate_reserved_wallet_cards",
+    "remove_wallet_card_registrations",
+    "guard_wallet_card_access_grant",
+    "notify_pkm_answer_changed"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -1403,6 +1407,21 @@
       "redemption_id",
       "wallet_id",
       "request_key",
+      "source_request_id",
+      "source_charge_id",
+      "source_payment_intent_id",
+      "source_gross_cents",
+      "source_refund_cents",
+      "last_provider_checked_at",
+      "provider_review_reason",
+      "provider_reversed_amount_coins",
+      "reversal_status",
+      "stripe_reversal_id",
+      "reversal_attempt_id",
+      "reversal_first_dispatch_at",
+      "reversal_lease_expires_at",
+      "reversal_next_check_at",
+      "reversal_review_reason",
       "amount_coins",
       "stripe_mode",
       "destination_account_id",
@@ -2144,7 +2163,8 @@
       "finalized_at",
       "transferred_at",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "first_dispatch_at"
     ],
     "pkm_answer_payment_obligations": [
       "request_id",
@@ -2161,7 +2181,8 @@
       "delivery_confirmed_at_erasure",
       "delivery_unsettled_at_erasure",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "stripe_mode"
     ],
     "pkm_answer_payment_orders": [
       "request_id",
@@ -2188,7 +2209,8 @@
       "stripe_transfer_id",
       "transferred_at",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "stripe_mode"
     ],
     "pkm_answer_payment_refunds": [
       "request_id",
@@ -2236,7 +2258,10 @@
       "cancelled_at",
       "expires_at",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "composer_consent_at",
+      "composer_consent_version",
+      "composer_consent_digest"
     ],
     "pkm_blobs": [
       "user_id",
@@ -2648,6 +2673,8 @@
       "details_submitted",
       "payouts_enabled",
       "account_ready",
+      "bank_payout_scan_started_at",
+      "bank_payout_scan_cursor",
       "created_at",
       "updated_at"
     ],
@@ -2782,6 +2809,30 @@
       "onboarding_journey_updated_at",
       "created_at",
       "updated_at"
+    ],
+    "wallet_card_access_audit": [
+      "id",
+      "grant_id",
+      "event_type"
+    ],
+    "wallet_card_access_grants": [
+      "id",
+      "recipient_user_id",
+      "message_id",
+      "revoked_at"
+    ],
+    "wallet_card_registrations": [
+      "owner_user_id",
+      "card_id",
+      "state",
+      "source_commit_id",
+      "source_projection",
+      "source_projection_revision"
+    ],
+    "wallet_card_share_requests": [
+      "owner_user_id",
+      "request_id",
+      "expires_at"
     ]
   }
 }

@@ -826,6 +826,7 @@ def test_grouped_chat_metadata_is_computed_and_not_copied_from_storage():
             "thread_unread_count": 3,
         }
     )
+
     assert item["metadata"]["chat_thread_key"] == "circle:c1"
     assert item["metadata"]["chat_message_count"] == 12
     assert item["metadata"]["chat_unread_count"] == 3
@@ -835,3 +836,23 @@ def test_grouped_chat_metadata_is_computed_and_not_copied_from_storage():
         )["metadata"]
         == {}
     )
+
+
+def test_card_share_notice_requires_authoritative_recipient_grant():
+    grant_id = "22222222-2222-4222-8222-222222222222"
+    row = {
+        "id": 22,
+        "event_type": "direct_message_received",
+        "actor_label": "Test sender",
+        "_direct_message_preview": f"[wallet-access:{grant_id}]",
+        "metadata": {"wallet_card_grant_id": grant_id},
+    }
+    assert "wallet_card_grant_id" not in FeedService._to_item(row)["metadata"]
+    verified = FeedService._to_item({**row, "_wallet_card_grant_id": grant_id})
+    assert verified["metadata"]["wallet_card_grant_id"] == grant_id
+    assert verified["metadata"]["message_preview"] == "Test sender shared their card with you"
+    assert (
+        feed_service_module._direct_message_preview(f"[wallet-access:{grant_id}]")
+        == "Shared payment card"
+    )
+    assert feed_service_module._direct_message_preview("Ordinary message") == "Ordinary message"

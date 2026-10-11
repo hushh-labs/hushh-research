@@ -31,6 +31,7 @@ ATTEMPT = "99999999-8888-7777-6666-555555555555"
 
 @pytest.fixture(autouse=True)
 def stripe_env(monkeypatch):
+    monkeypatch.setenv("PKM_ANSWER_COMPOSER_ENABLED", "true")
     monkeypatch.setenv("ENVIRONMENT", "test")
     monkeypatch.setenv("HUSHH_DEPLOY_ENV", "test")
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_local_only_synthetic")
@@ -136,6 +137,7 @@ def _open_order(**overrides) -> dict:
     return {
         "request_id": REQUEST_ID,
         "status": "checkout_open",
+        "stripe_mode": "test",
         "stripe_checkout_session_id": "cs_test_1",
         "checkout_attempt_id": ATTEMPT,
         "amount_cents": 1000,
@@ -276,6 +278,7 @@ class TestDeliveryGate:
         connection = self._connection(
             {
                 "status": "paid",
+                "stripe_mode": "test",
                 "paid_at": object(),
                 "reconciliation_required": True,
                 "terms_digest": DIGEST,
@@ -292,6 +295,7 @@ class TestDeliveryGate:
         connection = self._connection(
             {
                 "status": "paid",
+                "stripe_mode": "test",
                 "paid_at": object(),
                 "reconciliation_required": False,
                 "terms_digest": DIGEST,
@@ -308,6 +312,7 @@ class TestDeliveryGate:
         connection = self._connection(
             {
                 "status": "paid",
+                "stripe_mode": "test",
                 "paid_at": object(),
                 "reconciliation_required": False,
                 "terms_digest": DIGEST,

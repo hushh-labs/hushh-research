@@ -14,7 +14,7 @@ type CalendarConnectHeroProps = {
 };
 
 /**
- * The illustration for the first unfinished Calendar setup. Presentational
+ * The illustration whenever Calendar needs a connection. Presentational
  * only; the owner-bound connect flow stays with the page that renders it.
  */
 export function CalendarConnectHero({

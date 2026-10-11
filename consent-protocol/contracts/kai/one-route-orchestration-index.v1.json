@@ -30,7 +30,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Chat actions complete only after the correlated browser or capability settlement succeeds.",
+        "completion_boundary": "Chat actions complete only after the correlated browser or capability settlement succeeds. The onboarding public-profile card stays a draft until the owner confirms the exact memory preview; Edit and Review unwind locally on Back.",
         "next_route": "/",
         "return_policy": "resolve_root",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -3529,6 +3529,7 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.payouts.redeem",
         "profile.payouts.test_redeem",
         "profile.reset_account",
         "profile.set_contact_discoverable",
@@ -3681,6 +3682,7 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.payouts.redeem",
         "profile.payouts.test_redeem",
         "profile.reset_account",
         "profile.set_contact_discoverable",
@@ -3747,6 +3749,7 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.payouts.redeem",
         "profile.payouts.test_redeem",
         "profile.reset_account",
         "profile.set_contact_discoverable",
@@ -4290,6 +4293,7 @@
       "canonical_screen": "profile_payouts",
       "voice_contract_file": null,
       "action_ids": [
+        "profile.payouts.redeem",
         "profile.payouts.test_redeem",
         "route.profile_payouts"
       ],
@@ -5254,7 +5258,7 @@
       "context_policy": "suppress",
       "voice_playbook": {
         "playbook_id": "route.one.referrals",
-        "purpose": "Welcome the person to referrals with a replayable, device/account-scoped introduction, then help them read their referral link, points, ranking, and reward progress through the dashboard's own controls. Continuing or skipping the introduction never grants setup completion or referral credit.",
+        "purpose": "Open the referral dashboard directly so the person can read their referral link, coins, ranking, and reward progress. How it works shows the coins and rules; Back returns to the previous dashboard section. Viewing the dashboard never grants setup completion or referral credit.",
         "screen": "one_referrals",
         "entry_cue": "",
         "proactivity": "ambient",

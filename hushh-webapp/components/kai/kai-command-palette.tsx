@@ -1164,7 +1164,7 @@ export function KaiCommandPalette({
             <DialogTitle>Search or ask One</DialogTitle>
           </DialogHeader>
           <div
-            className="max-h-[min(52dvh,25rem)] overflow-y-auto overscroll-contain px-1 py-1"
+            className="min-h-0 max-h-[min(52dvh,25rem)] shrink overflow-y-auto overscroll-contain px-1 py-1"
             data-testid="kai-mobile-search-results"
           >
             {visibleSections.length === 0 ? (
@@ -1190,7 +1190,7 @@ export function KaiCommandPalette({
             ))}
           </div>
           <form
-            className="relative flex h-12 items-center gap-2 rounded-[20px] bg-foreground/[0.045] px-3"
+            className="relative flex h-12 shrink-0 items-center gap-2 rounded-[20px] bg-foreground/[0.045] px-3"
             onSubmit={(event) => {
               event.preventDefault();
               submitQuery();

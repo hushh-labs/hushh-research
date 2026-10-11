@@ -1,7 +1,7 @@
 {
   "displayName": "[Managed] Cloud SQL Connections Warning",
   "documentation": {
-    "content": "Cloud SQL PostgreSQL connections across database labels exceed 700; inspect deployment overlap and pool use.\n\nDiagnostic only: early capacity warning is investigated with the critical SQL capacity incident.",
+    "content": "Cloud SQL PostgreSQL connections across database labels exceed __SQL_CONNECTION_WARNING__; inspect deployment overlap and pool use.\n\nDiagnostic only: early capacity warning is investigated with the critical SQL capacity incident.",
     "mimeType": "text/markdown"
   },
   "combiner": "OR",
@@ -14,7 +14,7 @@
   },
   "conditions": [
     {
-      "displayName": "Connections > 700 (5m)",
+      "displayName": "Connections > __SQL_CONNECTION_WARNING__ (5m)",
       "conditionThreshold": {
         "filter": "resource.type=\"cloudsql_database\" AND resource.label.\"database_id\"=\"__PROJECT_ID__:__SQL_INSTANCE__\" AND metric.type=\"cloudsql.googleapis.com/database/postgresql/num_backends\"",
         "aggregations": [
@@ -25,7 +25,7 @@
           }
         ],
         "comparison": "COMPARISON_GT",
-        "thresholdValue": 700,
+        "thresholdValue": __SQL_CONNECTION_WARNING__,
         "duration": "300s",
         "trigger": {
           "count": 1

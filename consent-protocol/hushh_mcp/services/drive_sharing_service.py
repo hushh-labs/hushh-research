@@ -7,7 +7,7 @@ The response 'approved' means queued, not that Google has shared anything.
 from hushh_mcp.services.drive_permission_executor import require_recipient_identity
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.drive_suggestion_store import DriveSuggestionStore
-from hushh_mcp.services.drive_work_wake import wake_drive_work
+from hushh_mcp.services.drive_work_wake import wake_drive_work, wake_drive_work_stages
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 
 
@@ -57,8 +57,7 @@ class DriveSharingService:
             request_time_zone=request_time_zone,
             expected_quote_version=expected_quote_version,
         )
-        await wake_drive_work("suggestions")
-        await wake_drive_work("sharing")
+        await wake_drive_work_stages("suggestions", "sharing")
         return result
 
     async def owner_pricing(self, *, user_id):
@@ -73,15 +72,19 @@ class DriveSharingService:
             amount_cents=amount_cents,
             expected_version=expected_version,
         )
-        await wake_drive_work("suggestions")
-        await wake_drive_work("sharing")
+        await wake_drive_work_stages("suggestions", "sharing")
         return result
 
     async def resume_owner_setup(self, *, user_id):
         """Internal verified account-refresh hook; no user consent is created here."""
         result = await self.store.resume_owner_setup(user_id=user_id)
-        await wake_drive_work("suggestions")
-        await wake_drive_work("sharing")
+        await wake_drive_work_stages("suggestions", "sharing")
+        return result
+
+    async def resume_owner_drive(self, *, user_id):
+        """Internal verified-Drive hook; no user consent is created here."""
+        result = await self.store.resume_owner_drive(user_id=user_id)
+        await wake_drive_work_stages("suggestions", "sharing")
         return result
 
     async def request_quote(self, *, user_id, owner_user_id):
@@ -196,8 +199,7 @@ class DriveSharingService:
         result = await self.store.set_request_price(
             user_id=user_id, request_id=request_id, revision=revision, amount_cents=amount_cents
         )
-        await wake_drive_work("suggestions")
-        await wake_drive_work("sharing")
+        await wake_drive_work_stages("suggestions", "sharing")
         return result
 
     async def retry_preparation(self, **kwargs):

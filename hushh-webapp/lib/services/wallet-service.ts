@@ -177,6 +177,7 @@ export class WalletService {
       card: WalletCardInput;
       surface: PkmUserConfirmation["surface"];
       source: string;
+      reserveCardId?: () => Promise<string | null>;
     },
   ): Promise<{ cardId: string; summary: WalletCardSummary; cardholderName: string }> {
     if (!this.isEnabled()) {
@@ -186,7 +187,7 @@ export class WalletService {
     if (!validation.valid) {
       throw new Error(`CARD_VALIDATION_FAILED:${validation.errors.join(",")}`);
     }
-    const cardId = `card_${crypto.randomUUID()}`;
+    const cardId = await params.reserveCardId?.() || `card_${crypto.randomUUID()}`;
     const createdAt = new Date().toISOString();
     const summaryRecord = {
       nickname: params.card.nickname?.trim() ?? "",
@@ -284,6 +285,23 @@ export class WalletService {
         const receipts = Array.isArray(saved.share_receipts) ? saved.share_receipts : [];
         secrets[params.cardId] = { ...saved, share_receipts: [...receipts.filter(row => !isRecord(row) || row.messageId !== params.receipt.messageId), params.receipt] };
         return { ...next, secrets };
+      },
+    });
+  }
+
+  /** Refreshes sharing metadata for an existing owner-entered card without changing its details. */
+  static async prepareCardSharing(params: VaultContextParams & { cardId: string; isCurrent: () => boolean }): Promise<void> {
+    if (!params.isCurrent()) throw new Error("Wallet changed.");
+    await PersonalKnowledgeModelService.storeWalletDomain({
+      ...params,
+      scopePath: "summary",
+      explanation: "The owner requested sharing their saved payment card.",
+      confirmation: { confirmedByUser: true, surface: "web", source: "one_wallet_share_card" },
+      mayPublish: params.isCurrent,
+      applyMutation: (base) => {
+        if (!params.isCurrent() || !isRecord(base.summary) || !isRecord(base.summary[params.cardId]) ||
+            !isRecord(base.secrets) || !isRecord(base.secrets[params.cardId])) throw new Error("Card unavailable.");
+        return base;
       },
     });
   }

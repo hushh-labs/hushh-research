@@ -18,6 +18,11 @@ from hushh_mcp.services.business_directory_suggestions import (
     lookup_directory,
     verified_contacts,
 )
+from hushh_mcp.services.one_owner_admission import (
+    OwnerIdentityUnavailable,
+    lookup_fresh_owner_identity,
+    owner_setup_resolved,
+)
 
 
 class BusinessSuggestionUnavailable(RuntimeError):
@@ -25,26 +30,15 @@ class BusinessSuggestionUnavailable(RuntimeError):
 
 
 async def _setup_resolved(user_id: str) -> bool:
-    # Read canonical setup state without creating a placeholder or changing login metadata.
-    # Fresh admission must not queue behind the synchronous Location projection.
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT setup_completed, vault_status FROM vault_keys WHERE user_id = $1 LIMIT 1",
-            user_id,
-        )
-    return bool(row and row["setup_completed"] is True and row["vault_status"] == "active")
+    # Preserve the existing business service's provider injection boundary.
+    return await owner_setup_resolved(user_id, pool_provider=get_pool)
 
 
 def _lookup_identity(user_id: str):
-    # Both Admin initialization and its synchronous provider I/O stay off the
-    # API event loop. Firebase's shared helper sets a four-second HTTP timeout.
-    app = get_firebase_auth_app()
-    if app is None:
-        raise BusinessSuggestionUnavailable()
-    from firebase_admin import auth as firebase_auth
-
-    return firebase_auth.get_user(user_id, app=app)
+    try:
+        return lookup_fresh_owner_identity(user_id, app_provider=get_firebase_auth_app)
+    except OwnerIdentityUnavailable:
+        raise BusinessSuggestionUnavailable() from None
 
 
 async def get_business_suggestion(user_id: str, *, local_loopback: bool = False) -> dict[str, Any]:

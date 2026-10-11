@@ -13,6 +13,7 @@ vi.mock("@/lib/services/onboarding-local-service", () => ({
 }));
 
 vi.mock("@/components/wallet/wallet-sharing", () => ({ WalletSharing: () => <section>Card recipients</section> }));
+vi.mock("@/lib/services/wallet-card-artwork-service", () => ({ loadWalletCardArtwork: vi.fn().mockResolvedValue("<svg></svg>") }));
 
 const navigationMock = vi.hoisted(() => ({
   pathname: "/one/wallet",
@@ -23,7 +24,7 @@ const authMock = vi.hoisted(() => ({
   user: { uid: "user_1" } as { uid: string } | null,
 }));
 const trackEventMock = vi.hoisted(() => vi.fn());
-const vaultMock = vi.hoisted(() => ({ locked: false }));
+const vaultMock = vi.hoisted(() => ({ locked: false, tokenReady: true }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => navigationMock.pathname,
@@ -44,8 +45,8 @@ vi.mock("@/lib/observability/client", () => ({
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () =>
     vaultMock.locked
-      ? { vaultKey: null, getVaultOwnerToken: () => null }
-      : { vaultKey: "vault_key", getVaultOwnerToken: () => "owner_token" },
+      ? { vaultKey: null, vaultOwnerToken: null, getVaultOwnerToken: () => null }
+      : { vaultKey: "vault_key", vaultOwnerToken: vaultMock.tokenReady ? "owner_token" : null, getVaultOwnerToken: () => vaultMock.tokenReady ? "owner_token" : null },
 }));
 
 vi.mock("@/components/vault/vault-unlock-dialog", () => ({
@@ -104,6 +105,18 @@ function makeCards(count: number) {
 }
 
 describe("WalletWorkspace at scale", () => {
+  it("loads cards when the owner token arrives after the vault key", async () => {
+    vi.mocked(OnboardingLocalService.hasSeenWalletIntroduction).mockResolvedValueOnce(true);
+    vaultMock.tokenReady = false;
+    serviceMock.listCardSummaries.mockResolvedValue([]);
+    const view = render(<WalletWorkspace />);
+    await screen.findByTestId("one-wallet-locked");
+    expect(serviceMock.listCardSummaries).not.toHaveBeenCalled();
+    vaultMock.tokenReady = true;
+    view.rerender(<WalletWorkspace />);
+    await waitFor(() => expect(serviceMock.listCardSummaries).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Add", exact: true })).toBeEnabled());
+  });
   it("refreshes the profile QR after a remote rotation without reopening Wallet", async () => {
     const card = { status: "active", displayName: "Ada", cardPayload: { full_name: "Ada" }, shareTokenVersion: 1 } as WalletCardRecord;
     const rotated = { ...card, shareTokenVersion: 2 };
@@ -246,6 +259,26 @@ describe("WalletWorkspace at scale", () => {
     expect(serviceMock.listCardSummaries).toHaveBeenCalledTimes(1);
   });
 
+  it("returns to the overview after leaving a saved card and switching tabs", async () => {
+    serviceMock.listCardSummaries.mockResolvedValue(makeCards(1));
+    render(<WalletWorkspace />);
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
+    await screen.findByTestId("wallet-add-collection");
+    fireEvent.click(screen.getByRole("button", { name: "View details for Card 0" }));
+    await screen.findByTestId("wallet-selected-card");
+    fireEvent.click(screen.getByRole("button", { name: "All cards", exact: true }));
+    const browser = screen.getByTestId("wallet-card-browser");
+    const deck = screen.getByTestId("wallet-add-collection");
+    for (const tab of ["Add", "Sharing"]) {
+      fireEvent.click(screen.getByRole("tab", { name: tab }));
+      fireEvent.click(screen.getByRole("tab", { name: "Cards" }));
+      await screen.findByTestId("wallet-add-collection");
+      expect(screen.queryByTestId("wallet-selected-card")).toBeNull();
+      expect(screen.getByTestId("wallet-card-browser")).toBe(browser);
+      expect(screen.getByTestId("wallet-add-collection")).toBe(deck);
+    }
+  });
+
   it("retains a failed save draft and rejects a late save after vault lock", async () => {
     serviceMock.addCard.mockRejectedValueOnce(new Error("Could not save"));
     const workspace = render(<WalletWorkspace />);
@@ -376,6 +409,7 @@ describe("WalletWorkspace at scale", () => {
   beforeEach(() => {
     authMock.user = { uid: "user_1" };
     vaultMock.locked = false;
+    vaultMock.tokenReady = true;
     navigationMock.search = "";
     navigationMock.replace.mockReset();
     serviceMock.listCardSummaries.mockResolvedValue(makeCards(4));

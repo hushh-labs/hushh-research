@@ -407,13 +407,18 @@ class DirectMessagesService:
         event_notifier: Callable[[str, dict[str, str]], None] | None = None,
         push_notifier: Callable[..., None] | None = None,
         feed_notifier: Callable[..., None] | None = None,
+        connection: Any | None = None,
+        defer_notifications: bool = False,
     ) -> None:
         self._db = db
         self._cipher = cipher or DirectMessageCipher()
         self._event_notifier = event_notifier or _default_event_notifier
         self._push_notifier = push_notifier or _default_push_notifier
         self._feed_notifier = feed_notifier or _default_feed_notifier
-        self._transaction_connection: Any | None = None
+        if connection is not None and not defer_notifications:
+            raise ValueError("outer_message_transaction_requires_deferred_notifications")
+        self._transaction_connection: Any | None = connection
+        self._defer_notifications = defer_notifications
 
     @property
     def db(self) -> Any:
@@ -638,6 +643,10 @@ class DirectMessagesService:
                 status_code=403,
             )
         return connection_id
+
+    def require_active_connection(self, sender_user_id: str, recipient_user_id: str) -> str:
+        """Canonical accepted-edge/block policy for transactional domain sends."""
+        return self._require_active_connection(sender_user_id, recipient_user_id)
 
     @staticmethod
     def _connection_gate_error(exc: BaseException) -> DirectMessagesError | None:
@@ -1367,7 +1376,7 @@ class DirectMessagesService:
                 "senderIsViewer": reply_to["senderIsViewer"],
                 "deletedForEveryoneAt": reply_to["deletedForEveryoneAt"],
             }
-        if not inserted:
+        if not inserted or self._defer_notifications:
             return {"conversation": conversation, "message": message}
         try:
             self._feed_notifier(

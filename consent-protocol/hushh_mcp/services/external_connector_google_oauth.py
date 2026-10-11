@@ -66,6 +66,7 @@ LIVE_SCOPES = ("openid", "email", LIVE_DRIVE_SCOPE)
 REGISTRY_SCOPES = (*SCOPES, LIVE_DRIVE_SCOPE)
 DriveProfile = Literal["selected", "live"]
 RESPONSE_LIMIT = 256 * 1024
+RESUME_TIMEOUT_SECONDS = 5
 
 logger = logging.getLogger(__name__)
 
@@ -581,13 +582,31 @@ class ExternalConnectorGoogleOAuth:
         from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
 
         await GoogleDriveRestTransport(oauth=self).probe(access_token=credential["accessToken"])
-        return await self.lifecycle.mark_verified(
+        verified = await self.lifecycle.mark_verified(
             user_id=user_id,
             connector_id=CONNECTOR_ID,
             generation=row["connection_generation"],
             version=row["credential_version"],
             policy_hash=LIVE_POLICY_HASH,
         )
+        if verified:
+            await self._resume_drive_requests(user_id)
+        return verified
+
+    async def _resume_drive_requests(self, user_id: str) -> None:
+        """Requests waiting on this Drive continue now; scheduled drains also retry.
+
+        The verified connection is already committed, so this never fails or
+        holds the verify response beyond its bound.
+        """
+        try:
+            async with asyncio.timeout(RESUME_TIMEOUT_SECONDS):
+                # Local import avoids a module cycle through the OAuth service.
+                from hushh_mcp.services.drive_sharing_service import DriveSharingService
+
+                await DriveSharingService(oauth=self).resume_owner_drive(user_id=user_id)
+        except Exception as error:
+            logger.warning("drive_oauth.request_resume_deferred type=%s", type(error).__name__)
 
     async def disconnect(self, *, user_id: str) -> dict[str, str]:
         old = await self.lifecycle.disconnect(user_id=user_id, connector_id=CONNECTOR_ID)

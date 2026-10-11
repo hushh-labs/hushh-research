@@ -131,6 +131,8 @@ export class GoogleCalendarService {
         body: JSON.stringify({
           user_id: params.userId,
           access_level: params.accessLevel,
+          redirect_uri: typeof window === "undefined" ? undefined
+            : `${window.location.origin}/one/profile/google/oauth/return`,
         }),
       },
     );
@@ -157,6 +159,8 @@ export class GoogleCalendarService {
           user_id: params.userId,
           code: params.code,
           state: params.state,
+          redirect_uri: typeof window === "undefined" ? undefined
+            : `${window.location.origin}/one/profile/google/oauth/return`,
         }),
       },
     );

@@ -411,6 +411,18 @@ Used by:
 | `DEVELOPER_REGISTRY_JSON` | n/a (legacy) | Optional legacy | Legacy developer registry payload; no active backend reader |
 | `HUSHH_DEVELOPER_TOKEN` | `api/routes/session.py` (`/api/user/lookup`) | Optional | Self-serve developer token for stdio MCP and token-auth developer lookups. Not part of the normal hosted runtime bootstrap. |
 
+Hosted Gmail, Calendar and Plaid web callbacks retain their configured canonical
+URI. During the `hushh.ai` to `hussh.ai` migration, the backend also accepts the
+exact same path on the explicitly configured One spelling pair only when both
+origins are in `CORS_ALLOWED_ORIGINS`. Custom hosts, other environments, query
+strings and arbitrary CORS entries do not gain callback authority. Web start and
+completion echo the current document callback; signed Gmail state preserves the
+original callback for older in-flight completions that omit it. Register both
+URLs on the existing provider client before release; this application allowlist
+does not update Google or other providers. Drive registry provisioning upgrades
+only its exact known predecessor policy under the existing attestation/lock.
+
+
 Live Gmail receipt read-through introduces no new credential or persistence
 configuration. It reuses the four `GMAIL_OAUTH_*` settings above, the existing
 encrypted per-owner connection, managed Vertex configuration for the
@@ -847,3 +859,25 @@ secret for `/api/one/payouts/connect/sandbox-webhook`; the live Connect webhook
 secret remains bound separately. API and worker retain required credentials for
 already reserved obligations even if new enrollment is disabled. Never print
 secret values or copy test balances/account IDs into live state.
+
+
+### Request scope enablement follow-up (2026-10-11)
+
+Request scope uses the existing Stripe Secret Manager lane through dedicated `PKM_ANSWER_STRIPE_SECRET_KEY` and `PKM_ANSWER_STRIPE_WEBHOOK_SECRET` bindings. `PKM_ANSWER_STRIPE_MODE` is independent of Drive's mode and `ENVIRONMENT`; keep UAT at `uat`. `PKM_ANSWER_COMPOSER_ENABLED` defaults false. Live composition/admission additionally requires `PKM_ANSWER_LIVE_PROVIDER_REVIEWED=true`, mapped from the environment's `PKM_ANSWER_LIVE_PROVIDER_*_REVIEWED` repository variable. Set that attestation only after checking the exact selected provider project/model, regional failover, caching, request-response logging and applicable abuse-monitoring retention, and verifying the owner's disclosure/consent. The 2026-10-11 probe found cache enabled; logging/exemption remain unverified. See [runtime and key-control review](../architecture/living-memory-freshness-adr.md).
+
+The canonical counterpart's `REVIEWER_COUNTERPART_UID`, `REVIEWER_COUNTERPART_VAULT_PASSPHRASE` and `REVIEWER_COUNTERPART_PERSON_REF` are provisioned in UAT Secret Manager and its encrypted vault passphrase readback was verified. Reviewer credential values remain process-only. No deployed runtime was changed: bind the counterpart pair explicitly for a later reviewer-enabled deployment or inject it only into the local rehearsal process. Never put a passphrase, vault key, token or decrypted projection into a committed/ignored environment file, trace, screenshot or report.
+
+Operator sequence, after final CI and review:
+
+1. Merge the reviewed PR; apply release migration 305 through the existing manifest/migration verification path, then verify the three schema contracts. Historical payment rows with null mode and historical approvals without composition consent remain blocked pending explicit reconciliation; do not infer mode or grant consent in a backfill.
+2. Deploy backend/frontend from the same reviewed SHA with answer payments/composer default off. Preserve Drive credentials, flags, Google configuration and UAT `ENVIRONMENT`. Bind answer test credentials first and verify the signed provider webhook's exact mode, actual Checkout completion, duplicate/late events, full refund and verified owner settlement with the two accounts. Test-mode payments do not establish live account readiness.
+3. Configure `deploy/answers/setup_answer_work_drain_scheduler.sh` using its documented environment, project, service-account and audience options. Verify authenticated drain execution, logs and actual expired/refund/payout transitions. The current UAT scheduler inventory has no answer-work job; checked-in worker code is not evidence of a running deployed worker. Keep drain enabled for owed money when admission/composition is paused.
+4. Reconcile or finish every test-mode obligation before switching the answer lane to live. A live-only worker deliberately cannot drain test rows. Re-enable only with a verified live-mode owner account; never promote a legacy, stale, deleted or unverified Connect mapping.
+5. After the separate provider retention review and owner disclosure, select dedicated live answer key/signing-secret bindings, set the answer mode to live and explicitly enable the composer/provider-reviewed/payment gates. In UAT the live slots are `STRIPE_LIVE_SECRET_KEY` and `STRIPE_LIVE_WEBHOOK_SECRET`; leave the ordinary Drive bindings alone. Reverify platform and owner accounts and the live endpoint mode; the operator performs deployment and any real purchase.
+
+A shutdown disables answer admission/composition while retaining financial draining and requester cancellation. Preserve mode bindings, first-dispatch timestamps and consent digests. The expand-only rollback must not discard pending refund/earning obligations. Automatic answers are deferred. Locked/closed-app 24/7 memory remains a reviewed-design blocker, not completed queue work.
+
+
+Verification evidence for this follow-up is local and uses Stripe test mode only. The canonical two-account reviewer rehearsal completed the profile Request scope dialog, owner Feed review with exact scope/price/model consent, real hosted Stripe test Checkout, signed test webhook, unlocked owner composition from approved encrypted memory, and requester-only encrypted answer readback on the requesting device. A real full test refund also settled through the answer refund worker. The Refund object has no required `livemode` field: the worker first retrieves and verifies the source PaymentIntent under the mode-bound answer credential, then verifies the refund's payment intent, amount, currency and status. A previously held refund requires explicit reconciliation against verified provider evidence; never reset a manual-review row blindly.
+
+The rehearsal does not prove provider owner onboarding/transfer, live account readiness, deployed scheduler execution, or Google Drive's two-account provider journey. Drive regressions ran locally with answer flags off and on. Answer delivery currently uses the requesting device's existing private recipient key; successful readback in that session does not establish cross-device key recovery. No new key escrow or recovery authority is introduced. Provider retention, hosted workers and verified owner settlement remain external enablement blockers, and live/composer gates remain off in deployed environments. The locked/closed-app runtime proposal remains pending review.

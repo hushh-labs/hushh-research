@@ -4,6 +4,7 @@ import vm from "node:vm";
 import { webcrypto } from "node:crypto";
 import { IDBFactory } from "fake-indexeddb";
 import fixture from "./fixtures/chat-push-preview.json";
+import { documentRequestSetupHref } from "@/lib/consent/document-request-setup";
 import { sealNotificationPreview } from "@/lib/notifications/chat-preview";
 
 import { describe, expect, it } from "vitest";
@@ -547,6 +548,46 @@ describe("Firebase messaging service-worker lifecycle ownership", () => {
     expect(harness.openedUrls).toEqual([
       "/one/consent?tab=pending&requestId=document_share_request%3A11111111-1111-4111-8111-111111111111",
     ]);
+  });
+
+  it.each([
+    [
+      "drive",
+      "/one/feed?profile_pane=1&profile_panel=connectors&profile_detail=connector%3Agoogle_drive",
+    ],
+    ["payouts", "/one/profile/payouts?from=%2Fone%2Ffeed"],
+    ["price", "/one/profile/request-pricing?from=%2Fone%2Ffeed"],
+  ] as const)("opens the app's %s setup screen for an owner's request push", async (setup, href) => {
+    // The worker cannot import TypeScript, so its fixed targets must match.
+    expect(documentRequestSetupHref(setup)).toBe(href);
+    const harness = createHarness({ clientState: "none" });
+    await harness.push("document_share_request", {
+      type: "document_share_request",
+      request_id: "11111111-1111-4111-8111-111111111111",
+      setup,
+    });
+    const data = harness.shown[0]?.options?.data as Record<string, unknown>;
+    expect(data).toEqual(expect.objectContaining({ setup, url: href, source_url: href }));
+    await harness.click(data);
+    expect(harness.openedUrls).toEqual([href]);
+  });
+
+  it.each([
+    { type: "document_share_request", setup: "https://evil.example" },
+    { type: "document_share_request", setup: "drive?x=1" },
+    { type: "document_share_review_ready", setup: "drive" },
+  ])("drops setup $setup on $type and keeps the review route", async (fields) => {
+    const review =
+      "/one/consent?tab=pending&requestId=document_share_request%3A11111111-1111-4111-8111-111111111111";
+    const raw = { ...fields, request_id: "11111111-1111-4111-8111-111111111111" };
+    const harness = createHarness({ clientState: "none" });
+    await harness.push(fields.type, raw);
+    const data = harness.shown[0]?.options?.data as Record<string, unknown>;
+    expect(data.setup).toBeUndefined();
+    expect(data.url).toBe(review);
+    // A tap on an unreduced payload falls back the same way.
+    await harness.click(raw);
+    expect(harness.openedUrls).toEqual([review]);
   });
 
   it("opens the live Feed for payment and drops private push fields", async () => {

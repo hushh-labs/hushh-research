@@ -1033,7 +1033,7 @@ async def test_mailbox_change_runs_only_after_review_with_exact_labels(action, l
     # Proposing resolves and stores targets; Gmail is not changed yet.
     assert proposal["status"] == "confirmation_required"
     assert writes == []
-    assert "m-1" not in json.dumps(proposal)
+    assert all(json.dumps(mid) not in json.dumps(proposal) for mid in ("m-1", "m-2"))
 
     result = await service.execute(user_id="owner", proposal_id=proposal["proposal_id"])
     assert result == {"status": "executed", "action": action, "count": 2}

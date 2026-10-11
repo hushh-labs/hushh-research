@@ -869,6 +869,7 @@ class ConsentDBService:
                             "time_remaining_ms": ((expires_at - now_ms) if expires_at else 0),
                             "request_id": row.get("request_id"),
                             "token_id": token_id,
+                            "source_record_id": row.get("id"),
                             "metadata": self._parse_metadata(row.get("metadata")) or None,
                         }
                     )
@@ -1357,23 +1358,20 @@ class ConsentDBService:
         self,
         user_id: str,
         page: int = 1,
-        limit: int = 50,
+        limit: Optional[int] = 50,
         *,
         user_ids: Optional[List[str]] = None,
     ) -> Dict:
         """Get paginated audit log for a user."""
         db = self._get_db()
-        offset = (page - 1) * limit
+        offset = (page - 1) * limit if limit is not None else 0
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
 
         # Get paginated results (TableQuery uses .limit/.offset, not .range)
         query = db.table("consent_audit").select("*")
-        query = (
-            self._apply_user_filter(query, user_id, user_ids)
-            .order("issued_at", desc=True)
-            .limit(limit)
-            .offset(offset)
-        )
+        query = self._apply_user_filter(query, user_id, user_ids).order("issued_at", desc=True)
+        if limit is not None:
+            query = query.limit(limit).offset(offset)
         count_query = db.table("consent_audit").select("id,agent_id,action,scope")
         count_query = self._apply_user_filter(count_query, user_id, user_ids)
 

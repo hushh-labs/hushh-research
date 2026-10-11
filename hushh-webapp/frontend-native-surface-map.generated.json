@@ -72,6 +72,10 @@
       "file": "app/api/consent/center/list/route.ts"
     },
     {
+      "template": "/api/consent/center/source-fence",
+      "file": "app/api/consent/center/source-fence/route.ts"
+    },
+    {
       "template": "/api/consent/center/summary",
       "file": "app/api/consent/center/summary/route.ts"
     },
@@ -366,7 +370,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Chat actions complete only after the correlated browser or capability settlement succeeds.",
+          "completion_boundary": "Chat actions complete only after the correlated browser or capability settlement succeeds. The onboarding public-profile card stays a draft until the owner confirms the exact memory preview; Edit and Review unwind locally on Back.",
           "next_route": "/",
           "return_policy": "resolve_root",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -5026,6 +5030,7 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.payouts.redeem",
         "profile.payouts.test_redeem",
         "profile.reset_account",
         "profile.set_contact_discoverable",
@@ -7398,7 +7403,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.referrals",
-          "purpose": "Welcome the person to referrals with a replayable, device/account-scoped introduction, then help them read their referral link, points, ranking, and reward progress through the dashboard's own controls. Continuing or skipping the introduction never grants setup completion or referral credit.",
+          "purpose": "Open the referral dashboard directly so the person can read their referral link, coins, ranking, and reward progress. How it works shows the coins and rules; Back returns to the previous dashboard section. Viewing the dashboard never grants setup completion or referral credit.",
           "screen": "one_referrals",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -10112,5 +10117,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "6332919d6fbf00e6ad6b6148e3db78acc4e346510afa49d6c2493abd413afd87"
+  "content_sha256": "7c1b4024613858dda16cc1ec2aaf41860cfa7f624f21580c46e3d26e6cc90e0e"
 }

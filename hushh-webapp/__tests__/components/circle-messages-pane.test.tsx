@@ -1,10 +1,11 @@
+import { useEffect } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CircleMessagesPane } from "@/components/connect/circles/circle-messages-pane";
 import { parseLastMessagesSelection, readLastMessagesSelection, writeLastMessagesSelection } from "@/lib/direct-messages/last-selection";
 
-const mocks = vi.hoisted(() => ({ listCircles: vi.fn() }));
+const mocks = vi.hoisted(() => ({ listCircles: vi.fn(), startChat: vi.fn(), stopChat: vi.fn() }));
 
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "viewer" } }) }));
 vi.mock("@/lib/vault/vault-context", async () => {
@@ -13,7 +14,13 @@ vi.mock("@/lib/vault/vault-context", async () => {
 });
 vi.mock("@/lib/one-location/service", () => ({ OneLocationService: { listCircles: (...args: unknown[]) => mocks.listCircles(...args) } }));
 vi.mock("@/components/connect/circles/circle-chat", () => ({
-  CircleChat: ({ session }: { session: { circleId: string } }) => <div data-testid="circle-chat">{session.circleId}</div>,
+  CircleChat: ({ session }: { session: { circleId: string } }) => {
+    useEffect(() => {
+      mocks.startChat(session.circleId);
+      return () => { mocks.stopChat(session.circleId); };
+    }, [session]);
+    return <div data-testid="circle-chat">{session.circleId}</div>;
+  },
 }));
 vi.mock("@/components/agent/agent-dock", () => ({ AgentDockPortal: () => null }));
 
@@ -23,6 +30,8 @@ describe("CircleMessagesPane saved selection", () => {
   beforeEach(() => {
     window.sessionStorage.clear();
     mocks.listCircles.mockReset();
+    mocks.startChat.mockClear();
+    mocks.stopChat.mockClear();
   });
 
   it("reopens a saved Circle only when its membership is returned", async () => {
@@ -33,6 +42,23 @@ describe("CircleMessagesPane saved selection", () => {
 
     expect(await screen.findByTestId("circle-chat")).toHaveTextContent("circle-owned");
     expect(parseLastMessagesSelection(readLastMessagesSelection("viewer"))).toEqual({ lane: "circles", circleId: "circle-owned" });
+  });
+
+  it("keeps a chat connection alive through header updates and replaces it for another circle", async () => {
+    mocks.listCircles.mockResolvedValue([circle("room"), circle("family")]);
+    const view = render(<CircleMessagesPane active initialCircleId="room" theme="light" />);
+    expect(await screen.findByTestId("circle-chat")).toHaveTextContent("room");
+    expect(mocks.startChat).toHaveBeenCalledTimes(1);
+
+    view.rerender(<CircleMessagesPane active initialCircleId="room" theme="dark" headerActions={<span>Updated header</span>} />);
+    expect(mocks.stopChat).not.toHaveBeenCalled();
+    expect(mocks.startChat).toHaveBeenCalledTimes(1);
+
+    view.rerender(<CircleMessagesPane active initialCircleId="family" theme="dark" />);
+    await waitFor(() => expect(screen.getByTestId("circle-chat")).toHaveTextContent("family"));
+    expect(mocks.stopChat).toHaveBeenCalledWith("room");
+    expect(mocks.startChat).toHaveBeenCalledTimes(2);
+    expect(mocks.startChat).toHaveBeenLastCalledWith("family");
   });
 
   it("clears a saved Circle that is absent from current membership", async () => {

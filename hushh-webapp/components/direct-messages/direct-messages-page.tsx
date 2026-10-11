@@ -92,6 +92,8 @@ import { useVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadat
 
 import styles from "./direct-messages-page.module.css";
 import { WalletSharedCardMessage } from "@/components/wallet/wallet-shared-card-message";
+import { WalletCardAccessMessage } from "@/components/wallet/wallet-card-access-message";
+import { cardAccessReference } from "@/lib/services/wallet-card-access-service";
 import { isWalletCardShare, walletMessagePreview } from "@/lib/wallet/wallet-card-share";
 
 type ThreadState = {
@@ -1569,7 +1571,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                         <p>{walletMessagePreview(message.replyTo.content)}</p>
                                       </div>
                                     ) : null}
-                                    {isWalletCardShare(message.content) ? <WalletSharedCardMessage key={`${message.id}:${activeConversationId}`} content={message.content} peerPersonRef={thread.peerPersonRef} senderIsViewer={message.senderIsViewer} /> : message.content ? <p className="whitespace-pre-wrap break-words">{message.content}</p> : null}
+                                    {cardAccessReference(message.content) ? <WalletCardAccessMessage key={`${message.id}:${activeConversationId}`} grantId={cardAccessReference(message.content)!} senderIsViewer={message.senderIsViewer} /> : isWalletCardShare(message.content) ? <WalletSharedCardMessage key={`${message.id}:${activeConversationId}`} content={message.content} peerPersonRef={thread.peerPersonRef} senderIsViewer={message.senderIsViewer} /> : message.content ? <p className="whitespace-pre-wrap break-words">{message.content}</p> : null}
                                     <MessageAttachment message={message} getIdToken={() => {
                                       if (!user) throw new Error("Sign in to open this attachment.");
                                       return user.getIdToken();

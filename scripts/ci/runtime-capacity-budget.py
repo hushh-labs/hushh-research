@@ -276,19 +276,48 @@ def job_budget(
     }
 
 
+def connection_policy(
+    profile: dict[str, Any], environment: str | None = None
+) -> dict[str, int]:
+    """Resolve one complete policy; incomplete overrides never inherit authority."""
+    if profile.get("schema_version") != 1:
+        raise BudgetError("unsupported capacity profile version")
+    config = profile["environments"][environment] if environment else {}
+    fields = ("database_max_connections", "admission_limit", "administrative_reserve")
+    source = config.get("connection_policy", profile)
+    if not isinstance(source, dict) or any(field not in source for field in fields):
+        raise BudgetError("incomplete database connection policy")
+    policy = {field: positive_int(source[field], field) for field in fields}
+    if (
+        policy["admission_limit"] > policy["database_max_connections"]
+        or policy["administrative_reserve"] >= policy["admission_limit"]
+    ):
+        raise BudgetError("invalid database connection policy")
+    return policy
+
+
+def sql_alert_thresholds(
+    profile: dict[str, Any], project: str, instance: str
+) -> dict[str, int]:
+    matches = [name for name, config in profile["environments"].items()
+               if config["project"] == project]
+    if len(matches) != 1:
+        raise BudgetError("expected one reviewed capacity policy for the project")
+    environment = matches[0]
+    if profile["environments"][environment]["database_instance"] != instance:
+        raise BudgetError("SQL instance differs from reviewed capacity policy")
+    maximum = connection_policy(profile, environment)["database_max_connections"]
+    return {"warning": maximum * 70 // 100, "critical": maximum * 85 // 100}
+
+
 def evaluate(
     profile: dict[str, Any], environment: str, inventory: dict[str, Any]
 ) -> dict[str, Any]:
-    if profile.get("schema_version") != 1:
-        raise BudgetError("unsupported capacity profile version")
+    policy = connection_policy(profile, environment)
     config = profile["environments"][environment]
-    maximum = positive_int(
-        profile["database_max_connections"], "database max connections"
-    )
-    limit = positive_int(profile["admission_limit"], "admission limit")
-    reserve = positive_int(profile["administrative_reserve"], "administrative reserve")
-    if limit > maximum or reserve >= limit:
-        raise BudgetError("invalid database connection policy")
+    maximum = policy["database_max_connections"]
+    limit = policy["admission_limit"]
+    reserve = policy["administrative_reserve"]
     live_maximum = inventory["database_max_connections"]
     if live_maximum != maximum:
         raise BudgetError(

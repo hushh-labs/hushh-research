@@ -1225,6 +1225,7 @@ class OneLocationAgentService:
         tasks: list[tuple[str, str, dict[str, Any]]],
         *,
         max_workers: int = 8,
+        require_complete: bool = False,
     ) -> dict[str, list[dict[str, Any]]]:
         """Run several independent, read-only SQL queries concurrently.
 
@@ -1252,6 +1253,20 @@ class OneLocationAgentService:
         """
         if not tasks:
             return {}
+        if require_complete:
+            # Source inventory uses one complete, repeatable-read snapshot.
+            # A missing section must never become an authoritative deletion.
+            with get_db_connection() as connection:
+                connection.execute(
+                    text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+                )
+                return {
+                    name: [
+                        dict(row)
+                        for row in connection.execute(text(query), params).mappings().all()
+                    ]
+                    for name, query, params in tasks
+                }
         # ``execute_raw`` checks a connection out of SQLAlchemy's shared
         # QueuePool for every task.  The local runtime deliberately has a
         # two-connection pool, so the historical fixed fan-out of eight made
@@ -9022,7 +9037,7 @@ class OneLocationAgentService:
         )
         return invite
 
-    def list_state(self, *, user_id: str) -> dict[str, Any]:
+    def list_state(self, *, user_id: str, require_complete: bool = False) -> dict[str, Any]:
         # Resilience: one failing auxiliary section (e.g. schema drift on a
         # rarely-used table) must NOT 500 the whole endpoint. A 500 here cascades
         # into the consent-center contributor (which then returns empty buckets)
@@ -9036,7 +9051,7 @@ class OneLocationAgentService:
         # fan-out belong to the bounded retention maintenance path, not an app
         # foreground/resume read. Explicit false remains a temporary rollback
         # valve for environments that have not installed the scheduler yet.
-        read_only_state = str(
+        read_only_state = require_complete or str(
             os.getenv("ONE_LOCATION_READ_ONLY_STATE_ENABLED") or "true"
         ).strip().lower() in {"1", "true", "yes", "on"}
         if not read_only_state:
@@ -9059,6 +9074,8 @@ class OneLocationAgentService:
         try:
             recipients = self.list_verified_recipients(owner_user_id=user_id)
         except Exception as exc:  # noqa: BLE001
+            if require_complete:
+                raise
             logger.warning(
                 "one_location.list_state.recipients_failed user=%s error=%s",
                 user_id,
@@ -9074,6 +9091,8 @@ class OneLocationAgentService:
             circle_service = OneLocationCircleService()
             named_circles = circle_service.list_circles(user_id=user_id)
         except Exception as exc:  # noqa: BLE001 - additive schema rollout
+            if require_complete:
+                raise
             logger.warning(
                 "one_location.list_state.named_circles_failed user=%s error=%s",
                 redact_log_field("user_id", user_id),
@@ -9087,8 +9106,11 @@ class OneLocationAgentService:
                 user_id=user_id,
                 direction="incoming",
                 expire_stale=not read_only_state,
+                **({"require_complete": True} if require_complete else {}),
             )
         except Exception as exc:  # noqa: BLE001 - additive schema rollout
+            if require_complete:
+                raise
             logger.warning(
                 "one_location.list_state.circle_member_invites_failed user=%s error=%s",
                 redact_log_field("user_id", user_id),
@@ -9123,9 +9145,9 @@ class OneLocationAgentService:
                     LEFT JOIN actor_identity_cache r ON r.user_id = g.recipient_user_id
                     WHERE g.owner_user_id = :user_id
                     ORDER BY g.created_at DESC
-                    LIMIT 50
+                    LIMIT :source_limit
                     """,
-                    {"user_id": user_id},
+                    {"user_id": user_id, "source_limit": None if require_complete else 50},
                 ),
                 (
                     "received_grants",
@@ -9140,9 +9162,9 @@ class OneLocationAgentService:
                     LEFT JOIN actor_identity_cache o ON o.user_id = g.owner_user_id
                     WHERE g.recipient_user_id = :user_id
                     ORDER BY g.created_at DESC
-                    LIMIT 50
+                    LIMIT :source_limit
                     """,
-                    {"user_id": user_id},
+                    {"user_id": user_id, "source_limit": None if require_complete else 50},
                 ),
                 (
                     "requests",
@@ -9179,9 +9201,9 @@ class OneLocationAgentService:
                     LEFT JOIN one_location_share_grants extended ON extended.id = req.extends_grant_id
                     WHERE req.owner_user_id = :user_id OR req.requester_user_id = :user_id
                     ORDER BY req.requested_at DESC
-                    LIMIT 50
+                    LIMIT :source_limit
                     """,
-                    {"user_id": user_id},
+                    {"user_id": user_id, "source_limit": None if require_complete else 50},
                 ),
                 (
                     "referrals",
@@ -9192,9 +9214,9 @@ class OneLocationAgentService:
                        OR referring_user_id = :user_id
                        OR referred_user_id = :user_id
                     ORDER BY created_at DESC
-                    LIMIT 50
+                    LIMIT :source_limit
                     """,
-                    {"user_id": user_id},
+                    {"user_id": user_id, "source_limit": None if require_complete else 50},
                 ),
                 (
                     "public_invites",
@@ -9203,9 +9225,9 @@ class OneLocationAgentService:
                     FROM one_location_public_invites
                     WHERE owner_user_id = :user_id
                     ORDER BY created_at DESC
-                    LIMIT 20
+                    LIMIT :source_limit
                     """,
-                    {"user_id": user_id},
+                    {"user_id": user_id, "source_limit": None if require_complete else 20},
                 ),
                 (
                     "circle_invites",
@@ -9215,9 +9237,9 @@ class OneLocationAgentService:
                     WHERE owner_user_id = :user_id
                        OR claimed_by_user_id = :user_id
                     ORDER BY created_at DESC
-                    LIMIT 20
+                    LIMIT :source_limit
                     """,
-                    {"user_id": user_id},
+                    {"user_id": user_id, "source_limit": None if require_complete else 20},
                 ),
                 (
                     "network_connections",
@@ -9227,9 +9249,9 @@ class OneLocationAgentService:
                     WHERE status = 'active'
                       AND owner_user_id = :user_id
                     ORDER BY created_at DESC
-                    LIMIT 50
+                    LIMIT :source_limit
                     """,
-                    {"user_id": user_id},
+                    {"user_id": user_id, "source_limit": None if require_complete else 50},
                 ),
                 (
                     "sms_contacts",
@@ -9330,9 +9352,9 @@ class OneLocationAgentService:
                     WHERE submission.owner_user_id = :user_id
                        OR submission.matched_user_id = :user_id
                     ORDER BY submission.submitted_at DESC
-                    LIMIT 50
+                    LIMIT :source_limit
                     """,
-                    {"user_id": user_id},
+                    {"user_id": user_id, "source_limit": None if require_complete else 50},
                 ),
                 (
                     "my_recipient_key",
@@ -9347,7 +9369,8 @@ class OneLocationAgentService:
                     """,
                     {"user_id": user_id},
                 ),
-            ]
+            ],
+            **({"require_complete": True} if require_complete else {}),
         )
         owner_grants = _sections["owner_grants"]
         received_grants = _sections["received_grants"]

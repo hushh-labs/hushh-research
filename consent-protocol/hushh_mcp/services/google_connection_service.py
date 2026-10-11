@@ -29,6 +29,7 @@ from hushh_mcp.services.google_oauth_attempt import (
     decode_attempt,
     encode_attempt,
 )
+from hushh_mcp.services.oauth_redirect_policy import allowed_oauth_callback_uris
 
 GoogleService = Literal["gmail", "calendar", "contacts", "drive"]
 
@@ -169,9 +170,10 @@ class GoogleConnectionService:
             raise GoogleConnectionError(
                 "Google OAuth redirect configuration is invalid", status_code=503
             )
-        if supplied and not hmac.compare_digest(_clean(supplied), configured):
+        requested = _clean(supplied)
+        if requested and requested not in allowed_oauth_callback_uris(configured):
             raise GoogleConnectionError("Google OAuth redirect URI is not allowed", status_code=400)
-        return configured
+        return requested or configured
 
     @staticmethod
     def scopes(service: GoogleService, access_level: Literal["read", "manage"]) -> tuple[str, ...]:
@@ -522,12 +524,24 @@ class GoogleConnectionService:
         level = (
             "manage"
             if service == "calendar"
-            and "https://www.googleapis.com/auth/calendar.events" in scopes.split()
+            and _scopes_cover(set(scopes.split()), set(self.scopes("calendar", "manage")))
             else "read"
         )
-        if not _scopes_cover(set(scopes.split()), set(self.scopes(service, level))):
+        # The stored attempt is the authority requested by this connection.
+        # Do not silently downgrade a management request to read-only access.
+        requested_level = (
+            "manage"
+            if service == "calendar"
+            and "https://www.googleapis.com/auth/calendar.events" in requested_scopes
+            else "read"
+        )
+        if not _scopes_cover(set(scopes.split()), set(self.scopes(service, requested_level))):
             raise GoogleConnectionError(
-                "The requested Google service permission was not granted", status_code=403
+                "Calendar permission was not granted. Connect again and allow the requested Calendar access."
+                if service == "calendar"
+                else "The requested Google service permission was not granted",
+                status_code=403,
+                reason_code="google_permission_required",
             )
         if (
             service == "calendar"

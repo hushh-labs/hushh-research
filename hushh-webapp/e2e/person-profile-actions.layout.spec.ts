@@ -50,42 +50,61 @@ test.beforeAll(async () => {
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
-  if (!address || typeof address === "string") throw new Error("No fixture port");
+  if (!address || typeof address === "string")
+    throw new Error("No fixture port");
   origin = `http://127.0.0.1:${address.port}`;
 });
 
 test.afterAll(async () => {
-  if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
+  if (server)
+    await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
 async function boxes(page: import("@playwright/test").Page) {
   return page.evaluate(() =>
     Object.fromEntries(
-      [...document.querySelectorAll<HTMLElement>("[data-id]")].map((element) => {
-        const rect = element.getBoundingClientRect();
-        return [element.dataset.id!, { top: rect.top, bottom: rect.bottom, height: rect.height }];
-      }),
+      [...document.querySelectorAll<HTMLElement>("[data-id]")].map(
+        (element) => {
+          const rect = element.getBoundingClientRect();
+          return [
+            element.dataset.id!,
+            { top: rect.top, bottom: rect.bottom, height: rect.height },
+          ];
+        },
+      ),
     ),
   );
 }
 
-test("Request scope sits with the file actions, above Manage access", async ({ page }) => {
-  await page.setViewportSize({ width: 420, height: 900 });
-  await page.goto(origin);
+for (const width of [375, 420, 1280]) {
+  test(`Request scope sits below files and above Manage access at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(origin);
 
-  const rect = await boxes(page);
+    const rect = await boxes(page);
 
-  // The two Drive file actions share a row.
-  expect(Math.abs(rect["request-files"]!.top - rect["ask-about-files"]!.top)).toBeLessThan(2);
+    // The two Drive file actions share a row.
+    expect(
+      Math.abs(rect["request-files"]!.top - rect["ask-about-files"]!.top),
+    ).toBeLessThan(2);
 
-  // Request scope is below them...
-  expect(rect["request-scope"]!.top).toBeGreaterThan(rect["request-files"]!.top);
-  // ...and above Manage access. This is the regression the explicit grid row
-  // exists to prevent: without it the button lands under Manage.
-  expect(rect["request-scope"]!.bottom).toBeLessThanOrEqual(rect["manage"]!.top + 1);
-});
+    // Request scope is below them...
+    expect(rect["request-scope"]!.top).toBeGreaterThan(
+      rect["request-files"]!.top,
+    );
+    // ...and above Manage access. This is the regression the explicit grid row
+    // exists to prevent: without it the button lands under Manage.
+    expect(rect["request-scope"]!.bottom).toBeLessThanOrEqual(
+      rect["manage"]!.top + 1,
+    );
+  });
+}
 
-test("Request scope matches the file actions' control sizing", async ({ page }) => {
+test("Request scope matches the file actions' control sizing", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 420, height: 900 });
   await page.goto(origin);
   const rect = await boxes(page);
@@ -93,14 +112,21 @@ test("Request scope matches the file actions' control sizing", async ({ page }) 
   // `.actions button` gives every control the same minimum target height, so
   // an unclassed file action and the new CTA must agree.
   expect(rect["request-scope"]!.height).toBeGreaterThanOrEqual(48);
-  expect(rect["request-scope"]!.height).toBeCloseTo(rect["request-files"]!.height, 0);
+  expect(rect["request-scope"]!.height).toBeCloseTo(
+    rect["request-files"]!.height,
+    0,
+  );
 });
 
-test("the cluster stays within the phone column with no horizontal overflow", async ({ page }) => {
+test("the cluster stays within the phone column with no horizontal overflow", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto(origin);
   const overflow = await page.evaluate(
-    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    () =>
+      document.documentElement.scrollWidth -
+      document.documentElement.clientWidth,
   );
   expect(overflow).toBeLessThanOrEqual(0);
 });

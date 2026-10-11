@@ -45,6 +45,18 @@ const DOMAIN_DATA = {
 };
 
 describe("WalletService", () => {
+  it("prepares an existing owner's card unchanged and refuses stale or missing cards", async () => {
+    let current = true;
+    const isCurrent = () => current;
+    await WalletService.prepareCardSharing({ ...CONTEXT, cardId: CARD_ID, isCurrent });
+    const params = mockStoreWalletDomain.mock.calls[0][0];
+    expect(params.mayPublish).toBe(isCurrent);
+    expect(params.applyMutation(DOMAIN_DATA)).toBe(DOMAIN_DATA);
+    expect(() => params.applyMutation({ summary: {}, secrets: {} })).toThrow("Card unavailable");
+    current = false;
+    expect(params.mayPublish()).toBe(false);
+    expect(() => params.applyMutation(DOMAIN_DATA)).toThrow("Card unavailable");
+  });
   beforeEach(() => {
     mockLoadDomainData.mockResolvedValue(DOMAIN_DATA);
     mockStoreWalletDomain.mockResolvedValue({ success: true });

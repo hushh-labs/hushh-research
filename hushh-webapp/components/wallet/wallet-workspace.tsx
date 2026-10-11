@@ -35,13 +35,15 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { WalletSavedCardDetails } from "./wallet-saved-card-details";
 import { WalletSavedCardSharing } from "./wallet-saved-card-sharing";
+import { WalletCardAccessService } from "@/lib/services/wallet-card-access-service";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import {
   PageTitle,
   TYPOGRAPHY_CLASSNAMES,
 } from "@/components/app-ui/typography";
-import { Lock, Plus, Search } from "@/components/icons";
+import { Lock, Plus } from "@/components/icons";
+import { ProfilePaneSearchIcon } from "@/components/profile/profile-pane-icons";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -75,6 +77,7 @@ import {
   type WalletCardSummary,
 } from "@/lib/services/wallet-service";
 import { WalletCardService } from "@/lib/services/wallet-card-service";
+import { loadWalletCardArtwork } from "@/lib/services/wallet-card-artwork-service";
 import { ReferralService, type ReferralSummary } from "@/lib/services/referral-service";
 import { useReferralStream } from "@/lib/referral/use-referral-stream";
 import { cn } from "@/lib/utils";
@@ -199,6 +202,13 @@ function WalletIntroduction({ onConnect, loading }: { onConnect: () => void; loa
 }
 
 export function WalletWorkspace() {
+  useEffect(() => {
+    // Public artwork can load alongside the protected card read, rather than
+    // beginning another network waterfall after the vault has opened.
+    for (const kind of ["profile", "referral", "nws"] as const) {
+      void loadWalletCardArtwork(kind).catch(() => {});
+    }
+  }, []);
   const { user, loading: authLoading } = useAuth();
   const sharingUserRef = useRef(user);
   sharingUserRef.current = user;
@@ -213,7 +223,7 @@ export function WalletWorkspace() {
       }
     };
   }, [renderedOwnerId]);
-  const { vaultKey, getVaultOwnerToken } = useVault();
+  const { vaultKey, vaultOwnerToken, getVaultOwnerToken } = useVault();
   const [demoProfile, setDemoProfile] = useState<WalletDemoProfile | null>(null);
   // Read the token getter through a ref: its identity changes with the vault
   // context, and putting it in effect deps re-ran the list load on every render.
@@ -300,6 +310,7 @@ export function WalletWorkspace() {
     // Drop revealed values and reject an in-flight reveal when leaving Cards.
     dispatch({ type: "unfocus" });
     dispatch({ type: "close_add" });
+    setSelectedDeckCardId(null);
     setTab(value as WalletTab);
     if (value === "cards") {
       // Add and Sharing can be much taller than the deck. Restore the card
@@ -340,10 +351,10 @@ export function WalletWorkspace() {
     [cards, deferredQuery],
   );
   const vaultContext = useCallback(() => {
-    const token = getVaultOwnerTokenRef.current();
+    const token = vaultOwnerToken && getVaultOwnerTokenRef.current();
     if (!user?.uid || !vaultKey || !token) return null;
     return { userId: user.uid, vaultKey, vaultOwnerToken: token };
-  }, [user?.uid, vaultKey]);
+  }, [user?.uid, vaultKey, vaultOwnerToken]);
   useEffect(() => {
     if (!user?.uid) { setDemoProfile(null); return; }
     setDemoProfile({ ownerId: user.uid, displayName: user.displayName?.trim() || null, shareUrl: null, cardPayload: null, memberSince: user.metadata?.creationTime });
@@ -685,9 +696,8 @@ export function WalletWorkspace() {
     setRemoveTarget(null);
     if (!target) return;
     const current = vaultContextRef.current();
-    if (current?.userId !== target.context.userId || current.vaultKey !== target.context.vaultKey ||
-        current.vaultOwnerToken !== target.context.vaultOwnerToken) return;
-    void morphyToast.promise(removeCard(target.card.cardId, target.context), {
+    if (!current || current.userId !== target.context.userId || current.vaultKey !== target.context.vaultKey) return;
+    void morphyToast.promise(removeCard(target.card.cardId, current), {
       loading: "Removing card…",
       success: "Card removed.",
       error: "The card could not be removed.",
@@ -743,7 +753,7 @@ export function WalletWorkspace() {
         onRemove={() => requestRemove(focusedCard)}
         disabled={Boolean(busyCardId)}
       />
-      <WalletSavedCardSharing key={`${renderedOwnerId}:${numberScopeRevision}`} card={focusedCard} getContext={getCardShareContext} disabled={Boolean(busyCardId)} />
+      <WalletSavedCardSharing key={`${renderedOwnerId}:${numberScopeRevision}:${focusedCard.cardId}`} card={focusedCard} getContext={getCardShareContext} disabled={Boolean(busyCardId)} />
 
     </div>
   ) : null}
@@ -848,7 +858,10 @@ export function WalletWorkspace() {
             <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Wallet is not available here yet.</p>
           ) : null}
 
-          {view.kind === "loading" ? <p role="status" className={TYPOGRAPHY_CLASSNAMES.helperText}>Opening your wallet…</p> : null}
+          {view.kind === "loading" ? <div className="mx-auto w-full max-w-[420px] space-y-3 py-5" role="status" aria-label="Opening your wallet">
+            <CardSlot variant="placeholder" />
+            <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Opening your wallet…</p>
+          </div> : null}
 
           {view.kind === "locked" ? (
             <div className="flex flex-col items-center gap-6" data-testid="one-wallet-locked">
@@ -879,12 +892,12 @@ export function WalletWorkspace() {
             </div>
           ) : null}
 
-          {showSearch ? <div className="mx-auto flex w-full max-w-[820px] justify-end"><Button variant="ghost" size="compact" aria-label={searchOpen ? "Close card search" : "Search cards"} onClick={() => { dispatch({ type: "unfocus" }); if (searchOpen) updateSearch(""); setSearchOpen(!searchOpen); }}><Search aria-hidden="true" className="size-4" />{searchOpen ? "Close" : "Search"}</Button></div> : null}
+          {showSearch ? <div className="mx-auto flex w-full max-w-[820px] justify-end"><Button variant="ghost" size="compact" aria-label={searchOpen ? "Close card search" : "Search cards"} onClick={() => { dispatch({ type: "unfocus" }); if (searchOpen) updateSearch(""); setSearchOpen(!searchOpen); }}><ProfilePaneSearchIcon aria-hidden="true" className="size-4" />{searchOpen ? "Close" : "Search"}</Button></div> : null}
           {showSearch && searchOpen ? (
             <div className="relative mx-auto w-full max-w-[820px]">
-              <Search
+              <ProfilePaneSearchIcon
                 aria-hidden="true"
-                className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2"
               />
               <Input
                 value={searchValue}
@@ -906,13 +919,13 @@ export function WalletWorkspace() {
           {hasCards && searchOpen && deferredQuery ? <ul className="mx-auto w-full max-w-[820px] space-y-2" aria-label="Card search results">{filteredCards.map((card) => <li key={card.cardId}><Button variant="secondary" size="standard" className="w-full justify-start" onClick={() => selectCard(card.cardId)}>{card.nickname || cardNetworkLabel(card.brand)} · {cardNetworkLabel(card.brand)} ending {card.last4}</Button></li>)}</ul> : null}
           {ready && !(searchOpen && deferredQuery) ? (
             <WalletCardBrowser demoProfile={walletIdentity} referralSummary={referralSummary} referralError={Boolean(renderedOwnerId && referralErrorOwnerId === renderedOwnerId)} onRetryReferral={() => void loadReferral()} ownerId={renderedOwnerId || undefined}
-              key={`${renderedOwnerId || "wallet"}-${activeTab}`}
+              key={renderedOwnerId || "wallet"}
               cards={cards}
               cardholderNames={cardholderNames}
               selectedCardId={selectedDeckCardId}
               selectedCardNumber={displayedNumber}
               onSelect={selectCard}
-              onOverview={() => dispatch({ type: "unfocus" })}
+              onOverview={() => { setSelectedDeckCardId(null); dispatch({ type: "unfocus" }); }}
               onAdd={() => { dispatch({ type: "unfocus" }); dispatch({ type: "open_add" }); }}
               details={cardDetails}
               dockHost={cardDockHost}
@@ -925,8 +938,9 @@ export function WalletWorkspace() {
           </div>
           <div className="space-y-3.5 px-[var(--page-inline-gutter-standard)]">
           {ready ? (
-            <div className="mx-auto w-full max-w-[820px] py-4">
+            <div className="mx-auto w-full max-w-[820px] pb-4">
               <SecureCardAddForm
+                scanInToolbar
                 key={`${renderedOwnerId}:${filing?.secretId ?? "new"}:${offerNickname ?? ""}:${formRevision}`}
                 active={activeTab === "add"}
                 initialNickname={offerNickname ?? undefined}
@@ -941,6 +955,16 @@ export function WalletWorkspace() {
                       card,
                       surface: "web",
                       source: "one_wallet_add",
+                      reserveCardId: async () => {
+                        let registered: string | null = null;
+                        try {
+                          const token = await user!.getIdToken();
+                          if (activeOwnerIdRef.current !== context.userId) throw new Error("Wallet changed.");
+                          registered = (await WalletCardAccessService.reserve(token, context.vaultOwnerToken, crypto.randomUUID())).cardId;
+                        } catch { /* A backend rollout must not prevent saving an unverified card. */ }
+                        if (activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) throw new Error("Wallet changed.");
+                        return registered;
+                      },
                     });
                     const current = vaultContextRef.current();
                     if (activeOwnerIdRef.current !== context.userId || !current || current.vaultKey !== context.vaultKey) return;
@@ -989,7 +1013,7 @@ export function WalletWorkspace() {
           ) : null}
           </div>
           <div className="space-y-3.5 px-[var(--page-inline-gutter-standard)]" data-testid="one-wallet-sharing">
-            {ready && activeTab === "sharing" ? <WalletSharing key={renderedOwnerId} /> : null}
+            {ready ? <WalletSharing key={renderedOwnerId} profile={walletIdentity} active={activeTab === "sharing"} /> : null}
           </div>
           </SwipeViews>
           </div>
@@ -1002,7 +1026,7 @@ export function WalletWorkspace() {
             if (!open) setRemoveTarget(null);
           }}
         >
-          <AlertDialogContent data-testid="one-wallet-remove-confirm">
+          <AlertDialogContent className={browserStyles.removeDialog} data-testid="one-wallet-remove-confirm">
             <AlertDialogHeader>
               <AlertDialogTitle>Remove {removeTitle}?</AlertDialogTitle>
               <AlertDialogDescription>

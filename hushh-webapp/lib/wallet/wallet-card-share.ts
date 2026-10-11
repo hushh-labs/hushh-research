@@ -25,7 +25,7 @@ function keyValid(key: RecipientPayloadEnvelope) {
 }
 export function isWalletCardShare(content: string): boolean { return content.startsWith(PREFIX); }
 export function walletMessagePreview(content: string): string {
-  return isWalletCardShare(content) ? "Shared payment card" : content;
+  return isWalletCardShare(content) || /^\[wallet-access:[a-f0-9-]{36}\]$/i.test(content) ? "Shared payment card" : content;
 }
 export function parseWalletCardShare(content: string): WalletCardShareEnvelope {
   if (!isWalletCardShare(content) || content.length > DIRECT_MESSAGE_MAX_LENGTH) throw new Error("Card unavailable.");

@@ -39,6 +39,7 @@ const wallet = () => ({
   sandbox: { balanceCoins: 911, reservedCoins: 911, availableCoins: 0, amountCents: 911, held: false },
   latestRedemption: null, redemptionHistory: [],
 });
+const contractFailure = { name: "PayoutContractError", message: expect.stringMatching(/^Invalid Hussh Coins/) };
 
 describe("Hussh Coins financial boundary", () => {
   beforeEach(() => apiJson.mockReset());
@@ -56,7 +57,41 @@ describe("Hussh Coins financial boundary", () => {
       { ...debt, live: { ...debt.live, held: false } },
     ]) {
       apiJson.mockResolvedValueOnce(invalid);
-      await expect(DocumentPayoutService.hashcoins("vault")).rejects.toThrow(/Invalid Hussh Coins/);
+      await expect(DocumentPayoutService.hashcoins("vault")).rejects.toMatchObject(contractFailure);
+    }
+  });
+
+  it("reads additive wallet changes as fewer rows or unknown states, never as another amount or mode", async () => {
+    const transfer = (n: number, patch: object = {}) => ({ id: `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`,
+      amountCoins: 911, status: "succeeded", stripeMode: "live", reversalStatus: "none", ...patch });
+    const history = Array.from({ length: 12 }, (_, n) => transfer(n));
+    history[0] = transfer(0, { status: "queued" });
+    history[1] = transfer(1, { reversalStatus: "clawback_due" });
+    history[2] = transfer(2, { stripeMode: "test" });
+    history[3] = transfer(3, { amountCoins: 50001 });
+    // Negative control: the server's own "unknown" stays a refund-recovery state.
+    history[4] = transfer(4, { reversalStatus: "unknown" });
+    const live = { ...wallet(), payoutMode: "live", testPayouts: false, liveRedemptionEnabled: true, maxRedeemCoins: 100000,
+      sandbox: { ...wallet().sandbox, reservedCoins: 0, availableCoins: 911 }, redemptionHistory: history,
+      latestRedemption: transfer(12, { status: "pending", amountCoins: 50001, clientRequestId: nextId }) };
+    apiJson.mockResolvedValueOnce(live);
+    expect(await DocumentPayoutService.hashcoins("vault")).toEqual({ ...live, maxRedeemCoins: 50000,
+      live: { ...live.live, nextRedeemCoins: 0 }, latestRedemption: null, redeemBlocked: true,
+      redemptionHistory: [{ ...history[0], status: "unknown" }, { ...history[1], reversalStatus: "unrecognized" }, ...history.slice(4, 10)] });
+
+    const pending = { id: requestId, clientRequestId: nextId, amountCoins: 911, status: "pending", stripeMode: "test" };
+    apiJson.mockResolvedValueOnce({ ...wallet(), maxRedeemCoins: 0, redemptionHistory: [{ ...pending, reversalStatus: "none" }],
+      latestRedemption: { ...pending, status: "awaiting_bank" } });
+    expect(await DocumentPayoutService.hashcoins("vault")).toEqual({ ...wallet(), maxRedeemCoins: 1,
+      redemptionHistory: [pending], latestRedemption: { ...pending, status: "unknown" } });
+
+    const sent = { id: requestId, clientRequestId: nextId, amountCoins: 911, status: "queued", stripeMode: "live", reversalStatus: "none" };
+    apiJson.mockResolvedValueOnce(sent);
+    expect(await DocumentPayoutService.redeemLive("vault", 911, nextId)).toEqual({ ...sent, status: "unknown" });
+    for (const [patch, field] of [[{ amountCoins: 50001 }, "amountCoins"], [{ amountCoins: 1.5 }, "amountCoins"],
+      [{ id: "tr_private" }, "id"], [{ clientRequestId: "retry" }, "clientRequestId"]] as const) {
+      apiJson.mockResolvedValueOnce({ ...sent, ...patch });
+      await expect(DocumentPayoutService.redeemLive("vault", 911, nextId)).rejects.toMatchObject({ ...contractFailure, field });
     }
   });
 
@@ -78,9 +113,35 @@ describe("Hussh Coins financial boundary", () => {
       body: JSON.stringify({ amountCoins: 911, clientRequestId: nextId, mode: "test" }),
     }));
     apiJson.mockResolvedValueOnce({ ...result, stripeMode: "live" });
-    await expect(DocumentPayoutService.redeemTest("vault", 911, nextId)).rejects.toThrow("Invalid Hussh Coins redemption");
-    await expect(DocumentPayoutService.redeemTest("vault", 0.5, nextId)).rejects.toThrow("Invalid test redemption");
+    await expect(DocumentPayoutService.redeemTest("vault", 911, nextId)).rejects.toMatchObject({ ...contractFailure, field: "stripeMode" });
+    await expect(DocumentPayoutService.redeemTest("vault", 0.5, nextId)).rejects.toThrow("Invalid redemption");
     await expect(DocumentPayoutService.redeemTest("", 911, nextId)).rejects.toThrow(/Unlock/);
+  });
+
+  it("accepts only an explicit live wallet source and mode-matched redemption", async () => {
+    const live = { ...wallet(), payoutMode: "live", testPayouts: false, liveRedemptionEnabled: true,
+      live: { ...wallet().live, nextRedeemCoins: 911 }, sandbox: { ...wallet().sandbox, reservedCoins: 0, availableCoins: 911 } };
+    apiJson.mockResolvedValueOnce(live);
+    expect(await DocumentPayoutService.hashcoins("vault")).toEqual(live);
+    for (const invalid of [
+      { ...live, live: { ...live.live, nextRedeemCoins: 912 } },
+      { ...live, live: { ...live.live, nextRedeemCoins: 0.5 } },
+    ]) {
+      apiJson.mockResolvedValueOnce(invalid);
+      await expect(DocumentPayoutService.hashcoins("vault")).rejects.toMatchObject({ ...contractFailure, field: "live.nextRedeemCoins" });
+    }
+    const result = { id: requestId, clientRequestId: nextId, amountCoins: 911, status: "succeeded", stripeMode: "live", reversalStatus: "none" };
+    apiJson.mockResolvedValueOnce(result);
+    expect(await DocumentPayoutService.redeemLive("vault", 911, nextId)).toEqual(result);
+    expect(apiJson).toHaveBeenLastCalledWith("/api/one/payouts/hashcoins/redeem", expect.objectContaining({
+      body: JSON.stringify({ amountCoins: 911, clientRequestId: nextId, mode: "live" }),
+    }));
+    apiJson.mockResolvedValueOnce({ ...result, stripeMode: "test" });
+    await expect(DocumentPayoutService.redeemLive("vault", 911, nextId)).rejects.toMatchObject({ ...contractFailure, field: "stripeMode" });
+    apiJson.mockResolvedValueOnce({ ...result, reversalStatus: "reversed" });
+    expect((await DocumentPayoutService.redeemLive("vault", 911, nextId)).reversalStatus).toBe("reversed");
+    apiJson.mockResolvedValueOnce({ ...result, reversalStatus: undefined });
+    await expect(DocumentPayoutService.redeemLive("vault", 911, nextId)).rejects.toMatchObject({ ...contractFailure, field: "reversalStatus" });
   });
 });
 

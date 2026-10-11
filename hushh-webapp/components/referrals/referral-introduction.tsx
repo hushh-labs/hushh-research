@@ -14,7 +14,7 @@ import styles from "./referral-introduction.module.css";
 
 const STEPS = [
   { title: "Share your One", detail: "Send your personal invite link to your people." },
-  { title: "Grow together", detail: "Earn points when eligible friends qualify." },
+  { title: "Grow together", detail: "Earn coins when eligible friends qualify." },
   { title: "Make it rewarding", detail: "Follow your progress and discover your next reward." },
 ] as const;
 

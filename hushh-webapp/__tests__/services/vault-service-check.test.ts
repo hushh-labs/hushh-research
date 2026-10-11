@@ -1,132 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const {
-  mockGetIdToken,
-  mockBootstrapState,
-  mockHasVault,
-  mockGetVault,
-  mockMutation,
-  mockIssueOwner,
-  mockResolveRpId,
-  nativePlatform,
-  sessionStore,
-  cacheStore,
-} = vi.hoisted(() => ({
-  mockGetIdToken: vi.fn(),
-  mockBootstrapState: vi.fn(),
-  mockHasVault: vi.fn(),
-  mockGetVault: vi.fn(),
-  mockMutation: vi.fn(),
-  mockIssueOwner: vi.fn(),
-  mockResolveRpId: vi.fn(),
-  nativePlatform: { current: false },
-  sessionStore: new Map<string, string>(),
-  cacheStore: new Map<string, unknown>(),
-}));
-
-vi.mock("@capacitor/core", () => ({
-  Capacitor: {
-    isNativePlatform: () => nativePlatform.current,
-    getPlatform: () => (nativePlatform.current ? "ios" : "web"),
-  },
-}));
-
-vi.mock("@/lib/capacitor", () => ({
-  HushhVault: {
-    hasVault: mockHasVault,
-    getVault: mockGetVault,
-    setupVault: mockMutation,
-    upsertVaultWrapper: mockMutation,
-    deleteVaultWrapper: mockMutation,
-    setPrimaryVaultMethod: mockMutation,
-  },
-  HushhAuth: {},
-  HushhConsent: { issueVaultOwnerToken: mockIssueOwner },
-}));
-
-vi.mock("@/lib/services/auth-service", () => ({
-  AuthService: {
-    getIdToken: mockGetIdToken,
-  },
-}));
-
-vi.mock("@/lib/firebase/config", () => ({
-  auth: { currentUser: null },
-}));
-
-vi.mock("@/lib/services/cache-service", () => ({
-  CacheService: {
-    getInstance: () => ({
-      get: (key: string) => cacheStore.get(key),
-      set: (key: string, value: unknown) => cacheStore.set(key, value),
-      invalidate: (key: string) => cacheStore.delete(key),
-      subscribe: () => () => undefined,
-    }),
-  },
-  CACHE_KEYS: {
-    VAULT_CHECK: (userId: string) => `vault_check_${userId}`,
-    PRE_VAULT_BOOTSTRAP: (userId: string) => `pre_vault_bootstrap_${userId}`,
-  },
-}));
-
-vi.mock("@/lib/cache/cache-sync-service", () => ({
-  CacheSyncService: {
-    onVaultStateChanged: vi.fn(),
-  },
-}));
-
-vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
-  PreVaultUserStateService: {
-    bootstrapState: mockBootstrapState,
-  },
-}));
-
-vi.mock("@/lib/vault/passphrase-key", () => ({
-  createVaultWithPassphrase: vi.fn(),
-  unlockVaultWithPassphrase: vi.fn(),
-  unlockVaultWithRecoveryKey: vi.fn(),
-}));
-
-vi.mock("@/lib/vault/passkey-rp", () => ({
-  isPasskeyRpIdCompatibleWithHost: (
-    hostname: string | null | undefined,
-    rpId: string | null | undefined,
-  ) => {
-    const normalizedHost = hostname?.trim().toLowerCase();
-    const normalizedRpId = rpId?.trim().toLowerCase();
-    return !!normalizedHost && !!normalizedRpId && (
-      normalizedHost === normalizedRpId ||
-      normalizedHost.endsWith(`.${normalizedRpId}`)
-    );
-  },
-  resolvePasskeyRpId: (...args: unknown[]) => mockResolveRpId(...args),
-}));
-
-vi.mock("@/lib/services/api-client", () => ({
-  apiJson: vi.fn(),
-}));
-
-vi.mock("@/lib/utils/request-timeouts", () => ({
-  resolveSlowRequestTimeoutMs: (ms: number) => ms,
-}));
-
-vi.mock("@/lib/utils/session-storage", () => ({
-  getLocalItem: () => null,
-  getSessionItem: (key: string) => sessionStore.get(key) ?? null,
-  setSessionItem: (key: string, value: string) => {
-    sessionStore.set(key, value);
-  },
-  removeSessionItem: (key: string) => {
-    sessionStore.delete(key);
-  },
-}));
+import { mockGetIdToken, mockBootstrapState, mockHasVault, mockGetVault, mockMutation,
+  mockIssueOwner, mockResolveRpId, nativePlatform, sessionStore, cacheStore,
+  vaultMutations, syntheticVaultState, deferred } from "./vault-service-check-fixture";
 
 import {
   VaultAuthSessionNotReadyError,
   VaultService,
+  type VaultState,
 } from "@/lib/services/vault-service";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { apiJson } from "@/lib/services/api-client";
+import { unlockVaultWithPassphrase } from "@/lib/vault/passphrase-key";
 
 describe("VaultService owner renewal transport", () => {
   it("threads prior evidence to the native plugin", async () => {
@@ -168,49 +52,7 @@ describe("VaultService.checkVault (web) — session-restore / 401 handling", () 
     expect(mockGetVault).not.toHaveBeenCalled();
   });
 
-  const wrapper = {
-    method: "passphrase" as const,
-    encryptedVaultKey: "encrypted",
-    salt: "salt",
-    iv: "iv",
-  };
-  const mutations = [
-    [
-      "/api/vault/setup",
-      () =>
-        VaultService.setupVaultState("mutation-user", {
-          vaultKeyHash: "hash",
-          primaryMethod: "passphrase",
-          recoveryEncryptedVaultKey: "recovery",
-          recoverySalt: "salt",
-          recoveryIv: "iv",
-          wrappers: [wrapper],
-        }),
-    ],
-    [
-      "/api/vault/wrapper/upsert",
-      () =>
-        VaultService.upsertVaultWrapper({
-          userId: "mutation-user",
-          vaultKeyHash: "hash",
-          wrapper,
-        }),
-    ],
-    [
-      "/api/vault/wrapper/delete",
-      () =>
-        VaultService.deleteVaultWrapper({
-          userId: "mutation-user",
-          vaultKeyHash: "hash",
-          method: "generated_default_web_prf",
-          vaultOwnerToken: "owner",
-        }),
-    ],
-    [
-      "/api/vault/primary/set",
-      () => VaultService.setPrimaryVaultMethod("mutation-user", "passphrase", "default", "synthetic-owner-token"),
-    ],
-  ] as const;
+  const mutations = vaultMutations(VaultService);
 
   describe.each([false, true])("terminal mutations, native=%s", (native) => {
     it.each(mutations)(
@@ -281,6 +123,38 @@ describe("VaultService.checkVault (web) — session-restore / 401 handling", () 
       wrapperId: "canonical",
       passkeyRpId: "one.hushh.ai",
     });
+  });
+
+  it.each(["one.hushh.ai"])(
+    "reuses the stored production RP %s after the spelling migration",
+    (storedRp) => {
+      mockResolveRpId.mockReturnValue("one.hussh.ai");
+      const wrapper = { method: "generated_default_web_prf" as const,
+        wrapperId: "legacy", encryptedVaultKey: "encrypted", salt: "salt", iv: "iv",
+        passkeyRpId: storedRp, passkeyCredentialId: "credential", passkeyPrfSalt: "prf-salt" };
+      const state = { vaultKeyHash: "hash", primaryMethod: wrapper.method,
+        primaryWrapperId: wrapper.wrapperId, recoveryEncryptedVaultKey: "recovery",
+        recoverySalt: "salt", recoveryIv: "iv", wrappers: [wrapper] };
+      expect(VaultService.getWrapperByMethod(state, wrapper.method)).toBe(wrapper);
+      for (const host of ["dev.one.hussh.ai", "uat.one.hussh.ai", "evil.one.hussh.ai"]) {
+        mockResolveRpId.mockReturnValue(host);
+        expect(VaultService.getWrapperByMethod(state, wrapper.method)).toBeNull();
+      }
+    },
+  );
+
+  it("preserves null metadata fallback without choosing it over an incompatible explicit RP", () => {
+    mockResolveRpId.mockReturnValue("one.hussh.ai");
+    const wrapper = { method: "generated_default_web_prf" as const,
+      wrapperId: "missing-rp", encryptedVaultKey: "encrypted", salt: "salt", iv: "iv" };
+    const state = { vaultKeyHash: "hash", primaryMethod: wrapper.method,
+      primaryWrapperId: wrapper.wrapperId, recoveryEncryptedVaultKey: "recovery",
+      recoverySalt: "salt", recoveryIv: "iv", wrappers: [wrapper] };
+    expect(VaultService.getWrapperByMethod(state, wrapper.method)).toBe(wrapper);
+    const foreign = { ...wrapper, wrapperId: "foreign", passkeyRpId: "uat.one.hushh.ai" };
+    expect(VaultService.getWrapperByMethod({ ...state, wrappers: [foreign, wrapper] }, wrapper.method)).toBeNull();
+    const compatible = { ...wrapper, wrapperId: "compatible", passkeyRpId: "one.hushh.ai" };
+    expect(VaultService.getWrapperByMethod({ ...state, wrappers: [foreign, wrapper, compatible] }, wrapper.method)).toBe(compatible);
   });
 
   it("waits briefly for a still-restoring session, then fails closed instead of guessing hasVault=false", async () => {
@@ -447,6 +321,90 @@ describe("VaultService.checkVault (web) — session-restore / 401 handling", () 
     }
   });
 
+  it("serves a warm cache normally, but a forced read bypasses it and the proxy cache", async () => {
+    publishValidatedAuthSessionOwner("fresh-read-user");
+    mockGetIdToken.mockResolvedValue("fresh-token");
+    const vaultState = syntheticVaultState();
+    fetchMock.mockResolvedValue(jsonResponse(200, vaultState));
+
+    await VaultService.getVaultState("fresh-read-user");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Served from the warm client cache: no second network call.
+    await VaultService.getVaultState("fresh-read-user");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // An unlock attempt forces a fresh read, bypassing both the client cache
+    // and (via `fresh=1`) the `/api/vault/get` proxy's own cache.
+    await VaultService.getVaultState("fresh-read-user", { forceFresh: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const freshUrl = String(fetchMock.mock.calls[1]?.[0] ?? "");
+    expect(freshUrl).toContain("fresh=1");
+  });
+
+  it.each([false, true])("keeps a late ordinary read from replacing fresh metadata (native=%s)", async (native) => {
+    nativePlatform.current = native;
+    mockGetIdToken.mockResolvedValue("token");
+    const provider = native ? mockGetVault : fetchMock;
+    const respond = (state: VaultState) => native ? state : jsonResponse(200, state);
+    const old = deferred<VaultState>();
+    const fresh = deferred<VaultState>();
+    provider.mockReset().mockImplementationOnce(() => old.promise.then(respond))
+      .mockImplementationOnce(() => fresh.promise.then(respond));
+    const ordinary = VaultService.getVaultState("read-race");
+    const duplicate = VaultService.getVaultState("read-race");
+    await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(1));
+    const forced = VaultService.getVaultState("read-race", { forceFresh: true });
+    await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(2));
+    fresh.resolve(syntheticVaultState("current"));
+    expect((await forced).wrappers[0].salt).toBe("current");
+    old.resolve(syntheticVaultState("retired"));
+    await Promise.all([ordinary, duplicate]);
+    expect((await VaultService.getVaultState("read-race")).wrappers[0].salt).toBe("current");
+    expect(provider).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([false, true])("retires pending fresh reads on owner invalidation (native=%s)", async (native) => {
+    nativePlatform.current = native;
+    mockGetIdToken.mockResolvedValue("token");
+    const provider = native ? mockGetVault : fetchMock;
+    const respond = (state: VaultState) => native ? state : jsonResponse(200, state);
+    const old = deferred<VaultState>();
+    const fresh = deferred<VaultState>();
+    provider.mockReset().mockImplementationOnce(() => old.promise.then(respond))
+      .mockImplementationOnce(() => fresh.promise.then(respond));
+    const initial = VaultService.getVaultState("invalidated-read", { forceFresh: true });
+    const duplicate = VaultService.getVaultState("invalidated-read", { forceFresh: true });
+    await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(1));
+    VaultService.invalidateVaultStateCache("invalidated-read");
+    const next = VaultService.getVaultState("invalidated-read", { forceFresh: true });
+    await vi.waitFor(() => expect(provider).toHaveBeenCalledTimes(2));
+    old.resolve(syntheticVaultState("retired"));
+    await Promise.all([initial, duplicate]);
+    expect(sessionStore.has("vault_check:invalidated-read")).toBe(false);
+    const ordinary = VaultService.getVaultState("invalidated-read");
+    const concurrent = VaultService.getVaultState("invalidated-read", { forceFresh: true });
+    fresh.resolve(syntheticVaultState("current"));
+    for (const state of await Promise.all([next, ordinary, concurrent])) {
+      expect(state.wrappers[0].salt).toBe("current");
+    }
+    expect(provider).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([false, true])("does not retain stale wrappers after a forced read fails (native=%s)", async (native) => {
+    nativePlatform.current = native;
+    mockGetIdToken.mockResolvedValue("token");
+    const provider = native ? mockGetVault : fetchMock;
+    const respond = (state: VaultState) => native ? state : jsonResponse(200, state);
+    provider.mockReset().mockResolvedValueOnce(respond(syntheticVaultState("old")))
+      .mockRejectedValueOnce(new Error("synthetic offline"))
+      .mockResolvedValueOnce(respond(syntheticVaultState("current")));
+    await VaultService.getVaultState("failed-fresh-read");
+    await expect(VaultService.getVaultState("failed-fresh-read", { forceFresh: true })).rejects.toThrow("synthetic offline");
+    expect((await VaultService.getVaultState("failed-fresh-read")).wrappers[0].salt).toBe("current");
+    expect(provider).toHaveBeenCalledTimes(3);
+  });
+
   it.each([
     ["checkVault", mockHasVault, "/db/vault/check"],
     ["getVaultState", mockGetVault, "/db/vault/get"],
@@ -484,4 +442,64 @@ describe("VaultService.checkVault (web) — session-restore / 401 handling", () 
       }
     },
   );
+});
+
+describe("VaultService.unlockWithMethod", () => {
+  const unlockVaultWithPassphraseMock = vi.mocked(unlockVaultWithPassphrase);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const stateWithoutPassphrase: VaultState = {
+    vaultKeyHash: "hash",
+    primaryMethod: "generated_default_native_passkey_prf",
+    primaryWrapperId: "cred-1",
+    recoveryEncryptedVaultKey: "recovery",
+    recoverySalt: "salt",
+    recoveryIv: "iv",
+    wrappers: [
+      {
+        method: "generated_default_native_passkey_prf",
+        wrapperId: "cred-1",
+        encryptedVaultKey: "e1",
+        salt: "s1",
+        iv: "i1",
+      },
+    ],
+  };
+
+  it("throws a distinct, named error when no wrapper exists for the method, instead of a silent null", async () => {
+    // Previously this collapsed to the same `null` a failed decrypt returns,
+    // so the UI told the owner "that passphrase did not match" even though
+    // no passphrase wrapper existed to test it against.
+    await expect(
+      VaultService.unlockWithMethod({
+        state: stateWithoutPassphrase,
+        method: "passphrase",
+        secretMaterial: "whatever-the-owner-typed",
+      }),
+    ).rejects.toThrow(/not configured/i);
+    expect(unlockVaultWithPassphraseMock).not.toHaveBeenCalled();
+  });
+
+  it("still returns null for a genuine decrypt failure against an existing wrapper", async () => {
+    unlockVaultWithPassphraseMock.mockResolvedValue("");
+    const stateWithPassphrase: VaultState = {
+      ...stateWithoutPassphrase,
+      wrappers: [
+        ...stateWithoutPassphrase.wrappers,
+        { method: "passphrase", wrapperId: "default", encryptedVaultKey: "e2", salt: "s2", iv: "i2" },
+      ],
+    };
+
+    const result = await VaultService.unlockWithMethod({
+      state: stateWithPassphrase,
+      method: "passphrase",
+      secretMaterial: "wrong-passphrase",
+    });
+
+    expect(result).toBeNull();
+    expect(unlockVaultWithPassphraseMock).toHaveBeenCalledTimes(1);
+  });
 });
