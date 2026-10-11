@@ -725,6 +725,59 @@ final class AppUITests: XCTestCase {
         XCTAssertNotNil(resumed)
     }
 
+    /// Actual product port, not the synthetic study. Read-only, attach-only and
+    /// credential-free after normal unlock; private labels never enter artifacts.
+    func testLocalSessionNativeProductHistoryKeepsOwnerAndSingleHost() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_NATIVE_PRODUCT_HISTORY"] == "true" else {
+            throw XCTSkip("Explicit native product History qualification")
+        }
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            XCTFail("PRODUCT_HISTORY_REQUIRES_RUNNING_APP"); return
+        }
+        app.activate()
+        let web = app.webViews.matching(identifier: "native-webview").firstMatch
+        let open = app.buttons["Open chat history"].firstMatch
+        let close = app.buttons["Close chat history"].firstMatch
+        let composer = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message One")).firstMatch
+        guard waitForAdmittedControl(open), waitForAdmittedControl(composer), !web.buttons["Unlock"].exists else {
+            XCTFail("PRODUCT_HISTORY_REQUIRES_UNLOCKED_CHAT"); return
+        }
+        let initialFrame = web.frame
+        let initialDraft = composer.value as? String
+        for cycle in 0..<10 {
+            open.coordinate(withNormalizedOffset: CGVector(dx: cycle % 2 == 0 ? 0.5 : 0.2, dy: 0.5)).tap()
+            guard waitForAdmittedControl(close) else { XCTFail("PRODUCT_HISTORY_CLOSE_NOT_ADMITTED"); return }
+            let native = app.otherElements["native-private-drawer"].firstMatch
+            let search = app.textFields["native-history-search"].firstMatch
+            guard native.exists, search.exists, search.isHittable else {
+                XCTFail("PRODUCT_HISTORY_NATIVE_RENDERER_MISSING"); return
+            }
+            XCTAssertFalse(web.buttons["Search chats"].firstMatch.isHittable)
+            XCTAssertFalse(composer.isHittable, "The covered React editor must be isolated")
+            let frame = native.frame
+            XCTAssertEqual(frame.minY, app.frame.minY, accuracy: 1)
+            XCTAssertEqual(frame.maxY, app.frame.maxY, accuracy: 1, "History must remain full-height")
+            if cycle % 2 == 0 {
+                let start = native.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.85))
+                let hold = native.coordinate(withNormalizedOffset: CGVector(dx: 0.40, dy: 0.85))
+                start.press(forDuration: 0.05, thenDragTo: hold, withVelocity: .slow, thenHoldForDuration: 0.25)
+                guard waitForAdmittedControl(close) else { XCTFail("PRODUCT_HISTORY_HELD_DRAG_LOST_CONTROL"); return }
+            }
+            close.tap()
+            let retired = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !close.isHittable && !search.isHittable }, object: app)
+            XCTAssertEqual(XCTWaiter.wait(for: [retired], timeout: 10), .completed)
+            guard waitForAdmittedControl(open), waitForAdmittedControl(composer) else {
+                XCTFail("PRODUCT_HISTORY_BASE_NOT_RESTORED"); return
+            }
+            XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
+            XCTAssertEqual(web.frame, initialFrame)
+            XCTAssertTrue((composer.value as? String) == initialDraft, "Draft continuity failed")
+            XCTAssertFalse(web.buttons["Unlock"].exists)
+            print("NATIVE_PRODUCT_HISTORY_CYCLE completed=\(cycle + 1)")
+        }
+    }
+
     func testLocalSessionChatDrawerDoesNotReplaceThePage() throws {
         // Real device/session lane: no UITestMode, reviewer bootstrap, reset,
         // or account mutation. An optional process-only credential uses normal
