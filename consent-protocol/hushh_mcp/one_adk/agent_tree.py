@@ -2475,6 +2475,18 @@ def _build_wallet_agent(*, model: Any | None = None) -> LlmAgent:
     )
 
 
+def build_google_search_agent(*, model: Any | None = None) -> LlmAgent:
+    """The manifest-owned public Search child, shared by One's bounded tasks."""
+    manifest = next(child for child in _ONE_MANIFEST.subagents if child.id == "google_search")
+    return LlmAgent(
+        name=manifest.name,
+        model=model or build_managed_regional_gemini_adk_model(_SPECIALIST_MODEL),
+        description=manifest.description,
+        instruction=manifest.system_instruction,
+        tools=[GoogleSearchTool()],
+    )
+
+
 def _one_roster_tools(
     *,
     specialist_model: Any | None = None,
@@ -2496,14 +2508,7 @@ def _one_roster_tools(
 
     # Full roster below.
     text_model = specialist_model or build_managed_regional_gemini_adk_model(_SPECIALIST_MODEL)
-    manifest = next(child for child in _ONE_MANIFEST.subagents if child.id == "google_search")
-    search_agent = LlmAgent(
-        name=manifest.name,
-        model=text_model,
-        description=manifest.description,
-        instruction=manifest.system_instruction,
-        tools=[GoogleSearchTool()],
-    )
+    search_agent = build_google_search_agent(model=text_model)
     tools = [
         AgentTool(agent=search_agent, propagate_grounding_metadata=True),
         open_screen,
