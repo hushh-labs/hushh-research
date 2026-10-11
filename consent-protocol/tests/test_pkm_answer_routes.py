@@ -146,6 +146,8 @@ async def test_public_person_reference_resolves_before_active_connection_admissi
         viewer_user_id="requester", public_person_ref=public_ref
     )
     assert requests.create.call_args.kwargs["owner_user_id"] == "owner"
+    assert requests.create.call_args.kwargs["period_start"] is None
+    assert requests.create.call_args.kwargs["period_end"] is None
 
 
 async def test_missing_public_profile_never_admits_or_falls_back_to_reference_as_uid(monkeypatch):
@@ -176,3 +178,77 @@ async def test_invalid_or_ambiguous_public_target_is_rejected(monkeypatch, body)
         )
     assert error.value.status_code == 422
     identity.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "period",
+    [
+        {},
+        {"periodStart": None, "periodEnd": None},
+        {"periodStart": "2026-01-01", "periodEnd": "2026-01-31"},
+    ],
+)
+async def test_create_preserves_question_and_optional_period(monkeypatch, period):
+    question = "What did you spend on travel in January 2026?"
+    requests = Mock(create=AsyncMock(return_value={"requestId": str(uuid4())}))
+    monkeypatch.setattr(routes, "_requests", lambda: requests)
+    await routes.create_answer_request(
+        Response(), {"ownerUserId": "owner", "question": question, **period}, "requester"
+    )
+    requests.create.assert_awaited_once_with(
+        requester_user_id="requester",
+        owner_user_id="owner",
+        question=question,
+        period_start=period.get("periodStart"),
+        period_end=period.get("periodEnd"),
+    )
+
+
+@pytest.mark.parametrize("value", [False, 0, [], {}])
+async def test_invalid_date_types_are_not_silently_dropped(monkeypatch, value):
+    requests = Mock(create=AsyncMock(side_effect=routes.AnswerRequestError("invalid_period")))
+    monkeypatch.setattr(routes, "_requests", lambda: requests)
+    with pytest.raises(HTTPException) as error:
+        await routes.create_answer_request(
+            Response(),
+            {
+                "ownerUserId": "owner",
+                "question": "What is your age?",
+                "periodStart": value,
+                "periodEnd": value,
+            },
+            "requester",
+        )
+    assert error.value.status_code == 422
+    assert requests.create.call_args.kwargs["period_start"] == value
+
+
+@pytest.mark.parametrize(
+    "start,end",
+    [
+        ("2026-02-30", "2026-03-01"),
+        ("2025-02-29", "2025-03-01"),
+        ("20260101", "20260201"),
+        ("2026-1-01", "2026-02-01"),
+        ("2026-02-01", "2026-01-01"),
+        ("2026-01-01", None),
+        (None, "2026-01-01"),
+        (False, False),
+        (0, 0),
+        ([], []),
+        ({}, {}),
+    ],
+)
+async def test_invalid_period_fails_before_catalog_or_storage(monkeypatch, start, end):
+    service = routes.PkmAnswerRequestService(object())
+    catalog = AsyncMock()
+    monkeypatch.setattr(service, "_catalog", catalog)
+    with pytest.raises(routes.AnswerRequestError, match="invalid_period"):
+        await service.create(
+            requester_user_id="requester",
+            owner_user_id="owner",
+            question="What is your age?",
+            period_start=start,
+            period_end=end,
+        )
+    catalog.assert_not_called()

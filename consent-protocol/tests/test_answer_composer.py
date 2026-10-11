@@ -139,3 +139,17 @@ async def test_oversized_projection_is_rejected_whole_before_model_dispatch():
             question="q", projection={"memory": "x" * 60001, "values": PROJECTION}
         )
     assert not called
+
+
+async def test_question_period_survives_without_separate_date_metadata():
+    seen = []
+
+    async def runner(prompt):
+        seen.append(prompt)
+        return {"answer": "Only the approved January records are available."}
+
+    question = "What did you spend on travel from January through March 2026?"
+    result = await AnswerComposer(runner=runner).compose(question=question, projection=PROJECTION)
+    assert question in seen[0]
+    assert "Requested period:" not in seen[0]
+    assert result["answer"] == "Only the approved January records are available."

@@ -11,6 +11,9 @@ import {
 let script: string;
 let css: string;
 test.beforeEach(async ({ page }) => {
+  await page.route("**/api/one/answer-requests/availability", (route) =>
+    route.fulfill({ contentType: "application/json", body: '{"enabled":true}' }),
+  );
   await page.route("**/api/connectors", (route) =>
     route.fulfill({
       contentType: "application/json",
@@ -1145,3 +1148,66 @@ for (const colorScheme of ["light", "dark"] as const)
     });
     expect(errors).toEqual([]);
   });
+
+for (const width of [320, 390, 1440]) {
+  test(`Request scope is a date-free question dialog (${width}px)`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    page.on("console", (message) => {
+      if (message.type() === "error") errors.push(message.text());
+    });
+    const submissions: Record<string, unknown>[] = [];
+    await page.route("http://localhost/request-scope-fixture", (route) =>
+      route.fulfill({ contentType: "text/html", body: fixtureHtml() }),
+    );
+    await page.route("**/api/one/answer-requests/availability", (route) =>
+      route.fulfill({ contentType: "application/json", body: '{"enabled":true}' }),
+    );
+    await page.route("**/api/one/answer-requests", (route) => {
+      expect(route.request().headers().authorization).toBe("Bearer synthetic-firebase-proof");
+      submissions.push(route.request().postDataJSON());
+      return route.fulfill({ contentType: "application/json",
+        body: '{"requestId":"55555555-5555-4555-8555-555555555555"}' });
+    });
+    await page.goto("http://localhost/request-scope-fixture");
+    await page.addScriptTag({ content: script });
+    await awaitProductFont(page);
+    await page.getByRole("button", { name: "Request scope", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Request scope" });
+    const question = dialog.getByLabel("Question");
+    await expect(question).toBeVisible();
+    await expect(question).toHaveAttribute("placeholder", "E.g. What is your age?");
+    await expect(dialog.getByText("To Asha", { exact: true })).toBeVisible();
+    await expect(dialog.locator('input[type="date"], input[type="checkbox"]')).toHaveCount(0);
+    await expect(dialog.getByText(/Period|Start date|End date|Request files|Drive/)).toHaveCount(0);
+    const send = dialog.getByRole("button", { name: "Send request", exact: true });
+    await expect(send).toBeDisabled();
+    const value = "What did you spend on travel from January through March 2026?";
+    await question.fill(value);
+    await expect(send).toBeEnabled();
+    await dialog.evaluate(async (node) => {
+      await Promise.all(node.getAnimations().map((animation) => animation.finished));
+    });
+    const bounds = (await dialog.boundingBox())!;
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+    expect(bounds.y).toBeGreaterThanOrEqual(0);
+    for (const control of [question, send, dialog.getByRole("button", { name: "Cancel" })]) {
+      const box = (await control.boundingBox())!;
+      expect(box.height).toBeGreaterThanOrEqual(44);
+      expect(box.x).toBeGreaterThanOrEqual(bounds.x);
+      expect(box.x + box.width).toBeLessThanOrEqual(bounds.x + bounds.width);
+    }
+    expect(await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+    expect(await question.evaluate((node) => getComputedStyle(node).fontFamily)).toContain("Inter");
+    if (process.env.REQUEST_SCOPE_SCREENSHOT_DIR) {
+      await dialog.screenshot({ path: path.join(process.env.REQUEST_SCOPE_SCREENSHOT_DIR, `request-scope-${width}.png`) });
+    }
+    await send.click();
+    await expect(dialog.getByText(/Request sent/)).toBeVisible();
+    expect(submissions).toEqual([{ personRef: "33333333-3333-4333-8333-333333333333", question: value }]);
+    await expect(dialog.getByRole("link", { name: "View request" })).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+}

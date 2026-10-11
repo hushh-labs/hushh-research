@@ -12,14 +12,25 @@ deliberately; an ordinary deploy uses `preserve`:
    `DRIVE_DOCUMENT_KEY_V1`, and `DRIVE_SHARING_KEY_V1`. Generate the three
    encryption keys independently and retain them across deployments. Never
    copy UAT keys. The Picker secret must match the reviewed, browser-restricted
-   production API key.
+   production API key named `Hussh Drive Picker (Production)`, restricted to
+   `picker.googleapis.com` and exactly `https://one.hushh.ai/*` and
+   `https://one.hussh.ai/*`. UAT, localhost, HTTP and wildcard hosts are not
+   production referrers.
 2. Verify the production Google OAuth app's approved Drive scopes and exact
    web/native callbacks, including the connector return at
-   `https://one.hushh.ai/one/profile/connectors/oauth/return`. Set the
+   `/one/profile/connectors/oauth/return` on both production One domains and
+   the two native callback paths on both production API domains. UAT and local
+   origins do not belong in this production client. Set the
    production environment variable `GOOGLE_DRIVE_OAUTH_PROD_VERIFIED=true`
    only after provider verification. Existing generic Google OAuth secrets do
    not prove this registration.
-3. Provision the fixed production Scheduler service account, the backend
+3. Run `PROJECT_ID=hushh-pda bash deploy/drive/setup_native_callback_log_exclusion.sh`
+   through the authorized production operator. The release preflight reads it
+   back with `--verify-only` and cannot silently create or repair it. The guard
+   excludes only the fixed backend/native and frontend/web callback request
+   logs; structured application outcomes remain available. If an external
+   load balancer logs these callbacks, protect its request-log boundary too.
+4. Provision the fixed production Scheduler service account, the backend
    runtime account's `roles/cloudscheduler.jobRunner` grant, and the deployer's
    permissions to read the six secrets and reviewed Picker key, deploy the
    private Cloud Run worker, attach Cloud SQL, grant the Scheduler identity
