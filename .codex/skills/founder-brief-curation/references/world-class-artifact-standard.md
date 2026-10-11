@@ -1,10 +1,9 @@
 # World-Class Artifact Standard
 
-The gold standard for a **founder-facing / organisation-facing HTML artifact** (a published
-claude.ai Artifact or an equivalent self-contained page). This is distinct from a plain
-Markdown→PDF report (that lane is `pdf-artifact-generation.md`). Use this when the deliverable
-must be genuinely awe-inspiring — an editorial, information-dense, dual-audience document — not
-a competent report. Founder bar, verbatim: *"blow my mind, nothing less than awestruck."*
+Use for a **founder-facing / organisation-facing HTML artifact** (a published claude.ai
+Artifact or an equivalent self-contained page). Plain Markdown→PDF reports follow
+`pdf-artifact-generation.md`. Match the editorial treatment and visual density to the
+requested audience and decision.
 
 ## Non-negotiables
 
@@ -17,12 +16,13 @@ a competent report. Founder bar, verbatim: *"blow my mind, nothing less than awe
    (see the palette block in `brief-curation-rules.md`). Default accent iOS Blue `#007aff`;
    Molten Gold `#d4a574` is a variant. Ship all **four themes** (light/dark × blue/gold) with a
    live in-page toggle when the user asks to see a variant; default dark + blue.
-3. **Every claim verified against the running system.** No unverified number reaches the
-   organisation. Gather facts from the repo (file:line evidence) before writing them; metrics
-   are hard numbers with units, sourced.
-4. **Dual-audience.** Every technical section carries an "In plain terms" glossary — one
-   sentence per term, no jargon — so HR/general readers get the high level while engineers get
-   the depth.
+3. **Every claim has an evidence boundary.** Implementation claims need revision-bound source;
+   deployed outcomes need dated runtime evidence. Metrics have units and sources. Label estimates,
+   targets and future direction explicitly; do not present them as observed results.
+4. **Audience-led.** Explain necessary terminology in plain prose. Use a glossary or technical
+   appendix only when the requested readers need it; repeated explanatory panels add noise.
+   For a board or chairman review, use the portable executive guidance linked from
+   `brief-curation-rules.md`. Keep technical depth in supporting evidence.
 5. **Self-contained (CSP).** Only Google Fonts may load externally; inline all CSS/JS; SVG/
    Canvas inline; no CDN scripts, no external images. Theme-aware. No horizontal body scroll;
    wide figures scroll inside their own container. Respect `prefers-reduced-motion` as a designed
@@ -71,6 +71,9 @@ must see, then choose the form that shows it:
 Chart chrome is Tufte-minimal: no gridline field, no axis lines, direct labels, and colour encodes
 meaning only (accent = "you / owned", one warm or coral hue = the exception). Every figure carries a
 one-line caption stating what it shows.
+
+For quantitative figures, follow the portable executive guidance linked above: use comparable
+scales and real denominators. Visual area, flow width and cost totals must represent sourced quantities.
 
 **Use the shadcn MCP** as the resource for chart and component patterns (tools:
 `search_items_in_registries`, `view_items_in_registries`, `get_item_examples_from_registries`;

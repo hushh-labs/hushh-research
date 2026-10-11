@@ -7,14 +7,17 @@ Use this reference when the user wants a shared architecture brief, founder PDF,
 1. Treat the document as a first-read artifact. Expand shortforms on first mention.
 2. Make the opening thesis direct. Do not start by explaining what the document is not.
 3. Keep the body platform-first. Avoid route inventories, file lists, and internal repo-process narration in shared sections.
-4. Move implementation specificity into the exact places where it strengthens trust:
-   - real endpoint names
-   - real token names
-   - real contract surfaces
-   - real degraded-state or provenance rules
-5. Keep a dedicated honesty section for current limitations and future-not-yet statements.
+4. Match detail to the decision. Endpoint, token and contract names belong in a technical
+   specification or supporting evidence; include them in the main readout only when the
+   reader needs them to understand the decision.
+5. State material limitations beside their claims. Group remaining gates when they affect
+   the recommendation; keep exhaustive acceptance results in supporting evidence.
 6. If the document uses a layered architecture model, mark the cross-layer pointers explicitly instead of leaving them implied in later sections.
 7. Keep section-heading treatment consistent. Do not give one chapter a different typographic regime unless the user explicitly asks for a divider-page treatment.
+
+For a board or chairman readout, follow the portable
+[executive technology guidance](../../../../skills/pdf-artifact-generation/references/executive-technology-readout.md).
+It owns the decision-first narrative and quantitative chart rules; do not copy them here.
 
 ## Diagram Rules
 

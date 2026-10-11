@@ -52,15 +52,15 @@ Non-owned surfaces:
 
 ## Workflow
 
-1. Start from repo truth, not prior pitch copy.
+1. Establish the audience and decision, then start from repo truth.
 2. Use the Founder Wiki North-Star Probe for material product thesis, founder language, One/Kai/Nav ontology, PCHP/BYOA/on-device posture, or future-state alignment.
-3. Keep repo truth as current-state proof and founder wiki canon as north-star language; divergence is `current_state_vs_north_star_drift`.
+3. Bind implementation to source and live claims to dated runtime evidence; use founder wiki canon for direction. Divergence is `current_state_vs_north_star_drift`.
 4. Keep private wiki evidence local-only unless the user asks for an internal private artifact.
-5. Build the narrative, ontology, diagrams, PDF rhythm, and honesty boundaries through `founder-brief-kernel.md`.
+5. Use `brief-curation-rules.md` and `founder-brief-kernel.md` for audience, narrative, diagrams and material limitations.
 6. For generic Markdown-to-PDF rendering, use `pdf-artifact-generation.md` before trying ad hoc shell, npm, or OS conversion tools.
-7. For a founder/organisation-facing HTML artifact that must be genuinely world-class (editorial, information-dense, dual-audience), follow `world-class-artifact-standard.md`: real brand, single-source tokens, four themes, verified facts, plain-language boxes, headless rendered verification.
+7. For a founder/organisation-facing HTML artifact, follow `world-class-artifact-standard.md` for the requested audience and theme, real brand, source tokens and headless visual verification.
 8. Apply `architecture-diagram-standard.md` whenever the artifact contains a system, sequence, deployment, or information-boundary view.
-8. Render and inspect actual PDFs before calling them shareable.
+9. Render and inspect actual PDFs before calling them shareable.
 
 ## Handoff Rules
 

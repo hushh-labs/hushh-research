@@ -8,10 +8,13 @@ Founder-facing artifacts are not ordinary maintained docs. They are presentation
 
 ## Required style
 
-1. Follow the cadence of the provided founder sample before inventing a new structure.
-2. Prefer numbered technical-spec sections over dashboard-like section labels.
+1. Follow the user's audience and decision. Use a provided sample where it supports that
+   purpose; do not force a technical-spec cadence onto a board readout.
+2. Prefer numbered technical-spec sections for specifications. For board or chairman
+   reviews, follow the portable [executive technology guidance](../../../../skills/pdf-artifact-generation/references/executive-technology-readout.md).
 3. Embed terminology in prose. Do not insert glossary panels such as `Founder Mapping` unless the user explicitly asks for a glossary.
-4. Use declarative paragraphs, tables, figures, and explicit `Present State, Honestly Stated` style sections.
+4. Use declarative paragraphs, tables and figures. State material current-state limits
+   clearly without repeating a full engineering acceptance ledger in the main readout.
 5. Keep the language architectural and argumentative. Avoid changelog tone, explainer-card tone, or onboarding-doc tone.
 6. Start with a direct thesis, not a defensive caveat about what the document is not.
 7. If the user asks for a platform pitch, let the title and first page be platform-first even when one product surface remains the narrative anchor.

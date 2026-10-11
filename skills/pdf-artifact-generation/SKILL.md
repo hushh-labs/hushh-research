@@ -36,6 +36,10 @@ Use the four published Foundation themes only: `light`, `dark`,
 `molten-gold-light`, and `molten-gold`. Never hard-code an accent or approximate a
 theme in report Markdown or CSS.
 
+For board, chairman or senior partner technology reviews, follow
+[executive-technology-readout.md](./references/executive-technology-readout.md) for
+audience, evidence density and chart selection. Keep detailed receipts in supporting evidence.
+
 ## Author semantic content, not presentation escapes
 
 The renderer accepts Markdown plus narrow semantic directives. Use a directive only when

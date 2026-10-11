@@ -5,7 +5,8 @@ remaining grounded in repo truth.
 
 ## Truth Boundary
 
-1. Repo code, docs, tests, and contracts prove current state.
+1. Repo code, tests and contracts establish implementation at a revision; dated runtime
+   evidence establishes what serves and which journeys passed.
 2. Founder wiki canon shapes north-star language and future-state alignment.
 3. Divergence is `current_state_vs_north_star_drift`; do not overstate
    implementation.
@@ -20,10 +21,14 @@ remaining grounded in repo truth.
 3. Keep shared artifacts free of prompt notes, drafting provenance, and repo
    process commentary.
 4. Put source-detail inventory in references, not the narrative body.
-5. State unimplemented items in a dedicated honesty section.
+5. State material unimplemented items near their claims and recommendation; keep detailed
+   acceptance records in supporting evidence.
 6. Preserve Hussh / One / Kai / Nav ontology: Hussh is platform and trust
    infrastructure, One is private agent, Kai is finance specialist, Nav is
    privacy and consent guardian.
+
+Board and chairman briefs use the audience and chart rules linked from
+`brief-curation-rules.md`; a technical specification's detail is not their default.
 
 ## Presentation
 
