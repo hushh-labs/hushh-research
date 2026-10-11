@@ -2294,6 +2294,13 @@ remain. Orphan wallets block deletion until recovery; resets preserve those wall
 Removing the conservative answer fence
 requires that lane's verified identity-free settlement and erasure contract.
 Focused contract, financial refusal/rollback and placement-change checks pass.
+All 72 scope-commerce PostgreSQL cases pass against a disposable local cluster,
+including ledger, provider receipts, delivery, refunds and treasury contracts;
+cluster shutdown and removal were verified. These synthetic adapter tests do not
+call Stripe or prove reviewer transactions. The packed deployment settings now
+carry the canonical `ANSWER_WORK_DRAIN_AUDIENCE` through Cloud Build and runtime,
+matching the existing workflow and scheduler authority contract. The runtime
+contract check and 36 focused deployment/drain cases pass.
 The Location fixture now unmounts before restoring clocks/globals and resets
 queued asynchronous responses; all 179 Location cases and the canonical 422-case
 Back suite pass with unchanged assertions and timeouts. A synchronized source
