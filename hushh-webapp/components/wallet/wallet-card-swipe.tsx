@@ -7,6 +7,7 @@ import { RowDescription, RowLabel } from "@/components/app-ui/typography";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
 import { cardNetworkLabel } from "./card-network-mark";
+import profileStyles from "@/components/profile/profile-your-account.module.css";
 import styles from "./wallet-card-gesture.module.css";
 
 export type WalletCardControlSummary = {
@@ -76,9 +77,11 @@ export function WalletCardSwipe({ card, children, disabled, hint, dismissHint, s
   const finish = (cancelled = false) => {
     if (!drag.current) return;
     const horizontal = drag.current.axis === "x";
+    const distance = liveOffset.current - drag.current.base;
+    const threshold = Math.min(48, revealWidth() * .2);
     drag.current = null;
     if (!horizontal) return;
-    settle(cancelled ? openedRef.current : liveOffset.current < -revealWidth() * .3);
+    settle(cancelled || Math.abs(distance) < threshold ? openedRef.current : distance < 0);
     if (!cancelled) dismissHint();
   };
   const label = summary ?? {
@@ -98,7 +101,7 @@ export function WalletCardSwipe({ card, children, disabled, hint, dismissHint, s
       if ((event.key === "Escape" || event.key === "ArrowRight") && opened) { event.preventDefault(); event.stopPropagation(); settle(false, true); }
     }}
     onPointerDown={event => {
-      if (disabled || !event.isPrimary || event.button !== 0 || (event.target as HTMLElement).closest("[data-card-controls]")) return;
+      if (disabled || !event.isPrimary || event.button !== 0) return;
       suppressClick.current = false;
       drag.current = { x: event.clientX, y: event.clientY, base: liveOffset.current, axis: null };
     }}
@@ -107,7 +110,8 @@ export function WalletCardSwipe({ card, children, disabled, hint, dismissHint, s
       if (!start) return;
       const dx = event.clientX - start.x, dy = event.clientY - start.y;
       if (!start.axis && Math.max(Math.abs(dx), Math.abs(dy)) > 8) {
-        start.axis = Math.abs(dx) > Math.abs(dy) * 1.3 ? "x" : "y";
+        if (Math.abs(dx) > Math.abs(dy) * 1.15) start.axis = "x";
+        else if (Math.abs(dy) > Math.abs(dx) * 1.15) start.axis = "y";
         if (start.axis === "x") { event.currentTarget.setPointerCapture(event.pointerId); suppressClick.current = true; dismissHint(); }
       }
       if (start.axis === "x") moveCard(Math.max(-revealWidth(), Math.min(0, start.base + dx)), true);
@@ -115,11 +119,11 @@ export function WalletCardSwipe({ card, children, disabled, hint, dismissHint, s
     onPointerUp={() => finish()}
     onPointerCancel={() => finish(true)}
     onClickCapture={event => {
-      if (suppressClick.current && event.detail > 0 && !(event.target as HTMLElement).closest("[data-card-controls]")) {
+      if (suppressClick.current && event.detail > 0) {
         event.preventDefault(); event.stopPropagation(); suppressClick.current = false;
       }
     }}>
-    <div ref={controls} className={styles.controls} data-card-controls inert={!opened || undefined} aria-hidden={!opened || undefined}>
+    <div ref={controls} className={`${profileStyles.walletContent} ${styles.controls}`} data-card-controls inert={!opened || undefined} aria-hidden={!opened || undefined}>
       <div className={styles.controlHeader}>
         <RowLabel as="p" compact className="min-w-0 [overflow-wrap:anywhere]">{label.title}</RowLabel>
         <ShellActionSurface ref={closeButton} aria-label="Back to card" className="size-11 shrink-0" onClick={() => settle(false, true)}><X aria-hidden="true" className="size-4" /></ShellActionSurface>

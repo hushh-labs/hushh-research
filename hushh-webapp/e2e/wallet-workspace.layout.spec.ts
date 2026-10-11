@@ -533,7 +533,7 @@ for (const width of [320, 393, 1440]) {
     await mount(page);
     await page.getByRole("tab", { name: "Add", exact: true }).click();
     const form = page.getByTestId("secure-card-add-form");
-    await expect(form.getByRole("button", { name: "Scan card", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Scan card", exact: true })).toBeVisible();
     await expect(form.getByRole("button", { name: "Choose photo", exact: true })).toHaveCount(0);
     await expect(page.getByRole("tab", { name: "Add", exact: true })).toHaveAttribute("aria-selected", "true");
     await expect.poll(async () => {

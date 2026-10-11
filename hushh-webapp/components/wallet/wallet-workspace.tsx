@@ -42,7 +42,8 @@ import {
   PageTitle,
   TYPOGRAPHY_CLASSNAMES,
 } from "@/components/app-ui/typography";
-import { Lock, Plus, Search } from "@/components/icons";
+import { Lock, Plus } from "@/components/icons";
+import { ProfilePaneSearchIcon } from "@/components/profile/profile-pane-icons";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -932,12 +933,12 @@ export function WalletWorkspace() {
             </div>
           ) : null}
 
-          {showSearch ? <div className="mx-auto flex w-full max-w-[820px] justify-end"><Button variant="ghost" size="compact" aria-label={searchOpen ? "Close card search" : "Search cards"} onClick={() => { dispatch({ type: "unfocus" }); if (searchOpen) updateSearch(""); setSearchOpen(!searchOpen); }}><Search aria-hidden="true" className="size-4" />{searchOpen ? "Close" : "Search"}</Button></div> : null}
+          {showSearch ? <div className="mx-auto flex w-full max-w-[820px] justify-end"><Button variant="ghost" size="compact" aria-label={searchOpen ? "Close card search" : "Search cards"} onClick={() => { dispatch({ type: "unfocus" }); if (searchOpen) updateSearch(""); setSearchOpen(!searchOpen); }}><ProfilePaneSearchIcon aria-hidden="true" className="size-4" />{searchOpen ? "Close" : "Search"}</Button></div> : null}
           {showSearch && searchOpen ? (
             <div className="relative mx-auto w-full max-w-[820px]">
-              <Search
+              <ProfilePaneSearchIcon
                 aria-hidden="true"
-                className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2"
               />
               <Input
                 value={searchValue}
@@ -977,8 +978,9 @@ export function WalletWorkspace() {
           </div>
           <div className="space-y-3.5 px-[var(--page-inline-gutter-standard)]">
           {ready ? (
-            <div className="mx-auto w-full max-w-[820px] py-4">
+            <div className="mx-auto w-full max-w-[820px] pb-4">
               <SecureCardAddForm
+                scanInToolbar
                 key={`${renderedOwnerId}:${filing?.secretId ?? "new"}:${offerNickname ?? ""}:${formRevision}`}
                 active={activeTab === "add"}
                 initialNickname={offerNickname ?? undefined}
@@ -1064,7 +1066,7 @@ export function WalletWorkspace() {
             if (!open) setRemoveTarget(null);
           }}
         >
-          <AlertDialogContent data-testid="one-wallet-remove-confirm">
+          <AlertDialogContent className={browserStyles.removeDialog} data-testid="one-wallet-remove-confirm">
             <AlertDialogHeader>
               <AlertDialogTitle>Remove {removeTitle}?</AlertDialogTitle>
               <AlertDialogDescription>
