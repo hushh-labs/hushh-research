@@ -19,6 +19,15 @@ SERVICE = "consent-protocol"
 RUNTIME_SA = "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com"
 CHAT_PROJECT = "hussh-511311"
 SOURCE = "deploy-uat-one-chat"
+PROBE_RUNTIME_ENV = {
+    "HUSHH_GENAI_AUTH_MODE": "vertex_adc",
+    "GOOGLE_GENAI_USE_VERTEXAI": "true",
+    "GOOGLE_CLOUD_PROJECT": PROJECT,
+    "GENAI_GOOGLE_CLOUD_PROJECT": "hushh-vertex-personal54",
+    "GOOGLE_CLOUD_LOCATION": "global",
+    "HUSHH_VERTEX_LOCATIONS": "global,us,eu",
+    "HUSSH_GEMINI_TEXT_MODEL": "gemini-3.6-flash",
+}
 
 # A service-only release is valid only when every accumulated change since
 # the currently serving backend revision belongs to this cutover.
@@ -31,6 +40,8 @@ ALLOWED_PATHS = frozenset(
         "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
         "consent-protocol/hushh_mcp/runtime_providers/__init__.py",
         "consent-protocol/hushh_mcp/runtime_providers/factory.py",
+        "consent-protocol/hushh_mcp/services/information_chat_service.py",
+        "consent-protocol/hushh_mcp/services/location_chat_service.py",
         "consent-protocol/scripts/verify_managed_vertex_runtime.py",
         "consent-protocol/tests/services/test_runtime_providers.py",
         "consent-protocol/tests/test_managed_vertex_readiness_script.py",
@@ -38,6 +49,7 @@ ALLOWED_PATHS = frozenset(
         "consent-protocol/tests/test_one_adk_agent_tree.py",
         "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
         "consent-protocol/tests/test_one_chat_service_only_release.py",
+        "consent-protocol/tests/test_one_chat_specialist_project_scope.py",
         "deploy/backend.cloudbuild.yaml",
         "deploy/README.md",
         "hushh-webapp/scripts/ci/select-uat-target.mjs",
@@ -51,9 +63,11 @@ def backend_release_input(path: str) -> bool:
     """Only bytes that enter this image or govern its build need the delta gate."""
     if path.startswith("consent-protocol/"):
         relative = path.removeprefix("consent-protocol/")
-        return not relative.startswith(
-            ("tests/", "docs/", ".github/")
-        ) and not relative.endswith(".md")
+        if relative.startswith(("tests/", "docs/", ".github/")):
+            return False
+        # The build filters documentation, but explicitly packages authored
+        # agent Markdown referenced by runtime manifests.
+        return not relative.endswith(".md") or relative.startswith("hushh_mcp/agents/")
     return (
         path.startswith("contracts/")
         or path.startswith("scripts/ci/")
@@ -309,6 +323,8 @@ def deploy_candidate(
         for container in containers
         for entry in container.get("env") or []
     }
+    if any(env.get(name) != value for name, value in PROBE_RUNTIME_ENV.items()):
+        raise RuntimeError("Candidate Gemini runtime differs from readiness probe")
     ready = any(
         entry.get("type") == "Ready" and str(entry.get("status")).lower() == "true"
         for entry in (revision.get("status") or {}).get("conditions") or []
@@ -387,17 +403,11 @@ def probe_runtime(image: str, run_id: str, attempt: str) -> dict[str, Any]:
             "--args=scripts/verify_managed_vertex_runtime.py",
             "--set-env-vars=^|^"
             + "|".join(
-                (
-                    "HUSHH_GENAI_AUTH_MODE=vertex_adc",
-                    "GOOGLE_GENAI_USE_VERTEXAI=true",
-                    f"GOOGLE_CLOUD_PROJECT={PROJECT}",
-                    "GENAI_GOOGLE_CLOUD_PROJECT=hushh-vertex-personal54",
+                [
+                    *(f"{name}={value}" for name, value in PROBE_RUNTIME_ENV.items()),
                     f"HUSHH_ONE_CHAT_VERTEX_PROJECT={CHAT_PROJECT}",
                     "HUSHH_MANAGED_VERTEX_PROBE_MODE=one_chat",
-                    "GOOGLE_CLOUD_LOCATION=global",
-                    "HUSHH_VERTEX_LOCATIONS=global,us,eu",
-                    "HUSSH_GEMINI_TEXT_MODEL=gemini-3.6-flash",
-                )
+                ]
             ),
             "--max-retries=0",
             "--task-timeout=90s",
@@ -557,6 +567,135 @@ def remove_candidate_tag(tag: str) -> bool:
     return True
 
 
+def write_promotion_receipt(
+    temp: Path, target_sha: str, run_id: str, attempt: str, old_revision: str, candidate: str
+) -> None:
+    """Persist rollback authority before the first traffic mutation."""
+    path = temp / "uat-one-chat-promotion.json"
+    pending = path.with_suffix(".json.tmp")
+    pending.write_text(
+        json.dumps(
+            {
+                "status": "prepared",
+                "project": PROJECT,
+                "region": REGION,
+                "service": SERVICE,
+                "target_sha": target_sha,
+                "run_id": run_id,
+                "attempt": attempt,
+                "old_revision": old_revision,
+                "candidate_revision": candidate,
+                "candidate_tag": f"one-chat-{run_id}-{attempt}",
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    pending.replace(path)
+
+
+def recover_interrupted() -> int:
+    """Restore traffic after a failed deploy step, using only recorded revisions."""
+    temp = Path(os.environ["RUNNER_TEMP"])
+    receipt_path = temp / "uat-one-chat-promotion.json"
+    report: dict[str, Any] = {
+        "project": PROJECT,
+        "region": REGION,
+        "service": SERVICE,
+        "status": "not_required",
+    }
+    try:
+        if not receipt_path.exists():
+            return 0
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        run_id = os.environ["GITHUB_RUN_ID"]
+        attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
+        expected = {
+            "status": "prepared",
+            "project": PROJECT,
+            "region": REGION,
+            "service": SERVICE,
+            "target_sha": os.environ["TARGET_SHA"],
+            "run_id": run_id,
+            "attempt": attempt,
+            "candidate_tag": f"one-chat-{run_id}-{attempt}",
+        }
+        if not isinstance(receipt, dict) or any(
+            receipt.get(key) != value for key, value in expected.items()
+        ):
+            raise RuntimeError("Promotion receipt does not match this UAT release")
+        old_revision = receipt.get("old_revision")
+        candidate = receipt.get("candidate_revision")
+        if (
+            not isinstance(old_revision, str)
+            or not isinstance(candidate, str)
+            or not old_revision.startswith(f"{SERVICE}-")
+            or not candidate.startswith(f"{SERVICE}-")
+            or old_revision == candidate
+        ):
+            raise RuntimeError("Promotion receipt has invalid revision names")
+        report.update(old_revision=old_revision, candidate_revision=candidate)
+        traffic = live_traffic()
+        report["traffic_before"] = traffic
+        if traffic not in ({old_revision: 100}, {candidate: 100}):
+            raise RuntimeError("Unknown or split backend traffic; refusing recovery")
+        labels = (revision_state(candidate).get("metadata") or {}).get("labels") or {}
+        if (
+            labels.get("serving.knative.dev/service") != SERVICE
+            or labels.get("account-deletion-contract") != "v201"
+            or labels.get("deploy-source") != SOURCE
+            or labels.get("deploy-sha") != expected["target_sha"]
+            or labels.get("github-run-id") != run_id
+        ):
+            raise RuntimeError("Candidate revision no longer matches promotion receipt")
+        tag = expected["candidate_tag"]
+        tagged = [
+            entry
+            for entry in (service_state().get("status") or {}).get("traffic") or []
+            if entry.get("tag") == tag
+        ]
+        if any(entry.get("revisionName") != candidate for entry in tagged):
+            raise RuntimeError("Candidate tag points to an unknown revision")
+        if traffic == {candidate: 100}:
+            command(
+                "gcloud",
+                "run",
+                "services",
+                "update-traffic",
+                SERVICE,
+                f"--project={PROJECT}",
+                f"--region={REGION}",
+                f"--to-revisions={old_revision}=100",
+                "--quiet",
+            )
+            if live_traffic() != {old_revision: 100}:
+                raise RuntimeError("Interrupted release rollback did not restore old traffic")
+            report["rollback"] = True
+            report["status"] = "rolled_back"
+        else:
+            report["status"] = "already_on_previous_revision"
+        report["candidate_tag_removed"] = remove_candidate_tag(tag)
+        report["traffic_after"] = live_traffic()
+        if report["traffic_after"] != {old_revision: 100}:
+            raise RuntimeError("Interrupted release recovery did not preserve old traffic")
+        return 0
+    except Exception as exc:  # noqa: BLE001 - preserve the failed recovery verdict
+        report["status"] = "blocked"
+        report["error"] = f"{type(exc).__name__}: {exc}"
+        print(report["error"], file=sys.stderr)
+        return 1
+    finally:
+        if "traffic_after" not in report and receipt_path.exists():
+            try:
+                report["traffic_after"] = live_traffic()
+            except Exception as exc:  # noqa: BLE001 - retain recovery failure evidence
+                report["traffic_after_error"] = f"{type(exc).__name__}: {exc}"
+        (temp / "uat-one-chat-recovery.json").write_text(
+            json.dumps(report, indent=2, sort_keys=True), encoding="utf-8"
+        )
+
+
 def main() -> int:
     target_sha = os.environ["TARGET_SHA"]
     run_id = os.environ["GITHUB_RUN_ID"]
@@ -594,6 +733,7 @@ def main() -> int:
         report.update(candidate_revision=candidate, candidate_url=url)
         report["probe"] = probe_runtime(image, run_id, attempt)
         report["temporary_probe_job_deleted"] = True
+        write_promotion_receipt(temp, target_sha, run_id, attempt, old_revision, candidate)
         promote(candidate, old_revision, target_sha, run_id, temp)
         report["candidate_tag_removed"] = remove_candidate_tag(tag)
         report["final_traffic"] = live_traffic()
@@ -673,4 +813,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--recover-interrupted"]:
+        raise SystemExit(recover_interrupted())
+    if sys.argv[1:]:
+        raise SystemExit("Unknown UAT release mode")
     raise SystemExit(main())

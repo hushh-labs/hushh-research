@@ -405,7 +405,10 @@ def test_one_chat_vertex_override_is_uat_only_and_keeps_fleet_project() -> None:
     assert 'job_name="genai-ready-${BUILD_ID}"' in backend_build
     assert "binding.build_regional_adk_model(model)" in readiness
     assert '"one_chat_probe_ok": False' in readiness
-    assert "root_agent=build_one_intro_text_agent()," in agent_chat
+    assert (
+        "root_agent=build_one_intro_text_agent(vertex_project=_ONE_CHAT_VERTEX_PROJECT),"
+        in agent_chat
+    )
 
 
 def test_command_deploys_do_not_restore_live_or_model_pack_dependencies() -> None:

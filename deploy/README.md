@@ -50,8 +50,8 @@ creates no deployment record, builds, traffic changes, or release tag updates.
 Unknown deployment state and unavailable or failed gates still block selection.
 An explicit SHA continues through the existing exact-SHA deployment validator.
 
-For the authenticated One chat external Vertex cutover only, the reviewed
-deploy-uat-one-chat.yml workflow updates the existing consent-protocol service
+For the One chat external Vertex cutover, including its pre-vault intro head,
+the reviewed deploy-uat-one-chat.yml workflow updates the existing consent-protocol service
 without touching the frontend, Drive worker, schedulers, secrets, or database.
 Dispatch it with an exact green main SHA after the Main Post-Merge Smoke Gate
 succeeds. It rejects accumulated backend image and release-input changes outside

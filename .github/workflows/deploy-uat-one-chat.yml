@@ -24,7 +24,7 @@ jobs:
     name: Deploy only consent-protocol
     runs-on: ubuntu-latest
     environment: uat
-    timeout-minutes: 45
+    timeout-minutes: 65
     steps:
       - name: Assert main dispatch and governed actor
         shell: bash
@@ -35,6 +35,7 @@ jobs:
           TARGET_SHA: ${{ inputs.sha }}
 
       - name: Checkout main
+        id: checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -80,14 +81,28 @@ jobs:
       - name: Set UAT project context
         run: gcloud config set project hushh-pda-uat
 
-      - name: Deploy and verify only the backend service
+      - name: Enforce UAT database connection budget
         shell: bash
+        run: python3 scripts/ci/runtime-capacity-budget.py --environment uat
+
+      - name: Deploy and verify only the backend service
+        id: deploy-backend
+        shell: bash
+        timeout-minutes: 45
         env:
           TARGET_SHA: ${{ inputs.sha }}
         run: |
           set -euo pipefail
           test "$(gcloud config get-value project 2>/dev/null)" = hushh-pda-uat
           python3 scripts/ci/uat_one_chat_backend_release.py
+
+      - name: Recover interrupted backend promotion
+        if: always() && steps.checkout.outcome == 'success' && steps.deploy-backend.outcome != 'success'
+        shell: bash
+        timeout-minutes: 10
+        env:
+          TARGET_SHA: ${{ inputs.sha }}
+        run: python3 scripts/ci/uat_one_chat_backend_release.py --recover-interrupted
 
       - name: Publish service-only release evidence
         if: always()

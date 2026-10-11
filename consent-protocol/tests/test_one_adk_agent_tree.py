@@ -320,6 +320,14 @@ class TestAgentTreeShape:
         assert intro_agent.model.client_kwargs["project"] is None
         assert projects == ["hussh-511311", None]
 
+        chat_intro_agent = build_one_intro_text_agent(vertex_project="hussh-511311")
+        assert chat_intro_agent.model.client_kwargs["project"] == "hussh-511311"
+        assert {
+            getattr(tool, "name", getattr(tool, "__name__", type(tool).__name__))
+            for tool in chat_intro_agent.tools
+        } == {"run_intro_navigation_action", "list_intro_navigation_actions"}
+        assert projects == ["hussh-511311", None, "hussh-511311"]
+
     def test_text_runtime_import_is_credential_independent_in_ci(
         self, monkeypatch: pytest.MonkeyPatch
     ):
