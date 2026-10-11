@@ -403,21 +403,23 @@ const segmentedSm = new Function(
   `"use strict"; return (${segmentedSmLiteral});`,
 )() as { container: string; segment: string; icon: string };
 
-const segmentedGroupClasses = [
-  ...one(
-    segmented,
-    /role="radiogroup"[\s\S]*?className=\{cn\(([\s\S]*?)config\.container/,
-    "the segmented-control group classes",
-    SEGMENTED_PATH,
-  )[1].matchAll(/"([^"]+)"/g),
-].map((match) => match[1]);
+const toggleVariant = one(header, /<SegmentedControl[\s\S]*?variant="([^"]+)"/, "the authored toggle variant", WORKSPACE_PATH)[1];
+if (toggleVariant !== "sliding") fail("the current sliding toggle projection", WORKSPACE_PATH);
+const toggleFrameClass = one(header, /<NativeChatChrome kind="agent-surface"[\s\S]*?className="([^"]+)"/, "the authored toggle frame", WORKSPACE_PATH)[1];
+const toggleClass = one(header, /<SegmentedControl[\s\S]*?\sclassName="([^"]+)"/, "the authored toggle classes", WORKSPACE_PATH)[1];
+// Follow the selected family, not every string in its conditional. Including
+// both compact and sliding sizing made this fixture measure a different tab.
+const segmentedGroupBase = one(segmented, /role="radiogroup"[\s\S]*?className=\{cn\(\s*"([^"]+)"/, "the segmented group base", SEGMENTED_PATH)[1];
+const segmentedSlidingGroup = one(segmented, /isSliding\s*\?\s*"([^"]+)"\s*:\s*"bg-black/, "the sliding group sizing", SEGMENTED_PATH)[1];
 
 const segmentedSegmentBase = one(
   segmented,
-  /"(relative flex items-center justify-center gap-1\.5 rounded-full[^"]+)"/,
+  /\/\/ Base styles\s*"([^"]+)"/,
   "the segmented-control segment base classes",
   SEGMENTED_PATH,
 )[1];
+const segmentedSlidingGap = one(segmented, /isSliding \? "(gap-[^"]+)" :/, "the sliding segment gap", SEGMENTED_PATH)[1];
+const segmentedSlidingSize = one(segmented, /isSliding \? "([^"]+)" : config\.segment/, "the sliding segment sizing", SEGMENTED_PATH)[1];
 
 export const AGENT_SURFACE_SOURCE = {
   header: {
@@ -438,8 +440,9 @@ export const AGENT_SURFACE_SOURCE = {
   toggle: {
     ariaLabel: toggleAriaLabel,
     options: toggleOptions,
-    containerClass: [...segmentedGroupClasses, segmentedSm.container].join(" "),
-    segmentClass: `${segmentedSegmentBase} ${segmentedSm.segment} flex-1`,
+    frameClass: toggleFrameClass,
+    containerClass: [segmentedGroupBase, segmentedSlidingGroup, toggleClass].join(" "),
+    segmentClass: `${segmentedSegmentBase} ${segmentedSlidingGap} ${segmentedSlidingSize} flex-1`,
     iconClass: `${segmentedSm.icon} ${toggleIconClass}`,
     labelClass: `whitespace-nowrap ${toggleLabelClass}`,
   },
