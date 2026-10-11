@@ -5918,6 +5918,8 @@ function RequestRecipientListRow({
   removeBusy?: boolean;
   expandedContent?: ReactNode;
 }) {
+  const Row = selectable && onSelect ? "button" : "div";
+  const rowSelectable = Row === "button";
   const pillTone =
     statusLabel === "Live"
       ? "live"
@@ -5932,7 +5934,13 @@ function RequestRecipientListRow({
         selected && selectable && "bg-[color:var(--app-accent)]/[0.045]",
       )}
     >
-      <div className="grid min-h-[58px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 px-3.5 py-2 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto]">
+      <Row
+        type={rowSelectable ? "button" : undefined}
+        onClick={rowSelectable ? onSelect : undefined}
+        aria-label={rowSelectable ? actionAriaLabel : undefined}
+        aria-pressed={rowSelectable ? selected : undefined}
+        className="grid w-full text-left focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)] min-h-[58px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 px-3.5 py-2 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto]"
+      >
         <ContactAvatar label={name} photoUrl={photoUrl} verified={verified} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[17px] font-normal leading-[22px] text-foreground">
@@ -5953,7 +5961,7 @@ function RequestRecipientListRow({
               {statusLabel}
             </StatusPill>
           ) : null}
-          {onEdit ? (
+          {!rowSelectable && onEdit ? (
             <ShellActionSurface
               variant="icon"
               className="h-8 w-8 shrink-0"
@@ -5964,7 +5972,7 @@ function RequestRecipientListRow({
               <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
             </ShellActionSurface>
           ) : null}
-          {onRemove ? (
+          {!rowSelectable && onRemove ? (
             <ShellActionSurface
               variant="icon"
               className="h-8 w-8 shrink-0 text-destructive"
@@ -5982,22 +5990,16 @@ function RequestRecipientListRow({
               )}
             </ShellActionSurface>
           ) : null}
-          {selectable && onSelect ? (
-            <button
-              type="button"
-              onClick={onSelect}
-              aria-label={actionAriaLabel}
-              aria-pressed={selected}
-              className={cn(
-                "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors touch-manipulation",
-                "hover:bg-[color:var(--app-neutral-fill)] focus:outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]",
-              )}
+          {rowSelectable ? (
+            <span
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center"
+              aria-hidden="true"
             >
               <SelectionDot selected={selected} />
-            </button>
+            </span>
           ) : null}
         </span>
-      </div>
+      </Row>
       {expandedContent ? (
         <div className="border-t border-[color:var(--app-separator)] px-3.5 py-3">
           {expandedContent}
