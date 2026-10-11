@@ -167,6 +167,19 @@ and reset queued responses for eight mocks whose defaults are reinstalled.
 All 179 Location cases pass after the seven-line change. Production behavior,
 assertions, timeouts and gate configuration remain unchanged.
 
+The subsequent main `86b5d11f` integration reviews eleven exact finding slots
+under `main_intake_and_migration_collision_20261011`: inherited owner-profile
+and passphrase guards, the extracted intake deployment flag, and recipient-only
+reads after paid admission pauses. The real PostgreSQL negative control fails
+both paused-read cases with the old gate and passes both after restoration.
+Canonical regeneration preserves incoming and branch workflow histories and
+adds only the exact incoming Wallet retirement; 46 graph/policy cases pass.
+Independent backend/frontend reviews pin every source hash, including catalog
+1,477 lines and the cohesive PostgreSQL fixture's 777/82 spans. The original
+2,398 occurrences, seventeen duplicate occurrences, earlier reviews and
+500/250/80 budgets remain unchanged; two newly reviewed size findings are added.
+These allowances prove structural review, not deployed payment acceptance.
+
 ## Owners and next gate
 
 The exact sixteen size slots in `canonical_dev_origin_main_sync_20261011`

@@ -2255,6 +2255,17 @@ readback at 2026-10-11T14:10:29Z found no accepted 306–317 receipts or baselin
 no database or financial history was rewritten. Release manifest/schema checks
 verify the combined head 317; deployment remains a separate evidence gate.
 
+The combined Request intake flag travels through the existing packed deployment
+settings with empty/true/false validation; malformed values refuse provider
+dispatch. This synchronization does not enable intake or paid admission.
+Existing delivered answers remain recipient-bound and readable when payment
+admission pauses; the actual PostgreSQL regression passes both gate states and
+refuses another requester. Canonical graph regeneration preserves incoming main
+`c32bec5a75d64734` and `0f847cb897c39c4a` setup histories; Wallet retirement
+remains exact-revision, version-bound and reject-only. Transient local graph
+`15a37467327ba8fa` was never deployed or used for acceptance. Combined core,
+exact-source hosted CI and Dev deployment remain separate required receipts.
+
 Consent integration preserves both tolerant read-only UI reads and strict
 complete source inventory. Either mode reads existing identities without
 bootstrapping them; only strict results claim source completeness. Paid-grant
