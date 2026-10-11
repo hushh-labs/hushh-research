@@ -84,7 +84,13 @@ def _coerce_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
 class OneLocationCenterContributor:
     """Maps ``OneLocationAgentService.list_state`` into ConsentCenterEntry dicts."""
 
-    def __init__(self, location_service: OneLocationAgentService | None = None) -> None:
+    def __init__(
+        self,
+        location_service: OneLocationAgentService | None = None,
+        *,
+        require_complete: bool = False,
+    ) -> None:
+        self._require_complete = require_complete
         self._location = location_service or OneLocationAgentService()
 
     # ----- public API ----------------------------------------------------
@@ -100,8 +106,14 @@ class OneLocationCenterContributor:
         if not normalized_user:
             return self._empty()
         try:
-            state = self._location.list_state(user_id=normalized_user)
+            state = (
+                self._location.list_state(user_id=normalized_user, require_complete=True)
+                if self._require_complete
+                else self._location.list_state(user_id=normalized_user)
+            )
         except Exception as exc:  # never let location break the consent surface
+            if self._require_complete:
+                raise
             logger.warning(
                 "one_location.consent_center.list_state_failed user=%s error=%s",
                 normalized_user,
@@ -236,6 +248,29 @@ class OneLocationCenterContributor:
         for invite in state.get("publicInvites") or []:
             if _safe_str(invite.get("status")) in {"revoked", "expired"}:
                 entries.append(self._public_invite_entry(invite, kind="history"))
+        if self._require_complete:
+            # Memory inventory retains durable requests and invitations after resolution.
+            for request in state.get("requests") or []:
+                if (
+                    _safe_str(request.get("ownerUserId")) == user_id
+                    and _safe_str(request.get("status")) not in _PENDING_REQUEST_STATUSES
+                ):
+                    entries.append(
+                        self._request_entry(
+                            request,
+                            kind="history",
+                            section="approvals",
+                            counterpart_id=_safe_str(request.get("requesterUserId")),
+                            counterpart_label="Location requester",
+                        )
+                    )
+            entries.extend(self._invites(state, user_id))
+            for invite in state.get("circleMemberInvites") or []:
+                if (
+                    _safe_str(invite.get("status")) != "pending"
+                    or _safe_str(invite.get("inviteeUserId")) != user_id
+                ):
+                    entries.append(self._circle_member_invite_entry(invite))
         return entries
 
     def _invites(self, state: dict[str, Any], user_id: str) -> list[dict[str, Any]]:
@@ -379,6 +414,7 @@ class OneLocationCenterContributor:
             "counterpart_label": counterpart_label,
             "request_id": request_id,
             "issued_at": request.get("requestedAt"),
+            **({"expires_at": request.get("expiresAt")} if self._require_complete else {}),
             "reason": _safe_str(request.get("message")) or None,
             "metadata": metadata,
         }
@@ -434,7 +470,9 @@ class OneLocationCenterContributor:
             # investor Consent Manager can discover it without exposing the
             # generic Allow/Don't allow location-grant controls.
             "kind": "invite",
-            "status": "pending",
+            "status": (_safe_str(invite.get("status")) or "pending")
+            if self._require_complete
+            else "pending",
             "action": "CIRCLE_MEMBER_INVITED",
             "scope": None,
             "scope_description": f"Invitation to join {circle_name}",

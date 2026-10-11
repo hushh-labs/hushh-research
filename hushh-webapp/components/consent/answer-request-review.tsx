@@ -44,7 +44,9 @@ export function AnswerRequestReview({
   onResolved,
 }: AnswerRequestReviewProps) {
   const [chosen, setChosen] = useState<string[]>(() =>
-    request.proposedScopes.map((entry) => entry.scope),
+    request.resolutionMode === "skipped"
+      ? []
+      : request.proposedScopes.map((entry) => entry.scope),
   );
   const [consented, setConsented] = useState(false);
   const [priceOpen, setPriceOpen] = useState(false);

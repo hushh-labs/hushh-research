@@ -22,6 +22,7 @@ sealed to the requester's key and refuses anything shaped like plaintext.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, cast
 from uuid import UUID
@@ -31,6 +32,10 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Response
 from api.middleware import require_firebase_auth, require_firebase_auth_read_only
 from hushh_mcp.services.answer_composer import AnswerComposer, AnswerComposerError
 from hushh_mcp.services.answer_scope_resolver import AnswerScopeResolver
+from hushh_mcp.services.person_profile_service import (
+    PersonProfileNotFoundError,
+    PersonProfileService,
+)
 from hushh_mcp.services.pkm_answer_config import (
     answer_composer_enabled,
     answer_payment_config,
@@ -188,9 +193,32 @@ async def create_answer_request(
 ) -> dict[str, Any]:
     _require_enabled()
     response.headers["Cache-Control"] = "private, no-store"
-    owner_user_id = str(body.get("ownerUserId") or body.get("personRef") or "").strip()
+    person_ref = str(body.get("personRef") or "").strip()
+    owner_user_id = str(body.get("ownerUserId") or "").strip()
+    if person_ref:
+        if owner_user_id:
+            raise HTTPException(status_code=422, detail="Choose one person to ask.")
+        try:
+            public_ref = str(UUID(person_ref))
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Choose who to ask.") from None
+        try:
+            async with asyncio.timeout(6):
+                owner_user_id, _ = await asyncio.to_thread(
+                    PersonProfileService().get_relationship_target,
+                    viewer_user_id=requester_user_id,
+                    public_person_ref=public_ref,
+                )
+        except PersonProfileNotFoundError:
+            raise _http(AnswerRequestError("request_unavailable")) from None
+        except Exception:
+            raise HTTPException(
+                status_code=503, detail="This person's profile is unavailable."
+            ) from None
     if not owner_user_id:
         raise HTTPException(status_code=422, detail="Choose who to ask.")
+    # The public reference locates the person; the store separately locks and
+    # checks the active connection before admitting the question.
     try:
         return dict(
             await _requests().create(

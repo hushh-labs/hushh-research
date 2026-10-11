@@ -3224,8 +3224,9 @@ class OneLocationCircleService:
         circle_id: str | None = None,
         direction: str = "incoming",
         expire_stale: bool = True,
+        require_complete: bool = False,
     ) -> list[dict[str, Any]]:
-        """Return pending incoming invites or authorized outgoing invites."""
+        """Return UI invitations, or complete read-only participant source inventory."""
 
         if direction not in {"incoming", "outgoing"}:
             raise OneLocationCircleError(
@@ -3235,7 +3236,7 @@ class OneLocationCircleService:
             )
         cleaned_circle_id = _clean_circle_id(circle_id) if circle_id is not None else None
         try:
-            if expire_stale:
+            if expire_stale and not require_complete:
                 self._db.execute_raw(
                     """
                     UPDATE one_location_circle_member_invites
@@ -3249,7 +3250,19 @@ class OneLocationCircleService:
                     """,
                     {"user_id": user_id},
                 )
-            if direction == "incoming":
+            if require_complete:
+                result = self._db.execute_raw(
+                    """
+                    SELECT invite.*,circle.name AS circle_name,circle.kind AS circle_kind
+                    FROM one_location_circle_member_invites invite
+                    JOIN one_location_circles circle ON circle.id=invite.circle_id
+                    WHERE (invite.invitee_user_id=:user_id OR invite.inviter_user_id=:user_id OR circle.owner_user_id=:user_id)
+                      AND (CAST(:circle_id AS UUID) IS NULL OR invite.circle_id=CAST(:circle_id AS UUID))
+                    ORDER BY invite.created_at DESC,invite.id
+                    """,
+                    {"user_id": user_id, "circle_id": cleaned_circle_id},
+                )
+            elif direction == "incoming":
                 result = self._db.execute_raw(
                     """
                     SELECT

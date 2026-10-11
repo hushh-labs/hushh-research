@@ -50,59 +50,80 @@ export async function syncLivingSources(params: {
       unavailable.push("profile");
     }
     try {
-      const entries = new Map<string, LivingSourceInput>();
-      for (const surface of ["pending", "active", "previous"] as const) {
-        for (const requestView of (surface === "pending"
-          ? ["received", "sent"]
-          : ["received"]) as ("received" | "sent")[]) {
-          const seenPages = new Set<string>();
-          for (let page = 1; ; page += 1) {
-            const response = await ConsentCenterService.listEntries({
-              idToken: params.idToken,
-              userId: params.userId,
-              surface,
-              requestView,
-              page,
-              limit: 100,
-              force: true,
-            });
-            if (response.user_id !== params.userId)
-              throw new Error("Owner mismatch");
-            const pageSignature = JSON.stringify(
-              response.items.map((item) => item.id),
-            );
-            if (seenPages.has(pageSignature) && response.items.length)
-              throw new Error("Repeated source page");
-            seenPages.add(pageSignature);
-            for (const entry of response.items) {
-              // Presentation fields only: tokens, request payloads and provider metadata never enter memory.
-              const expired =
-                entry.expires_at &&
-                Number(new Date(entry.expires_at)) < Date.now();
-              entries.set(entry.id, {
-                kind: "consent",
-                id: entry.id,
-                createdAt: entry.issued_at
-                  ? new Date(entry.issued_at).toISOString()
-                  : null,
-                updatedAt: null,
-                value: {
-                  scope: entry.scope ?? null,
-                  status: expired && entry.active ? "expired" : entry.status,
-                  active: expired ? false : entry.active === true,
-                  counterpart: entry.counterpart_id ?? null,
-                  expiresAt: entry.expires_at ?? null,
-                  action: entry.action,
-                },
+      const startFence = await ConsentCenterService.sourceFence(
+        params.idToken,
+        params.userId,
+      );
+      const collectConsent = async () => {
+        const entries = new Map<string, LivingSourceInput>();
+        for (const surface of ["pending", "active", "previous"] as const) {
+          for (const requestView of (surface === "pending"
+            ? ["received", "sent"]
+            : ["received"]) as ("received" | "sent")[]) {
+            const seenPages = new Set<string>();
+            for (let page = 1; ; page += 1) {
+              const response = await ConsentCenterService.listEntries({
+                idToken: params.idToken,
+                userId: params.userId,
+                surface,
+                requestView,
+                page,
+                limit: 100,
+                force: true,
+                sourceRead: true,
               });
+              if (response.source_read_verified !== true)
+                throw new Error("Source completeness unverified");
+              if (response.user_id !== params.userId)
+                throw new Error("Owner mismatch");
+              const pageSignature = JSON.stringify(
+                response.items.map((item) => item.id),
+              );
+              if (seenPages.has(pageSignature) && response.items.length)
+                throw new Error("Repeated source page");
+              seenPages.add(pageSignature);
+              for (const entry of response.items) {
+                // Presentation fields only: tokens, request payloads and provider metadata never enter memory.
+                const expired =
+                  entry.expires_at &&
+                  Number(new Date(entry.expires_at)) < Date.now();
+                entries.set(entry.id, {
+                  kind: "consent",
+                  id: entry.id,
+                  createdAt: entry.issued_at
+                    ? new Date(entry.issued_at).toISOString()
+                    : null,
+                  updatedAt: null,
+                  value: {
+                    scope: entry.scope ?? null,
+                    status: expired && entry.active ? "expired" : entry.status,
+                    active: expired ? false : entry.active === true,
+                    counterpart: entry.counterpart_id ?? null,
+                    expiresAt: entry.expires_at ?? null,
+                    action: entry.action,
+                  },
+                });
+              }
+              if (!response.has_more) break;
+              if (!response.items.length)
+                throw new Error("Incomplete source pagination");
             }
-            if (!response.has_more) break;
-            if (!response.items.length)
-              throw new Error("Incomplete source pagination");
           }
         }
-      }
-      inputs.push(...entries.values());
+        return [...entries.values()].sort((a, b) => a.id.localeCompare(b.id));
+      };
+      const first = await collectConsent();
+      const second = await collectConsent();
+      const endFence = await ConsentCenterService.sourceFence(
+        params.idToken,
+        params.userId,
+      );
+      if (
+        startFence !== endFence ||
+        JSON.stringify(first) !== JSON.stringify(second)
+      )
+        throw new Error("Consent changed during pagination; retry required");
+      inputs.push(...second);
       successful.push("consent");
     } catch {
       unavailable.push("consent");

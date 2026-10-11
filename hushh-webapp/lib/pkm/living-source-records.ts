@@ -40,8 +40,15 @@ export function reconcileLivingSources(
       prior &&
       !prior.deletedAt &&
       JSON.stringify(prior.value) === JSON.stringify(input.value)
-    )
+    ) {
+      // Provenance backfill is retained without inventing a payload revision.
+      records.set(key, {
+        ...prior,
+        createdAt: prior.createdAt ?? input.createdAt,
+        updatedAt: input.updatedAt ?? prior.updatedAt,
+      });
       continue;
+    }
     records.set(key, {
       ...input,
       createdAt: prior?.createdAt ?? input.createdAt,

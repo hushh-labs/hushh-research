@@ -30,16 +30,23 @@ export function sourceReceipts(
     const exists = Object.hasOwn(after, id);
     if (prior && JSON.stringify(before[id]) === JSON.stringify(after[id]))
       continue;
-    receipts[id] = {
-      id,
-      revision: (prior?.revision ?? 0) + 1,
-      createdAt:
-        prior?.createdAt ??
-        knownCreation(before[id]) ??
-        (Object.hasOwn(before, id) ? null : (knownCreation(after[id]) ?? now)),
-      updatedAt: now,
-      deletedAt: exists ? null : now,
-    };
+    Object.defineProperty(receipts, id, {
+      configurable: true,
+      enumerable: true,
+      writable: true,
+      value: {
+        id,
+        revision: (prior?.revision ?? 0) + 1,
+        createdAt:
+          prior?.createdAt ??
+          knownCreation(before[id]) ??
+          (Object.hasOwn(before, id)
+            ? null
+            : (knownCreation(after[id]) ?? now)),
+        updatedAt: now,
+        deletedAt: exists ? null : now,
+      },
+    });
   }
   return receipts;
 }

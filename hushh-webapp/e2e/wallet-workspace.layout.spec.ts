@@ -205,7 +205,7 @@ async function open(
       await route.fulfill({ body: walletHero, contentType: "image/webp" });
       return;
     }
-    if (/^\/brand\/cards\/[a-z]+\.(svg|png)$/.test(assetPath)) {
+    if (/^\/brand\/cards\/[a-z]+(?:-[a-z]+)*\.(svg|png)$/.test(assetPath)) {
       await route.fulfill({ body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType: assetPath.endsWith(".svg") ? "image/svg+xml" : "image/png" });
       return;
     }

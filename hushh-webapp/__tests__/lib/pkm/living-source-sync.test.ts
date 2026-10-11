@@ -2,6 +2,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 const m = vi.hoisted(() => ({
   identity: vi.fn(),
   list: vi.fn(),
+  fence: vi.fn(),
   save: vi.fn(),
   epoch: 0,
 }));
@@ -9,7 +10,7 @@ vi.mock("@/lib/services/account-identity-service", () => ({
   AccountIdentityService: { refreshIdentityForSession: m.identity },
 }));
 vi.mock("@/lib/services/consent-center-service", () => ({
-  ConsentCenterService: { listEntries: m.list },
+  ConsentCenterService: { listEntries: m.list, sourceFence: m.fence },
 }));
 vi.mock("@/lib/services/pkm-write-coordinator", () => ({
   PkmWriteCoordinator: { saveMergedDomain: m.save },
@@ -54,9 +55,15 @@ const inventory = () =>
 beforeEach(() => {
   vi.clearAllMocks();
   m.epoch = 0;
+  m.fence.mockResolvedValue("stable");
   stored = {};
   m.identity.mockResolvedValue(profile("Owner"));
-  m.list.mockResolvedValue({ user_id: OWNER, items: [], has_more: false });
+  m.list.mockResolvedValue({
+    source_read_verified: true,
+    user_id: OWNER,
+    items: [],
+    has_more: false,
+  });
   m.save.mockImplementation(async (p) => {
     await p.beforeEffect();
     const plan = await p.build({ currentDomainData: stored });
@@ -69,6 +76,7 @@ it("reads all pages and sent requests with only the explicit presentation projec
   m.list.mockImplementation(async ({ surface, requestView, page }) => {
     const received = surface === "pending" && requestView === "received";
     return {
+      source_read_verified: true,
       user_id: OWNER,
       items: received
         ? [entry(`received-${page}`)]
@@ -102,6 +110,7 @@ it("reads all pages and sent requests with only the explicit presentation projec
 });
 it("preserves unavailable sources then recovers and records deletion", async () => {
   m.list.mockResolvedValue({
+    source_read_verified: true,
     user_id: OWNER,
     items: [entry("existing")],
     has_more: false,
@@ -110,11 +119,21 @@ it("preserves unavailable sources then recovers and records deletion", async () 
   const prior = inventory().records.find((r) => r.id === "existing");
   m.list.mockImplementation(async ({ surface }) => {
     if (surface === "active") throw new Error("offline");
-    return { user_id: OWNER, items: [], has_more: false };
+    return {
+      source_read_verified: true,
+      user_id: OWNER,
+      items: [],
+      has_more: false,
+    };
   });
   await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
   expect(inventory().records.find((r) => r.id === "existing")).toEqual(prior);
-  m.list.mockResolvedValue({ user_id: OWNER, items: [], has_more: false });
+  m.list.mockResolvedValue({
+    source_read_verified: true,
+    user_id: OWNER,
+    items: [],
+    has_more: false,
+  });
   await syncLivingSources(params);
   expect(inventory().complete).toBe(true);
   expect(inventory().records.find((r) => r.id === "existing")).toMatchObject({
@@ -126,6 +145,7 @@ it.each(["wrong-owner", "empty-page", "repeated-page"])(
   "refuses complete inventory after %s",
   async (failure) => {
     m.list.mockResolvedValue({
+      source_read_verified: true,
       user_id: failure === "wrong-owner" ? "other" : OWNER,
       items: failure === "repeated-page" ? [entry("loop")] : [],
       has_more: failure !== "wrong-owner",
@@ -166,4 +186,61 @@ it("rejects publication after session changes during a read", async () => {
     "Vault session changed",
   );
   expect(stored).toEqual({});
+});
+
+it("retains prior records when optional contributors cannot certify completeness", async () => {
+  m.list.mockResolvedValue({
+    source_read_verified: true,
+    user_id: OWNER,
+    items: [entry("existing")],
+    has_more: false,
+  });
+  await syncLivingSources(params);
+  const prior = inventory().records.find((r) => r.id === "existing");
+  m.list.mockResolvedValue({ user_id: OWNER, items: [], has_more: false });
+  await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
+  expect(inventory().records.find((r) => r.id === "existing")).toEqual(prior);
+});
+it("retains prior records when offset pages shift during a refresh", async () => {
+  m.list.mockResolvedValue({
+    source_read_verified: true,
+    user_id: OWNER,
+    items: [entry("existing")],
+    has_more: false,
+  });
+  await syncLivingSources(params);
+  const prior = inventory().records.find((r) => r.id === "existing");
+  let scans = 0;
+  m.list.mockImplementation(async ({ surface, requestView, page }) => {
+    if (surface === "pending" && requestView === "received" && page === 1)
+      scans++;
+    return {
+      source_read_verified: true,
+      user_id: OWNER,
+      items: surface === "active" && scans === 2 ? [entry("existing")] : [],
+      has_more: false,
+    };
+  });
+  await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
+  expect(inventory().records.find((r) => r.id === "existing")).toEqual(prior);
+});
+
+it("retains records on an ABA mutation even when both page scans omit the same IDs", async () => {
+  m.list.mockResolvedValue({
+    source_read_verified: true,
+    user_id: OWNER,
+    items: [entry("live")],
+    has_more: false,
+  });
+  await syncLivingSources(params);
+  const prior = inventory().records.find((r) => r.id === "live");
+  m.list.mockResolvedValue({
+    source_read_verified: true,
+    user_id: OWNER,
+    items: [],
+    has_more: false,
+  });
+  m.fence.mockResolvedValueOnce("before").mockResolvedValueOnce("after");
+  await expect(syncLivingSources(params)).rejects.toThrow("incomplete");
+  expect(inventory().records.find((r) => r.id === "live")).toEqual(prior);
 });

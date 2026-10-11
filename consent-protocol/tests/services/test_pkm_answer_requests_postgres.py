@@ -14,6 +14,7 @@ proxy or any non-test target outright.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -208,6 +209,25 @@ def _db(engine):
     return SimpleNamespace(engine=engine)
 
 
+def _fixture_catalog(engine):
+    # This minimal PostgreSQL fixture models the already canonical catalog
+    # port, not the production opaque registry-to-manifest projection.
+    async def catalog(requester_user_id, owner_user_id):
+        del requester_user_id
+        with engine.begin() as connection:
+            return [
+                dict(row)
+                for row in connection.execute(
+                    text(
+                        "SELECT scope_handle AS scope, scope_label AS label FROM pkm_scope_registry WHERE user_id=:owner AND visibility_posture='consent_required'"
+                    ),
+                    {"owner": owner_user_id},
+                ).mappings()
+            ]
+
+    return catalog
+
+
 class StubResolver:
     """Stands in for the semantic stage. Returns whatever it was told to."""
 
@@ -224,7 +244,9 @@ class StubResolver:
 
 
 async def _ask(engine, resolver):
-    service = PkmAnswerRequestService(_db(engine), resolver=resolver)
+    service = PkmAnswerRequestService(
+        _db(engine), resolver=resolver, catalog_reader=_fixture_catalog(engine)
+    )
     created = await service.create(
         requester_user_id=REQUESTER,
         owner_user_id=OWNER,
@@ -396,14 +418,20 @@ class TestScopeIsolation:
         inbox = await service.pending_for_owner(owner_user_id=OWNER)
         assert inbox[0]["resolutionMode"] == "skipped"
         assert inbox[0]["resolutionSkippedReason"] == "resolver_failed"
-        # Critically: no scopes were invented to cover the gap.
-        assert inbox[0]["proposedScopes"] == []
+        # Explicit manual selection offers only the existing safe catalog.
+        assert {row["scope"] for row in inbox[0]["proposedScopes"]} == {
+            "attr.travel.trips",
+            "attr.preferences.food",
+            "attr.financial.holdings",
+        }
 
 
 class TestConnectionGate:
     async def test_a_stranger_cannot_ask(self, answer_engine):
         service = PkmAnswerRequestService(
-            _db(answer_engine), resolver=StubResolver(["attr.travel.trips"])
+            _db(answer_engine),
+            catalog_reader=_fixture_catalog(answer_engine),
+            resolver=StubResolver(["attr.travel.trips"]),
         )
         with pytest.raises(AnswerRequestError, match="connection_required"):
             await service.create(
@@ -416,7 +444,9 @@ class TestConnectionGate:
         with answer_engine.begin() as connection:
             connection.exec_driver_sql("UPDATE connections SET status='revoked'")
         service = PkmAnswerRequestService(
-            _db(answer_engine), resolver=StubResolver(["attr.travel.trips"])
+            _db(answer_engine),
+            catalog_reader=_fixture_catalog(answer_engine),
+            resolver=StubResolver(["attr.travel.trips"]),
         )
         with pytest.raises(AnswerRequestError, match="connection_required"):
             await service.create(
@@ -652,3 +682,80 @@ class TestObligationMirror:
         # A 64-char hash that cannot be read back to the requester's id.
         assert len(row["payer_ref"]) == 64
         assert REQUESTER not in row["payer_ref"]
+
+
+@pytest.mark.parametrize("transition", ["cancel", "revoke"])
+async def test_late_resolver_respects_terminal_state_and_connection(answer_engine, transition):
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    class DelayedResolver:
+        async def propose_scopes(self, **kwargs):
+            entered.set()
+            await release.wait()
+            return ["attr.travel.trips"]
+
+    service = PkmAnswerRequestService(
+        _db(answer_engine),
+        resolver=DelayedResolver(),
+        catalog_reader=_fixture_catalog(answer_engine),
+    )
+    task = asyncio.create_task(
+        service.create(
+            requester_user_id=REQUESTER,
+            owner_user_id=OWNER,
+            question="Where did you travel last year?",
+        )
+    )
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        with answer_engine.begin() as connection:
+            request_id = str(
+                connection.execute(text("SELECT request_id FROM pkm_answer_requests")).scalar_one()
+            )
+        if transition == "cancel":
+            await service.cancel(requester_user_id=REQUESTER, request_id=request_id)
+        else:
+            with answer_engine.begin() as connection:
+                connection.execute(text("UPDATE connections SET status='revoked'"))
+        release.set()
+        with pytest.raises(AnswerRequestError) as error:
+            await asyncio.wait_for(task, 5)
+        assert str(error.value) == (
+            "request_not_resolvable" if transition == "cancel" else "connection_required"
+        )
+        with answer_engine.begin() as connection:
+            assert (
+                connection.execute(
+                    text("SELECT count(*) FROM pkm_answer_request_scopes")
+                ).scalar_one()
+                == 0
+            )
+            assert connection.execute(
+                text("SELECT status FROM pkm_answer_requests")
+            ).scalar_one() == ("cancelled" if transition == "cancel" else "pending_resolution")
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_approval_rechecks_current_private_scope_posture(answer_engine):
+    service, request_id = await _ask(answer_engine, StubResolver(["attr.travel.trips"]))
+    with answer_engine.begin() as connection:
+        connection.execute(text("UPDATE pkm_scope_registry SET visibility_posture='private'"))
+    with pytest.raises(AnswerRequestError, match="scope_not_offered"):
+        await service.approve(
+            owner_user_id=OWNER,
+            request_id=request_id,
+            scopes=["attr.travel.trips"],
+            amount_cents=1000,
+            model_processing_consent=True,
+        )
+    with answer_engine.begin() as connection:
+        assert (
+            connection.execute(text("SELECT status FROM pkm_answer_requests")).scalar_one()
+            == "awaiting_owner"
+        )
+        assert (
+            connection.execute(text("SELECT count(*) FROM pkm_answer_payment_orders")).scalar_one()
+            == 0
+        )

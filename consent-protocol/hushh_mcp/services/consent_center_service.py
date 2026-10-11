@@ -129,7 +129,8 @@ class ConsentCenterService:
     _PENDING_STATUSES = {"pending", "request_pending", "sent"}
     _ACTIVE_STATUSES = {"active"}
 
-    def __init__(self) -> None:
+    def __init__(self, *, require_complete: bool = False) -> None:
+        self._require_complete = require_complete
         self._consent_db = ConsentDBService()
         self._identity = ActorIdentityService()
         self._ria = RIAIAMService()
@@ -140,28 +141,40 @@ class ConsentCenterService:
 
         self._answer_center = PkmAnswerCenterContributor()
         self._location_center = None
-        if _one_location_consent_center_enabled():
+        if require_complete or _one_location_consent_center_enabled():
             try:
                 from hushh_mcp.services.one_location_center_contributor import (
                     OneLocationCenterContributor,
                 )
 
-                self._location_center = OneLocationCenterContributor()
+                self._location_center = (
+                    OneLocationCenterContributor(require_complete=True)
+                    if require_complete
+                    else OneLocationCenterContributor()
+                )
             except Exception as exc:  # never block the consent surface
+                if require_complete:
+                    raise
                 logger.warning(
                     "consent_center.one_location_contributor_init_failed error=%s",
                     exc,
                 )
                 self._location_center = None
         self._marketplace_center = None
-        if _marketplace_consent_center_enabled():
+        if require_complete or _marketplace_consent_center_enabled():
             try:
                 from hushh_mcp.services.marketplace_center_contributor import (
                     MarketplaceCenterContributor,
                 )
 
-                self._marketplace_center = MarketplaceCenterContributor()
+                self._marketplace_center = (
+                    MarketplaceCenterContributor(require_complete=True)
+                    if require_complete
+                    else MarketplaceCenterContributor()
+                )
             except Exception as exc:  # never block the consent surface
+                if require_complete:
+                    raise
                 logger.warning(
                     "consent_center.marketplace_contributor_init_failed error=%s",
                     exc,
@@ -206,6 +219,8 @@ class ConsentCenterService:
             limit=start + limit - drive_offset,
         )
         self._drive_schema_available = projection["schema_available"]
+        if getattr(self, "_require_complete", False) and not self._drive_schema_available:
+            raise RuntimeError("consent_source_unavailable")
         merged = self._sort_display_entries([*existing, *projection["items"]])
         local_start = start - drive_offset
         total = len(existing) + projection["total"]
@@ -237,6 +252,8 @@ class ConsentCenterService:
         try:
             return await self._marketplace_center.collect(user_id)
         except Exception as exc:
+            if getattr(self, "_require_complete", False):
+                raise
             logger.warning(
                 "consent_center.marketplace_collect_failed user=%s error=%s",
                 user_id,
@@ -252,6 +269,8 @@ class ConsentCenterService:
         try:
             answers = await contributor.collect(user_id)
         except Exception as error:
+            if getattr(self, "_require_complete", False):
+                raise
             logger.warning("answer_center.unavailable type=%s", type(error).__name__)
             return marketplace
         return {key: [*marketplace.get(key, []), *answers.get(key, [])] for key in marketplace}
@@ -274,6 +293,8 @@ class ConsentCenterService:
         try:
             return self._location_center.collect(user_id)
         except Exception as exc:
+            if getattr(self, "_require_complete", False):
+                raise
             logger.warning(
                 "consent_center.one_location_collect_failed user=%s error=%s",
                 user_id,
@@ -455,8 +476,14 @@ class ConsentCenterService:
 
     async def _resolve_owned_user_identifiers(self, normalized_user_id: str) -> list[str]:
         try:
-            identifiers = await self._identity.list_account_identifiers(normalized_user_id)
+            identifiers = (
+                await self._identity.list_account_identifiers(normalized_user_id, refresh=False)
+                if getattr(self, "_require_complete", False)
+                else await self._identity.list_account_identifiers(normalized_user_id)
+            )
         except Exception as exc:
+            if getattr(self, "_require_complete", False):
+                raise
             logger.debug(
                 "consent_center.identifier_expansion_skipped user_id=%s error=%s",
                 normalized_user_id,
@@ -1064,8 +1091,13 @@ class ConsentCenterService:
         metadata = self._metadata(item.get("metadata"))
         counterpart_type, counterpart_id = self._counterpart(agent_id, metadata)
         status = "active"
+        source_id = item.get("token_id") or item.get("id") or ""
+        if getattr(self, "_require_complete", False):
+            if item.get("source_record_id") is None:
+                raise RuntimeError("consent_source_record_id_unavailable")
+            source_id = f"consent_grant:{item['source_record_id']}"
         return {
-            "id": str(item.get("token_id") or item.get("id") or ""),
+            "id": str(source_id),
             "kind": "active_grant",
             "status": status,
             "action": "CONSENT_GRANTED",
@@ -1619,9 +1651,13 @@ class ConsentCenterService:
         history_result = await self._consent_db.get_audit_log(
             user_id,
             page=1,
-            limit=5000,
+            limit=None if getattr(self, "_require_complete", False) else 5000,
             **self._identifier_filter_kwargs(user_id, identifiers),
         )
+        if getattr(self, "_require_complete", False) and history_result.get("total", 0) > len(
+            history_result.get("items", [])
+        ):
+            raise RuntimeError("consent_source_history_incomplete")
         return await self._hydrate_entry_identities(
             [self._normalize_history(item) for item in history_result.get("items", [])]
         )
@@ -1685,6 +1721,8 @@ class ConsentCenterService:
                 ConnectionsService().list_requests, user_id, direction="incoming"
             )
         except Exception as exc:  # never block the consent surface
+            if getattr(self, "_require_complete", False):
+                raise
             logger.warning(
                 "consent_center.connection_request_entries_failed user=%s error=%s",
                 user_id,
@@ -2188,6 +2226,49 @@ class ConsentCenterService:
             "drive_projection_available": bool(getattr(self, "_drive_schema_available", False)),
         }
 
+    async def source_fence(self, user_id: str) -> str:
+        from db.db_client import get_db_connection
+        from hushh_mcp.services.consent_source_fence import capture_consent_source_fence
+
+        identifiers = await self._owned_user_identifiers(user_id)
+
+        def capture():
+            with get_db_connection() as connection:
+                return capture_consent_source_fence(
+                    connection,
+                    owner=user_id,
+                    identifiers=identifiers,
+                    configuration={
+                        "location": _one_location_consent_center_enabled(),
+                        "marketplace": _marketplace_consent_center_enabled(),
+                    },
+                )
+
+        return await run_in_threadpool(capture)
+
+    def _source_entries(self, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not getattr(self, "_require_complete", False):
+            return entries
+        fields = (
+            "id",
+            "kind",
+            "status",
+            "action",
+            "scope",
+            "counterpart_type",
+            "counterpart_id",
+            "issued_at",
+            "expires_at",
+        )
+        return [
+            {
+                **{field: item.get(field) for field in fields},
+                "active": item.get("kind") == "active_grant"
+                and item.get("status") in {"active", "approved", "granted"},
+            }
+            for item in entries
+        ]
+
     async def list_center(
         self,
         user_id: str,
@@ -2217,8 +2298,12 @@ class ConsentCenterService:
             # B's requests remain rediscoverable, including after disconnect or
             # a rollout pause. They never enter A's Needs You / approval count.
             extra = await self._extra_buckets_async(user_id)
+            outgoing = extra.get("outgoing_requests", [])
+            if getattr(self, "_require_complete", False):
+                location = await self._location_buckets_async(user_id)
+                outgoing = [*outgoing, *location.get("outgoing_requests", [])]
             paged = await self._paginate_with_drive(
-                extra.get("outgoing_requests", []),
+                outgoing,
                 user_id=user_id,
                 surface="sent",
                 page=safe_page,
@@ -2233,7 +2318,13 @@ class ConsentCenterService:
                 "request_view": "sent",
                 "query": query or "",
                 **paged,
+                "items": self._source_entries(paged["items"]),
                 "drive_projection_available": bool(getattr(self, "_drive_schema_available", False)),
+                **(
+                    {"source_read_verified": True}
+                    if getattr(self, "_require_complete", False)
+                    else {}
+                ),
             }
 
         if normalized_mode == "connections":
@@ -2282,6 +2373,8 @@ class ConsentCenterService:
                     actor=normalized_actor,
                     mode=normalized_mode,
                 )
+                if getattr(self, "_require_complete", False):
+                    return entries
                 return (
                     self._group_history_identifier_trails(entries)
                     if normalized_surface == "previous"
@@ -2390,8 +2483,9 @@ class ConsentCenterService:
             "limit": paged["limit"],
             "total": paged["total"],
             "has_more": paged["has_more"],
-            "items": paged["items"],
+            "items": self._source_entries(paged["items"]),
             "drive_projection_available": bool(getattr(self, "_drive_schema_available", False)),
+            **({"source_read_verified": True} if getattr(self, "_require_complete", False) else {}),
         }
 
     # =========================================================================

@@ -173,3 +173,44 @@ describe("owning source receipts", () => {
     });
   });
 });
+
+it("preserves __proto__ source receipts through JSON restart and deletion", () => {
+  const records = Object.fromEntries([
+    ["__proto__", { createdAt: T1, note: "Full record" }],
+  ]);
+  const created = sourceReceipts({}, {}, records, T1);
+  expect(Object.hasOwn(created, "__proto__")).toBe(true);
+  expect(Object.getPrototypeOf(created)).toBe(Object.prototype);
+  const restarted = JSON.parse(JSON.stringify(created));
+  const deleted = sourceReceipts(restarted, records, {}, T2);
+  expect(Object.hasOwn(deleted, "__proto__")).toBe(true);
+  expect(deleted["__proto__"]).toMatchObject({
+    id: "__proto__",
+    revision: 2,
+    createdAt: T1,
+    deletedAt: T2,
+  });
+});
+
+it("retains provenance backfill for an unchanged source", () => {
+  const input = {
+    kind: "profile" as const,
+    id: "owner",
+    value: { name: "Owner" },
+    createdAt: null,
+    updatedAt: null,
+  };
+  const first = reconcileLivingSources(null, [input], ["profile"], [], T1);
+  const next = reconcileLivingSources(
+    first,
+    [{ ...input, createdAt: T1, updatedAt: T2 }],
+    ["profile"],
+    [],
+    T2,
+  );
+  expect(next.records[0]).toMatchObject({
+    createdAt: T1,
+    updatedAt: T2,
+    revision: 1,
+  });
+});
