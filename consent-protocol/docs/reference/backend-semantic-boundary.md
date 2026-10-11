@@ -206,6 +206,12 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
 - Structured output: `ProfileReport` in `hushh_mcp/one_adk/profile_research.py`;
   match status, name, concise summary, up to four sections and eight facts per
   section, each with confidence and HTTPS source links.
+- Search strategy: the authored task starts with the public name, using an
+  organizational email domain only as a hint. It keeps full email/phone as
+  private matching context, without requiring a public contact match. At most
+  one broader name-only follow-up fits the existing five-call/30-second budget.
+  The tool result exposes whether Search execution was observed; a refusal
+  cannot be treated as proof that a profile does not exist.
 - Validator rejects unknown fields, duplicate sections, unsupported URLs and
   incoherent no-match results. Every cited URL must have a Search grounding
   receipt. A no-match report also needs Search execution evidence; an offline

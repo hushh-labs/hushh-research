@@ -8,6 +8,9 @@ After durable onboarding completion, the ephemeral profile card invokes One's
 bounded `one_profile_research` ADK task with the current account's name and
 verified email/phone when available. The task uses One's existing public
 `google_search` child; it has no PKM, action or conversation-history tools.
+Its prompt starts with public name searches, treats an organization domain as
+an optional hint, and allows one broader name-only follow-up in the same budget.
+Contact identifiers are matching context; a public phone match is not required.
 Structured task output and Search grounding receipts form the editable card.
 The report stays outside ordinary transcript persistence and automatic capture.
 Selected statements use the existing PKM agents for an exact preview; final

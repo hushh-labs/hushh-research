@@ -38,17 +38,30 @@ class ProfileModel(BaseLlm):
     _cited_url: str = PrivateAttr(default=SOURCE)
     _no_match: bool = PrivateAttr(default=False)
     _search_evidence: bool = PrivateAttr(default=True)
+    _recover_after_refusal: bool = PrivateAttr(default=False)
+    _refuse_followup: bool = PrivateAttr(default=False)
 
-    def __init__(self, cited_url=SOURCE, *, no_match=False, search_evidence=True):
+    def __init__(
+        self,
+        cited_url=SOURCE,
+        *,
+        no_match=False,
+        search_evidence=True,
+        recover_after_refusal=False,
+        refuse_followup=False,
+    ):
         super().__init__(model="gemini-fixture")
         self._cited_url = cited_url
         self._no_match = no_match
         self._search_evidence = search_evidence
+        self._recover_after_refusal = recover_after_refusal
+        self._refuse_followup = refuse_followup
 
     async def generate_content_async(self, llm_request, stream=False):
         self._requests.append(llm_request)
         self._calls += 1
-        if self._calls == 1:
+        followup = self._recover_after_refusal or self._refuse_followup
+        if self._calls == 1 or (followup and self._calls == 3):
             yield LlmResponse(
                 content=types.Content(
                     role="model",
@@ -56,19 +69,24 @@ class ProfileModel(BaseLlm):
                         types.Part(
                             function_call=types.FunctionCall(
                                 name="google_search",
-                                args={"request": "Research this synthetic profile"},
+                                args={"request": "Public professional profile of Alex Example"},
                             )
                         )
                     ],
                 )
             )
-        elif self._calls == 2:
+        elif self._calls == 2 or (followup and self._calls == 4):
+            refused = (self._recover_after_refusal and self._calls == 2) or (
+                self._refuse_followup and self._calls == 4
+            )
             yield LlmResponse(
                 content=types.Content(
                     role="model",
                     parts=[
                         types.Part.from_text(
-                            text="No reliable match."
+                            text="Search was unavailable."
+                            if refused
+                            else "No reliable match."
                             if self._no_match
                             else "Engineering profile [1]."
                         )
@@ -76,12 +94,12 @@ class ProfileModel(BaseLlm):
                 ),
                 grounding_metadata=types.GroundingMetadata(
                     web_search_queries=["Synthetic Alex Example profile"]
-                    if self._search_evidence
+                    if self._search_evidence and not refused
                     else [],
                     grounding_chunks=[
                         types.GroundingChunk(web=types.GroundingChunkWeb(uri=SOURCE, title="Team"))
                     ]
-                    if not self._no_match
+                    if not self._no_match and not refused
                     else [],
                 ),
             )
@@ -155,9 +173,80 @@ async def test_real_task_runner_uses_structured_output_and_grounded_sources(monk
     ]
     assert any(
         row.name == "google_search"
+        and row.response.get("search_performed") is True
         and row.response.get("sources") == [{"title": "Team", "url": SOURCE}]
         for row in responses
     )
+
+
+async def test_a_public_search_follow_up_recovers_without_more_than_five_model_calls(monkeypatch):
+    model = ProfileModel(recover_after_refusal=True)
+    monkeypatch.setattr(
+        "hushh_mcp.runtime_providers.build_managed_regional_gemini_adk_model", lambda *args: model
+    )
+
+    async def admitted():
+        return None
+
+    result = await run_profile_research(
+        identity={
+            "full_name": "Alex Example",
+            "email": "alex@example.test",
+            "phone_number": "+15555550123",
+        },
+        user_id="owner",
+        consent_token=OWNER_TOKEN,
+        require_access=admitted,
+    )
+    assert result["report"] == REPORT
+    assert model._calls == 5
+    responses = [
+        part.function_response
+        for request in (model._requests[2], model._requests[4])
+        for content in request.contents or []
+        for part in content.parts or []
+        if part.function_response and part.function_response.name == "google_search"
+    ]
+    # The first refused/offline answer remains unavailable, not a no-match finding.
+    assert responses[0].response["search_performed"] is False
+    assert responses[0].response["sources"] == []
+    assert responses[-1].response["search_performed"] is True
+    assert responses[-1].response["sources"] == [{"title": "Team", "url": SOURCE}]
+
+
+@pytest.mark.parametrize("no_match", [False, True])
+async def test_offline_followup_does_not_borrow_the_previous_search_receipt(monkeypatch, no_match):
+    model = ProfileModel(no_match=no_match, refuse_followup=True)
+    monkeypatch.setattr(
+        "hushh_mcp.runtime_providers.build_managed_regional_gemini_adk_model", lambda *args: model
+    )
+
+    async def admitted():
+        return None
+
+    invoke = run_profile_research(
+        identity={"full_name": "Alex Example", "email": None, "phone_number": None},
+        user_id="owner",
+        consent_token=OWNER_TOKEN,
+        require_access=admitted,
+    )
+    if no_match:
+        # A failed broader search cannot establish that no public profile exists.
+        with pytest.raises(ValueError, match="Search execution receipt"):
+            await invoke
+    else:
+        # Supported findings from a completed search remain usable as a partial draft.
+        assert (await invoke)["report"] == REPORT
+    assert model._calls == 5
+    responses = [
+        part.function_response
+        for content in model._requests[-1].contents or []
+        for part in content.parts or []
+        if part.function_response and part.function_response.name == "google_search"
+    ]
+    assert responses[0].response["search_performed"] is True
+    assert responses[-1].response["search_performed"] is False
+    assert responses[-1].response["sources"] == []
 
 
 @pytest.mark.parametrize("search_evidence", [True, False])
