@@ -1,22 +1,8 @@
 import { z } from "zod";
 
 import { apiJson } from "@/lib/services/api-client";
+import { isDemoBusinessSource } from "@/lib/services/business-directory-source";
 
-const fixtureCandidateSchema = z.object({
-  business_uid: z.literal("urn:hushh:business:uat:hushh.ai:v1"),
-  synthetic: z.literal(true),
-  source_identity: z.object({
-    source: z.literal("uat_fixture"),
-    source_key: z.literal("hushh.ai:v1"),
-  }),
-  match_evidence: z.array(z.object({
-    kind: z.literal("verified_email_domain"), domain: z.literal("hushh.ai"),
-  })).length(1),
-  draft: z.object({ name: z.string().min(1), website: z.literal("https://hushh.ai") }),
-  ownership_verified: z.literal(false),
-  claim_created: z.literal(false),
-  verification_required: z.array(z.literal("business_authority")).length(1),
-});
 const directoryCandidateSchema = z.object({
   business_uid: z.string().regex(/^urn:hushh:business:directory:(hotel|healthcare|ria|insurance|business):[a-f0-9]{64}$/),
   synthetic: z.literal(false),
@@ -34,19 +20,19 @@ const directoryCandidateSchema = z.object({
     state: z.string().max(512).optional(), category: z.string().max(512).optional() }),
   ownership_verified: z.literal(false), claim_created: z.literal(false),
   verification_required: z.array(z.literal("business_authority")).length(1),
-}).refine(value => value.business_uid.includes(`:directory:${value.source_identity.vertical}:`));
-const candidateSchema = z.union([fixtureCandidateSchema, directoryCandidateSchema]);
-
+}).refine(value => value.business_uid.includes(`:directory:${value.source_identity.vertical}:`) &&
+  !isDemoBusinessSource(value.source_identity.source_key));
 const responseSchema = z.object({
+  // Older disabled backends return an empty v1 envelope. Never admit its demo.
   contract_version: z.enum(["b2b-profile-suggestion.v1", "b2b-profile-suggestion.v2"]),
   scope: z.literal("b2b"),
   status: z.enum(["disabled", "no_match", "suggestion_available", "insufficient_signals", "unavailable"]),
-  candidates: z.array(candidateSchema).max(100),
+  candidates: z.array(directoryCandidateSchema).max(100),
   coverage_incomplete: z.boolean().optional(),
   pkm_written: z.literal(false),
 }).refine(value => (value.status === "suggestion_available") === (value.candidates.length > 0)
   && new Set(value.candidates.map(candidate => candidate.business_uid)).size === value.candidates.length
-  && value.candidates.every(candidate => candidate.synthetic === (value.contract_version === "b2b-profile-suggestion.v1")));
+  && (value.contract_version === "b2b-profile-suggestion.v2" || value.candidates.length === 0));
 
 export type BusinessSuggestion = {
   contractVersion: "b2b-profile-suggestion.v1" | "b2b-profile-suggestion.v2";
@@ -55,6 +41,7 @@ export type BusinessSuggestion = {
   coverageIncomplete?: boolean;
   candidates: Array<{
     businessUid: string;
+    /** Legacy shapes remain readable only for encrypted receipt reconciliation. */
     synthetic: boolean;
     sourceIdentity: { source: "uat_fixture" | "directory"; sourceKey: string;
       vertical?: "hotel" | "healthcare" | "ria" | "insurance" | "business" };
@@ -69,6 +56,16 @@ export type BusinessSuggestion = {
 };
 
 export const BusinessSuggestionService = {
+  /** Permanent account completion; the server verifies every reviewed receipt. */
+  async complete(vaultOwnerToken: string, commits: Array<{ domain: string; planId: string }>): Promise<void> {
+    if (!vaultOwnerToken.trim() || !commits.length) throw new Error("A saved review is required.");
+    z.object({ saved: z.literal(true) }).parse(await apiJson<unknown>("/api/one/business/suggestion/complete", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${vaultOwnerToken}`, "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({ commits: commits.map(row => ({ domain: row.domain, plan_id: row.planId })) }),
+    }));
+  },
   /** Call after setup resolves and the vault unlocks; never persist the result. */
   async get(vaultOwnerToken: string, signal?: AbortSignal): Promise<BusinessSuggestion> {
     if (!vaultOwnerToken.trim()) throw new Error("Unlock your vault to continue.");

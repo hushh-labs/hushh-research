@@ -16,6 +16,52 @@ const json = (body: unknown, ok = true) =>
 
 beforeEach(() => apiFetch.mockReset());
 
+describe("lane gates", () => {
+  // The two gates are independent, and each one fails closed on its own: a
+  // backend that reports only the legacy `enabled` field must not read as
+  // permission for either.
+  const off = { requests: false, payments: false, payouts: false };
+  it.each([
+    [
+      { requests: true, payments: false, payouts: true },
+      { requests: true, payments: false, payouts: true },
+    ],
+    [
+      { requests: false, payments: true, payouts: true },
+      { requests: false, payments: true, payouts: true },
+    ],
+    // A backend that reports only the legacy field grants nothing.
+    [{ enabled: true }, off],
+    [{ requests: "true", payments: 1, payouts: "yes" }, off],
+    [{}, off],
+  ])("reads %o as %o", async (body, expected) => {
+    apiFetch.mockReturnValue(json(body));
+    expect(await AnswerRequestService.gates("token")).toEqual(expected);
+  });
+
+  // Negative control: an unreachable or erroring backend must not be
+  // reported as a deliberate configuration answer, because the caller shows
+  // different words and a retry for the two cases.
+  it("throws on an HTTP failure rather than reporting a disabled lane", async () => {
+    apiFetch.mockReturnValue(json({}, false));
+    await expect(AnswerRequestService.gates("token")).rejects.toThrow(
+      /Could not check/,
+    );
+  });
+
+  it("lets an unreadable body surface instead of swallowing it", async () => {
+    apiFetch.mockReturnValue(json("not-an-object"));
+    await expect(AnswerRequestService.gates("token")).rejects.toThrow(
+      /Invalid response/,
+    );
+  });
+
+  it("asks for sign-in instead of reporting the lane off", async () => {
+    await expect(AnswerRequestService.gates("")).rejects.toThrow(/Sign in/);
+    expect(apiFetch).not.toHaveBeenCalled();
+  });
+});
+
 describe("checkout redirect boundary", () => {
   // The requester is sent to this URL with a card in hand. Anything but a
   // Stripe-hosted checkout is a phishing destination.

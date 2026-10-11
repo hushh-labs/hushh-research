@@ -18,6 +18,7 @@ from hushh_mcp.services.business_directory_suggestions import (
     lookup_directory,
     verified_contacts,
 )
+from hushh_mcp.services.business_profile_completion import business_profile_saved
 from hushh_mcp.services.one_owner_admission import (
     OwnerIdentityUnavailable,
     lookup_fresh_owner_identity,
@@ -43,7 +44,7 @@ def _lookup_identity(user_id: str):
 
 async def get_business_suggestion(user_id: str, *, local_loopback: bool = False) -> dict[str, Any]:
     result: dict[str, Any] = {
-        "contract_version": "b2b-profile-suggestion.v1",
+        "contract_version": "b2b-profile-suggestion.v2",
         "scope": "b2b",
         "status": "disabled",
         "candidates": [],
@@ -55,13 +56,18 @@ async def get_business_suggestion(user_id: str, *, local_loopback: bool = False)
     if not (real_enabled or local_rehearsal):
         return result
     try:
+        if await asyncio.wait_for(business_profile_saved(user_id), timeout=5):
+            result["status"] = "no_match"
+            return result
+    except Exception:
+        raise BusinessSuggestionUnavailable() from None
+    try:
         record = await asyncio.wait_for(run_in_threadpool(_lookup_identity, user_id), timeout=5)
     except Exception:
         raise BusinessSuggestionUnavailable() from None
     # A fresh primary Firebase email, not token claims, aliases or request input.
     if getattr(record, "uid", None) != user_id or getattr(record, "disabled", True):
         raise BusinessSuggestionUnavailable()
-    result["contract_version"] = "b2b-profile-suggestion.v2"
     try:
         resolved = await asyncio.wait_for(_setup_resolved(user_id), 5)
     except Exception:
