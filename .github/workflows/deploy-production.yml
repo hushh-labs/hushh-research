@@ -153,7 +153,7 @@ jobs:
             "${RUNNER_TEMP}/release-tools/assert_one_voice_live_probe.py"
           # Orchestration must remain current when rolling back to an older image.
           mkdir -p "${RUNNER_TEMP}/release-tools/drive"
-          for tool in resolve_prod_release_mode.py verify_prod_prerequisites.py \
+          for tool in resolve_prod_release_mode.py verify_prod_prerequisites.py setup_native_callback_log_exclusion.sh \
             deploy_worker_service_prod.sh setup_work_drain_scheduler_prod.sh \
             work_drain_scheduler_snapshot_prod.py restore_prod_after_release_failure.sh; do
             cp "deploy/drive/${tool}" "${RUNNER_TEMP}/release-tools/drive/${tool}"
@@ -336,6 +336,8 @@ jobs:
           fi
           python3 deploy/drive/verify_prod_prerequisites.py \
             --project "${{ env.GCP_PROJECT_ID }}" --oauth-attested
+          PROJECT_ID="${{ env.GCP_PROJECT_ID }}" \
+            bash deploy/drive/setup_native_callback_log_exclusion.sh --verify-only
 
       # promote-from-uat preflight. Runs before the secret sync, backup, fence
       # and migrations so a missing UAT release or missing IAM stops the run

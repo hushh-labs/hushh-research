@@ -8,6 +8,8 @@ import type { RouteId } from "@/lib/observability/route-map";
 
 interface ClientRedirectProps {
   to: string;
+  /** Compatibility OAuth callbacks must retain provider continuation parameters. */
+  preserveCallbackParameters?: boolean;
   /**
    * Emits a sanitized redirect page-view for a retired compatibility endpoint.
    * This intentionally accepts a stable route ID, never the source URL.
@@ -15,7 +17,7 @@ interface ClientRedirectProps {
   redirectRouteId?: RouteId;
 }
 
-export function ClientRedirect({ to, redirectRouteId }: ClientRedirectProps) {
+export function ClientRedirect({ to, redirectRouteId, preserveCallbackParameters = false }: ClientRedirectProps) {
   const router = useRouter();
 
   useEffect(() => {
@@ -29,8 +31,11 @@ export function ClientRedirect({ to, redirectRouteId }: ClientRedirectProps) {
         },
       );
     }
-    router.replace(to, { scroll: false });
-  }, [redirectRouteId, router, to]);
+    const destination = preserveCallbackParameters
+      ? `${to}${window.location.search}${window.location.hash}`
+      : to;
+    router.replace(destination, { scroll: false });
+  }, [preserveCallbackParameters, redirectRouteId, router, to]);
 
   return null;
 }
