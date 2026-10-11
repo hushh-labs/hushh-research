@@ -240,7 +240,7 @@ class StubResolver:
         return self.scopes
 
 
-async def _ask(engine, resolver):
+async def _ask(engine, resolver, *, dated=True):
     service = PkmAnswerRequestService(
         _db(engine), resolver=resolver, catalog_reader=_fixture_catalog(engine)
     )
@@ -248,8 +248,7 @@ async def _ask(engine, resolver):
         requester_user_id=REQUESTER,
         owner_user_id=OWNER,
         question="How much did you spend on travel last year?",
-        period_start="2026-01-01",
-        period_end="2026-12-31",
+        **({"period_start": "2026-01-01", "period_end": "2026-12-31"} if dated else {}),
     )
     return service, created["requestId"]
 
@@ -282,14 +281,18 @@ ENVELOPE = {
 
 
 class TestHappyPath:
-    async def test_two_accounts_ask_approve_pay_answer_and_fetch(self, answer_engine):
+    @pytest.mark.parametrize("dated", [True, False])
+    async def test_two_accounts_ask_approve_pay_answer_and_fetch(self, answer_engine, dated):
         service, request_id = await _ask(
-            answer_engine, StubResolver(["attr.travel.trips", "attr.preferences.food"])
+            answer_engine, StubResolver(["attr.travel.trips", "attr.preferences.food"]), dated=dated
         )
 
         inbox = await service.pending_for_owner(owner_user_id=OWNER)
         assert len(inbox) == 1
         assert inbox[0]["resolutionMode"] == "agent"
+        assert inbox[0]["question"] == "How much did you spend on travel last year?"
+        assert inbox[0]["periodStart"] == ("2026-01-01" if dated else None)
+        assert inbox[0]["periodEnd"] == ("2026-12-31" if dated else None)
         assert {entry["scope"] for entry in inbox[0]["proposedScopes"]} == {
             "attr.travel.trips",
             "attr.preferences.food",
