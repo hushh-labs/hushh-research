@@ -28,11 +28,11 @@ import {
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { formatLocationDurationLabel } from "@/lib/one-location/duration-copy";
 import { buildOneLocationWorkflowHref } from "@/lib/one-location/notifications";
+import { buildKaiMarketRoute, ROUTES } from "@/lib/navigation/routes";
 import {
-  buildKaiMarketRoute,
-  ROUTES,
-} from "@/lib/navigation/routes";
-import { buildProfileConnectorsPaneHref, buildProfilePaneHref } from "@/lib/navigation/profile-pane";
+  buildProfileConnectorsPaneHref,
+  buildProfilePaneHref,
+} from "@/lib/navigation/profile-pane";
 import { circleChatHref } from "@/lib/circle-chat/routes";
 import { CONNECT_CIRCLES_LIST_HREF } from "@/lib/navigation/connect-routes";
 import type { FeedItem, FeedSourceDomain } from "@/lib/services/feed-service";
@@ -101,9 +101,17 @@ function metadataBool(metadata: Record<string, unknown>, key: string): boolean {
 
 function directMessageFeedHref(metadata: Record<string, unknown>): string {
   const token = metadataString(metadata, "direct_message_route_token");
-  if (token.startsWith("dm1.")) return `${ROUTES.ONE_MESSAGES}?token=${encodeURIComponent(token)}`;
-  const conversationId = metadataString(metadata, "direct_message_conversation_id");
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(conversationId) ? `${ROUTES.ONE_MESSAGES}?conversation=${encodeURIComponent(conversationId)}` : ROUTES.ONE_MESSAGES;
+  if (token.startsWith("dm1."))
+    return `${ROUTES.ONE_MESSAGES}?token=${encodeURIComponent(token)}`;
+  const conversationId = metadataString(
+    metadata,
+    "direct_message_conversation_id",
+  );
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    conversationId,
+  )
+    ? `${ROUTES.ONE_MESSAGES}?conversation=${encodeURIComponent(conversationId)}`
+    : ROUTES.ONE_MESSAGES;
 }
 
 /**
@@ -206,7 +214,9 @@ function driveFeedLine(
       }
       return status === "cancelled"
         ? "Withdrew their file request"
-        : status === "pending" ? "Some shared files are available" : "Document request approved";
+        : status === "pending"
+          ? "Some shared files are available"
+          : "Document request approved";
     case "document_share_outcome":
       if (status === "no_files_shared") return "No files were shared";
       if (status === "no_match")
@@ -243,8 +253,12 @@ function driveFeedLine(
 function documentRefundLine(metadata: Record<string, unknown>): string {
   const refunded = metadata.current_refund_amount_cents;
   const paid = metadata.current_payment_amount_cents;
-  if (!Number.isSafeInteger(refunded) || (refunded as number) <= 0 ||
-      !Number.isSafeInteger(paid) || (paid as number) < (refunded as number)) {
+  if (
+    !Number.isSafeInteger(refunded) ||
+    (refunded as number) <= 0 ||
+    !Number.isSafeInteger(paid) ||
+    (paid as number) < (refunded as number)
+  ) {
     return "Payment refunded for your document request";
   }
   const amount = documentPayoutNetEarnings(refunded as number);
@@ -254,58 +268,90 @@ function documentRefundLine(metadata: Record<string, unknown>): string {
 }
 
 /** The owner's payout line asks them to set up payouts; the row then opens Payouts. */
-function ownerDocumentPayoutSetupNeeded(metadata: Record<string, unknown>): boolean {
+function ownerDocumentPayoutSetupNeeded(
+  metadata: Record<string, unknown>,
+): boolean {
   const status = metadata.owner_payout_status;
   const accountMissing = metadata.owner_payout_account_ready === false;
   if (!isOwnerDocumentPayoutStatus(status)) return accountMissing;
-  return status === "awaiting_account" || (accountMissing && status === "awaiting_delivery");
+  return (
+    status === "awaiting_account" ||
+    (accountMissing && status === "awaiting_delivery")
+  );
 }
 
-function ownerDocumentPayoutFeedLine(metadata: Record<string, unknown>): string | null {
+function ownerDocumentPayoutFeedLine(
+  metadata: Record<string, unknown>,
+): string | null {
   const status = metadata.owner_payout_status;
   const setupNeeded = ownerDocumentPayoutSetupNeeded(metadata);
-  if (!isOwnerDocumentPayoutStatus(status)) return setupNeeded ? "Set up US payouts" : null;
-  const label = status === "transferred"
-    ? "Sent to Stripe"
-    : status === "manual_review" || status === "reversal_due" || status === "reversal_unknown"
-      ? "Payout needs review"
-      : status === "reversed"
-        ? "Transfer reversed"
-        : status === "void"
-          ? "No payout due"
-          : setupNeeded
-            ? "Payout pending setup"
-            : "Payout pending";
+  if (!isOwnerDocumentPayoutStatus(status))
+    return setupNeeded ? "Set up US payouts" : null;
+  const label =
+    status === "transferred"
+      ? "Sent to Stripe"
+      : status === "manual_review" ||
+          status === "reversal_due" ||
+          status === "reversal_unknown"
+        ? "Payout needs review"
+        : status === "reversed"
+          ? "Transfer reversed"
+          : status === "void"
+            ? "No payout due"
+            : setupNeeded
+              ? "Payout pending setup"
+              : "Payout pending";
   const cents = metadata.owner_earning_cents;
-  const net = Number.isSafeInteger(cents) && (cents as number) >= 0 && (cents as number) <= 50_000
-    ? documentPayoutNetEarnings(cents as number)
-    : null;
+  const net =
+    Number.isSafeInteger(cents) &&
+    (cents as number) >= 0 &&
+    (cents as number) <= 50_000
+      ? documentPayoutNetEarnings(cents as number)
+      : null;
   return net === null ? label : `${label} · Net ${net}`;
 }
 
 function paymentInstructionLine(metadata: Record<string, unknown>): string {
-  const requestStatus = metadataString(metadata, "current_request_status").toLowerCase();
-  const paymentStatus = metadataString(metadata, "current_payment_status").toLowerCase();
-  if (metadata.current_access_stopped === true) return "Document access stopped";
+  const requestStatus = metadataString(
+    metadata,
+    "current_request_status",
+  ).toLowerCase();
+  const paymentStatus = metadataString(
+    metadata,
+    "current_payment_status",
+  ).toLowerCase();
+  if (metadata.current_access_stopped === true)
+    return "Document access stopped";
   if (paymentStatus === "paid") return "Payment confirmed";
   if (paymentStatus === "refunded") return "Payment refunded";
-  const requestExpiry = Date.parse(metadataString(metadata, "current_request_expires_at"));
+  const requestExpiry = Date.parse(
+    metadataString(metadata, "current_request_expires_at"),
+  );
   if (requestStatus === "cancelled" || requestStatus === "declined") {
     return "Document request closed";
   }
-  if (requestStatus === "expired" || metadata.current_request_expired === true ||
-      (Number.isFinite(requestExpiry) && requestExpiry <= Date.now())) {
+  if (
+    requestStatus === "expired" ||
+    metadata.current_request_expired === true ||
+    (Number.isFinite(requestExpiry) && requestExpiry <= Date.now())
+  ) {
     return "Document request expired";
   }
-  const checkoutExpiry = Date.parse(metadataString(metadata, "current_checkout_expires_at"));
-  if (paymentStatus === "expired" || metadata.current_checkout_expired === true ||
-      (Number.isFinite(checkoutExpiry) && checkoutExpiry <= Date.now())) {
+  const checkoutExpiry = Date.parse(
+    metadataString(metadata, "current_checkout_expires_at"),
+  );
+  if (
+    paymentStatus === "expired" ||
+    metadata.current_checkout_expired === true ||
+    (Number.isFinite(checkoutExpiry) && checkoutExpiry <= Date.now())
+  ) {
     return "Payment link expired";
   }
   // The actionable above history owns Checkout. An unavailable status cannot
   // resurrect a Pay instruction from an old immutable Feed event.
   if (paymentStatus === "unavailable") return "Check document request";
-  if (metadata.current_owner_payout_account_ready === false) return "Waiting for owner payout setup";
+  if (metadata.current_owner_payout_account_ready === false)
+    return "Waiting for owner payout setup";
   return "Payment due for your document request";
 }
 
@@ -330,7 +376,9 @@ function metadataStringList(
  * `actor_label`: the per-request consent row (migration 260) writes the name
  * there too. "Someone" is only for a row that truly carries no name.
  */
-function consentRequesterName(item: Pick<FeedItem, "metadata" | "actor_label">): string {
+function consentRequesterName(
+  item: Pick<FeedItem, "metadata" | "actor_label">,
+): string {
   const metadata = item.metadata;
   return (
     metadataString(metadata, "requester_label") ||
@@ -371,40 +419,179 @@ function consentRowLabels(metadata: Record<string, unknown>): string[] {
  * copy iterates via a frontend deploy rather than a migration.
  */
 const AGENT_OUTCOME_COPY: Record<string, readonly [string, string, string]> = {
-  calendar_action_failed: ["Calendar change needs review", "Open Calendar to check the event before trying again.", ROUTES.CALENDAR],
-  mail_mailbox_archive: ["Messages archived", "Your approved mailbox change finished.", ROUTES.GMAIL],
-  mail_mailbox_trash: ["Messages moved to trash", "Your approved mailbox change finished.", ROUTES.GMAIL],
-  mail_mailbox_add_label: ["Label added", "Your approved mailbox change finished.", ROUTES.GMAIL],
-  mail_mailbox_remove_label: ["Label removed", "Your approved mailbox change finished.", ROUTES.GMAIL],
-  mail_mailbox_mark_read: ["Messages marked as read", "Your approved mailbox change finished.", ROUTES.GMAIL],
-  mail_mailbox_mark_unread: ["Messages marked as unread", "Your approved mailbox change finished.", ROUTES.GMAIL],
-  mail_mailbox_failed: ["Mailbox change needs review", "Check Mail before trying again; some changes may have finished.", ROUTES.GMAIL],
-  connected_systems_mutation_succeeded: ["App change completed", "Your approved change finished.", ROUTES.CONNECTED_SYSTEMS],
-  connected_systems_mutation_partial: ["App change needs review", "The full outcome of your approved change could not be confirmed. Check the app before trying again.", ROUTES.CONNECTED_SYSTEMS],
-  connected_systems_disconnected: ["App disconnected", "One no longer has access to this app.", ROUTES.CONNECTED_SYSTEMS],
-  drive_search_completed: ["Drive search finished", "Return to your chat to review the search.", ROUTES.HOME],
-  drive_search_limited: ["Drive search reached a limit", "Return to your chat to review the search limit.", ROUTES.HOME],
-  drive_search_failed: ["Drive search needs another try", "Return to your chat to review or retry the search.", ROUTES.HOME],
-  drive_search_stopped: ["Drive search stopped", "The search ended before completion.", ROUTES.HOME],
-  drive_share_succeeded: ["Drive sharing completed", "Your approved file share finished.", ROUTES.HOME],
-  drive_share_failed: ["Drive sharing needs review", "Check Drive sharing before trying again.", ROUTES.HOME],
-  drive_share_unconfirmed: ["Drive sharing unconfirmed", "Check Drive before trying again; sharing may have succeeded.", ROUTES.HOME],
-  drive_trash_succeeded: ["Drive file moved to trash", "Your approved file change finished.", ROUTES.HOME],
-  drive_trash_failed: ["Drive file change needs review", "Check Drive before trying again.", ROUTES.HOME],
-  drive_trash_unconfirmed: ["Drive file change unconfirmed", "Check Drive before trying again; the change may have succeeded.", ROUTES.HOME],
-  drive_bulk_received: ["Drive files shared with you", "Open Profile to review files shared with you.", buildProfilePaneHref(ROUTES.ONE_HOME, null, { panel: "my-data", detail: null })],
-  drive_bulk_completed: ["Drive sharing finished", "Your approved sharing finished for all selected recipients.", ROUTES.HOME],
-  drive_bulk_partial: ["Drive sharing partly finished", "Some sharing outcomes could not be confirmed. Return to your chat to review the outcome before trying again.", ROUTES.HOME],
-  drive_bulk_failed: ["Drive sharing needs review", "Sharing could not be confirmed. Return to your chat to review the outcome before trying again.", ROUTES.HOME],
-  drive_bulk_stopped: ["Drive sharing stopped", "In-flight changes have settled. Review which files were shared.", ROUTES.HOME],
-  kai_analysis_failed: ["Analysis could not finish", "Open Kai to start another analysis.", buildKaiMarketRoute("analysis")],
-  kai_analysis_canceled: ["Analysis canceled", "The analysis ended before completion.", buildKaiMarketRoute("analysis")],
-  kai_import_completed: ["Statement parsing finished", "Open Kai to check your current import.", ROUTES.KAI_IMPORT],
-  kai_import_failed: ["Statement import could not finish", "Open Kai to import the statement again.", ROUTES.KAI_IMPORT],
-  kai_import_canceled: ["Statement import canceled", "The import ended before completion.", ROUTES.KAI_IMPORT],
-  consent_denied: ["Requested information declined", "You declined requested information.", buildConsentCenterHref("previous")],
-  consent_cancelled: ["Requested access withdrawn", "Requested access to information was withdrawn.", buildConsentCenterHref("previous")],
-  consent_timed_out: ["Requested access expired", "An unanswered part of this request expired.", buildConsentCenterHref("previous")],
+  calendar_action_failed: [
+    "Calendar change needs review",
+    "Open Calendar to check the event before trying again.",
+    ROUTES.CALENDAR,
+  ],
+  mail_mailbox_archive: [
+    "Messages archived",
+    "Your approved mailbox change finished.",
+    ROUTES.GMAIL,
+  ],
+  mail_mailbox_trash: [
+    "Messages moved to trash",
+    "Your approved mailbox change finished.",
+    ROUTES.GMAIL,
+  ],
+  mail_mailbox_add_label: [
+    "Label added",
+    "Your approved mailbox change finished.",
+    ROUTES.GMAIL,
+  ],
+  mail_mailbox_remove_label: [
+    "Label removed",
+    "Your approved mailbox change finished.",
+    ROUTES.GMAIL,
+  ],
+  mail_mailbox_mark_read: [
+    "Messages marked as read",
+    "Your approved mailbox change finished.",
+    ROUTES.GMAIL,
+  ],
+  mail_mailbox_mark_unread: [
+    "Messages marked as unread",
+    "Your approved mailbox change finished.",
+    ROUTES.GMAIL,
+  ],
+  mail_mailbox_failed: [
+    "Mailbox change needs review",
+    "Check Mail before trying again; some changes may have finished.",
+    ROUTES.GMAIL,
+  ],
+  connected_systems_mutation_succeeded: [
+    "App change completed",
+    "Your approved change finished.",
+    ROUTES.CONNECTED_SYSTEMS,
+  ],
+  connected_systems_mutation_partial: [
+    "App change needs review",
+    "The full outcome of your approved change could not be confirmed. Check the app before trying again.",
+    ROUTES.CONNECTED_SYSTEMS,
+  ],
+  connected_systems_disconnected: [
+    "App disconnected",
+    "One no longer has access to this app.",
+    ROUTES.CONNECTED_SYSTEMS,
+  ],
+  drive_search_completed: [
+    "Drive search finished",
+    "Return to your chat to review the search.",
+    ROUTES.HOME,
+  ],
+  drive_search_limited: [
+    "Drive search reached a limit",
+    "Return to your chat to review the search limit.",
+    ROUTES.HOME,
+  ],
+  drive_search_failed: [
+    "Drive search needs another try",
+    "Return to your chat to review or retry the search.",
+    ROUTES.HOME,
+  ],
+  drive_search_stopped: [
+    "Drive search stopped",
+    "The search ended before completion.",
+    ROUTES.HOME,
+  ],
+  drive_share_succeeded: [
+    "Drive sharing completed",
+    "Your approved file share finished.",
+    ROUTES.HOME,
+  ],
+  drive_share_failed: [
+    "Drive sharing needs review",
+    "Check Drive sharing before trying again.",
+    ROUTES.HOME,
+  ],
+  drive_share_unconfirmed: [
+    "Drive sharing unconfirmed",
+    "Check Drive before trying again; sharing may have succeeded.",
+    ROUTES.HOME,
+  ],
+  drive_trash_succeeded: [
+    "Drive file moved to trash",
+    "Your approved file change finished.",
+    ROUTES.HOME,
+  ],
+  drive_trash_failed: [
+    "Drive file change needs review",
+    "Check Drive before trying again.",
+    ROUTES.HOME,
+  ],
+  drive_trash_unconfirmed: [
+    "Drive file change unconfirmed",
+    "Check Drive before trying again; the change may have succeeded.",
+    ROUTES.HOME,
+  ],
+  drive_bulk_received: [
+    "Drive files shared with you",
+    "Open Profile to review files shared with you.",
+    buildProfilePaneHref(ROUTES.ONE_HOME, null, {
+      panel: "my-data",
+      detail: null,
+    }),
+  ],
+  drive_bulk_completed: [
+    "Drive sharing finished",
+    "Your approved sharing finished for all selected recipients.",
+    ROUTES.HOME,
+  ],
+  drive_bulk_partial: [
+    "Drive sharing partly finished",
+    "Some sharing outcomes could not be confirmed. Return to your chat to review the outcome before trying again.",
+    ROUTES.HOME,
+  ],
+  drive_bulk_failed: [
+    "Drive sharing needs review",
+    "Sharing could not be confirmed. Return to your chat to review the outcome before trying again.",
+    ROUTES.HOME,
+  ],
+  drive_bulk_stopped: [
+    "Drive sharing stopped",
+    "In-flight changes have settled. Review which files were shared.",
+    ROUTES.HOME,
+  ],
+  kai_analysis_failed: [
+    "Analysis could not finish",
+    "Open Kai to start another analysis.",
+    buildKaiMarketRoute("analysis"),
+  ],
+  kai_analysis_canceled: [
+    "Analysis canceled",
+    "The analysis ended before completion.",
+    buildKaiMarketRoute("analysis"),
+  ],
+  kai_import_completed: [
+    "Statement parsing finished",
+    "Open Kai to check your current import.",
+    ROUTES.KAI_IMPORT,
+  ],
+  kai_import_failed: [
+    "Statement import could not finish",
+    "Open Kai to import the statement again.",
+    ROUTES.KAI_IMPORT,
+  ],
+  kai_import_canceled: [
+    "Statement import canceled",
+    "The import ended before completion.",
+    ROUTES.KAI_IMPORT,
+  ],
+  consent_denied: [
+    "Requested information declined",
+    "You declined requested information.",
+    buildConsentCenterHref("previous"),
+  ],
+  consent_cancelled: [
+    "Requested access withdrawn",
+    "Requested access to information was withdrawn.",
+    buildConsentCenterHref("previous"),
+  ],
+  consent_timed_out: [
+    "Requested access expired",
+    "An unanswered part of this request expired.",
+    buildConsentCenterHref("previous"),
+  ],
 };
 
 export function presentFeedItem(item: FeedItem): FeedItemPresentation {
@@ -427,14 +614,26 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
   const iAskedForThis =
     metadataString(item.metadata, "feed_audience") === "requester";
 
-  const outcome = Object.prototype.hasOwnProperty.call(AGENT_OUTCOME_COPY, item.event_type)
-    ? AGENT_OUTCOME_COPY[item.event_type] : undefined;
+  const outcome = Object.prototype.hasOwnProperty.call(
+    AGENT_OUTCOME_COPY,
+    item.event_type,
+  )
+    ? AGENT_OUTCOME_COPY[item.event_type]
+    : undefined;
   if (outcome) {
-    const family = item.event_type.startsWith("calendar_") ? { icon: CalendarAgentIcon, domainLabel: "Calendar" }
-      : item.event_type.startsWith("mail_") ? { icon: Mail, domainLabel: "Mail" }
-        : item.event_type.startsWith("drive_") ? { icon: FileText, domainLabel: "Google Drive" }
+    const family = item.event_type.startsWith("calendar_")
+      ? { icon: CalendarAgentIcon, domainLabel: "Calendar" }
+      : item.event_type.startsWith("mail_")
+        ? { icon: Mail, domainLabel: "Mail" }
+        : item.event_type.startsWith("drive_")
+          ? { icon: FileText, domainLabel: "Google Drive" }
           : { icon, domainLabel };
-    return { ...family, label: outcome[0], description: outcome[1], href: outcome[2] };
+    return {
+      ...family,
+      label: outcome[0],
+      description: outcome[1],
+      href: outcome[2],
+    };
   }
 
   switch (item.event_type) {
@@ -442,11 +641,15 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     case "connector_reconnect_required":
     case "connector_disconnected":
       return {
-        icon, domainLabel,
+        icon,
+        domainLabel,
         label: item.actor_label || "Connected app",
-        description: item.event_type === "connector_connected" ? "Connected to One."
-          : item.event_type === "connector_reconnect_required" ? "Reconnect this app to keep using it in One."
-            : "Disconnected. One no longer has access.",
+        description:
+          item.event_type === "connector_connected"
+            ? "Connected to One."
+            : item.event_type === "connector_reconnect_required"
+              ? "Reconnect this app to keep using it in One."
+              : "Disconnected. One no longer has access.",
         href: buildProfileConnectorsPaneHref(),
       };
     case "circle_invite_declined":
@@ -455,25 +658,47 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     case "circle_membership_ended":
     case "circle_deleted":
       return {
-        icon, domainLabel,
+        icon,
+        domainLabel,
         label: metadataString(item.metadata, "circle_name") || "Circle",
-        description: item.event_type === "circle_invite_declined" ? (who === "Someone" ? "Your circle invitation was declined." : `${who} declined your circle invitation.`)
-          : item.event_type === "circle_invite_cancelled" ? "Your circle invitation was withdrawn."
-            : item.event_type === "circle_member_left" ? (who === "Someone" ? "A member left your circle." : `${who} left your circle.`)
-              : item.event_type === "circle_membership_ended" ? "Your membership in this circle ended."
-                : "This circle was deleted.",
+        description:
+          item.event_type === "circle_invite_declined"
+            ? who === "Someone"
+              ? "Your circle invitation was declined."
+              : `${who} declined your circle invitation.`
+            : item.event_type === "circle_invite_cancelled"
+              ? "Your circle invitation was withdrawn."
+              : item.event_type === "circle_member_left"
+                ? who === "Someone"
+                  ? "A member left your circle."
+                  : `${who} left your circle.`
+                : item.event_type === "circle_membership_ended"
+                  ? "Your membership in this circle ended."
+                  : "This circle was deleted.",
         href: CONNECT_CIRCLES_LIST_HREF,
       };
     case "drive_question_withdrawn":
     case "drive_question_retry_required":
       return {
-        icon: FileText, domainLabel: "Google Drive", label: "Drive question",
-        description: item.event_type === "drive_question_withdrawn" ? "The requester withdrew this question."
-          : "The question could not finish. Review it before allowing another try.",
-        href: buildConsentCenterHref(item.event_type === "drive_question_withdrawn" ? "previous" : "pending", {
-          requestId: documentShareNotificationSelection({type: "document_share_question",
-            request_id: metadataString(item.metadata, "request_id")}) || undefined,
-        }),
+        icon: FileText,
+        domainLabel: "Google Drive",
+        label: "Drive question",
+        description:
+          item.event_type === "drive_question_withdrawn"
+            ? "The requester withdrew this question."
+            : "The question could not finish. Review it before allowing another try.",
+        href: buildConsentCenterHref(
+          item.event_type === "drive_question_withdrawn"
+            ? "previous"
+            : "pending",
+          {
+            requestId:
+              documentShareNotificationSelection({
+                type: "document_share_question",
+                request_id: metadataString(item.metadata, "request_id"),
+              }) || undefined,
+          },
+        ),
       };
     // Paid answers. Each row goes to the card that owns the decision: the
     // owner's row to the review, the requester's to the price and later the
@@ -485,28 +710,61 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     case "answer_delivered": {
       const answerRequestId = metadataString(item.metadata, "request_id");
       const copy: Record<string, [string, string]> = {
-        answer_request_received: ["Question asked", "Review the question and what it would use, then set a price."],
-        answer_request_payment_ready: ["Answer priced", "They approved your question. Pay to have it answered."],
-        answer_request_declined: ["Question declined", "They declined this question. Anything paid is refunded in full."],
+        answer_request_received: [
+          "Question asked",
+          "Review the question and what it would use, then set a price.",
+        ],
+        answer_request_payment_ready: [
+          "Answer priced",
+          "They approved your question. Pay to have it answered.",
+        ],
+        answer_request_declined: [
+          "Question declined",
+          "They declined this question. Anything paid is refunded in full.",
+        ],
         answer_delivered: ["Answer ready", "Open the answer they sent you."],
       };
-      const [label, description] = copy[item.event_type] ?? ["Question", ""];
+      const state = metadataString(item.metadata, "status");
+      const terminal = [
+        "answered",
+        "declined",
+        "cancelled",
+        "expired",
+      ].includes(state || "");
+      const [label, originalDescription] = copy[item.event_type] ?? [
+        "Question",
+        "",
+      ];
+      const description = terminal
+        ? `Request ${state}. Open its current status.`
+        : state === "answering"
+          ? "Payment verified. Open the request to continue."
+          : originalDescription;
       return {
         icon,
         domainLabel,
         label,
         description,
         href: buildConsentCenterHref(
-          item.event_type === "answer_request_declined" ? "previous" : "pending",
-          { requestId: answerRequestId ? `answer_request:${answerRequestId}` : undefined },
+          terminal || item.event_type === "answer_request_declined"
+            ? "previous"
+            : "pending",
+          {
+            requestId: answerRequestId
+              ? `answer_request:${answerRequestId}`
+              : undefined,
+          },
         ),
       };
     }
     case "connection_withdrawn":
       return {
-        icon: UserRound, domainLabel, label: who === "Someone" ? "Connection" : who,
+        icon: UserRound,
+        domainLabel,
+        label: who === "Someone" ? "Connection" : who,
         person: counterpartPerson(item.metadata, who),
-        description: metadataBool(item.metadata, "actor_is_self") ? "You withdrew the connection request"
+        description: metadataBool(item.metadata, "actor_is_self")
+          ? "You withdrew the connection request"
           : "Withdrew the connection request",
         href: ROUTES.CONNECT,
       };
@@ -980,9 +1238,18 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     }
     case "location_circle_message": {
       const unread = Number(item.metadata.chat_unread_count) || 0;
-      return { icon: Users, domainLabel: "Circle chat", label: metadataString(item.metadata, "circle_name") || "Circle chat",
-        description: unread > 1 ? `${unread} new messages` : unread === 1 ? "1 new message" : "Open your circle chat",
-        href: circleChatHref(metadataString(item.metadata, "circle_id")) };
+      return {
+        icon: Users,
+        domainLabel: "Circle chat",
+        label: metadataString(item.metadata, "circle_name") || "Circle chat",
+        description:
+          unread > 1
+            ? `${unread} new messages`
+            : unread === 1
+              ? "1 new message"
+              : "Open your circle chat",
+        href: circleChatHref(metadataString(item.metadata, "circle_id")),
+      };
     }
     case "circle_member_added": {
       const circleName = metadataString(item.metadata, "circle_name");
@@ -1068,8 +1335,11 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     }
     case "connected_systems_approved":
       return {
-        icon, domainLabel, label: "App request approved",
-        description: "Your app request was approved.", href: ROUTES.CONNECTED_SYSTEMS,
+        icon,
+        domainLabel,
+        label: "App request approved",
+        description: "Your app request was approved.",
+        href: ROUTES.CONNECTED_SYSTEMS,
       };
     case "connected_systems_connected":
       return {
@@ -1187,7 +1457,8 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon: Mail,
         domainLabel: "Mail",
         label: "Mail sync interrupted",
-        description: "Open Mail for the current status; One may retry automatically.",
+        description:
+          "Open Mail for the current status; One may retry automatically.",
         href: `${ROUTES.GMAIL}?workspace=receipts`,
       };
     case "mail_message_sent":
@@ -1274,14 +1545,19 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
           href: directMessageFeedHref(item.metadata),
         };
       }
-      const preview = walletMessagePreview(metadataString(item.metadata, "message_preview"));
+      const preview = walletMessagePreview(
+        metadataString(item.metadata, "message_preview"),
+      );
       const unread = Number(item.metadata.chat_unread_count) || 0;
       return {
         icon: MessageCircle,
         domainLabel: "Messages",
         label: hasWho ? who : "New message",
         person: counterpartPerson(item.metadata, who),
-        description: unread > 1 ? `${unread} new messages${preview ? ` · ${preview}` : ""}` : preview || "Sent you a message",
+        description:
+          unread > 1
+            ? `${unread} new messages${preview ? ` · ${preview}` : ""}`
+            : preview || "Sent you a message",
         href: directMessageFeedHref(item.metadata),
       };
     }
@@ -1316,12 +1592,14 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
             item.metadata,
           ),
           ownerDocumentPayoutFeedLine(item.metadata),
-        ].filter(Boolean).join(" · "),
+        ]
+          .filter(Boolean)
+          .join(" · "),
         href: ownerDocumentPayoutSetupNeeded(item.metadata)
           ? documentRequestSetupHref("payouts")
           : item.event_type === "document_share_payment_ready" ||
-            item.event_type === "document_share_payment_confirmed" ||
-            item.event_type === "document_share_payment_refunded"
+              item.event_type === "document_share_payment_confirmed" ||
+              item.event_type === "document_share_payment_refunded"
             ? ROUTES.ONE_FEED
             : buildConsentCenterHref(
                 "pending",

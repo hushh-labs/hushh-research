@@ -93,7 +93,10 @@ import {
   isDocumentShareEntry,
   isDocumentShareSelection,
 } from "@/lib/consent/document-share-consent";
-import { formatDocumentRequestPrice, isValidDocumentRequestPriceCents } from "@/lib/consent/document-request-price";
+import {
+  formatDocumentRequestPrice,
+  isValidDocumentRequestPriceCents,
+} from "@/lib/consent/document-request-price";
 import {
   driveQueryRequestId,
   driveSharingSelectionId,
@@ -138,7 +141,10 @@ import {
   isInlineDecidableConsentEntry,
 } from "@/lib/consent/owner-consent-request";
 import { useConsentSharePreview } from "@/lib/consent/consent-share-preview";
-import { ConnectionsService, type ConnectionPage } from "@/lib/services/connections-service";
+import {
+  ConnectionsService,
+  type ConnectionPage,
+} from "@/lib/services/connections-service";
 
 import {
   CONSENT_CENTER_PAGE_SIZE,
@@ -452,8 +458,11 @@ export function formatLifecycleEventLabel(event: ConsentTrailEvent) {
 }
 
 function entrySummary(entry: ConsentCenterEntry) {
-  if (isDocumentShareEntry(entry) && entry.metadata?.direction === "outgoing" &&
-      isValidDocumentRequestPriceCents(entry.metadata.quotedAmountCents)) {
+  if (
+    isDocumentShareEntry(entry) &&
+    entry.metadata?.direction === "outgoing" &&
+    isValidDocumentRequestPriceCents(entry.metadata.quotedAmountCents)
+  ) {
     return `Quote locked at ${formatDocumentRequestPrice(entry.metadata.quotedAmountCents)}`;
   }
   if (entry.consent_trails && entry.consent_trails.length > 0) {
@@ -619,8 +628,7 @@ export function toLocallyGrantedEntry(
 ): ConsentCenterEntry {
   const requestId = entry.request_id || entry.id;
   const metadata = (entry.metadata || {}) as Record<string, unknown>;
-  const hours =
-    durationHours ?? (Number(metadata.expiry_hours) || undefined);
+  const hours = durationHours ?? (Number(metadata.expiry_hours) || undefined);
   return {
     ...entry,
     id: `local-access:${requestId}`,
@@ -667,18 +675,20 @@ function buildConnectionEntries(
   activeConnections: ConnectionPage | null,
   selectedId: string | null,
 ): ConsentCenterEntry[] {
-  const active = (activeConnections?.items || []).map((connection): ConsentCenterEntry => ({
-    id: connection.connectionId,
-    kind: "connection",
-    status: "active",
-    action: "CONNECTED",
-    counterpart_type: "person",
-    counterpart_id: connection.userId,
-    counterpart_label: connection.displayName || "Someone",
-    counterpart_email: connection.email || null,
-    counterpart_image_url: connection.photoUrl || null,
-    issued_at: connection.createdAt,
-  }));
+  const active = (activeConnections?.items || []).map(
+    (connection): ConsentCenterEntry => ({
+      id: connection.connectionId,
+      kind: "connection",
+      status: "active",
+      action: "CONNECTED",
+      counterpart_type: "person",
+      counterpart_id: connection.userId,
+      counterpart_label: connection.displayName || "Someone",
+      counterpart_email: connection.email || null,
+      counterpart_image_url: connection.photoUrl || null,
+      issued_at: connection.createdAt,
+    }),
+  );
   // Keep an explicit request deep link resolvable without turning old request
   // logs into visible connections. The active relationship table owns the list.
   const selectedRequest = selectedId
@@ -783,9 +793,7 @@ function ConsentEntryRow({
     entry.kind === "history" && Boolean(entry.consent_trails?.length);
   const counterpartSubtitle =
     entry.counterpart_email || entry.counterpart_secondary_label || null;
-  const scopeLabel = entry.scope
-    ? consentEntryInformationLabel(entry)
-    : null;
+  const scopeLabel = entry.scope ? consentEntryInformationLabel(entry) : null;
   const supportingCopy = isIdentifierHistory
     ? entrySummary(entry)
     : scopeLabel || entrySummary(entry);
@@ -796,31 +804,35 @@ function ConsentEntryRow({
       onClick={onSelect}
       leading={<ConsentCounterpartAvatar entry={entry} />}
       title={resolveCounterpartLabel(entry)}
-      description={entry.kind === "connection" ? (
-        <span className="text-[color:var(--app-secondary-label)]">
-          {formatDate(entry.issued_at)
-            ? `First connected ${formatDate(entry.issued_at)}`
-            : "Connected"}
-        </span>
-      ) : (
-        <span className="line-clamp-2">
-          <span>{supportingCopy}</span>
-          {counterpartSubtitle ? (
-            <>
-              <span aria-hidden="true"> · </span>
-              <span>{counterpartSubtitle}</span>
-            </>
-          ) : null}
-        </span>
-      )}
-      trailing={entry.kind === "connection" ? null : (
-        <Badge
-          variant="outline"
-          className={cn("shrink-0 lowercase", badgeClassName(entry.status))}
-        >
-          {formatStatus(entry.status)}
-        </Badge>
-      )}
+      description={
+        entry.kind === "connection" ? (
+          <span className="text-[color:var(--app-secondary-label)]">
+            {formatDate(entry.issued_at)
+              ? `First connected ${formatDate(entry.issued_at)}`
+              : "Connected"}
+          </span>
+        ) : (
+          <span className="line-clamp-2">
+            <span>{supportingCopy}</span>
+            {counterpartSubtitle ? (
+              <>
+                <span aria-hidden="true"> · </span>
+                <span>{counterpartSubtitle}</span>
+              </>
+            ) : null}
+          </span>
+        )
+      }
+      trailing={
+        entry.kind === "connection" ? null : (
+          <Badge
+            variant="outline"
+            className={cn("shrink-0 lowercase", badgeClassName(entry.status))}
+          >
+            {formatStatus(entry.status)}
+          </Badge>
+        )
+      }
       className={selected ? "bg-accent-surface" : undefined}
     />
   );
@@ -846,15 +858,20 @@ function ConsentActiveRequestRow({
 }) {
   const head = members[0]!;
   const isSelected = (entry: ConsentCenterEntry) =>
-    Boolean(selectedEntry && (selectedEntry.id === entry.id
-      || (selectedEntry.request_id && selectedEntry.request_id === entry.request_id)))
-    || Boolean(selectedId && consentEntryMatchesSelectedId(entry, selectedId));
+    Boolean(
+      selectedEntry &&
+      (selectedEntry.id === entry.id ||
+        (selectedEntry.request_id &&
+          selectedEntry.request_id === entry.request_id)),
+    ) ||
+    Boolean(selectedId && consentEntryMatchesSelectedId(entry, selectedId));
   const holdsSelection = members.some(isSelected);
   const [expanded, setExpanded] = useState(holdsSelection);
   useEffect(() => {
     if (holdsSelection) setExpanded(true);
   }, [holdsSelection]);
-  const counterpartSubtitle = head.counterpart_email || head.counterpart_secondary_label || null;
+  const counterpartSubtitle =
+    head.counterpart_email || head.counterpart_secondary_label || null;
   return (
     <div data-testid="consent-active-request-row">
       <SettingsRow
@@ -872,7 +889,9 @@ function ConsentActiveRequestRow({
           </span>
         }
         trailing={
-          <Badge className={cn("shrink-0 capitalize", badgeClassName(head.status))}>
+          <Badge
+            className={cn("shrink-0 capitalize", badgeClassName(head.status))}
+          >
             {formatStatus(head.status)}
           </Badge>
         }
@@ -1044,12 +1063,19 @@ function ConsentSharePreviewRow({
   onlyLabels?: ReadonlySet<string>;
 }) {
   if (state.status === "idle" || state.status === "unavailable") return null;
-  const allRows = state.status === "ready"
-    ? state.preview.groups
-    : state.status === "loading"
-      ? state.labels.map((label) => ({ label, count: null as number | null, names: undefined }))
-      : [];
-  const rows = onlyLabels ? allRows.filter((group) => onlyLabels.has(group.label)) : allRows;
+  const allRows =
+    state.status === "ready"
+      ? state.preview.groups
+      : state.status === "loading"
+        ? state.labels.map((label) => ({
+            label,
+            count: null as number | null,
+            names: undefined,
+          }))
+        : [];
+  const rows = onlyLabels
+    ? allRows.filter((group) => onlyLabels.has(group.label))
+    : allRows;
   if (onlyLabels && !rows.length) return null;
   const shownTotal = rows.reduce((sum, group) => sum + (group.count ?? 0), 0);
   return (
@@ -1060,13 +1086,18 @@ function ConsentSharePreviewRow({
       <dt className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
         What they&apos;ll see
       </dt>
-      <dd className="text-sm leading-5 text-foreground" aria-busy={state.status === "loading"}>
+      <dd
+        className="text-sm leading-5 text-foreground"
+        aria-busy={state.status === "loading"}
+      >
         {state.status === "locked" ? (
           <span className="text-muted-foreground">
             Unlock to see exactly what would be shared.
           </span>
         ) : state.status === "empty" ? (
-          <span>Nothing is saved for this yet, so nothing would be shared.</span>
+          <span>
+            Nothing is saved for this yet, so nothing would be shared.
+          </span>
         ) : (
           <>
             {state.status === "ready" && rows.length > 1 ? (
@@ -1077,10 +1108,15 @@ function ConsentSharePreviewRow({
                 <li key={group.label} className="[overflow-wrap:anywhere]">
                   <span>{group.label}</span>
                   {group.count !== null ? (
-                    <span className="text-muted-foreground"> · {countItems(group.count)}</span>
+                    <span className="text-muted-foreground">
+                      {" "}
+                      · {countItems(group.count)}
+                    </span>
                   ) : null}
                   {group.names?.length ? (
-                    <span className="block text-xs text-muted-foreground">{group.names.join(", ")}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {group.names.join(", ")}
+                    </span>
                   ) : null}
                 </li>
               ))}
@@ -1213,10 +1249,14 @@ function ConsentEntryDetail({
   const disarmDeny = denyConfirm.disarm;
   // Every item of a grouped request starts chosen; the owner may hold some back.
   const bundleMemberKey = bundleMembers.map(bundleMemberRef).join("|");
-  const [bundleChosen, setBundleChosen] = useState<{ key: string; refs: ReadonlySet<string> } | null>(null);
-  const chosenRefs = bundleChosen?.key === bundleMemberKey
-    ? bundleChosen.refs
-    : new Set(bundleMembers.map(bundleMemberRef));
+  const [bundleChosen, setBundleChosen] = useState<{
+    key: string;
+    refs: ReadonlySet<string>;
+  } | null>(null);
+  const chosenRefs =
+    bundleChosen?.key === bundleMemberKey
+      ? bundleChosen.refs
+      : new Set(bundleMembers.map(bundleMemberRef));
   const [revokeDialogOpen, setRevokeDialogOpen] = useState(false);
   useEffect(() => {
     // Information owners' requested scopes are selected by default; offers
@@ -1238,8 +1278,8 @@ function ConsentEntryDetail({
     bundleMembers.length > 1 ? bundleMembers : entry ? [entry] : [];
   const previewEnabled = Boolean(
     entry &&
-      previewEntries.length > 0 &&
-      previewEntries.every(isInlineDecidableConsentEntry),
+    previewEntries.length > 0 &&
+    previewEntries.every(isInlineDecidableConsentEntry),
   );
   const sharePreview = useConsentSharePreview({
     userId: previewUser?.uid,
@@ -1370,8 +1410,11 @@ function ConsentEntryDetail({
         label: consentEntryInformationLabel(member),
       }))
     : [];
-  const chosenCount = bundleChoiceItems.filter((item) => chosenRefs.has(item.key)).length;
-  const partialChoice = canChooseItems && chosenCount < bundleChoiceItems.length;
+  const chosenCount = bundleChoiceItems.filter((item) =>
+    chosenRefs.has(item.key),
+  ).length;
+  const partialChoice =
+    canChooseItems && chosenCount < bundleChoiceItems.length;
   const toggleBundleItem = (ref: string, include: boolean) => {
     const next = new Set(chosenRefs);
     if (include) next.add(ref);
@@ -1417,24 +1460,21 @@ function ConsentEntryDetail({
     entry.kind === "connection"
       ? "First connected"
       : entry.kind === "active_grant"
-      ? "Shared since"
-      : entry.kind === "history"
-        ? "Recorded"
-        : "Requested";
+        ? "Shared since"
+        : entry.kind === "history"
+          ? "Recorded"
+          : "Requested";
   // The request label and the access it becomes are named by the same rule,
   // so "Food preferences" here is "Food preferences" in Active and History.
   const decisionLabels = isBundleDecision
-    ? bundleMembers.map((member) =>
-        consentEntryInformationLabel(member),
-      )
-    : [
-        consentEntryInformationLabel(entry),
-      ];
-  const accessValue = entry.kind === "connection"
-    ? "Connection"
-    : isConnectionDecision
-      ? entry.scope_description || "Trusted connection"
-    : joinInformationLabels(decisionLabels, decisionLabels.length);
+    ? bundleMembers.map((member) => consentEntryInformationLabel(member))
+    : [consentEntryInformationLabel(entry)];
+  const accessValue =
+    entry.kind === "connection"
+      ? "Connection"
+      : isConnectionDecision
+        ? entry.scope_description || "Trusted connection"
+        : joinInformationLabels(decisionLabels, decisionLabels.length);
   const detailItems = [
     [
       "Contact",
@@ -1637,24 +1677,28 @@ function ConsentEntryDetail({
             disabled={requestBusy || (canChooseItems && chosenCount === 0)}
             onClick={() => {
               if (partialChoice) {
-                const { allow, decline } = splitBundleChoice(bundleMembers, bundleMemberRef, chosenRefs);
+                const { allow, decline } = splitBundleChoice(
+                  bundleMembers,
+                  bundleMemberRef,
+                  chosenRefs,
+                );
                 onDecideBundle!(allow, decline, effectiveDurationHours);
                 return;
               }
               return isBundleDecision
                 ? onApproveBundle!(bundleMembers, effectiveDurationHours)
                 : onApprove(
-                entry,
-                isConnectionDecision || isMarketplaceDecision
-                  ? undefined
-                  : effectiveDurationHours,
-                isConnectionDecision
-                  ? {
-                      requestedScopeHandles: selectedRequestedScopes,
-                      offeredScopeHandles: selectedOfferedScopes,
-                    }
-                  : undefined,
-              );
+                    entry,
+                    isConnectionDecision || isMarketplaceDecision
+                      ? undefined
+                      : effectiveDurationHours,
+                    isConnectionDecision
+                      ? {
+                          requestedScopeHandles: selectedRequestedScopes,
+                          offeredScopeHandles: selectedOfferedScopes,
+                        }
+                      : undefined,
+                  );
             }}
             data-voice-control-id="consent_approve"
           >
@@ -1881,100 +1925,106 @@ function ConsentSurfaceListSection({
           <SettingsRow title="Loading consent entries" />
         ) : null}
         {!loading && items.length === 0 ? (
-          <SettingsRow
-            title={emptyMessage}
-            className="py-3 min-h-[64px]"
-          />
+          <SettingsRow title={emptyMessage} className="py-3 min-h-[64px]" />
         ) : null}
-        {groupByRequest ? groupActiveConsentEntries(items).map((row, index) =>
-          row.kind === "request" ? (
-            <ConsentActiveRequestRow
-              key={row.key}
-              label={row.label}
-              members={row.members}
-              selectedEntry={selectedEntry}
-              selectedId={selectedId}
-              onSelectEntry={onSelectEntry}
-            />
-          ) : (
-            <ConsentEntryRow
-              key={`${row.entry.kind}-${row.entry.id}-${row.entry.request_id || "no-request"}-${index}`}
-              entry={row.entry}
-              selected={
+        {groupByRequest
+          ? groupActiveConsentEntries(items).map((row, index) =>
+              row.kind === "request" ? (
+                <ConsentActiveRequestRow
+                  key={row.key}
+                  label={row.label}
+                  members={row.members}
+                  selectedEntry={selectedEntry}
+                  selectedId={selectedId}
+                  onSelectEntry={onSelectEntry}
+                />
+              ) : (
+                <ConsentEntryRow
+                  key={`${row.entry.kind}-${row.entry.id}-${row.entry.request_id || "no-request"}-${index}`}
+                  entry={row.entry}
+                  selected={
+                    Boolean(
+                      selectedEntry &&
+                      (selectedEntry.id === row.entry.id ||
+                        (selectedEntry.request_id &&
+                          selectedEntry.request_id === row.entry.request_id)),
+                    ) ||
+                    Boolean(
+                      selectedId &&
+                      consentEntryMatchesSelectedId(row.entry, selectedId),
+                    )
+                  }
+                  onSelect={() => onSelectEntry(row.entry)}
+                />
+              ),
+            )
+          : items.map((entry, index) => {
+              const isSelected =
+                // Bug: when nothing is selected, selectedEntry is null,
+                // so selectedEntry?.id and selectedEntry?.request_id are
+                // both undefined. Entries without their own request_id
+                // (e.g. one_location_grant rows) also have
+                // entry.request_id === undefined, so
+                // "undefined === undefined" was true and falsely
+                // highlighted that row as selected on every render -
+                // this is the row that appeared to randomly "jump" to
+                // a different entry on every tab switch. Require a
+                // real selectedEntry (or a matching selectedId) before
+                // comparing ids at all.
                 Boolean(
                   selectedEntry &&
-                  (selectedEntry.id === row.entry.id ||
+                  (selectedEntry.id === entry.id ||
                     (selectedEntry.request_id &&
-                      selectedEntry.request_id === row.entry.request_id)),
+                      selectedEntry.request_id === entry.request_id)),
                 ) ||
-                Boolean(selectedId && consentEntryMatchesSelectedId(row.entry, selectedId))
+                Boolean(
+                  selectedId &&
+                  consentEntryMatchesSelectedId(entry, selectedId),
+                );
+              if (entry.bundle_items) {
+                // A grouped request is one row that opens its sheet directly;
+                // the sheet names and decides every item still waiting.
+                const toOpen = bundleEntryToOpen(entry);
+                const holdsSelection =
+                  Boolean(
+                    selectedBundleId && selectedBundleId === entry.bundle_id,
+                  ) ||
+                  entry.bundle_items.some(
+                    (item) => item.request_id === selectedId,
+                  );
+                return (
+                  <ConsentPendingRequestRow
+                    key={entry.id}
+                    entry={entry}
+                    summary={pendingBundleSummary(entry)}
+                    selected={holdsSelection}
+                    onOpen={toOpen ? () => onSelectEntry(toOpen) : undefined}
+                    decision={decisionFor?.(entry) ?? null}
+                  />
+                );
               }
-              onSelect={() => onSelectEntry(row.entry)}
-            />
-          ),
-        ) : items.map((entry, index) => {
-          const isSelected =
-            // Bug: when nothing is selected, selectedEntry is null,
-            // so selectedEntry?.id and selectedEntry?.request_id are
-            // both undefined. Entries without their own request_id
-            // (e.g. one_location_grant rows) also have
-            // entry.request_id === undefined, so
-            // "undefined === undefined" was true and falsely
-            // highlighted that row as selected on every render -
-            // this is the row that appeared to randomly "jump" to
-            // a different entry on every tab switch. Require a
-            // real selectedEntry (or a matching selectedId) before
-            // comparing ids at all.
-            Boolean(
-              selectedEntry &&
-              (selectedEntry.id === entry.id ||
-                (selectedEntry.request_id &&
-                  selectedEntry.request_id === entry.request_id)),
-            ) ||
-            Boolean(
-              selectedId &&
-              consentEntryMatchesSelectedId(entry, selectedId),
-            );
-          if (entry.bundle_items) {
-            // A grouped request is one row that opens its sheet directly;
-            // the sheet names and decides every item still waiting.
-            const toOpen = bundleEntryToOpen(entry);
-            const holdsSelection =
-              Boolean(selectedBundleId && selectedBundleId === entry.bundle_id) ||
-              entry.bundle_items.some((item) => item.request_id === selectedId);
-            return (
-              <ConsentPendingRequestRow
-                key={entry.id}
-                entry={entry}
-                summary={pendingBundleSummary(entry)}
-                selected={holdsSelection}
-                onOpen={toOpen ? () => onSelectEntry(toOpen) : undefined}
-                decision={decisionFor?.(entry) ?? null}
-              />
-            );
-          }
-          const decision = decisionFor?.(entry) ?? null;
-          if (decision) {
-            return (
-              <ConsentPendingRequestRow
-                key={`${entry.kind}-${entry.id}-${entry.request_id || "no-request"}-${index}`}
-                entry={entry}
-                summary={consentEntryInformationLabel(entry)}
-                selected={isSelected}
-                onOpen={() => onSelectEntry(entry)}
-                decision={decision}
-              />
-            );
-          }
-          return (
-            <ConsentEntryRow
-              key={`${entry.kind}-${entry.id}-${entry.request_id || "no-request"}-${index}`}
-              entry={entry}
-              selected={isSelected}
-              onSelect={() => onSelectEntry(entry)}
-            />
-          );
-        })}
+              const decision = decisionFor?.(entry) ?? null;
+              if (decision) {
+                return (
+                  <ConsentPendingRequestRow
+                    key={`${entry.kind}-${entry.id}-${entry.request_id || "no-request"}-${index}`}
+                    entry={entry}
+                    summary={consentEntryInformationLabel(entry)}
+                    selected={isSelected}
+                    onOpen={() => onSelectEntry(entry)}
+                    decision={decision}
+                  />
+                );
+              }
+              return (
+                <ConsentEntryRow
+                  key={`${entry.kind}-${entry.id}-${entry.request_id || "no-request"}-${index}`}
+                  entry={entry}
+                  selected={isSelected}
+                  onSelect={() => onSelectEntry(entry)}
+                />
+              );
+            })}
       </div>
       {pagination ? (
         <div className="shrink-0">
@@ -2006,7 +2056,9 @@ export function ConsentCenterPage() {
   const explicitView = searchParams.get("view");
   const riaOutgoingCompatibilityRoute =
     explicitActor === "ria" && explicitView === "outgoing";
-  const sentDocumentRequests = !riaOutgoingCompatibilityRoute && searchParams.get("requestView") === "sent";
+  const sentDocumentRequests =
+    !riaOutgoingCompatibilityRoute &&
+    searchParams.get("requestView") === "sent";
   const actor: ConsentCenterActor = riaOutgoingCompatibilityRoute
     ? "ria"
     : "investor";
@@ -2531,7 +2583,8 @@ export function ConsentCenterPage() {
       const labels = members.map((member) =>
         consentEntryInformationLabel(member),
       );
-      for (const member of members) recordApprovalInFlight(member, durationHours);
+      for (const member of members)
+        recordApprovalInFlight(member, durationHours);
       void handleApproveBundle(
         members.map((member) => toPendingConsent(member, durationHours)),
         {
@@ -2553,7 +2606,9 @@ export function ConsentCenterPage() {
       if (!members.length) return;
       void handleDenyBundle(
         members.map((member) => member.request_id || member.id),
-        { bundleId: String(members[0]!.metadata?.bundle_id || "") || undefined },
+        {
+          bundleId: String(members[0]!.metadata?.bundle_id || "") || undefined,
+        },
       ).catch(() => undefined);
     },
     [handleDenyBundle],
@@ -2571,8 +2626,12 @@ export function ConsentCenterPage() {
         resolveCounterpartLabel(head),
         head.counterpart_type === "person",
       );
-      const shared = joinInformationLabels(allow.map(consentEntryInformationLabel));
-      const held = joinInformationLabels(decline.map(consentEntryInformationLabel));
+      const shared = joinInformationLabels(
+        allow.map(consentEntryInformationLabel),
+      );
+      const held = joinInformationLabels(
+        decline.map(consentEntryInformationLabel),
+      );
       for (const member of allow) recordApprovalInFlight(member, durationHours);
       void handleDecideBundle(
         allow.map((member) => toPendingConsent(member, durationHours)),
@@ -2609,13 +2668,13 @@ export function ConsentCenterPage() {
           // The requested duration, exactly as the sheet's default would be.
           const durationHours = request.durationHours ?? undefined;
           void allowRowRequest(request, durationHours, {
-              onStart: () => {
-                for (const member of request.members) {
-                  recordApprovalInFlight(member, durationHours);
-                }
-                setRowDecided(rowId, true);
-              },
-            }).catch(() => setRowDecided(rowId, false));
+            onStart: () => {
+              for (const member of request.members) {
+                recordApprovalInFlight(member, durationHours);
+              }
+              setRowDecided(rowId, true);
+            },
+          }).catch(() => setRowDecided(rowId, false));
         },
         onDecline: () => {
           void declineRowRequest(request, {
@@ -2704,7 +2763,10 @@ export function ConsentCenterPage() {
 
   const centerResource = useStaleResource({
     cacheKey: user?.uid
-      ? CACHE_KEYS.CONSENT_CENTER(user.uid, `${actor}:${managerView}:active-connections:${deferredQuery}:${connectionsPage}:${selectedId || "list"}`)
+      ? CACHE_KEYS.CONSENT_CENTER(
+          user.uid,
+          `${actor}:${managerView}:active-connections:${deferredQuery}:${connectionsPage}:${selectedId || "list"}`,
+        )
       : "consent_center_guest",
     refreshKey: `${actor}:${managerView}:active-connections:${deferredQuery}:${connectionsPage}:${selectedId || "list"}`,
     enabled: Boolean(user?.uid) && visitedSurfaces.has("connections"),
@@ -2715,13 +2777,15 @@ export function ConsentCenterPage() {
         throw new Error("Sign in to review consents");
       }
       const [center, activeConnections] = await Promise.all([
-        selectedId ? ConsentCenterService.getCenter({
-          idToken,
-          userId: user.uid,
-          actor,
-          view: managerView,
-          force: Boolean(options?.force),
-        }) : Promise.resolve(null),
+        selectedId
+          ? ConsentCenterService.getCenter({
+              idToken,
+              userId: user.uid,
+              actor,
+              view: managerView,
+              force: Boolean(options?.force),
+            })
+          : Promise.resolve(null),
         ConnectionsService.listConnectionsPage({
           idToken,
           page: connectionsPage,
@@ -3141,13 +3205,7 @@ export function ConsentCenterPage() {
             locallyHandledRequestIds,
             hiddenActiveScopes,
           ),
-    [
-      tab,
-      items,
-      connectionItems,
-      locallyHandledRequestIds,
-      hiddenActiveScopes,
-    ],
+    [tab, items, connectionItems, locallyHandledRequestIds, hiddenActiveScopes],
   );
   const selectedEntryFromList = useMemo(() => {
     if (!items.length) return null;
@@ -3187,7 +3245,12 @@ export function ConsentCenterPage() {
     return null;
   }, [items, selectedBundleId, selectedId]);
   const shouldLookupSelectedPending = Boolean(
-    user?.uid && selectedId && !isDocumentShareSelection(selectedId) && !isDriveQuerySelection(selectedId) && tab === "requests" && !selectedEntryFromList,
+    user?.uid &&
+    selectedId &&
+    !isDocumentShareSelection(selectedId) &&
+    !isDriveQuerySelection(selectedId) &&
+    tab === "requests" &&
+    !selectedEntryFromList,
   );
   const selectedPendingLookupResource = useStaleResource({
     cacheKey:
@@ -3270,27 +3333,32 @@ export function ConsentCenterPage() {
   const selectedBundleMembers = useMemo(() => {
     if (!selectedEntry || selectedEntry.kind !== "incoming_request") return [];
     const requestId = selectedEntry.request_id || selectedEntry.id;
-    const request = groupPendingConsentRequests(pendingItems).find((candidate) =>
-      candidate.members.some(
-        (member) => (member.request_id || member.id) === requestId,
-      ),
+    const request = groupPendingConsentRequests(pendingItems).find(
+      (candidate) =>
+        candidate.members.some(
+          (member) => (member.request_id || member.id) === requestId,
+        ),
     );
     if (!request || !request.complete) return [];
     return request.members.filter(
-      (member) =>
-        !locallyHandledRequestIds.has(member.request_id || member.id),
+      (member) => !locallyHandledRequestIds.has(member.request_id || member.id),
     );
   }, [locallyHandledRequestIds, pendingItems, selectedEntry]);
   const isPanelOpen =
     Boolean(selectedId || selectedEntry) && !panelCloseRequested;
-  const isQuerySelection = isDriveQuerySelection(selectedId) || !!(selectedEntry && isDriveQueryEntry(selectedEntry));
+  const isQuerySelection =
+    isDriveQuerySelection(selectedId) ||
+    !!(selectedEntry && isDriveQueryEntry(selectedEntry));
   const selectedQueryRequestId = driveQueryRequestId(
-    selectedEntry && isDriveQueryEntry(selectedEntry) ? selectedEntry.id : selectedId,
+    selectedEntry && isDriveQueryEntry(selectedEntry)
+      ? selectedEntry.id
+      : selectedId,
   );
   // A layout hint only; the card trusts the server's direction for its role.
   const selectedEntryDirection = selectedEntry?.metadata?.direction;
   const selectedQueryDirection =
-    selectedEntryDirection === "incoming" || selectedEntryDirection === "outgoing"
+    selectedEntryDirection === "incoming" ||
+    selectedEntryDirection === "outgoing"
       ? selectedEntryDirection
       : undefined;
   // A paid answer is decided only by its own card: the generic approve path
@@ -3299,17 +3367,27 @@ export function ConsentCenterPage() {
     isAnswerRequestSelection(selectedId) ||
     !!(selectedEntry && isAnswerRequestEntry(selectedEntry));
   const selectedAnswerRequestId = answerRequestId(
-    selectedEntry && isAnswerRequestEntry(selectedEntry) ? selectedEntry.id : selectedId,
+    selectedEntry && isAnswerRequestEntry(selectedEntry)
+      ? selectedEntry.id
+      : selectedId,
   );
-  const isDocumentSelection = !isQuerySelection && !isAnswerSelection && (isDocumentShareSelection(selectedId) || !!(selectedEntry && isDocumentShareEntry(selectedEntry)));
+  const isDocumentSelection =
+    !isQuerySelection &&
+    !isAnswerSelection &&
+    (isDocumentShareSelection(selectedId) ||
+      !!(selectedEntry && isDocumentShareEntry(selectedEntry)));
   const selectedDocumentRequestId = documentShareRequestId(
-    selectedEntry && isDocumentShareEntry(selectedEntry) ? selectedEntry.id : selectedId,
+    selectedEntry && isDocumentShareEntry(selectedEntry)
+      ? selectedEntry.id
+      : selectedId,
   );
   const reconcileDocumentRequest = useCallback(() => {
     // Re-fetch authoritative buckets; HTTP acceptance does not mean shared.
-    window.dispatchEvent(new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, {
-      detail: { reconcile: true },
-    }));
+    window.dispatchEvent(
+      new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, {
+        detail: { reconcile: true },
+      }),
+    );
   }, []);
   const selectedRequestMissing = Boolean(
     selectedId &&
@@ -3594,7 +3672,9 @@ export function ConsentCenterPage() {
   const emptyListMessage = deferredQuery
     ? `No ${tab === "active" ? "active access" : tab} matches “${deferredQuery}”.`
     : tab === "requests"
-      ? sentDocumentRequests ? "No document requests are waiting for a response." : "No requests need your review."
+      ? sentDocumentRequests
+        ? "No document requests are waiting for a response."
+        : "No requests need your review."
       : tab === "active"
         ? "No one currently has active access."
         : tab === "history"
@@ -3753,31 +3833,77 @@ export function ConsentCenterPage() {
                     holdHeightDuringTransition={false}
                   >
                     <div
-                      key={sentDocumentRequests ? "sent-document-requests" : "received-document-requests"}
+                      key={
+                        sentDocumentRequests
+                          ? "sent-document-requests"
+                          : "received-document-requests"
+                      }
                       data-testid="consent-request-direction"
-                      data-request-direction={sentDocumentRequests ? "sent" : "received"}
+                      data-request-direction={
+                        sentDocumentRequests ? "sent" : "received"
+                      }
                     >
-                    {!riaOutgoingCompatibilityRoute ? <div role="group" aria-label="Request direction" className="mb-3 flex flex-wrap gap-2 px-3">
-                      <Button size="standard" variant="none" aria-pressed={!sentDocumentRequests} onClick={() => setParam({ requestView: null, page: null, requestId: null, selected: null, bundleId: null })}>Received</Button>
-                      <Button size="standard" variant="none" aria-pressed={sentDocumentRequests} onClick={() => setParam({ requestView: "sent", page: null, requestId: null, selected: null, bundleId: null })}>Sent documents</Button>
-                    </div> : null}
-                    <ConsentSurfaceListSection
-                      loading={pendingResource.loading}
-                      emptyMessage={
-                        tab === "requests"
-                          ? emptyListMessage
-                          : "No requests need your review."
-                      }
-                      items={pendingItems}
-                      selectedEntry={selectedEntry}
-                      selectedId={selectedId}
-                      selectedBundleId={selectedBundleId}
-                      onSelectEntry={(entry) =>
-                        setParam({ requestId: driveSharingSelectionId(entry) })
-                      }
-                      pagination={pendingPagination}
-                      decisionFor={sentDocumentRequests ? undefined : rowDecisionFor}
-                    />
+                      {!riaOutgoingCompatibilityRoute ? (
+                        <div
+                          role="group"
+                          aria-label="Request direction"
+                          className="mb-3 flex flex-wrap gap-2 px-3"
+                        >
+                          <Button
+                            size="standard"
+                            variant="none"
+                            aria-pressed={!sentDocumentRequests}
+                            onClick={() =>
+                              setParam({
+                                requestView: null,
+                                page: null,
+                                requestId: null,
+                                selected: null,
+                                bundleId: null,
+                              })
+                            }
+                          >
+                            Received
+                          </Button>
+                          <Button
+                            size="standard"
+                            variant="none"
+                            aria-pressed={sentDocumentRequests}
+                            onClick={() =>
+                              setParam({
+                                requestView: "sent",
+                                page: null,
+                                requestId: null,
+                                selected: null,
+                                bundleId: null,
+                              })
+                            }
+                          >
+                            Sent documents
+                          </Button>
+                        </div>
+                      ) : null}
+                      <ConsentSurfaceListSection
+                        loading={pendingResource.loading}
+                        emptyMessage={
+                          tab === "requests"
+                            ? emptyListMessage
+                            : "No requests need your review."
+                        }
+                        items={pendingItems}
+                        selectedEntry={selectedEntry}
+                        selectedId={selectedId}
+                        selectedBundleId={selectedBundleId}
+                        onSelectEntry={(entry) =>
+                          setParam({
+                            requestId: driveSharingSelectionId(entry),
+                          })
+                        }
+                        pagination={pendingPagination}
+                        decisionFor={
+                          sentDocumentRequests ? undefined : rowDecisionFor
+                        }
+                      />
                     </div>
                     <ConsentSurfaceListSection
                       loading={activeResource.loading}
@@ -3810,11 +3936,14 @@ export function ConsentCenterPage() {
                       }
                       pagination={previousPagination}
                     />
-                    {centerResource.data && centerResource.data.activeConnections == null ? (
+                    {centerResource.data &&
+                    centerResource.data.activeConnections == null ? (
                       <ApiRetryState
                         title="Could not check connections"
                         description="Your connected people could not be loaded. Try again."
-                        onRetry={() => void centerResource.refresh({ force: true })}
+                        onRetry={() =>
+                          void centerResource.refresh({ force: true })
+                        }
                       />
                     ) : (
                       <ConsentSurfaceListSection
@@ -3828,24 +3957,42 @@ export function ConsentCenterPage() {
                         selectedEntry={selectedEntry}
                         selectedId={selectedId}
                         onSelectEntry={(entry) =>
-                          setParam({ requestId: driveSharingSelectionId(entry) })
+                          setParam({
+                            requestId: driveSharingSelectionId(entry),
+                          })
                         }
-                      pagination={centerResource.data?.activeConnections ? {
-                        page: centerResource.data.activeConnections.page,
-                        limit: CONSENT_CENTER_PAGE_SIZE,
-                        total: centerResource.data.activeConnections.totalCount,
-                        hasMore: centerResource.data.activeConnections.hasMore,
-                        onPrevious: () => {
-                          const next = Math.max(1, connectionsPage - 1);
-                          if (tab === "connections") setParam({ page: String(next), requestId: null });
-                          else setConnectionsLocalPage(next);
-                        },
-                        onNext: () => {
-                          const next = connectionsPage + 1;
-                          if (tab === "connections") setParam({ page: String(next), requestId: null });
-                          else setConnectionsLocalPage(next);
-                        },
-                      } : null}
+                        pagination={
+                          centerResource.data?.activeConnections
+                            ? {
+                                page: centerResource.data.activeConnections
+                                  .page,
+                                limit: CONSENT_CENTER_PAGE_SIZE,
+                                total:
+                                  centerResource.data.activeConnections
+                                    .totalCount,
+                                hasMore:
+                                  centerResource.data.activeConnections.hasMore,
+                                onPrevious: () => {
+                                  const next = Math.max(1, connectionsPage - 1);
+                                  if (tab === "connections")
+                                    setParam({
+                                      page: String(next),
+                                      requestId: null,
+                                    });
+                                  else setConnectionsLocalPage(next);
+                                },
+                                onNext: () => {
+                                  const next = connectionsPage + 1;
+                                  if (tab === "connections")
+                                    setParam({
+                                      page: String(next),
+                                      requestId: null,
+                                    });
+                                  else setConnectionsLocalPage(next);
+                                },
+                              }
+                            : null
+                        }
                       />
                     )}
                   </SwipeViews>
@@ -3863,24 +4010,32 @@ export function ConsentCenterPage() {
             }
           }}
           title={
-            isQuerySelection ? "Drive question" : isDocumentSelection ? "Document request" : selectedEntry
-              ? resolveCounterpartLabel(selectedEntry)
-              : "Consent details"
+            isQuerySelection
+              ? "Drive question"
+              : isDocumentSelection
+                ? "Document request"
+                : selectedEntry
+                  ? resolveCounterpartLabel(selectedEntry)
+                  : "Consent details"
           }
           description={
-            isQuerySelection ? "A question about Google Drive." : isDocumentSelection ? "Google Drive" : selectedEntry
-              ? selectedEntry.kind === "connection"
-                ? "Connection details"
-                : selectedEntry.kind === "active_grant"
-                ? "Active access"
-                : selectedEntry.kind === "history"
-                  ? `${formatStatus(selectedEntry.status)} access`
-                  : selectedEntry.status === "pending"
-                    ? "Request awaiting your decision"
-                    : `${formatStatus(selectedEntry.status)} request`
-              : selectedId
-                ? "Resolving the selected consent request."
-                : "Choose a consent entry from the list to review details and next actions."
+            isQuerySelection
+              ? "A question about Google Drive."
+              : isDocumentSelection
+                ? "Google Drive"
+                : selectedEntry
+                  ? selectedEntry.kind === "connection"
+                    ? "Connection details"
+                    : selectedEntry.kind === "active_grant"
+                      ? "Active access"
+                      : selectedEntry.kind === "history"
+                        ? `${formatStatus(selectedEntry.status)} access`
+                        : selectedEntry.status === "pending"
+                          ? "Request awaiting your decision"
+                          : `${formatStatus(selectedEntry.status)} request`
+                  : selectedId
+                    ? "Resolving the selected consent request."
+                    : "Choose a consent entry from the list to review details and next actions."
           }
           mobilePresentation="sheet"
           // Grouped background: the request's actionable sections read as cards.
@@ -3890,7 +4045,10 @@ export function ConsentCenterPage() {
               : undefined
           }
         >
-          {!isDocumentSelection && !isQuerySelection && notificationAction && selectedEntry?.status === "pending" ? (
+          {!isDocumentSelection &&
+          !isQuerySelection &&
+          notificationAction &&
+          selectedEntry?.status === "pending" ? (
             <div
               role="status"
               className="mb-4 rounded-[var(--app-card-radius-compact)] border border-accent-border bg-accent-surface px-4 py-3 text-sm leading-5 text-foreground"
@@ -3903,14 +4061,42 @@ export function ConsentCenterPage() {
             </div>
           ) : null}
           {isAnswerSelection ? (
-            selectedAnswerRequestId ? <AnswerRequestCard requestId={selectedAnswerRequestId} />
-              : <SettingsRow title="Invalid answer request" description="Open this question from the list again." />
+            selectedAnswerRequestId ? (
+              <AnswerRequestCard
+                key={`${user?.uid}:${selectedAnswerRequestId}`}
+                requestId={selectedAnswerRequestId}
+              />
+            ) : (
+              <SettingsRow
+                title="Invalid answer request"
+                description="Open this question from the list again."
+              />
+            )
           ) : isQuerySelection ? (
-            selectedQueryRequestId ? <DriveQueryRequestCard requestId={selectedQueryRequestId} direction={selectedQueryDirection} />
-              : <SettingsRow title="Invalid Drive question" description="Open this question from the list again." />
+            selectedQueryRequestId ? (
+              <DriveQueryRequestCard
+                requestId={selectedQueryRequestId}
+                direction={selectedQueryDirection}
+              />
+            ) : (
+              <SettingsRow
+                title="Invalid Drive question"
+                description="Open this question from the list again."
+              />
+            )
           ) : isDocumentSelection ? (
-            selectedDocumentRequestId ? <DocumentShareReview requestId={selectedDocumentRequestId} onChanged={reconcileDocumentRequest} surface="sheet" />
-              : <SettingsRow title="Invalid document request" description="Open this request from the list again." />
+            selectedDocumentRequestId ? (
+              <DocumentShareReview
+                requestId={selectedDocumentRequestId}
+                onChanged={reconcileDocumentRequest}
+                surface="sheet"
+              />
+            ) : (
+              <SettingsRow
+                title="Invalid document request"
+                description="Open this request from the list again."
+              />
+            )
           ) : selectedId && !selectedEntry ? (
             <SettingsGroup
               embedded

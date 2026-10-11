@@ -14,7 +14,8 @@
 
 import { ApiService } from "@/lib/services/api-service";
 
-const REQUEST_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const REQUEST_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const MIN_ANSWER_PRICE_CENTS = 100;
 export const MAX_ANSWER_PRICE_CENTS = 50_000;
@@ -33,11 +34,7 @@ export type AnswerRequestStatus =
   | "cancelled";
 
 export type AnswerOrderStatus =
-  | "awaiting_payment"
-  | "checkout_open"
-  | "paid"
-  | "refunded"
-  | "expired";
+  "awaiting_payment" | "checkout_open" | "paid" | "refunded" | "expired";
 
 export interface AnswerRequestTerms {
   question: string;
@@ -74,7 +71,10 @@ export function isValidAnswerPriceCents(value: unknown): boolean {
 }
 
 /** A period is either absent entirely or complete and correctly ordered. */
-export function validAnswerPeriod(start: string | null, end: string | null): boolean {
+export function validAnswerPeriod(
+  start: string | null,
+  end: string | null,
+): boolean {
   if (!start && !end) return true;
   if (!start || !end) return false;
   return start <= end;
@@ -126,7 +126,11 @@ export interface AnswerableWork {
   answerDeadlineAt: string | null;
   requesterUserId: string;
   /** The requester's published ECDH key, so the device can seal in one pass. */
-  recipientKey: { keyId: string; publicKeyJwk: JsonWebKey; algorithm?: string | null };
+  recipientKey: {
+    keyId: string;
+    publicKeyJwk: JsonWebKey;
+    algorithm?: string | null;
+  };
   /**
    * The owner's own public identity, as the requester already sees it on the
    * profile. Carried so the answer's memory document is a record of a person
@@ -149,11 +153,14 @@ export class AnswerRequestService {
   static async available(firebaseIdToken: string): Promise<boolean> {
     if (!firebaseIdToken) return false;
     try {
-      const response = await ApiService.apiFetch("/api/one/answer-requests/availability", {
-        method: "GET",
-        cache: "no-store",
-        headers: { Authorization: `Bearer ${firebaseIdToken}` },
-      });
+      const response = await ApiService.apiFetch(
+        "/api/one/answer-requests/availability",
+        {
+          method: "GET",
+          cache: "no-store",
+          headers: { Authorization: `Bearer ${firebaseIdToken}` },
+        },
+      );
       if (!response.ok) return false;
       const value = await readJson(response);
       return value.enabled === true;
@@ -163,17 +170,95 @@ export class AnswerRequestService {
     }
   }
 
+  static async payoutAccount(
+    firebaseIdToken: string,
+  ): Promise<{
+    stripeMode: "test" | "live";
+    account: { ready: boolean; canManageBank: boolean } | null;
+  }> {
+    const response = await ApiService.apiFetch(
+      "/api/one/answer-requests/payout-account",
+      {
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${firebaseIdToken}` },
+      },
+    );
+    if (!response.ok) throw new Error("Could not verify answer payout setup.");
+    const value = await readJson(response);
+    if (value.stripeMode !== "test" && value.stripeMode !== "live")
+      throw new Error("Invalid payout mode");
+    const account = value.account;
+    if (
+      account !== null &&
+      (!account ||
+        typeof account !== "object" ||
+        !("ready" in account) ||
+        typeof account.ready !== "boolean")
+    )
+      throw new Error("Invalid payout response");
+    return value as {
+      stripeMode: "test" | "live";
+      account: { ready: boolean; canManageBank: boolean } | null;
+    };
+  }
+
+  static async payoutLink(
+    firebaseIdToken: string,
+    action: "onboarding" | "dashboard",
+  ): Promise<string> {
+    const response = await ApiService.apiFetch(
+      `/api/one/answer-requests/payout-account/${action}`,
+      {
+        method: "POST",
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${firebaseIdToken}` },
+      },
+    );
+    if (!response.ok)
+      throw new Error(
+        "Could not open answer payout setup. Please retry or contact support.",
+      );
+    const value = await readJson(response);
+    const url = new URL(String(value.url || ""));
+    if (
+      url.protocol !== "https:" ||
+      !["connect.stripe.com", "stripe.com"].includes(url.hostname) ||
+      url.username ||
+      url.password ||
+      url.port
+    )
+      throw new Error("Invalid payout link");
+    return url.href;
+  }
+
   /** Questions this owner has been asked and has not yet answered or refused. */
   static async inbox(firebaseIdToken: string): Promise<PendingAnswerRequest[]> {
     if (!firebaseIdToken) return [];
-    const response = await ApiService.apiFetch("/api/one/answer-requests/inbox", {
-      method: "GET",
-      cache: "no-store",
-      headers: { Authorization: `Bearer ${firebaseIdToken}` },
-    });
+    const response = await ApiService.apiFetch(
+      "/api/one/answer-requests/inbox",
+      {
+        method: "GET",
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${firebaseIdToken}` },
+      },
+    );
     if (!response.ok) throw new Error("Could not load requests");
     const value = await readJson(response);
-    return (Array.isArray(value.requests) ? value.requests : []) as PendingAnswerRequest[];
+    return (
+      Array.isArray(value.requests) ? value.requests : []
+    ) as PendingAnswerRequest[];
+  }
+
+  static async state(
+    token: string,
+    requestId: string,
+  ): Promise<{ role: string; requestStatus: string; question: string }> {
+    const response = await ApiService.apiFetch(
+      `${requestPath(requestId)}/state`,
+      { cache: "no-store", headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!response.ok) throw new Error("Request unavailable");
+    return await response.json();
   }
 
   /** Approve the exact question, the exact scopes and a whole-dollar price. */
@@ -182,53 +267,75 @@ export class AnswerRequestService {
     requestId: string,
     scopes: string[],
     amountCents: number,
+    modelProcessingConsent: boolean,
   ): Promise<{ termsDigest: string }> {
     if (!firebaseIdToken) throw new Error("Sign in to approve");
+    if (!modelProcessingConsent)
+      throw new Error("Agree to model processing for this question.");
     if (!scopes.length) throw new Error("Choose the information to share");
-    if (!isValidAnswerPriceCents(amountCents)) throw new Error("Choose a whole-dollar price");
-    const response = await ApiService.apiFetch(`${requestPath(requestId)}/approve`, {
-      method: "POST",
-      cache: "no-store",
-      headers: {
-        Authorization: `Bearer ${firebaseIdToken}`,
-        "Content-Type": "application/json",
+    if (!isValidAnswerPriceCents(amountCents))
+      throw new Error("Choose a whole-dollar price");
+    const response = await ApiService.apiFetch(
+      `${requestPath(requestId)}/approve`,
+      {
+        method: "POST",
+        cache: "no-store",
+        headers: {
+          Authorization: `Bearer ${firebaseIdToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ scopes, amountCents, modelProcessingConsent }),
       },
-      body: JSON.stringify({ scopes, amountCents }),
-    });
+    );
     if (!response.ok) throw new Error("This request could not be approved");
     const value = await readJson(response);
     return { termsDigest: String(value.termsDigest || "") };
   }
 
-  static async decline(firebaseIdToken: string, requestId: string): Promise<void> {
+  static async decline(
+    firebaseIdToken: string,
+    requestId: string,
+  ): Promise<void> {
     if (!firebaseIdToken) throw new Error("Sign in to decline");
-    const response = await ApiService.apiFetch(`${requestPath(requestId)}/decline`, {
-      method: "POST",
-      cache: "no-store",
-      headers: { Authorization: `Bearer ${firebaseIdToken}` },
-    });
+    const response = await ApiService.apiFetch(
+      `${requestPath(requestId)}/decline`,
+      {
+        method: "POST",
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${firebaseIdToken}` },
+      },
+    );
     if (!response.ok) throw new Error("This request could not be declined");
   }
 
   /** The requester withdraws before delivery; a paid request refunds in full. */
-  static async cancel(firebaseIdToken: string, requestId: string): Promise<void> {
+  static async cancel(
+    firebaseIdToken: string,
+    requestId: string,
+  ): Promise<void> {
     if (!firebaseIdToken) throw new Error("Sign in to cancel");
-    const response = await ApiService.apiFetch(`${requestPath(requestId)}/cancel`, {
-      method: "POST",
-      cache: "no-store",
-      headers: { Authorization: `Bearer ${firebaseIdToken}` },
-    });
+    const response = await ApiService.apiFetch(
+      `${requestPath(requestId)}/cancel`,
+      {
+        method: "POST",
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${firebaseIdToken}` },
+      },
+    );
     if (!response.ok) throw new Error("This request could not be cancelled");
   }
 
   /** Paid work awaiting this owner's device. Scope handles only, never values. */
   static async answerable(firebaseIdToken: string): Promise<AnswerableWork[]> {
     if (!firebaseIdToken) return [];
-    const response = await ApiService.apiFetch("/api/one/answer-requests/answerable", {
-      method: "GET",
-      cache: "no-store",
-      headers: { Authorization: `Bearer ${firebaseIdToken}` },
-    });
+    const response = await ApiService.apiFetch(
+      "/api/one/answer-requests/answerable",
+      {
+        method: "GET",
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${firebaseIdToken}` },
+      },
+    );
     if (!response.ok) throw new Error("Could not load pending answers");
     const value = await readJson(response);
     const rows = Array.isArray(value.requests) ? value.requests : [];
@@ -236,7 +343,9 @@ export class AnswerRequestService {
     // seal against nothing.
     return rows.filter(
       (row: AnswerableWork) =>
-        row?.recipientKey?.keyId && row?.recipientKey?.publicKeyJwk && Array.isArray(row.approvedScopes),
+        row?.recipientKey?.keyId &&
+        row?.recipientKey?.publicKeyJwk &&
+        Array.isArray(row.approvedScopes),
     ) as AnswerableWork[];
   }
 
@@ -252,21 +361,32 @@ export class AnswerRequestService {
     firebaseIdToken: string,
     requestId: string,
     projection: { memory: string; values: Record<string, unknown> },
-  ): Promise<{ answerMode: "agent" | "projection"; answer: string | null; covers?: string[]; gaps?: string[] }> {
+  ): Promise<{
+    answerMode: "agent" | "projection";
+    answer: string | null;
+    covers?: string[];
+    gaps?: string[];
+  }> {
     if (!firebaseIdToken) throw new Error("Sign in to compose this answer");
-    const response = await ApiService.apiFetch(`${requestPath(requestId)}/compose`, {
-      method: "POST",
-      cache: "no-store",
-      headers: {
-        Authorization: `Bearer ${firebaseIdToken}`,
-        "Content-Type": "application/json",
+    const response = await ApiService.apiFetch(
+      `${requestPath(requestId)}/compose`,
+      {
+        method: "POST",
+        cache: "no-store",
+        headers: {
+          Authorization: `Bearer ${firebaseIdToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ projection }),
       },
-      body: JSON.stringify({ projection }),
-    });
+    );
     if (!response.ok) return { answerMode: "projection", answer: null };
     const value = await readJson(response);
     const mode = value.answerMode === "agent" ? "agent" : "projection";
-    const answer = typeof value.answer === "string" && value.answer.trim() ? value.answer : null;
+    const answer =
+      typeof value.answer === "string" && value.answer.trim()
+        ? value.answer
+        : null;
     // An 'agent' mode with no answer is not an agent answer.
     if (mode === "agent" && answer) {
       return {
@@ -286,15 +406,18 @@ export class AnswerRequestService {
     body: { envelope: unknown; sourceRevisions?: unknown; hasContent: boolean },
   ): Promise<void> {
     if (!firebaseIdToken) throw new Error("Sign in to deliver this answer");
-    const response = await ApiService.apiFetch(`${requestPath(requestId)}/deliver`, {
-      method: "POST",
-      cache: "no-store",
-      headers: {
-        Authorization: `Bearer ${firebaseIdToken}`,
-        "Content-Type": "application/json",
+    const response = await ApiService.apiFetch(
+      `${requestPath(requestId)}/deliver`,
+      {
+        method: "POST",
+        cache: "no-store",
+        headers: {
+          Authorization: `Bearer ${firebaseIdToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
       },
-      body: JSON.stringify(body),
-    });
+    );
     if (!response.ok) throw new Error("This answer could not be delivered");
   }
 
@@ -305,7 +428,8 @@ export class AnswerRequestService {
     terms: AnswerRequestTerms,
   ): Promise<{ requestId: string }> {
     if (!firebaseIdToken) throw new Error("Sign in to send this request");
-    if (!validAnswerRequest(terms)) throw new Error("Check the question and dates");
+    if (!validAnswerRequest(terms))
+      throw new Error("Check the question and dates");
     const response = await ApiService.apiFetch("/api/one/answer-requests", {
       method: "POST",
       cache: "no-store",
@@ -322,7 +446,8 @@ export class AnswerRequestService {
     });
     if (!response.ok) {
       const code = response.status;
-      if (code === 403) throw new Error("You need an active connection with this person.");
+      if (code === 403)
+        throw new Error("You need an active connection with this person.");
       if (code === 422) throw new Error("Check the question and dates.");
       throw new Error("This request could not be sent. Try again.");
     }
@@ -338,30 +463,42 @@ export class AnswerRequestService {
     requestId: string,
   ): Promise<AnswerPaymentView> {
     if (!firebaseIdToken) throw new Error("Sign in to view this payment");
-    const response = await ApiService.apiFetch(`${requestPath(requestId)}/payment`, {
-      method: "GET",
-      cache: "no-store",
-      headers: { Authorization: `Bearer ${firebaseIdToken}` },
-    });
+    const response = await ApiService.apiFetch(
+      `${requestPath(requestId)}/payment`,
+      {
+        method: "GET",
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${firebaseIdToken}` },
+      },
+    );
     if (!response.ok) throw new Error("Payment is unavailable. Try again.");
     const value = await readJson(response);
     if (value.currency !== "usd" || value.fulfilment !== "owner_device") {
       throw new Error("Invalid payment response");
     }
-    if (value.amountCents !== null && !isValidAnswerPriceCents(value.amountCents)) {
+    if (
+      value.amountCents !== null &&
+      !isValidAnswerPriceCents(value.amountCents)
+    ) {
       throw new Error("Invalid payment response");
     }
     return value as unknown as AnswerPaymentView;
   }
 
   /** The sealed answer envelope. Ciphertext; only the requester can read it. */
-  static async answer(firebaseIdToken: string, requestId: string): Promise<unknown> {
+  static async answer(
+    firebaseIdToken: string,
+    requestId: string,
+  ): Promise<unknown> {
     if (!firebaseIdToken) throw new Error("Sign in to open this answer");
-    const response = await ApiService.apiFetch(`${requestPath(requestId)}/answer`, {
-      method: "GET",
-      cache: "no-store",
-      headers: { Authorization: `Bearer ${firebaseIdToken}` },
-    });
+    const response = await ApiService.apiFetch(
+      `${requestPath(requestId)}/answer`,
+      {
+        method: "GET",
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${firebaseIdToken}` },
+      },
+    );
     if (!response.ok) throw new Error("This answer is not available yet");
     const value = await readJson(response);
     if (!value.ciphertext || !value.iv || !value.recipientKeyId) {
@@ -371,13 +508,19 @@ export class AnswerRequestService {
   }
 
   /** Open hosted Checkout. Only ever returns a Stripe-hosted URL. */
-  static async checkout(firebaseIdToken: string, requestId: string): Promise<string> {
+  static async checkout(
+    firebaseIdToken: string,
+    requestId: string,
+  ): Promise<string> {
     if (!firebaseIdToken) throw new Error("Sign in to pay");
-    const response = await ApiService.apiFetch(`${requestPath(requestId)}/payment/checkout`, {
-      method: "POST",
-      cache: "no-store",
-      headers: { Authorization: `Bearer ${firebaseIdToken}` },
-    });
+    const response = await ApiService.apiFetch(
+      `${requestPath(requestId)}/payment/checkout`,
+      {
+        method: "POST",
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${firebaseIdToken}` },
+      },
+    );
     if (!response.ok) throw new Error("Checkout is unavailable. Try again.");
     const value = await readJson(response);
     const url = String(value.checkoutUrl || "");

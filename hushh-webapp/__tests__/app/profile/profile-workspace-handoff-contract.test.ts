@@ -75,7 +75,7 @@ describe("profile workspace duplication contract", () => {
     const pricing = profilePageSource.split('activePanel === "request-pricing") {')[1]?.split("} else if (")[0] ?? "";
     // The only navigation target is the validated `from`; the pane's query belongs to its host.
     expect(pricing).toMatch(/const pricingReturnTo = isPanePresentation\s*\?\s*null\s*:\s*normalizeInternalRouteHref\(searchParams\.get\("from"\)\);/);
-    expect(pricing).toMatch(/onSaved=\{pricingReturnTo \? \(\) => \{\s*toast\.success\("Price saved"\);\s*router\.replace\(pricingReturnTo\);\s*\} : undefined\}/);
+    expect(pricing).toMatch(/onSaved=\{\s*pricingReturnTo\s*\? \(\) => \{\s*toast\.success\("Price saved"\);\s*router\.replace\(pricingReturnTo\);\s*\}\s*:\s*undefined\s*\}/);
     expect(pricing.match(/router\.(?:push|replace)\(/g)).toEqual(["router.replace("]);
     // Negative control: an external or protocol-relative origin yields no handler, so the card confirms inline.
     expect(normalizeInternalRouteHref("/one/feed")).toBe("/one/feed");

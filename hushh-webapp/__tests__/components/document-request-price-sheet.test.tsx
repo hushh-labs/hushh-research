@@ -7,7 +7,7 @@ import {
 } from "@/components/consent/document-request-price-sheet";
 
 vi.mock("@/components/consent/document-payout-account", () => ({
-  DocumentPayoutAccountCard: () => null,
+  DocumentPayoutAccountCard: () => <span>Drive account setup</span>,
 }));
 
 /**
@@ -47,8 +47,17 @@ describe("DocumentRequestPriceSheet", () => {
   });
 
   it("prefills an asynchronously loaded draft and keeps it editable", () => {
-    const { props, rerender } = renderSheet({ priceOnly: true, detailsPending: true });
-    rerender(<DocumentRequestPriceSheet {...props} detailsPending={false} initialAmountCents={1200} />);
+    const { props, rerender } = renderSheet({
+      priceOnly: true,
+      detailsPending: true,
+    });
+    rerender(
+      <DocumentRequestPriceSheet
+        {...props}
+        detailsPending={false}
+        initialAmountCents={1200}
+      />,
+    );
     expect(screen.getByLabelText("Custom price")).toHaveValue("12");
     expect(screen.getByRole("button", { name: "Save · $12" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "$20" }));
@@ -120,7 +129,9 @@ describe("DocumentRequestPriceSheet", () => {
 
   it("keeps a new request's sent quote fixed when the owner allows it", () => {
     const { props } = renderSheet({ lockedAmountCents: 2500 });
-    expect(screen.getByLabelText("Locked document request quote")).toHaveTextContent("$25");
+    expect(
+      screen.getByLabelText("Locked document request quote"),
+    ).toHaveTextContent("$25");
     expect(screen.queryByRole("group", { name: "Price" })).toBeNull();
     expect(screen.queryByLabelText("Custom price")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Allow · $25" }));
@@ -171,12 +182,18 @@ describe("DocumentRequestPriceSheet", () => {
     expect(props.onSubmit).not.toHaveBeenCalled();
 
     rerender(
-      <DocumentRequestPriceSheet {...props} busy error="This request changed." />,
+      <DocumentRequestPriceSheet
+        {...props}
+        busy
+        error="This request changed."
+      />,
     );
     expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Allow · $10" })).toBeDisabled();
     for (const chip of priceChips()) expect(chip).toBeDisabled();
-    expect(screen.getByRole("alert")).toHaveTextContent("This request changed.");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "This request changed.",
+    );
   });
 
   it("opens each time at the default price, not the last request's price", () => {
@@ -197,4 +214,11 @@ describe("DocumentRequestPriceSheet", () => {
     expect(screen.queryByLabelText("Custom price")).toBeNull();
     expect(screen.getByRole("button", { name: "Allow · $10" })).toBeTruthy();
   });
+});
+
+it("answer settlement reuses pricing without invoking Drive account setup", () => {
+  renderSheet({ settlement: <span>Answer account setup</span> });
+  expect(screen.getByText("Answer account setup")).toBeVisible();
+  expect(screen.queryByText("Drive account setup")).toBeNull();
+  expect(screen.queryByText(/Undelivered files/)).toBeNull();
 });

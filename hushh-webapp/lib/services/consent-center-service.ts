@@ -245,6 +245,7 @@ export interface ConsentCenterPageSummary {
 }
 
 export interface ConsentCenterPageListResponse {
+  source_read_verified?: boolean;
   user_id: string;
   actor: ConsentCenterActor;
   mode?: ConsentCenterMode;
@@ -618,6 +619,22 @@ export class ConsentCenterService {
     return run;
   }
 
+  static async sourceFence(idToken: string, userId: string): Promise<string> {
+    const response = await ApiService.apiFetch(
+      "/api/consent/center/source-fence",
+      { cache: "no-store", headers: { Authorization: `Bearer ${idToken}` } },
+    );
+    if (!response.ok) throw new Error("Consent source inventory unavailable");
+    const value = await response.json();
+    if (
+      value.user_id !== userId ||
+      typeof value.fence !== "string" ||
+      !/^[a-f0-9]{64}$/.test(value.fence)
+    )
+      throw new Error("Consent inventory verification failed");
+    return value.fence;
+  }
+
   static async listEntries(options: {
     idToken: string;
     userId: string;
@@ -630,6 +647,7 @@ export class ConsentCenterService {
     limit?: number;
     top?: number;
     force?: boolean;
+    sourceRead?: boolean;
   }): Promise<ConsentCenterPageListResponse> {
     const actor = options.actor;
     const cacheActor = consentCenterCacheActor(actor);
@@ -659,7 +677,7 @@ export class ConsentCenterService {
           limit,
         );
     const cache = CacheService.getInstance();
-    if (!options.force) {
+    if (!options.force && !options.sourceRead) {
       const cached = cache.get<ConsentCenterPageListResponse>(cacheKey);
       if (cached) return cached;
     }
@@ -667,6 +685,7 @@ export class ConsentCenterService {
       mode,
       surface: options.surface,
     });
+    if (options.sourceRead) query.set("source_read", "true");
     if (actor) query.set("actor", actor);
     if (requestView === "sent") query.set("request_view", "sent");
     if (previewTop) {
@@ -697,7 +716,7 @@ export class ConsentCenterService {
       );
     }
     payload.items = normalizeConsentEntries(payload.items);
-    cache.set(cacheKey, payload, CACHE_TTL.MEDIUM);
+    if (!options.sourceRead) cache.set(cacheKey, payload, CACHE_TTL.MEDIUM);
     return payload;
   }
 

@@ -26,6 +26,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useAuth } from "@/hooks/use-auth";
 
 import { AuthService } from "@/lib/services/auth-service";
 import {
@@ -62,6 +63,7 @@ export function RequestScopeButton({
   personName,
   className,
 }: RequestScopeButtonProps) {
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState("");
   const [hasPeriod, setHasPeriod] = useState(false);
@@ -70,11 +72,12 @@ export function RequestScopeButton({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<string | null>(null);
-  // The lane ships disabled. Ask before offering the CTA at all, so an
-  // environment without it never shows a button that refuses on submit.
+  // Every active connection shows the control. Admission stays disabled
+  // until this deployment confirms its configuration and approval.
   const [enabled, setEnabled] = useState(false);
 
   useEffect(() => {
+    setEnabled(false);
     let cancelled = false;
     void (async () => {
       const token = await AuthService.getIdToken().catch(() => null);
@@ -85,7 +88,7 @@ export function RequestScopeButton({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [personRef, user?.uid]);
 
   const periodStart = hasPeriod ? start || null : null;
   const periodEnd = hasPeriod ? end || null : null;
@@ -117,21 +120,27 @@ export function RequestScopeButton({
     try {
       const token = await AuthService.getIdToken();
       if (!token) throw new Error("Sign in to send this request.");
-      const { requestId } = await AnswerRequestService.create(token, personRef, {
-        question,
-        periodStart,
-        periodEnd,
-      });
+      const { requestId } = await AnswerRequestService.create(
+        token,
+        personRef,
+        {
+          question,
+          periodStart,
+          periodEnd,
+        },
+      );
       setCreated(requestId);
       reset();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "This request could not be sent.");
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "This request could not be sent.",
+      );
     } finally {
       setBusy(false);
     }
   };
-
-  if (!enabled) return null;
 
   return (
     <Dialog
@@ -149,6 +158,8 @@ export function RequestScopeButton({
             would skip the occupied Manage row and land underneath it. */}
         <Button
           size="standard"
+          disabled={!enabled}
+          title={!enabled ? "Requests are not available yet." : undefined}
           variant="none"
           className={className}
           data-voice-control-id="person-profile-request-scope"
@@ -171,8 +182,8 @@ export function RequestScopeButton({
         {created ? (
           <div className="min-w-0 space-y-4">
             <BodyText role="status">
-              Request sent. {personName} reviews the question and the exact information it
-              would use, then sets a price.
+              Request sent. {personName} reviews the question and the exact
+              information it would use, then sets a price.
             </BodyText>
             <Button asChild size="prominent">
               <Link
@@ -217,7 +228,10 @@ export function RequestScopeButton({
               />
             </div>
             <div className="min-w-0 space-y-2">
-              <Label htmlFor="answer-request-has-period" className="flex items-center gap-2">
+              <Label
+                htmlFor="answer-request-has-period"
+                className="flex items-center gap-2"
+              >
                 <input
                   id="answer-request-has-period"
                   type="checkbox"
@@ -279,7 +293,11 @@ export function RequestScopeButton({
             ) : null}
             <FlowActionGroup
               primary={
-                <Button type="submit" size="prominent" disabled={!valid || busy}>
+                <Button
+                  type="submit"
+                  size="prominent"
+                  disabled={!valid || busy}
+                >
                   {busy ? "Sending…" : "Send request"}
                 </Button>
               }
