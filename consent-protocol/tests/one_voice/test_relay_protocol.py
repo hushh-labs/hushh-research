@@ -3790,7 +3790,7 @@ async def test_tap_on_a_firebase_plane_card_verifies_the_proof_before_confirming
             pending=pending,
         )
         task = asyncio.create_task(session.run())
-        await asyncio.sleep(0.2)
+        await transport.wait_for_frame("session.ready")
         session.ctx.entities.remember_person(
             ConfirmedPerson(user_id="u-priya", display_name="Priya", confirmed_at=now_iso())
         )
@@ -3807,19 +3807,19 @@ async def test_tap_on_a_firebase_plane_card_verifies_the_proof_before_confirming
             ("stale", "firebase_proof_invalid"),
             ("other", "firebase_proof_invalid"),
         ):
+            error_count = len(transport.frames("error"))
             transport.push(
                 {"type": "confirm_action", "pending_action_id": row_id, "firebase_id_token": token}
             )
-            await asyncio.sleep(0.15)
-            errors = transport.frames("error")
-            assert errors and errors[-1]["code"] == code, (token, errors)
+            error = await transport.wait_for_frame("error", count=error_count + 1)
+            assert error["code"] == code, (token, error)
             assert (await pending.get(user_id=USER, pending_action_id=row_id)).status == "pending"
         assert [p[1] for p in proofs] == [USER, USER, USER]
 
         transport.push(
             {"type": "confirm_action", "pending_action_id": row_id, "firebase_id_token": "fresh"}
         )
-        await asyncio.sleep(0.2)
+        await transport.wait_for_frame("pending_action.resolved")
         assert (await pending.get(user_id=USER, pending_action_id=row_id)).status == "executed"
         resolved = [
             f for f in transport.frames("pending_action.resolved") if f["status"] == "executed"
