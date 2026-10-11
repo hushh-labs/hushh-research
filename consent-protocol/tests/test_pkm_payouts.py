@@ -8,7 +8,10 @@ is never refunded.
 
 from __future__ import annotations
 
+import asyncio
 import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 import stripe
@@ -17,7 +20,8 @@ from fastapi.testclient import TestClient
 
 import api.routes.one.payouts as payouts_routes
 from api.middleware import require_vault_owner_token
-from hushh_mcp.services import pkm_payout_service
+from hushh_mcp.services import payout_account_status_cache, pkm_payout_service
+from hushh_mcp.services.payout_account_status_cache import PayoutAccountStatusCache
 from hushh_mcp.services.pkm_packet_order_service import PacketOrderError, PkmPacketOrderService
 from hushh_mcp.services.pkm_payout_service import PkmPayoutService
 from tests.test_pkm_credits import _DB
@@ -120,6 +124,9 @@ class _Stripe:
 
 @pytest.fixture(autouse=True)
 def stripe_env(monkeypatch):
+    cache = PayoutAccountStatusCache()
+    monkeypatch.setattr(payout_account_status_cache, "account_status_cache", cache)
+    monkeypatch.setattr(pkm_payout_service, "account_status_cache", cache)
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_" + "x" * 30)
     monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_" + "x" * 30)
     monkeypatch.setenv("HUSSH_SITE_ORIGIN", "https://uat.hushh.ai")
@@ -211,9 +218,12 @@ async def test_document_onboarding_first_is_reused_for_packet_payouts(world):
 
 async def test_document_status_requires_live_transfer_and_payout_readiness(world):
     svc, _db, fake = world
-    assert await svc.account_status(user_id="owner") == {"account": None, "stripeMode": "test"}
+    assert await svc.account_status(user_id="owner", force_refresh=True) == {
+        "account": None,
+        "stripeMode": "test",
+    }
     await svc.onboarding_link(user_id="owner", surface="documents")
-    initial = (await svc.account_status(user_id="owner"))["account"]
+    initial = (await svc.account_status(user_id="owner", force_refresh=True))["account"]
     assert initial == {
         "detailsSubmitted": True,
         "transfersEnabled": False,
@@ -227,12 +237,12 @@ async def test_document_status_requires_live_transfer_and_payout_readiness(world
 
     fake.payouts_enabled = True
     fake.transfers_capability = "active"
-    ready = (await svc.account_status(user_id="owner"))["account"]
+    ready = (await svc.account_status(user_id="owner", force_refresh=True))["account"]
     assert ready["ready"] is True and ready["status"] == "ready"
     assert "stripe_account_id" not in ready
 
     fake.disabled_reason = "requirements.past_due"
-    restricted = (await svc.account_status(user_id="owner"))["account"]
+    restricted = (await svc.account_status(user_id="owner", force_refresh=True))["account"]
     assert restricted["ready"] is False and restricted["status"] == "restricted"
 
 
@@ -240,12 +250,16 @@ async def test_deleted_or_non_us_mapped_account_is_never_replaced(world):
     svc, _db, fake = world
     await svc.onboarding_link(user_id="owner", surface="documents")
     fake.deleted = True
-    assert (await svc.account_status(user_id="owner"))["account"]["status"] == "restricted"
+    assert (await svc.account_status(user_id="owner", force_refresh=True))["account"][
+        "status"
+    ] == "restricted"
     with pytest.raises(PacketOrderError, match="needs support"):
         await svc.onboarding_link(user_id="owner", surface="documents")
     fake.deleted = False
     fake.country = "CA"
-    assert (await svc.account_status(user_id="owner"))["account"]["ready"] is False
+    assert (await svc.account_status(user_id="owner", force_refresh=True))["account"][
+        "ready"
+    ] is False
     with pytest.raises(PacketOrderError, match="needs support"):
         await svc.onboarding_link(user_id="owner", surface="documents")
     assert len(fake.accounts) == 1
@@ -280,7 +294,7 @@ async def test_stripe_failure_is_sanitized_and_does_not_create_second_account(wo
 
     fake.Account.retrieve = fail_retrieve
     with pytest.raises(PacketOrderError) as exc:
-        await svc.account_status(user_id="owner")
+        await svc.account_status(user_id="owner", force_refresh=True)
     assert exc.value.code == "PAYOUT_UNAVAILABLE"
     assert "sk_test" not in str(exc.value)
     assert len(fake.accounts) == 1
@@ -376,13 +390,13 @@ async def test_bank_changes_disable_readiness_and_keep_masked_owner_details(worl
         "id": "ba_private",
     }
     fake.external_accounts["data"] = [bank]
-    account = (await svc.account_status(user_id="owner"))["account"]
+    account = (await svc.account_status(user_id="owner", force_refresh=True))["account"]
     assert account["ready"] is True
     assert account["bank"] == {"name": "Example Bank", "last4": "6789", "status": "new"}
     assert "private" not in str(account)
 
     bank["status"] = "errored"
-    account = (await svc.account_status(user_id="owner"))["account"]
+    account = (await svc.account_status(user_id="owner", force_refresh=True))["account"]
     assert account["ready"] is False and account["bankStatus"] == "needs_attention"
     # A failed bank still needs an owner-accessible repair link.
     assert (await svc.management_link(user_id="owner"))["url"].startswith(
@@ -390,14 +404,14 @@ async def test_bank_changes_disable_readiness_and_keep_masked_owner_details(worl
     )
 
     fake.external_accounts["data"] = []
-    account = (await svc.account_status(user_id="owner"))["account"]
+    account = (await svc.account_status(user_id="owner", force_refresh=True))["account"]
     assert account["ready"] is False and account["bankStatus"] == "missing"
     fake.external_accounts["has_more"] = True
-    account = (await svc.account_status(user_id="owner"))["account"]
+    account = (await svc.account_status(user_id="owner", force_refresh=True))["account"]
     assert account["bankStatus"] == "unavailable"  # partial preview cannot prove removal
     assert account["ready"] is False
     fake.external_accounts_visible = False
-    account = (await svc.account_status(user_id="owner"))["account"]
+    account = (await svc.account_status(user_id="owner", force_refresh=True))["account"]
     assert account["bankStatus"] == "unavailable" and account["ready"] is False
 
 
@@ -411,17 +425,17 @@ async def test_disabled_bank_management_never_issues_login_link(world):
     assert len(fake.links) == prior_links
 
 
-async def test_payout_readiness_cache_requires_transfers_and_unrestricted_us_account(world):
+async def test_authoritative_refresh_persists_transfer_and_unrestricted_us_readiness(world):
     svc, db, fake = world
     await svc.onboarding_link(user_id="owner", surface="documents")
     fake.payouts_enabled = True
-    await svc.account_status(user_id="owner")
+    await svc.refresh_account("owner")
     assert db.tables["stripe_owner_payout_accounts"][0]["account_ready"] is False
     fake.transfers_capability = "active"
-    await svc.account_status(user_id="owner")
+    await svc.refresh_account("owner")
     assert db.tables["stripe_owner_payout_accounts"][0]["account_ready"] is True
     fake.disabled_reason = "requirements.past_due"
-    await svc.account_status(user_id="owner")
+    await svc.refresh_account("owner")
     assert db.tables["stripe_owner_payout_accounts"][0]["account_ready"] is False
 
 
@@ -465,7 +479,10 @@ async def test_switch_to_live_does_not_reuse_test_bank_or_transfer_test_earnings
     db.tables["pkm_packet_orders"][0]["owner_earning_status"] = "due"
     monkeypatch.setenv("STRIPE_MODE", "live")
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_live_" + "x" * 30)
-    assert await svc.account_status(user_id="owner") == {"account": None, "stripeMode": "live"}
+    assert await svc.account_status(user_id="owner", force_refresh=True) == {
+        "account": None,
+        "stripeMode": "live",
+    }
     assert await svc.transfer_due() == 0
     assert fake.transfers == []
     await svc.onboarding_link(user_id="owner", surface="documents")
@@ -487,7 +504,10 @@ async def test_legacy_bank_adoption_requires_active_mode_provider_proof(world, m
         raise MissingAccount()
 
     monkeypatch.setattr(fake.Account, "retrieve", missing)
-    assert await svc.account_status(user_id="owner") == {"account": None, "stripeMode": "test"}
+    assert await svc.account_status(user_id="owner", force_refresh=True) == {
+        "account": None,
+        "stripeMode": "test",
+    }
     assert not db.tables["stripe_owner_payout_accounts"]
     assert db.tables["pkm_owner_payout_accounts"][0]["account_ready"] is True
 
@@ -571,7 +591,10 @@ async def test_live_setup_accepts_stripes_exact_test_account_verdict_only(world,
         return original_retrieve(account_id, **kwargs)
 
     monkeypatch.setattr(fake.Account, "retrieve", retrieve)
-    assert await svc.account_status(user_id="owner") == {"account": None, "stripeMode": "live"}
+    assert await svc.account_status(user_id="owner", force_refresh=True) == {
+        "account": None,
+        "stripeMode": "live",
+    }
     await svc.onboarding_link(user_id="owner", surface="documents")
     assert len(fake.accounts) == 1
     assert db.tables["stripe_owner_payout_accounts"][0]["stripe_mode"] == "live"
@@ -647,3 +670,276 @@ async def test_explicit_sandbox_bank_keeps_live_marketplace_settlement_isolated(
     with pytest.raises(PacketOrderError, match="mode does not match"):
         await sandbox.transfer_due()
     assert fake.transfers == []
+
+
+async def test_display_account_reads_single_flight_across_service_instances(world, monkeypatch):
+    svc, db, fake = world
+    svc._resume_documents = False
+    await svc.onboarding_link(user_id="owner")
+    other = PkmPayoutService(stripe_api=fake, resume_documents=False)
+    other._db = db
+    started, release = asyncio.Event(), asyncio.Event()
+    retrieve = svc._retrieve_account
+    all_joined = asyncio.Event()
+    binding = other._account
+    joined = 0
+
+    async def observed_binding(user_id):
+        nonlocal joined
+        account = await binding(user_id)
+        joined += 1
+        if joined == 8:
+            all_joined.set()
+        return account
+
+    monkeypatch.setattr(other, "_account", observed_binding)
+
+    async def blocked(account_id, *, key):
+        started.set()
+        await release.wait()
+        return await retrieve(account_id, key=key)
+
+    monkeypatch.setattr(svc, "_retrieve_account", blocked)
+    first = asyncio.create_task(svc.account_status(user_id="owner"))
+    await started.wait()
+    reads = [asyncio.create_task(other.account_status(user_id="owner")) for _ in range(8)]
+    await all_joined.wait()
+    release.set()
+    statuses = await asyncio.gather(first, *reads)
+    assert all(result == statuses[0] for result in statuses)
+    statuses[0]["account"]["bank"]["last4"] = "0000"
+    assert (await other.account_status(user_id="owner"))["account"]["bank"]["last4"] == "6789"
+    assert fake.retrieves == ["acct_1"]
+
+
+async def test_display_status_isolates_owner_mode_provider_and_account_binding(world):
+    svc, db, fake = world
+    svc._resume_documents = False
+    await svc.onboarding_link(user_id="owner")
+    await svc.account_status(user_id="owner")
+    assert (await svc.account_status(user_id="other"))["account"] is None
+    live = PkmPayoutService(
+        stripe_api=fake, mode="live", api_key="sk_live_" + "y" * 30, resume_documents=False
+    )
+    live._db = db
+    assert (await live.account_status(user_id="owner"))["account"] is None
+    rotated = PkmPayoutService(
+        stripe_api=fake, mode="test", api_key="sk_test_" + "y" * 30, resume_documents=False
+    )
+    rotated._db = db
+    fake.payouts_enabled = True
+    fake.transfers_capability = "active"
+    db.tables[pkm_payout_service.ACCOUNTS].extend(
+        [
+            {"user_id": "other", "stripe_mode": "test", "stripe_account_id": "acct_other"},
+            {"user_id": "owner", "stripe_mode": "live", "stripe_account_id": "acct_1"},
+        ]
+    )
+    assert (await svc.account_status(user_id="other"))["account"]["ready"] is True
+    assert (await live.account_status(user_id="owner"))["account"]["ready"] is True
+    assert (await rotated.account_status(user_id="owner"))["account"]["ready"] is True
+    assert (await svc.account_status(user_id="owner"))["account"]["ready"] is False
+    db.tables[pkm_payout_service.ACCOUNTS][0]["stripe_account_id"] = "acct_rebound"
+    assert (await svc.account_status(user_id="owner"))["account"]["ready"] is True
+    assert fake.retrieves == ["acct_1", "acct_other", "acct_1", "acct_1", "acct_rebound"]
+    db.tables[pkm_payout_service.ACCOUNTS].clear()
+    assert (await svc.account_status(user_id="owner"))["account"] is None
+
+
+async def test_verified_invalidation_fences_inflight_display_result(world, monkeypatch):
+    svc, _db, fake = world
+    svc._resume_documents = False
+    await svc.onboarding_link(user_id="owner")
+    started, release = asyncio.Event(), asyncio.Event()
+    retrieve = svc._retrieve_account
+    calls = 0
+
+    async def blocked(account_id, *, key):
+        nonlocal calls
+        calls += 1
+        snapshot = await retrieve(account_id, key=key)
+        if calls == 1:
+            started.set()
+            await release.wait()
+        return snapshot
+
+    monkeypatch.setattr(svc, "_retrieve_account", blocked)
+    reading = asyncio.create_task(svc.account_status(user_id="owner"))
+    await started.wait()
+    fake.payouts_enabled = True
+    fake.transfers_capability = "active"
+    payout_account_status_cache.invalidate_payout_account_status(user_id="owner", mode="test")
+    release.set()
+    assert (await reading)["account"]["ready"] is True
+    assert (await svc.account_status(user_id="owner"))["account"]["ready"] is True
+    assert calls == 2
+
+
+async def test_display_provider_failure_is_not_cached(world, monkeypatch):
+    svc, _db, fake = world
+    await svc.onboarding_link(user_id="owner")
+    retrieve = svc._retrieve_account
+    failing = AsyncMock(side_effect=PacketOrderError("PAYOUT_UNAVAILABLE", "Retry."))
+    monkeypatch.setattr(svc, "_retrieve_account", failing)
+    with pytest.raises(PacketOrderError):
+        await svc.account_status(user_id="owner")
+    monkeypatch.setattr(svc, "_retrieve_account", retrieve)
+    assert (await svc.account_status(user_id="owner"))["account"] is not None
+    assert fake.retrieves == ["acct_1"]
+
+
+async def test_cached_ready_display_never_authorizes_hashcoin_redemption(world):
+    from hushh_mcp.services.hashcoin_redemption_service import (
+        HashcoinRedemptionError,
+        HashcoinRedemptionService,
+    )
+
+    svc, _db, fake = world
+    svc._resume_documents = False
+    await svc.onboarding_link(user_id="owner")
+    fake.payouts_enabled = True
+    fake.transfers_capability = "active"
+    assert (await svc.account_status(user_id="owner"))["account"]["ready"] is True
+    fake.deleted = True
+    wallet = SimpleNamespace(
+        get_redemption=AsyncMock(return_value=None), reserve_redemption=AsyncMock()
+    )
+    redemption = HashcoinRedemptionService(wallet=wallet, stripe_api=fake, accounts=svc)
+    with pytest.raises(HashcoinRedemptionError) as failure:
+        await redemption.redeem(
+            user_id="owner",
+            amount_coins=100,
+            client_request_id="00000000-0000-4000-8000-000000000001",
+            mode="test",
+        )
+    assert failure.value.code == "PAYOUT_ACCOUNT_REQUIRED"
+    assert fake.retrieves == ["acct_1", "acct_1"]
+    wallet.reserve_redemption.assert_not_awaited()
+    assert fake.transfers == []
+
+
+async def test_bank_management_and_onboarding_fence_display_cache(world):
+    svc, _db, fake = world
+    svc._resume_documents = False
+    await svc.onboarding_link(user_id="owner")
+    await svc.account_status(user_id="owner")
+    await svc.management_link(user_id="owner")
+    await svc.account_status(user_id="owner")
+    assert len(fake.retrieves) == 3
+    await svc.onboarding_link(user_id="owner")
+    await svc.account_status(user_id="owner")
+    assert len(fake.retrieves) == 5
+
+
+async def test_display_cache_expiry_capacity_and_cancelled_reader(monkeypatch):
+    now = 100.0
+    monkeypatch.setattr(payout_account_status_cache, "monotonic", lambda: now)
+    cache = PayoutAccountStatusCache(ttl=30, max_entries=2)
+    load = AsyncMock(return_value={"ready": True})
+    owner = ("owner", "test", "provider", "acct_1")
+    await cache.get(owner, load)
+    now += 29
+    await cache.get(owner, load)
+    assert load.await_count == 1
+    now += 1
+    await cache.get(owner, load)
+    assert load.await_count == 2
+    await cache.get(("second", "test", "provider", "acct_2"), load)
+    await cache.get(("third", "test", "provider", "acct_3"), load)
+    await cache.get(owner, load)
+    assert load.await_count == 5  # the least-recently-read entry was evicted
+    assert len(cache._entries) == 2
+
+    started, release = asyncio.Event(), asyncio.Event()
+    calls = 0
+
+    async def slow():
+        nonlocal calls
+        calls += 1
+        started.set()
+        await release.wait()
+        return {"ready": False}
+
+    cache.invalidate(user_id="owner", mode="test")
+    disconnected = asyncio.create_task(cache.get(owner, slow))
+    await started.wait()
+    disconnected.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await disconnected
+    release.set()
+    assert await cache.get(owner, slow) == {"ready": False}
+    assert calls == 1
+
+
+@pytest.mark.parametrize("deleted", [False, True])
+async def test_account_rebinding_during_refresh_cannot_publish_old_readiness(
+    world, monkeypatch, deleted
+):
+    svc, db, fake = world
+    svc._resume_documents = False
+    await svc.onboarding_link(user_id="owner")
+    fake.payouts_enabled = True
+    fake.transfers_capability = "active"
+    started, release = asyncio.Event(), asyncio.Event()
+    retrieve = svc._retrieve_account
+
+    async def blocked(account_id, *, key):
+        snapshot = await retrieve(account_id, key=key)
+        started.set()
+        await release.wait()
+        return snapshot
+
+    monkeypatch.setattr(svc, "_retrieve_account", blocked)
+    reading = asyncio.create_task(svc.refresh_account("owner"))
+    await started.wait()
+    db.tables[pkm_payout_service.ACCOUNTS] = (
+        []
+        if deleted
+        else [{"user_id": "owner", "stripe_mode": "test", "stripe_account_id": "acct_rebound"}]
+    )
+    release.set()
+    with pytest.raises(PacketOrderError) as failure:
+        await reading
+    assert failure.value.code == "PAYOUT_UNAVAILABLE"
+    assert all("account_ready" not in row for row in db.tables[pkm_payout_service.ACCOUNTS])
+
+
+async def test_invalidated_display_cannot_overwrite_new_authority_when_retry_fails(
+    world, monkeypatch
+):
+    svc, db, fake = world
+    await svc.onboarding_link(user_id="owner")
+    db.tables[pkm_payout_service.ACCOUNTS][0]["account_ready"] = False
+    fake.payouts_enabled = True
+    fake.transfers_capability = "active"
+    started, release = asyncio.Event(), asyncio.Event()
+    retrieve = svc._retrieve_account
+    resume = AsyncMock()
+    monkeypatch.setattr(pkm_payout_service, "resume_document_owner_setup", resume)
+    calls = 0
+
+    async def delayed_display(account_id, *, key):
+        nonlocal calls
+        calls += 1
+        if calls == 3:
+            raise PacketOrderError("PAYOUT_UNAVAILABLE", "Retry failed.")
+        snapshot = await retrieve(account_id, key=key)
+        if calls == 1:
+            started.set()
+            await release.wait()
+        return snapshot
+
+    monkeypatch.setattr(svc, "_retrieve_account", delayed_display)
+    reading = asyncio.create_task(svc.account_status(user_id="owner"))
+    await started.wait()
+    fake.deleted = True
+    refreshed = await svc.refresh_account("owner")
+    assert refreshed["readiness"]["ready"] is False
+    authoritative_row = dict(db.tables[pkm_payout_service.ACCOUNTS][0])
+    release.set()
+    with pytest.raises(PacketOrderError, match="Retry failed"):
+        await reading
+    assert calls == 3
+    assert db.tables[pkm_payout_service.ACCOUNTS][0] == authoritative_row
+    assert authoritative_row["account_ready"] is False
+    resume.assert_not_awaited()

@@ -36,6 +36,7 @@ import {
 import { useDeepLinkReturn } from "@/lib/navigation/use-deep-link-return";
 import { useAndroidBack } from "@/lib/navigation/android-back";
 import { ConsentNotificationProvider } from "@/components/consent/notification-provider";
+import { AuthenticatedFeedStream } from "@/components/feed/authenticated-feed-stream";
 import { GlobalVoiceActionHandlers } from "@/components/agent/global-voice-action-handlers";
 import { ProfileIdentityVoiceRefresh } from "@/components/profile/profile-identity-voice-refresh";
 import { GlobalConsentActionHandlers } from "@/components/agent/global-consent-action-handlers";
@@ -845,6 +846,7 @@ export function Providers({ children }: ProvidersProps) {
         {/* Step-based progress bar at top of viewport */}
         <StepProgressBar />
         <AuthProvider>
+          <AuthenticatedFeedStream />
           <ObservabilityRouteObserver />
           {/* Session-scoped voice actions ("log me out") live here rather than
               on Profile: a local handler is only offered while it is mounted,
