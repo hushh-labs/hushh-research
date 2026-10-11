@@ -661,9 +661,11 @@ substitutions:
   _EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET: ""
   _DRIVE_DOCUMENT_KEY_V1_SECRET: ""
   _DRIVE_SHARING_KEY_V1_SECRET: ""
-  # Request intake and owner review. Independent of the payment flags, and
-  # empty means "inherit the payment flag" so an already-paid lane is unchanged.
-  _PKM_ANSWER_REQUESTS_ENABLED: ""
+  # Request intake and owner review. Independent of the payment flags and
+  # open by default: an active connection is already the gate for asking, and
+  # a default-closed flag in front of it only ships a dead control. Set the
+  # environment's repository variable to "false" to close intake.
+  _PKM_ANSWER_REQUESTS_ENABLED: "true"
   _PKM_ANSWER_PAYMENTS_ENABLED: "false"
   _PKM_ANSWER_COMPOSER_ENABLED: "false"
   _PKM_ANSWER_LIVE_PROVIDER_REVIEWED: "false"
