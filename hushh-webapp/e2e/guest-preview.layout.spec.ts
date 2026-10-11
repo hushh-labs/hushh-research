@@ -410,6 +410,23 @@ for (const viewport of [
             }
         }
         if (step === 3) {
+          await expect
+            .poll(() =>
+              screen.locator("[data-agent-tour] button").evaluateAll((buttons) =>
+                buttons.map((button) => button.textContent?.trim()),
+              ),
+            )
+            .toEqual([
+              "Messages",
+              "Finance",
+              "Advisor",
+              "Wallet",
+              "Location",
+              "Mail",
+              "Calendar",
+              "Memory",
+              "Consent",
+            ]);
           // Keep the longest single-word label intact even at 320px in WebKit.
           expect(
             await screen

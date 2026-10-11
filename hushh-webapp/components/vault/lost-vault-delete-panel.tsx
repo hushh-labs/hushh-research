@@ -84,6 +84,11 @@ export function LostVaultDeletePanel({ user, onBack }: { user: User; onBack: () 
   const hasUsableProvider = providers.some(
     (provider) => provider === "google.com" || !Capacitor.isNativePlatform(),
   );
+  const stageTitle = stage === "review"
+    ? "Verify it’s you"
+    : stage === "phone"
+      ? "Verify your phone"
+      : "Delete account";
 
   async function verifyProvider(provider: ProviderId) {
     setBusy(true);
@@ -182,17 +187,18 @@ export function LostVaultDeletePanel({ user, onBack }: { user: User; onBack: () 
     >
       <div className="mx-auto w-full max-w-[25rem] space-y-5">
         <div className="space-y-2 text-center">
-          <h2 className="type-title-2 font-semibold text-[color:var(--app-label)]">Delete and start fresh</h2>
-          <p className="type-footnote text-[color:var(--app-secondary-label)]">
-            Lost every way into your vault? You can delete this account without its passphrase or recovery key.
-          </p>
+          <h2 className="type-title-2 font-semibold text-[color:var(--app-label)]">{stageTitle}</h2>
+          {stage === "review" && (
+            <p className="type-footnote text-[color:var(--app-secondary-label)]">
+              Sign in again to continue.
+            </p>
+          )}
         </div>
 
-        {(stage === "review" || stage === "phone" || stage === "confirm") && (
-          <div className="space-y-3 type-footnote text-[color:var(--app-secondary-label)]">
-            <p>Your vault, memories, chats, connections, and One context will be removed. A new account starts empty.</p>
-            <p>Remove One or Plaid access in your bank settings if you connected a bank. Outside services and records we must retain may remain.</p>
-          </div>
+        {stage === "review" && (
+          <p className="type-footnote text-[color:var(--app-secondary-label)]">
+            This permanently deletes your account. If you connected a bank, remove access in bank settings; required records may remain.
+          </p>
         )}
 
         {error && <p role="alert" className="type-footnote text-destructive">{error}</p>}
@@ -203,7 +209,6 @@ export function LostVaultDeletePanel({ user, onBack }: { user: User; onBack: () 
           <div className="space-y-3">
             {hasUsableProvider ? (
               <>
-                <p className="type-footnote text-[color:var(--app-secondary-label)]">First, confirm it is you.</p>
                 {providers.map((provider) => (
                   <Button
                     key={provider}
@@ -251,7 +256,7 @@ export function LostVaultDeletePanel({ user, onBack }: { user: User; onBack: () 
           <div className="space-y-4">
             <label className="flex min-h-11 items-start gap-3 type-footnote text-[color:var(--app-label)]">
               <input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} className="mt-1" />
-              <span>I understand my old information cannot be recovered.</span>
+              <span>I understand this can’t be undone.</span>
             </label>
             <Button variant="none" effect="fill" fullWidth className="min-h-12 rounded-full !bg-[color:var(--app-destructive)] !text-white" disabled={!acknowledged} onClick={() => void deleteAccount()}>
               Permanently delete account
