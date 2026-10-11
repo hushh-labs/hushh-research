@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -18,9 +19,10 @@ def client(owner="owner"):
     return TestClient(app)
 
 
-def test_card_owner_mismatch_is_private_and_does_not_call_service():
+@pytest.mark.parametrize("path", ["/cards/card_one", "/connections"])
+def test_card_owner_mismatch_is_private_and_does_not_call_service(path):
     with patch("api.routes.one.wallet_card_access.service") as service:
-        response = client("other").get(ROOT + "/cards/card_one")
+        response = client("other").get(ROOT + path)
         assert response.status_code == 403
         assert response.headers["cache-control"] == "private, no-store"
         service.assert_not_called()

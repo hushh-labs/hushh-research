@@ -206,19 +206,21 @@ class WalletCardAccessService:
 
     def connections(self, owner, query=""):
         with self.db.engine.begin() as conn:
-            self.require_available(conn)
+            # Recipient discovery reads the owner's existing connection graph,
+            # not card grants. Grant rollout state must not break this list;
+            # create_grants still enforces availability before granting access.
             rows = many(
                 conn,
                 """SELECT p.public_person_ref,a.display_name,
  COALESCE(NULLIF(a.custom_photo_url,''),a.photo_url) AS photo_url,
  EXISTS(SELECT 1 FROM one_location_circles tc JOIN one_location_circle_memberships tm ON tm.circle_id=tc.id
- WHERE tc.owner_user_id=:owner AND tc.system_kind='trusted' AND tc.status='active' AND tm.user_id=a.user_id AND tm.status='active'
+ WHERE tc.owner_user_id=:owner AND tc.system_kind='trusted' AND tc.status='active' AND tm.user_id=p.user_id AND tm.status='active'
  AND tm.metadata @> jsonb_build_object('addedVia','direct_add','addedBy',tc.owner_user_id)) AS trusted
- FROM connections c JOIN actor_identity_cache a ON a.user_id=CASE WHEN c.user_a_id=:owner THEN c.user_b_id ELSE c.user_a_id END
- JOIN actor_profiles p ON p.user_id=a.user_id
+ FROM connections c JOIN actor_profiles p ON p.user_id=CASE WHEN c.user_a_id=:owner THEN c.user_b_id ELSE c.user_a_id END
+ LEFT JOIN actor_identity_cache a ON a.user_id=p.user_id
  WHERE c.status='active' AND :owner IN(c.user_a_id,c.user_b_id) AND p.public_person_ref IS NOT NULL
  AND (:query='' OR COALESCE(a.display_name,'') ILIKE '%'||:query||'%')
- AND NOT EXISTS(SELECT 1 FROM direct_message_blocks b WHERE (b.blocker_user_id=:owner AND b.blocked_user_id=a.user_id) OR (b.blocker_user_id=a.user_id AND b.blocked_user_id=:owner))
+ AND NOT EXISTS(SELECT 1 FROM direct_message_blocks b WHERE (b.blocker_user_id=:owner AND b.blocked_user_id=p.user_id) OR (b.blocker_user_id=p.user_id AND b.blocked_user_id=:owner))
  ORDER BY lower(COALESCE(a.display_name,'')),p.public_person_ref LIMIT 101""",
                 {"owner": owner, "query": query.strip()},
             )
