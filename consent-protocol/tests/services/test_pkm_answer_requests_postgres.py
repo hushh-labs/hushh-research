@@ -45,7 +45,7 @@ MIGRATIONS = [
     / "301_pkm_answer_refunds_payouts.sql",
 ]
 MIGRATIONS.append(
-    Path(__file__).resolve().parents[2] / "db/migrations/303_pkm_answer_payment_recovery.sql"
+    Path(__file__).resolve().parents[2] / "db/migrations/305_pkm_answer_payment_recovery.sql"
 )
 
 # The owner's registry. attr.financial.holdings is deliberately present so a

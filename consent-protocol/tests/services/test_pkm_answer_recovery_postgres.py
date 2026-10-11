@@ -368,9 +368,9 @@ async def test_expand_only_rollback_preserves_financial_recovery_bindings(answer
     try:
         cursor = raw.cursor()
         for name in (
-            "303_pkm_answer_payment_recovery.sql",
-            "rollback/303_pkm_answer_payment_recovery.rollback.sql",
-            "303_pkm_answer_payment_recovery.sql",
+            "305_pkm_answer_payment_recovery.sql",
+            "rollback/305_pkm_answer_payment_recovery.rollback.sql",
+            "305_pkm_answer_payment_recovery.sql",
         ):
             cursor.execute((migrations / name).read_text())
         raw.commit()

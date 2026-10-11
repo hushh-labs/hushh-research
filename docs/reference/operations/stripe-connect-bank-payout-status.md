@@ -69,11 +69,12 @@ In each Stripe environment, create a **Connected accounts** event destination
 pointing to `POST /api/one/payouts/connect/webhook`. Select `account.updated`,
 `account.external_account.created`, `account.external_account.updated`,
 `account.external_account.deleted`, `payout.created`, `payout.updated`,
-`payout.paid`, and `payout.failed`. Store that
+`payout.paid`, `payout.failed`, and `payout.canceled`. Store that
 destination's signing secret as `STRIPE_CONNECT_WEBHOOK_SECRET` in the backend
 Secret Manager project. It must differ from the platform Checkout endpoint's
 `STRIPE_WEBHOOK_SECRET`. Bind both secrets only to the backend runtime, never
-the webapp. Production Connect destinations may deliver test and live events;
+the webapp. The private worker also needs the Connect webhook secret to
+reconcile an accepted live redemption after a retry. Production Connect destinations may deliver test and live events;
 the handler checks `event.livemode`, top-level `event.account`, the mapped
 connected account, and a provider read under the matching Stripe API key.
 
@@ -84,6 +85,10 @@ connected-account Payout or Account, and records each event ID once. A stale
 error. The account owner can read at most 20 recent deposits through
 `GET /api/one/payouts/account/bank-payouts`; the response has no bank account
 details and no document request ID.
+
+The private worker also scans bounded pages of connected-account payouts using
+a durable cursor. A missed webhook can therefore update deposit status without
+an owner refresh; the scan never attributes a bank deposit to a single request.
 
 ## Bank management
 

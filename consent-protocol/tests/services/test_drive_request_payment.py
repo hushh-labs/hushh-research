@@ -158,6 +158,7 @@ class _CommerceStripe:
                     "status": "paid",
                     "amount": 5000,
                     "currency": "usd",
+                    "created": 1700000000,
                     "arrival_date": 1800000000,
                 }
             )
