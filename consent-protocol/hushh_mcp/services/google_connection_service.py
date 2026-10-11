@@ -524,12 +524,24 @@ class GoogleConnectionService:
         level = (
             "manage"
             if service == "calendar"
-            and "https://www.googleapis.com/auth/calendar.events" in scopes.split()
+            and _scopes_cover(set(scopes.split()), set(self.scopes("calendar", "manage")))
             else "read"
         )
-        if not _scopes_cover(set(scopes.split()), set(self.scopes(service, level))):
+        # The stored attempt is the authority requested by this connection.
+        # Do not silently downgrade a management request to read-only access.
+        requested_level = (
+            "manage"
+            if service == "calendar"
+            and "https://www.googleapis.com/auth/calendar.events" in requested_scopes
+            else "read"
+        )
+        if not _scopes_cover(set(scopes.split()), set(self.scopes(service, requested_level))):
             raise GoogleConnectionError(
-                "The requested Google service permission was not granted", status_code=403
+                "Calendar permission was not granted. Connect again and allow the requested Calendar access."
+                if service == "calendar"
+                else "The requested Google service permission was not granted",
+                status_code=403,
+                reason_code="google_permission_required",
             )
         if (
             service == "calendar"
