@@ -9,6 +9,7 @@ import { isLocalHost } from "@/lib/hermes/local-host";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import type { AgentChatConversation } from "@/lib/services/agent-chat-client";
+import { AgentDockPortal } from "@/components/agent/agent-dock";
 
 /**
  * Puppy One as a mode of the Agent Chat workspace.
@@ -29,6 +30,7 @@ import type { AgentChatConversation } from "@/lib/services/agent-chat-client";
 export function PuppyOneSurface({
   className,
   active = true,
+  sharedDock = false,
   conversations,
   activeConversationId,
   onCreateConversation,
@@ -46,6 +48,7 @@ export function PuppyOneSurface({
    * transcript under a header that says "One".
    */
   active?: boolean;
+  sharedDock?: boolean;
 }) {
   const link = usePuppyLink();
   // A deployed frontend's loopback is its Cloud Run container, never the
@@ -57,7 +60,7 @@ export function PuppyOneSurface({
   const sheet = <PuppyMachineSheet className="shrink-0" active={active} />;
   const panel = (activePanel: boolean, panelClassName?: string) =>
     localBridge === null ? null : localBridge ? (
-      <HermesChatPanel active={activePanel} className={panelClassName} />
+      <HermesChatPanel active={activePanel} sharedDock={sharedDock} className={panelClassName} />
     ) : (
       <PrivatePuppyInferencePanel className={panelClassName} accessory={sheet} />
     );
@@ -98,6 +101,12 @@ export function PuppyOneSurface({
             surface, and a bordered box here read as a widget inside the page
             rather than the conversation itself. */}
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          {/* Remote Puppy retains its own admitted-pod composer. Suppress the
+              shared cloud launcher; local Hermes may claim the retained dock. */}
+          <AgentDockPortal
+            enabled={sharedDock && active && (localBridge !== true || (conversations !== undefined && !conversations.some(conversation => conversation.id === activeConversationId)))}
+            visible={false} suppressed
+          >{null}</AgentDockPortal>
           {conversations === undefined ? panel(active) : (
             <>
               {conversations.length === 0 ? (
@@ -109,6 +118,7 @@ export function PuppyOneSurface({
                 <HermesChatPanel
                   key={conversation.id}
                   active={active && activeConversationId === conversation.id}
+                  sharedDock={sharedDock}
                   className={cn(activeConversationId !== conversation.id && "hidden")}
                 />
               ) : (

@@ -196,3 +196,12 @@ Dev history cleanup 944 completed September 28 under
 The former branch-only profile bridge is now pending canonical 302; canonical 249 remains
 deferred in shared-dev pending separate cutover evidence. Current acceptance belongs to the
 matrix above; Git history retains the chronology.
+
+The final main-readiness integration freezes main `c3dad00c997b` and carries the
+13-path ADK retained-dock delta `5c86617f2c`, preserving deployed private Puppy,
+voice readiness and all active ADK edits. Earlier disabled native qualification
+remains in its active owner. Twenty exact size slots have independent main UI,
+release/backend and ADK presentation review with source hashes; no budget,
+scanner or unrelated allowance changes. SOS publication uses the root's bounded
+condition wait, superseding main's equivalent polling fix. The current canonical
+dev origin is validated by the actual resolver and retired-origin negative control.

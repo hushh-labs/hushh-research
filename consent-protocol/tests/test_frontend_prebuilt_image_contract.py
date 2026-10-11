@@ -171,12 +171,15 @@ def test_native_public_clients_resolve_only_in_dev_and_fail_closed(
         _body(_steps(FRONTEND_IMAGE_BUILD)["resolve-google-contacts-client-config"]), values
     )
     resolver = resolver.replace("$$", "$").replace("/workspace", str(tmp_path))
-    origin = {"dev": "dev.one.hushh.ai", "uat": "uat.one.hushh.ai", "production": "one.hushh.ai"}[
-        lane
-    ]
+    dev_workflow = yaml.safe_load((ROOT / LANES["dev"][0]).read_text(encoding="utf-8"))
+    origin = {
+        "dev": dev_workflow["env"]["APP_FRONTEND_ORIGIN"],
+        "uat": "https://uat.one.hushh.ai",
+        "production": "https://one.hushh.ai",
+    }[lane]
     result = _run(
         guard + resolver,
-        env={"APP_FRONTEND_ORIGIN_VAL": f"https://{origin}", "PROJECT_ID": "synthetic-project"},
+        env={"APP_FRONTEND_ORIGIN_VAL": origin, "PROJECT_ID": "synthetic-project"},
     )
     assert result.returncode == expected_code, result.stderr
     assert client not in result.stdout + result.stderr
@@ -209,9 +212,7 @@ def test_native_public_clients_resolve_only_in_dev_and_fail_closed(
         name: "synthetic"
         for name in _steps(FRONTEND_IMAGE_BUILD)["build-frontend-image"]["secretEnv"]
     }
-    environment.update(
-        {"APP_FRONTEND_ORIGIN_VAL": f"https://{origin}", "PROJECT_ID": "synthetic-project"}
-    )
+    environment.update({"APP_FRONTEND_ORIGIN_VAL": origin, "PROJECT_ID": "synthetic-project"})
     built = _run(build_guard + build, env=environment)
     assert built.returncode == 0, built.stderr
     args = capture.read_text().splitlines()
@@ -223,6 +224,29 @@ def test_native_public_clients_resolve_only_in_dev_and_fail_closed(
     ):
         assert f"{name}={expected_client}" in args
     assert client not in built.stdout + built.stderr
+
+
+def test_frontend_resolver_rejects_retired_dev_origin_before_secret_reads(tmp_path: Path) -> None:
+    config = yaml.safe_load(FRONTEND_IMAGE_BUILD.read_text(encoding="utf-8"))
+    values = {name: str(value) for name, value in config["substitutions"].items()}
+    values.update({"_DEPLOY_ENV": "dev", "_APP_ENV": "dev"})
+    resolver = (
+        _substitute(
+            _body(_steps(FRONTEND_IMAGE_BUILD)["resolve-google-contacts-client-config"]), values
+        )
+        .replace("$$", "$")
+        .replace("/workspace", str(tmp_path))
+    )
+    result = _run(
+        "gcloud() { echo UNEXPECTED_CLOUD_COMMAND >&2; return 1; };\n" + resolver,
+        env={
+            "APP_FRONTEND_ORIGIN_VAL": "https://dev.one.hushh.ai",
+            "PROJECT_ID": "synthetic-project",
+        },
+    )
+    assert result.returncode == 1
+    assert "APP_FRONTEND_ORIGIN host does not match the dev frontend domain." in result.stdout
+    assert "UNEXPECTED_CLOUD_COMMAND" not in result.stdout + result.stderr
 
 
 def _native_runtime_profile_fixture(tmp_path: Path, pins: dict[str, str]) -> Path:

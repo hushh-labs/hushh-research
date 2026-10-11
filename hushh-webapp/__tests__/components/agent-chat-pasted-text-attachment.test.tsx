@@ -295,6 +295,31 @@ describe("memory capture input", () => {
  * turn. The text stays in memory: nothing reaches web storage.
  */
 describe("pasted text editor", () => {
+  it("opens the authored editor from a native chip without replacing the companion draft", async () => {
+    function NativeChipHarness() {
+      const [attachment, setAttachment] = useState(createPendingTextAttachment(PASTE));
+      const [open, setOpen] = useState(false);
+      const [draft, setDraft] = useState("Summarize the attachment");
+      return <>
+        <textarea aria-label="Companion draft" value={draft} onChange={event => setDraft(event.target.value)} />
+        <button onClick={() => setOpen(true)}>Native Edit</button>
+        <AgentComposerTextAttachment attachment={attachment} hideTrigger editorOpen={open} onEditorOpenChange={setOpen}
+          onChange={text => setAttachment(createPendingTextAttachment(text))} onRemove={() => undefined} onCollapse={() => undefined} />
+      </>;
+    }
+    render(<NativeChipHarness />);
+    fireEvent.click(screen.getByRole("button", { name: "Native Edit" }));
+    const editor = await screen.findByTestId("text-attachment-editor");
+    const field = within(editor).getByLabelText("Pasted text, editable text") as HTMLTextAreaElement;
+    expect(field.value).toBe(PASTE);
+    typeInto(field, "Edited synthetic attachment");
+    fireEvent.click(within(editor).getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.queryByTestId("text-attachment-editor")).toBeNull());
+    expect(screen.getByRole("textbox", { name: "Companion draft" })).toHaveValue("Summarize the attachment");
+    fireEvent.click(screen.getByRole("button", { name: "Native Edit" }));
+    const reopened = await screen.findByTestId("text-attachment-editor");
+    expect(within(reopened).getByLabelText("Pasted text, editable text")).toHaveValue("Edited synthetic attachment");
+  });
   afterEach(() => {
     vi.restoreAllMocks();
     window.localStorage.clear();
