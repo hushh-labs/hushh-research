@@ -20,6 +20,7 @@ const m = vi.hoisted(() => ({
   answer: vi.fn(),
   checkout: vi.fn(),
   cancel: vi.fn(),
+  gates: vi.fn(),
   decrypt: vi.fn(),
   sweep: vi.fn(),
 }));
@@ -48,6 +49,7 @@ vi.mock("@/lib/services/answer-request-service", () => ({
     answer: m.answer,
     checkout: m.checkout,
     cancel: m.cancel,
+    gates: m.gates,
   },
 }));
 vi.mock("@/lib/one-marketplace/encryption", () => ({
@@ -110,6 +112,7 @@ beforeEach(() => {
   m.vaultToken = "fixture-owner-token";
   m.token.mockResolvedValue("fixture-id-token");
   m.inbox.mockResolvedValue([]);
+  m.gates.mockResolvedValue({ requests: true, payments: true, payouts: true });
   m.state.mockResolvedValue({
     role: "requester",
     requestStatus: "answered",
@@ -191,4 +194,52 @@ it("drops previously decrypted display on same-owner custody replacement", async
   m.vaultToken = "replacement-fixture-token";
   view.rerender(<AnswerRequestCard requestId={REQUEST} />);
   expect(screen.queryByText(/SYNTHETIC_ANSWER/)).not.toBeInTheDocument();
+});
+
+// Request intake and payments are independent gates, so an approved, priced
+// request can exist in a deployment that cannot charge for it. Offering Pay
+// there is a dead control: checkout 503s. The price and Cancel must survive,
+// because the request itself is intact and /cancel is ungated.
+it("shows the price but no Pay control while payments are paused", async () => {
+  m.gates.mockResolvedValue({ requests: true, payments: false, payouts: false });
+  m.state.mockResolvedValue({
+    role: "requester",
+    requestStatus: "approved",
+    question: "Fixture question",
+  });
+  m.payment.mockResolvedValue({
+    requestStatus: "approved",
+    orderStatus: "awaiting_payment",
+    amountCents: 1000,
+    answerDeadlineHours: 72,
+  });
+  render(<AnswerRequestCard requestId={REQUEST} />);
+  expect(
+    await screen.findByText(/Paying for answers is not switched on here yet/),
+  ).toBeVisible();
+  expect(screen.queryByRole("button", { name: /^Pay / })).toBeNull();
+  expect(screen.getByText(/\$10/)).toBeVisible();
+  expect(
+    screen.getByRole("button", { name: /Cancel request/ }),
+  ).toBeVisible();
+  expect(m.checkout).not.toHaveBeenCalled();
+});
+
+// Negative control: with payments on, the same state still offers Pay, so
+// the gate cannot be satisfied by simply never rendering checkout.
+it("still offers Pay when payments are on", async () => {
+  m.state.mockResolvedValue({
+    role: "requester",
+    requestStatus: "approved",
+    question: "Fixture question",
+  });
+  m.payment.mockResolvedValue({
+    requestStatus: "approved",
+    orderStatus: "awaiting_payment",
+    amountCents: 1000,
+    answerDeadlineHours: 72,
+  });
+  render(<AnswerRequestCard requestId={REQUEST} />);
+  expect(await screen.findByRole("button", { name: /^Pay /})).toBeVisible();
+  expect(screen.queryByText(/not switched on here yet/)).toBeNull();
 });
