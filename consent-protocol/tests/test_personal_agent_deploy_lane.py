@@ -28,6 +28,8 @@ here too (`set -u`), from the runtime side rather than the textual one.
 
 from __future__ import annotations
 
+import base64
+import json
 import os
 import re
 import subprocess
@@ -51,7 +53,14 @@ case "$1 $2" in
   "run deploy")
     for arg in "$@"; do printf '%s\\n' "$arg" >> "$DEPLOY_ARGV"; done
     exit 0 ;;
-  "run services") echo "{HUB_URL}" ; exit 0 ;;
+  "run services")
+    if [[ "$*" == *"--format=json(status.traffic,status.latestReadyRevisionName)"* ]]; then
+      printf '%s\\n' "$HUSSH_TEST_SERVICE_TRAFFIC"; exit 0
+    fi
+    echo "{HUB_URL}" ; exit 0 ;;
+  "run revisions")
+    [[ "${{HUSSH_TEST_RELEASE_READ_FAIL:-false}}" != true ]] || exit 1
+    printf '%s\\n' "$HUSSH_TEST_RELEASE_CONTAINERS"; exit 0 ;;
   "services list") echo "aiplatform.googleapis.com" ; exit 0 ;;
   "projects get-iam-policy")
     for arg in "$@"; do
@@ -123,6 +132,10 @@ def _run(tmp_path: Path, **overrides: str) -> list[str]:
         "DEPLOY_ARGV": str(argv_file),
         "HUSSH_BUILD_WORKSPACE": str(run_dir),
         "GCLOUD_CALLS": str(run_dir / "calls.txt"),
+        "HUSSH_TEST_SERVICE_TRAFFIC": json.dumps(
+            {"status": {"traffic": [{"revisionName": "consent-protocol-serving", "percent": 100}]}}
+        ),
+        "HUSSH_TEST_RELEASE_CONTAINERS": json.dumps({"spec": {"containers": [{"env": []}]}}),
     }
     # Everything the YAML hands over, at the YAML's own declared default -- which is
     # exactly what Cloud Build supplies when a lane does not override, so this run
@@ -348,6 +361,7 @@ def test_cloud_build_upload_includes_the_deploy_shell_and_release_reader():
     for script in (
         "scripts/deploy/backend-deploy.sh",
         "scripts/deploy/pod-release-env.sh",
+        "scripts/deploy/preserve-pod-release.py",
         "scripts/deploy/commerce-preview-bindings.sh",
         "scripts/deploy/scope-commerce-secrets.sh",
     ):
@@ -356,3 +370,110 @@ def test_cloud_build_upload_includes_the_deploy_shell_and_release_reader():
     assert GitIgnoreSpec.from_lines([*rules, "*.sh"]).match_file(
         "scripts/deploy/pod-release-env.sh"
     ), "The regression control must detect an excluded release reader"
+
+
+def _existing_release_environment():
+    image = "gcr.io/hushh-pda-dev/consent-protocol-pod@sha256:" + "b" * 64
+    release = {
+        "schemaVersion": 1,
+        "descriptor": {
+            "version": "2026.10-dev.12",
+            "summary": "Synthetic release",
+            "notes": {"improvements": [], "fixes": [], "security": []},
+            "channel": "dev",
+            "supportedUpgradeDigests": [],
+        },
+        "image": image,
+        "sourceRevision": "c" * 40,
+        "releasedAt": "2026-01-01T00:00:00Z",
+        "publisher": {"environment": "dev", "workflow": "deploy-dev", "runId": "123"},
+    }
+    encoded = base64.b64encode(json.dumps(release).encode()).decode()
+    return image, encoded
+
+
+def test_application_only_deploy_preserves_serving_pod_offer_without_reissuing_it(tmp_path):
+    image, encoded = _existing_release_environment()
+    containers = json.dumps(
+        {
+            "spec": {
+                "containers": [
+                    {
+                        "env": [
+                            {"name": "HUSSH_ONE_POD_IMAGE", "value": image},
+                            {"name": "HUSSH_ONE_POD_RELEASE_B64", "value": encoded},
+                            {"name": "PRIVATE_UNRELATED_VALUE", "value": "must-not-be-copied"},
+                        ]
+                    }
+                ]
+            }
+        }
+    )
+    actual = _env_vars(
+        _run(
+            tmp_path,
+            _DEPLOY_ENV="dev",
+            _BUILD_POD_IMAGE="false",
+            HUSSH_TEST_RELEASE_CONTAINERS=containers,
+        )
+    )
+    assert actual["HUSSH_ONE_POD_IMAGE"] == image
+    assert actual["HUSSH_ONE_POD_RELEASE_B64"] == encoded
+    assert "PRIVATE_UNRELATED_VALUE" not in actual
+
+
+@pytest.mark.parametrize("failure", ["digest", "channel", "half_pair", "read", "split"])
+def test_unverifiable_existing_pod_offer_stops_deployment(tmp_path, failure):
+    image, encoded = _existing_release_environment()
+    release = json.loads(base64.b64decode(encoded))
+    if failure == "digest":
+        release["image"] = image.replace("b" * 64, "d" * 64)
+    if failure == "channel":
+        release["descriptor"]["channel"] = "stable"
+        release["publisher"] = {
+            "environment": "production",
+            "workflow": "deploy-production",
+            "runId": "123",
+        }
+    encoded = base64.b64encode(json.dumps(release).encode()).decode()
+    entries = [{"name": "HUSSH_ONE_POD_IMAGE", "value": image}]
+    if failure != "half_pair":
+        entries.append({"name": "HUSSH_ONE_POD_RELEASE_B64", "value": encoded})
+    overrides = {
+        "_DEPLOY_ENV": "dev",
+        "_BUILD_POD_IMAGE": "false",
+        "HUSSH_TEST_RELEASE_CONTAINERS": json.dumps({"spec": {"containers": [{"env": entries}]}}),
+    }
+    if failure == "read":
+        overrides["HUSSH_TEST_RELEASE_READ_FAIL"] = "true"
+    if failure == "split":
+        overrides["HUSSH_TEST_SERVICE_TRAFFIC"] = json.dumps(
+            {
+                "status": {
+                    "traffic": [
+                        {"revisionName": "first", "percent": 50},
+                        {"revisionName": "second", "percent": 50},
+                    ]
+                }
+            }
+        )
+    with pytest.raises(AssertionError, match="refusing deployment"):
+        _run(tmp_path, **overrides)
+
+
+@pytest.mark.parametrize(
+    "environment,build", [("dev", "true"), ("uat", "false"), ("production", "false")]
+)
+def test_new_build_and_other_environments_do_not_inherit_dev_offer(tmp_path, environment, build):
+    values = _env_vars(
+        _run(
+            tmp_path,
+            _DEPLOY_ENV=environment,
+            _BUILD_POD_IMAGE=build,
+            HUSSH_TEST_RELEASE_READ_FAIL="true",
+        )
+    )
+    if environment == "dev":
+        assert values["HUSSH_ONE_POD_RELEASE_B64"] == "synthetic-release-metadata"
+    else:
+        assert "HUSSH_ONE_POD_RELEASE_B64" not in values

@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-10-07",
-  "total_routes": 132,
-  "native_required_routes": 106,
+  "generated_at": "2026-10-10",
+  "total_routes": 136,
+  "native_required_routes": 110,
   "excluded_routes": 26,
   "routes": [
     {
@@ -1502,6 +1502,57 @@
       "route": "/welcome",
       "classification": "excluded-web-only",
       "reason": "Pre-authentication landing page. The native app opens at its own launch surface."
+    },
+    {
+      "route": "/one/profile/payouts",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fpayouts",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/one/profile/payouts",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/one/profile/request-pricing",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Frequest-pricing",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/one/profile/request-pricing",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/one/referrals",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Freferrals",
+      "expectedMarker": "native-route-one-referrals",
+      "expectedRoute": "/one/referrals",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/todos",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Ftodos",
+      "expectedMarker": "native-route-one-todos",
+      "expectedRoute": "/one/todos",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
     }
   ]
 }

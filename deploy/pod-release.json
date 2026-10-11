@@ -10,6 +10,7 @@
     ],
     "fixes": [
       "Stopping Puppy confirms cancellation even when the stream closes first.",
+      "Software update offers stay available after app updates.",
       "Private connector approvals preserve their owner and pod boundaries.",
       "Memory instructions retain their rules within the existing prompt budget."
     ],

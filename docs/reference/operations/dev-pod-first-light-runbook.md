@@ -113,6 +113,14 @@ archives that metadata with the build and configures `HUSSH_ONE_POD_RELEASE_B64`
 alongside `HUSSH_ONE_POD_IMAGE`. This is governed deployment provenance, not an
 independent cryptographic signature.
 
+An application-only shared-dev backend deployment preserves those two fields
+from the single revision serving all traffic, after validating the immutable
+image and dev release metadata. It retains the original publication provenance;
+unreadable, incomplete or ambiguous offers stop deployment. A new pod build
+replaces the offer with its recorded artifacts. Preview and other environments
+never inherit a dev offer. Preservation keeps discovery available; it does not
+approve or install an owner update.
+
 When recovery has qualified an already published dev image, the optional JSON
 pin accepted by [the reuse verifier](../../../scripts/deploy/reuse-pod-release.py)
 records its image, original source revision, original workflow run and

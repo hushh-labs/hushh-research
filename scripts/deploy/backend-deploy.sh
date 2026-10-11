@@ -442,9 +442,9 @@ append_optional_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"
 # recorded value; it never offers a mutable tag for owner approval.
 pod_image=""
 pod_release_b64=""
-if [[ "${_DEPLOY_ENV}" == "dev" && "${_BUILD_POD_IMAGE}" == "true" ]]; then
+if [[ "${_DEPLOY_ENV}" == "dev" && -z "${commerce_preview_prefix:-}" ]]; then
   source "$(dirname "${BASH_SOURCE[0]}")/pod-release-env.sh"
-  read_pod_release_artifacts "${HUSSH_BUILD_WORKSPACE:-/workspace}"
+  read_dev_pod_release "${_BUILD_POD_IMAGE}" "${HUSSH_BUILD_WORKSPACE:-/workspace}" "$PROJECT_ID" "${_REGION}" "${_BACKEND_SERVICE}"
 fi
 append_optional_env "HUSSH_ONE_POD_IMAGE" "${pod_image}"
 append_optional_env "HUSSH_ONE_POD_RELEASE_B64" "${pod_release_b64}"

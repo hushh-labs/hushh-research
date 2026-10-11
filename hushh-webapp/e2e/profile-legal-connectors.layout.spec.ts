@@ -223,8 +223,19 @@ function query(page: Page) {
 }
 
 test("Profile root and nested screens share one gutter", async ({ page }) => {
-  for (const [width, rightInset] of [[320, 12], [393, 12], [768, 18]] as const) {
-    await mount(page, { width, at: "/one?profile_pane=1" });
+  const cases: {
+    width: number;
+    rightInset: number;
+    regions?: { top: number; bottom: number; fullWindow?: boolean };
+  }[] = [
+    { width: 320, rightInset: 12 },
+    { width: 393, rightInset: 12 },
+    { width: 768, rightInset: 18 },
+    { width: 393, rightInset: 12, regions: { top: 120, bottom: 280 } },
+    { width: 393, rightInset: 12, regions: { top: 120, bottom: 280, fullWindow: true } },
+  ];
+  for (const { width, rightInset, regions } of cases) {
+    await mount(page, { width, regions, at: "/one?profile_pane=1" });
     // A visible sheet can still be travelling in from the right. Measure
     // only its settled grid, not the opening animation's translated frame.
     // The floating Profile pane keeps a 12–18px viewport gutter; it is not
@@ -235,9 +246,19 @@ test("Profile root and nested screens share one gutter", async ({ page }) => {
       return frame ? Math.abs(frame.x + frame.width - (width - rightInset)) : Number.POSITIVE_INFINITY;
     }).toBeLessThanOrEqual(0.5);
     if (regions) {
+      const html = page.locator("html");
+      await expect(html).toHaveClass(/native-reserved-chrome/);
+      if (regions.fullWindow) await expect(html).toHaveClass(/native-full-window-overlays/);
+      else await expect(html).not.toHaveClass(/native-full-window-overlays/);
+      expect(await html.evaluate(node => [
+        (node as HTMLElement).style.getPropertyValue("--native-overlay-top"),
+        (node as HTMLElement).style.getPropertyValue("--native-overlay-bottom"),
+      ])).toEqual(regions.fullWindow ? ["0px", "0px"] : ["120px", "280px"]);
       const box = (await pane(page).boundingBox())!;
-      expect(box.y).toBeCloseTo(regions.fullWindow ? 0 : regions.top, 0);
-      expect(box.y + box.height).toBeCloseTo(regions.fullWindow ? 852 : 852 - regions.bottom, 0);
+      // React owns the floating pane: legacy native reservations must not clip it.
+      expect(box.y).toBeCloseTo(16, 0);
+      expect(box.height).toBeCloseTo(820, 0);
+      expect(box.y + box.height).toBeCloseTo(836, 0);
     }
     const cardEdges = () => pane(page).locator("[data-profile-stack-active='true'] [data-slot='settings-group-shell']").first().evaluate(node => {
       const box = node.getBoundingClientRect();

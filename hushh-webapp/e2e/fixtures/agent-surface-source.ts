@@ -418,12 +418,15 @@ const segmentedGroupClasses = [
   )[1].matchAll(/"([^"]+)"/g),
 ].map((match) => match[1]);
 
-const segmentedSegmentBase = one(
+const segmentedSegmentClasses = one(
   segmented,
-  /"(relative flex items-center justify-center gap-1\.5 rounded-full[^"]+)"/,
+  /\/\/ Base styles\s*"([^"]+)",\s*isSliding \? "([^"]+)" : "([^"]+)"/,
   "the segmented-control segment base classes",
   SEGMENTED_PATH,
-)[1];
+);
+// The Agent surface uses the compact, non-sliding variant. Both literals remain
+// extracted from the shipped control; changing either geometry is measured.
+const segmentedSegmentBase = `${segmentedSegmentClasses[1]} ${segmentedSegmentClasses[3]}`;
 
 export const AGENT_SURFACE_SOURCE = {
   header: {
