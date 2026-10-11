@@ -3227,5 +3227,6 @@
       "request_id",
       "expires_at"
     ]
-  }
+  },
+  "expected_schema_head": 320
 }

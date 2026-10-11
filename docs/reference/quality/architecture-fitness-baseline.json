@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2401,
+  "finding_count": 2402,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -21616,6 +21616,15 @@
       "path": "consent-protocol/tests/test_personal_agent_deploy_lane.py",
       "symbol": null,
       "value": 510
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_pkm_answer_requests_postgres.py|test_two_accounts_ask_approve_pay_answer_and_fetch|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_pkm_answer_requests_postgres.py",
+      "symbol": "test_two_accounts_ask_approve_pay_answer_and_fetch",
+      "value": 82
     }
   ],
   "inspected_files": 6625,
@@ -32239,6 +32248,107 @@
         }
       ],
       "boundary": "Exactly 34 independently reviewed occurrence-ranked slots (18 backend, 16 frontend). Preserve budgets, scanner, exclusions and every unrelated baseline value. Retained debt remains visible; not a deployment receipt."
+    },
+    "main_intake_and_migration_collision_20261011": {
+      "date": "2026-10-11",
+      "evidence": "docs/reference/quality/adk-orchestration-docs-audit.md#reviewed-integration-debt",
+      "main_revision": "86b5d11f653f9877ff58cf6d15a18a494507edeb",
+      "reason": "Exact eleven reviewed spans: inherited owner-profile and passphrase guards; payment-independent intake deployment; recipient-only existing-answer reads during payment pause; preserved workflow compatibility. Two new size findings are added; prior duplicate occurrences retained. No budget, scanner, exclusion, import or dependency changes. No live acceptance claim.",
+      "reviewed_values": [
+        {
+          "key": "function_size|consent-protocol/hushh_mcp/services/business_directory_suggestions.py|project_directory_response|function exceeds the advisory gene budget",
+          "path": "consent-protocol/hushh_mcp/services/business_directory_suggestions.py",
+          "prior": 135,
+          "sha256": "1cfe59d276274c4a7497b04de04058b7ea7d48f213ab10652d5d0d4143f1b0e2",
+          "symbol": "project_directory_response",
+          "value": 143
+        },
+        {
+          "key": "function_size|consent-protocol/tests/services/test_pkm_answer_requests_postgres.py|test_two_accounts_ask_approve_pay_answer_and_fetch|function exceeds the advisory gene budget",
+          "path": "consent-protocol/tests/services/test_pkm_answer_requests_postgres.py",
+          "prior": null,
+          "sha256": "ed95c04a33854ef240567d844b9f53fb49d41c8d3a6e67f39bb31723f0fbd39d",
+          "symbol": "test_two_accounts_ask_approve_pay_answer_and_fetch",
+          "value": 82
+        },
+        {
+          "key": "module_size|hushh-webapp/components/vault/vault-flow.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/components/vault/vault-flow.tsx",
+          "prior": 2356,
+          "sha256": "ef5f0ee971f8ccbefc914a1edce0c6918dfc4384db1bbf290dae914dcd86add7",
+          "symbol": null,
+          "value": 2377
+        },
+        {
+          "key": "module_size|hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts",
+          "prior": 1474,
+          "sha256": "013f4ac2e26855d5835f2ee1a93f9e7fee44637cbca05882e3d5991bd77bee9f",
+          "symbol": null,
+          "value": 1477
+        },
+        {
+          "key": "module_size|scripts/deploy/backend-deploy.sh||module exceeds the advisory operon budget",
+          "path": "scripts/deploy/backend-deploy.sh",
+          "prior": 1000,
+          "sha256": "22973e3689cbd828085fbbd401dfd28005bd138f45c0abe1190a7b9cbee45e74",
+          "symbol": null,
+          "value": 1006
+        },
+        {
+          "key": "module_size|hushh-webapp/__tests__/components/vault-flow-create-validation.test.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/__tests__/components/vault-flow-create-validation.test.tsx",
+          "prior": 913,
+          "sha256": "5f9875e709a78e55efe17d6cff10f7b9f113fde5c347df40a70444f91b8825dd",
+          "symbol": null,
+          "value": 993
+        },
+        {
+          "key": "module_size|hushh-webapp/e2e/wallet-workspace.layout.spec.ts||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/e2e/wallet-workspace.layout.spec.ts",
+          "prior": 904,
+          "sha256": "e1a4f7b4b069bc31bad33ee2dd9a0b5de67794690f9ee8e908fac0c604380edb",
+          "symbol": null,
+          "value": 911
+        },
+        {
+          "key": "module_size|consent-protocol/tests/services/test_pkm_answer_requests_postgres.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/services/test_pkm_answer_requests_postgres.py",
+          "prior": 760,
+          "sha256": "ed95c04a33854ef240567d844b9f53fb49d41c8d3a6e67f39bb31723f0fbd39d",
+          "symbol": null,
+          "value": 777
+        },
+        {
+          "key": "module_size|consent-protocol/tests/test_business_suggestions.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/test_business_suggestions.py",
+          "prior": 539,
+          "sha256": "9db03ed510836cfad061f5af55267eee3615445a1f178f2cbd011d58fb8d42df",
+          "symbol": null,
+          "value": 700
+        },
+        {
+          "key": "module_size|hushh-webapp/lib/services/answer-request-service.ts||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/lib/services/answer-request-service.ts",
+          "prior": 544,
+          "sha256": "4a217be8e9cd381a211699cbea67504f513bc34eb854cd29ae1b610f157d1499",
+          "symbol": null,
+          "value": 566
+        },
+        {
+          "key": "module_size|consent-protocol/api/routes/one/answer_requests.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/api/routes/one/answer_requests.py",
+          "prior": null,
+          "sha256": "1e7708d015570a4736e5914bd80c221bcd2f2caec0583528f69fc68c0b141bb9",
+          "symbol": null,
+          "value": 542
+        }
+      ],
+      "reviewers": [
+        "sync_backend_review",
+        "sync_client_review"
+      ],
+      "source_revision": "6476c9c746f0af80dac62d98ea8b22dad0dbb664"
     }
   },
   "status": "advisory"

@@ -43,7 +43,7 @@ applies to `14876c2a3b8d`, not this candidate.
 | Gate | Current result / next evidence |
 | --- | --- |
 | CI/deploy convergence | GitHub Actions governs; Cloud Build builds. All environments use the same changed-SHA verification selector. Selected dev reviewer checks fail closed, and frontend-only preservation runs independently of migrations. Production supports automatic service selection and preserves deployment helpers when checking out an older rollback target. Full hosted browser/security gates remain required. Workflow edits need governed landing and a live rehearsal. |
-| Existing users / Shared | Explicit owner choice plus the strictly evidenced legacy cohort. Assigned, pending or unresolved pods cannot become Shared by default. Canonical migration 312 (schema head 313) and parked dev 958 require environment adoption evidence. Existing-user changelog admission exists; UAT/production content remains unconfigured until a reviewed rollout. New users do not receive the update modal. |
+| Existing users / Shared | Explicit owner choice plus the strictly evidenced legacy cohort. Assigned, pending or unresolved pods cannot become Shared by default. Canonical migration 320 (schema head 320) and parked dev 958 require environment adoption evidence. Existing-user changelog admission exists; UAT/production content remains unconfigured until a reviewed rollout. New users do not receive the update modal. |
 | Updates / erasure | Exact-release approval, isolated recovery and normal Dev 15 installation pass. Active-work drain, production release provenance, erasure and retained-resource disposition still require live receipts. No automatic owner upgrade. |
 | Puppy / phone | BYOC-only signed owner/device/pod authority; personal dev inference, cancellation and idle wake pass. New outbound expiry/revocation/incarnation and idle-race protections pass focused tests but are not deployed. Physical phone/Mac independent internet acceptance remains unverified. Native phone HTTP/SSE admission and Mac device WSS are distinct transports. |
 | Both-cloud launch | Native Google/connector journeys, production IAM/retention/recovery, hub capacity and independent UAT acceptance remain release gates. Matched-resource cold p95 is about 71s on each cloud, above the 30s target. |
@@ -140,6 +140,19 @@ stream proxy preserves downstream cancellation and upstream cleanup.
 Budgets (500/250/80), scanner, exclusions and unrelated
 allowances are unchanged. Baseline acceptance is not deployment acceptance.
 
+The subsequent main `86b5d11f` integration reviews eleven exact finding slots
+under `main_intake_and_migration_collision_20261011`: inherited owner-profile
+and passphrase guards, the extracted intake deployment flag, and recipient-only
+reads after paid admission pauses. The real PostgreSQL negative control fails
+both paused-read cases with the old gate and passes both after restoration.
+Canonical regeneration preserves incoming and branch workflow histories and
+adds only the exact incoming Wallet retirement; 46 graph/policy cases pass.
+Independent backend/frontend reviews pin every source hash, including catalog
+1,477 lines and the cohesive PostgreSQL fixture's 777/82 spans. The original
+2,398 occurrences, seventeen duplicate occurrences, earlier reviews and
+500/250/80 budgets remain unchanged; two newly reviewed size findings are added.
+These allowances prove structural review, not deployed payment acceptance.
+
 ## Owners and next gate
 
 | Owner | Required receipt |
@@ -166,7 +179,7 @@ Google/Azure choices and cloud-specific gates belong to the deployment standard.
 Historical pointer: early source checks were not owner-cloud activation receipts.
 Dev history cleanup 944 completed September 28 under
 [run 36392414630](https://github.com/hushh-labs/hushh-research/actions/runs/36392414630).
-The former branch-only profile bridge was pending canonical 302 in that historical source; its current canonical number is 310. Canonical 249 remains
+The former branch-only profile bridge was pending canonical 302 in that historical source; its current canonical number is 318. Canonical 249 remains
 deferred in shared-dev pending separate cutover evidence. Current acceptance belongs to the
 matrix above; Git history retains the chronology.
 

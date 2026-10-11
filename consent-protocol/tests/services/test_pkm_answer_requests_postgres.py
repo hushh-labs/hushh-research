@@ -18,8 +18,10 @@ import asyncio
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from uuid import UUID
 
 import pytest
+from fastapi import HTTPException, Response
 from sqlalchemy import create_engine, text
 
 from hushh_mcp.consent.answer_scope_resolution import compute_terms_digest
@@ -282,7 +284,9 @@ ENVELOPE = {
 
 class TestHappyPath:
     @pytest.mark.parametrize("dated", [True, False])
-    async def test_two_accounts_ask_approve_pay_answer_and_fetch(self, answer_engine, dated):
+    async def test_two_accounts_ask_approve_pay_answer_and_fetch(
+        self, answer_engine, dated, monkeypatch
+    ):
         service, request_id = await _ask(
             answer_engine, StubResolver(["attr.travel.trips", "attr.preferences.food"]), dated=dated
         )
@@ -332,6 +336,19 @@ class TestHappyPath:
         answer = await service.fetch_answer(requester_user_id=REQUESTER, request_id=request_id)
         assert answer["ciphertext"] == "c2VhbGVk"
         assert answer["sourceRevisions"] == {"travel": 7}
+
+        # Pausing new payments preserves existing recipient-bound ciphertext.
+        from api.routes.one import answer_requests as routes
+
+        monkeypatch.setenv("PKM_ANSWER_PAYMENTS_ENABLED", "false")
+        monkeypatch.setenv("PKM_ANSWER_COMPOSER_ENABLED", "false")
+        monkeypatch.setattr(routes, "_requests", lambda: service)
+        response = Response()
+        assert await routes.get_answer(UUID(request_id), response, REQUESTER) == answer
+        assert response.headers["Cache-Control"] == "private, no-store"
+        with pytest.raises(HTTPException) as denied:
+            await routes.get_answer(UUID(request_id), Response(), "another-requester")
+        assert denied.value.status_code == 404
 
         with answer_engine.begin() as connection:
             row = (
