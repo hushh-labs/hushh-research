@@ -58,7 +58,8 @@ WITH participants AS (
     {quoted_amount_cents} AS quoted_amount_cents,
     {quote_version} AS quote_version,
     {owner_payout_account_ready} AS owner_payout_account_ready,
-    {owner_price_ready} AS owner_price_ready
+    {owner_price_ready} AS owner_price_ready,
+    {owner_drive_ready} AS owner_drive_ready
   FROM drive_share_requests
   {identity_joins}
   WHERE drive_share_requests.user_id=:user
@@ -66,7 +67,7 @@ WITH participants AS (
   UNION ALL
   SELECT request_id,revocation_revision,created_at,'share','incoming',NULL::text,'management_only',
     NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE,
-    FALSE,FALSE,FALSE,NULL::integer,NULL::integer,NULL::boolean,FALSE
+    FALSE,FALSE,FALSE,NULL::integer,NULL::integer,NULL::boolean,FALSE,NULL::boolean
   FROM drive_share_management_contexts
   WHERE user_id=:user AND private_request_erased_at IS NOT NULL{queries}
 ), classified AS (
@@ -108,6 +109,9 @@ WITH participants AS (
       OR (bucket='incoming_requests'
         AND preparation_error_code='background_preparation_required'
         AND strpos(lower('Enable background Drive access'),:query)>0)
+      OR (direction='incoming' AND state='pending' AND owner_drive_ready IS FALSE
+        AND bucket IN ('incoming_requests','active_grants')
+        AND strpos(lower('Connect Google Drive'),:query)>0)
       OR strpos(lower('DOCUMENT_SHARE_REVIEW'),:query)>0))
     OR (source='query' AND (strpos(lower('Drive question'),:query)>0
       OR strpos(lower('Google Drive question'),:query)>0
@@ -129,7 +133,7 @@ _QUERIES = """
       WHEN status='running' THEN 'pending'
       ELSE status END,
     NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE,
-    FALSE,FALSE,FALSE,NULL::integer,NULL::integer,NULL::boolean,FALSE
+    FALSE,FALSE,FALSE,NULL::integer,NULL::integer,NULL::boolean,FALSE,NULL::boolean
   FROM drive_live_query_requests WHERE user_id=:user OR requester_user_id=:user"""
 
 _OWNER_SEARCH_STATE = """(
@@ -170,6 +174,14 @@ _TRUSTED_RECIPIENT = """EXISTS (
         )
     )"""
 
+# Allow, the automatic search and sharing all need the owner's live Drive.
+_OWNER_DRIVE_READY = """EXISTS (
+    SELECT 1 FROM user_external_connector_connections c
+    WHERE c.user_id=drive_share_requests.user_id AND c.connector_id='google_drive'
+      AND c.status='connected' AND c.validation_state='verified'
+      AND c.verified_policy_hash=:live_policy_hash
+  )"""
+
 _ACTIVE_CONNECTION = """EXISTS (
     SELECT 1 FROM connections conn
     WHERE conn.status='active'
@@ -200,12 +212,7 @@ _OWNER_DECISION_READY = """((drive_share_requests.preparation_error_code IS NULL
   AND {no_payment_order}
   AND {active_connection}
   AND NOT {trusted_recipient}
-  AND EXISTS (
-    SELECT 1 FROM user_external_connector_connections c
-    WHERE c.user_id=drive_share_requests.user_id AND c.connector_id='google_drive'
-      AND c.status='connected' AND c.validation_state='verified'
-      AND c.verified_policy_hash=:live_policy_hash
-  ))"""
+  AND {owner_drive_ready})"""
 
 _NO_PAYMENT_ORDER = """NOT EXISTS (
     SELECT 1 FROM drive_request_payment_orders pay
@@ -285,6 +292,7 @@ def _owner_decision_ready(payments: bool) -> str:
         )
         .replace("{active_connection}", _ACTIVE_CONNECTION)
         .replace("{trusted_recipient}", _TRUSTED_RECIPIENT)
+        .replace("{owner_drive_ready}", _OWNER_DRIVE_READY)
     )
 
 
@@ -374,6 +382,7 @@ def _projection(
         "owner_allowed": "drive_share_requests.owner_allowed_at IS NOT NULL"
         if owner_allowed
         else "FALSE",
+        "owner_drive_ready": _OWNER_DRIVE_READY,
         "quoted_amount_cents": "drive_share_requests.quoted_amount_cents"
         if pricing
         else "NULL::integer",
@@ -424,6 +433,11 @@ def entry(row: Any) -> dict[str, Any]:
             "outgoing_requests",
             "active_grants",
         }
+    )
+    # The owner's live Drive comes before every other setup step. Only the
+    # owner learns its state; the requester's row keeps its existing shape.
+    drive_setup_required = bool(
+        request_open and row["direction"] == "incoming" and row.get("owner_drive_ready") is False
     )
     setup_waiting = bool(
         request_open
@@ -504,7 +518,9 @@ def entry(row: Any) -> dict[str, Any]:
         "action": "DOCUMENT_SHARE_REVIEW",
         "scope": None,
         "scope_description": (
-            setup_description
+            "Connect Google Drive"
+            if drive_setup_required
+            else setup_description
             if setup_description
             else "Enable background Drive access"
             if row["bucket"] == "incoming_requests"
@@ -530,11 +546,14 @@ def entry(row: Any) -> dict[str, Any]:
             # A Trusted Circle request stays pending while automatic search and
             # sharing run. Only the sharing authority can distinguish that
             # progress from an owner task or a paused/manual recovery.
-            "owner_attention_required": row["state"] == "pending"
-            and row["bucket"] == "incoming_requests"
-            and not row.get("access_stopped")
-            and not automatic_progressing
-            and (not owner_payment_blocked or payout_setup_required or setup_waiting),
+            "owner_attention_required": drive_setup_required
+            or (
+                row["state"] == "pending"
+                and row["bucket"] == "incoming_requests"
+                and not row.get("access_stopped")
+                and not automatic_progressing
+                and (not owner_payment_blocked or payout_setup_required or setup_waiting)
+            ),
             "owner_decision_available": owner_decision_available,
             "owner_price_available": bool(
                 row["direction"] == "incoming"
@@ -551,6 +570,7 @@ def entry(row: Any) -> dict[str, Any]:
                 else {}
             ),
             **({"payment_waiting_for_requester": True} if owner_payment_waiting else {}),
+            **({"ownerDriveReady": False} if drive_setup_required else {}),
             **(
                 {"ownerPayoutAccountReady": row["owner_payout_account_ready"] is True}
                 if row.get("owner_payout_account_ready") is not None

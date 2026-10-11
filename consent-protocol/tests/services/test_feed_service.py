@@ -851,5 +851,8 @@ def test_card_share_notice_requires_authoritative_recipient_grant():
     verified = FeedService._to_item({**row, "_wallet_card_grant_id": grant_id})
     assert verified["metadata"]["wallet_card_grant_id"] == grant_id
     assert verified["metadata"]["message_preview"] == "Test sender shared their card with you"
-    assert feed_service_module._direct_message_preview(f"[wallet-access:{grant_id}]") == "Shared payment card"
+    assert (
+        feed_service_module._direct_message_preview(f"[wallet-access:{grant_id}]")
+        == "Shared payment card"
+    )
     assert feed_service_module._direct_message_preview("Ordinary message") == "Ordinary message"
