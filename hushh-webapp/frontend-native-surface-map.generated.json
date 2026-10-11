@@ -72,6 +72,10 @@
       "file": "app/api/consent/center/list/route.ts"
     },
     {
+      "template": "/api/consent/center/source-fence",
+      "file": "app/api/consent/center/source-fence/route.ts"
+    },
+    {
       "template": "/api/consent/center/summary",
       "file": "app/api/consent/center/summary/route.ts"
     },
@@ -10113,5 +10117,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "e907cfa1aab338382095706cc62c3a654bd1ada70d0f396c2a6e76326d80f4cb"
+  "content_sha256": "a24a98a705aa73f9851f9068861c9c7f495be96057dd26fd7874cae9bce82774"
 }

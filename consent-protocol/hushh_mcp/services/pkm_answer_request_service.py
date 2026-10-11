@@ -615,21 +615,12 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
             identity = (
                 self._row(
                     connection,
-                    """SELECT display_name, email FROM actor_identity_cache
+                    """SELECT display_name, email, COALESCE(NULLIF(custom_photo_url, ''), photo_url) AS photo_url FROM actor_identity_cache
                    WHERE user_id = :owner LIMIT 1""",
                     {"owner": owner_user_id},
                 )
                 or {}
             )
-            photo = (
-                self._row(
-                    connection,
-                    """SELECT photo_url FROM users WHERE id = :owner LIMIT 1""",
-                    {"owner": owner_user_id},
-                )
-                or {}
-            )
-
             ready: list[dict[str, Any]] = []
             for item in out:
                 # The owner's own public identity. The requester already sees
@@ -640,7 +631,7 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 item["ownerIdentity"] = {
                     "displayName": identity.get("display_name"),
                     "email": identity.get("email"),
-                    "photoUrl": photo.get("photo_url"),
+                    "photoUrl": identity.get("photo_url"),
                 }
                 key = (
                     connection.execute(

@@ -76,7 +76,7 @@ def answer_engine(connector_postgres_url):  # noqa: F811
         # document so it is a record of a person, not a bag of fields.
         connection.exec_driver_sql(
             """CREATE TABLE IF NOT EXISTS actor_identity_cache (
-                 user_id TEXT PRIMARY KEY, display_name TEXT, email TEXT)"""
+                 user_id TEXT PRIMARY KEY, display_name TEXT, email TEXT, photo_url TEXT, custom_photo_url TEXT)"""
         )
         # Consent lifecycle authority. Asserted empty by the standing-grant
         # test: this lane must not write one.
@@ -85,10 +85,6 @@ def answer_engine(connector_postgres_url):  # noqa: F811
                  id BIGSERIAL PRIMARY KEY, token_id TEXT NOT NULL, user_id TEXT NOT NULL,
                  agent_id TEXT NOT NULL, scope TEXT NOT NULL, action TEXT NOT NULL,
                  issued_at BIGINT NOT NULL)"""
-        )
-        connection.exec_driver_sql(
-            """CREATE TABLE IF NOT EXISTS users (
-                 id TEXT PRIMARY KEY, email TEXT, display_name TEXT, photo_url TEXT)"""
         )
         # Migration 298's mode-isolated account, and migration 280's legacy
         # one. The payout worker prefers the former so a live answer is never
@@ -157,7 +153,6 @@ def clean(answer_engine):
     with answer_engine.begin() as connection:
         connection.exec_driver_sql("DELETE FROM consent_audit")
         connection.exec_driver_sql("DELETE FROM actor_identity_cache")
-        connection.exec_driver_sql("DELETE FROM users")
         connection.exec_driver_sql("DELETE FROM stripe_owner_payout_accounts")
         connection.exec_driver_sql("DELETE FROM pkm_owner_payout_accounts")
         # Child-first: webhook events, refunds and payouts all reference the
@@ -191,7 +186,9 @@ def clean(answer_engine):
             {"u": OWNER},
         )
         connection.execute(
-            text("INSERT INTO users (id, photo_url) VALUES (:u, 'https://example.test/a.png')"),
+            text(
+                "UPDATE actor_identity_cache SET photo_url='https://example.test/a.png' WHERE user_id=:u"
+            ),
             {"u": OWNER},
         )
         for handle, label in OWNER_SCOPES:
@@ -375,8 +372,7 @@ class TestOwnerIdentityTravelsWithTheWork:
     async def test_a_missing_identity_does_not_strand_the_answer(self, answer_engine):  # noqa: F811
         with answer_engine.begin() as connection:
             connection.exec_driver_sql("DELETE FROM actor_identity_cache")
-            connection.exec_driver_sql("DELETE FROM users")
-        service, request_id = await _ask(answer_engine, StubResolver(["attr.travel.trips"]))
+            service, request_id = await _ask(answer_engine, StubResolver(["attr.travel.trips"]))
         approved = await service.approve(
             owner_user_id=OWNER,
             request_id=request_id,

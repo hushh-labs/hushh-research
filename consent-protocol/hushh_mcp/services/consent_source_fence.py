@@ -10,7 +10,7 @@ import hashlib
 import json
 from typing import Any
 
-from sqlalchemy import text
+from sqlalchemy import String, select, text, union_all
 
 # Fixed, typed predicates keep owner indexes usable and never materialize envelopes.
 # Each tuple is (table, participant predicate, effective temporal projection).
@@ -107,12 +107,11 @@ def capture_consent_source_fence(
     queries = []
     for table, predicate, temporal in _SOURCES:
         query = f"SELECT '{table}' AS source,r.tableoid::text||':'||r.ctid::text||':'||r.xmin::text||':'||COALESCE(({temporal})::text,'false') AS version FROM {table} r WHERE {predicate}"  # nosec B608 - fixed authored identifiers/predicates, owner values are bound.
-        queries.append(query)
+        queries.append(text(query).columns(source=String, version=String))
+    versions = union_all(*queries).subquery()
     rows = connection.execute(
-        text(
-            "SELECT source,version FROM ("
-            + " UNION ALL ".join(queries)
-            + ") versions ORDER BY source,version"
+        select(versions.c.source, versions.c.version).order_by(
+            versions.c.source, versions.c.version
         ),
         {
             "owner": owner,

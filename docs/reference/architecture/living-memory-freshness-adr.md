@@ -28,11 +28,13 @@ The implemented bridge runs while the owner's application is open and unlocked. 
 | Source | Existing authority and update seam | Derived memory behavior |
 | --- | --- | --- |
 | Profile name, email and photo | Firebase-backed AccountIdentityService, including effective owner edits | Complete encrypted private source projection, stable owner source ID, observed revisions and source timestamps |
-| Consent | Existing received/sent pending, active and previous Consent Center projections | All pages; IDs/status/revocation/expiry; failed pages preserve prior records and disclose incomplete inventory |
+| Consent | Existing received/sent pending, active and previous Consent Center projections | Uncached complete reads, all pages and durable terminal Location requests/invitations; non-authority source IDs, activity/status/revocation/expiry; failed or racing reads preserve prior records and disclose incomplete inventory |
 | Saved Location and visit notes | Existing encrypted Location PKM writers | Stable source IDs, original creation time when known, revision receipts and deletion tombstones; every persisted note retained |
 | To-Do | Existing encrypted one_todos private tasks | Creation/edit/completion/deletion, source ID and record revision; stale completion cannot overwrite an edit or revive a deletion |
 | Memory and eligible specialist sources | Existing PKM mutation coordinator, manifests and content_revision | Rebuild every owner domain on committed changes; full eligible values, with explicit withheld branches and traversal limits |
 | Chat with One | Existing governed semantic capture and encrypted Chat history | Captured information already enters PKM through the existing capture coordinator; raw transcripts, credentials and withheld branches are not silently promoted to memory |
+
+The Consent inventory uses a bounded owner-scoped MVCC equality fence before and after two complete scans. It detects row changes, delete/recreate and effective expiry while paging; it is not a durable owner revision. Reads never settle expiry or modify grants. UI flags and presentation grouping cannot silently remove source records. Authority tokens and provider payloads are excluded from the source projection. Exact private PKM keys survive segmented encrypted storage/readback; neither storage-ID normalization nor a summary may replace the authored complete records.
 
 A mirrored inventory is derived, encrypted and owner-only. It cannot create grants or exports and cannot run an implicit PKM upgrade. Failed reads never imply deletion. Known source times are retained; unknown original creation time stays unknown. The source's content revision remains the canonical concurrency boundary. This does not claim that every historical Chat fact has been captured: the existing capture coverage and save receipts determine what reached PKM.
 

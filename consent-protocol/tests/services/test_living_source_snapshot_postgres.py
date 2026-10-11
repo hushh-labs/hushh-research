@@ -366,3 +366,14 @@ def test_actual_circle_reader_retains_terminal_and_outgoing_invites_after_circle
         len(rows) == 1 and rows[0]["status"] == "declined" and rows[0]["inviterUserId"] == "owner"
     )
     assert service.list_member_invites(user_id="other", require_complete=True) == []
+    with production_fence_engine.begin() as c:
+        c.execute(text("UPDATE one_location_circle_member_invites SET status='pending'"))
+    assert (
+        service.list_member_invites(user_id="owner", require_complete=True)[0]["status"]
+        == "expired"
+    )
+    with production_fence_engine.connect() as c:
+        assert (
+            c.execute(text("SELECT status FROM one_location_circle_member_invites")).scalar_one()
+            == "pending"
+        )

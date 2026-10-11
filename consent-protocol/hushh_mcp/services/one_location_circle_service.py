@@ -3253,7 +3253,7 @@ class OneLocationCircleService:
             if require_complete:
                 result = self._db.execute_raw(
                     """
-                    SELECT invite.*,circle.name AS circle_name,circle.kind AS circle_kind
+                    SELECT invite.*, CASE WHEN invite.status='pending' AND invite.expires_at<=NOW() THEN 'expired' ELSE invite.status END AS status, circle.name AS circle_name,circle.kind AS circle_kind
                     FROM one_location_circle_member_invites invite
                     JOIN one_location_circles circle ON circle.id=invite.circle_id
                     WHERE (invite.invitee_user_id=:user_id OR invite.inviter_user_id=:user_id OR circle.owner_user_id=:user_id)
