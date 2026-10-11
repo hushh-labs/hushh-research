@@ -107,7 +107,7 @@ def plan_cleanup(
         raise UnsafeState("protected revision absent from revision list")
     # Keep a fallback if the caller omitted its exact predeploy revision.
     fallback = next((name for name in ordered if name not in serving), None)
-    protected = serving | explicit_protected | set(ordered[:keep_count])
+    protected = serving | explicit_protected
     status = service.get("status") or {}
     protected.update(
         name
@@ -119,8 +119,15 @@ def plan_cleanup(
     )
     if not protected.issubset(ordered):
         raise UnsafeState("latest revision absent from revision list")
-    if fallback:
+    if fallback and not (explicit_protected - serving):
         protected.add(fallback)
+    # Exact rollback anchors count toward retention. Otherwise a failed newer
+    # candidate displaces neither anchor and is retained indefinitely as an
+    # extra revision, consuming the next release's connection budget.
+    for name in ordered:
+        if len(protected) >= keep_count:
+            break
+        protected.add(name)
     # Revision protection preserves rollback artifacts, not their public tag
     # URLs. A zero-traffic tag can still serve requests and bypass the service
     # instance cap, even when its revision is retained for rollback.

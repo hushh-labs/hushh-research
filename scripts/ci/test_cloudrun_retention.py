@@ -173,6 +173,19 @@ class RetentionSafetyTest(unittest.TestCase):
         self.assertEqual(plan.delete_revisions, (old,))
         self.assertTrue({serving, rollback, candidate, good}.issubset(plan.protected))
 
+    def test_exact_rollback_anchor_counts_toward_retention_after_failed_candidate(self):
+        rollback, failed, serving = (revision(n)["metadata"]["name"] for n in range(1, 4))
+        state = service({"revisionName": serving, "percent": 100})
+        state["status"]["latestReadyRevisionName"] = serving
+        state["status"]["latestCreatedRevisionName"] = serving
+        revisions = [revision(n) for n in range(1, 4)]
+        anchored = MODULE.plan_cleanup(state, revisions, 2, {rollback})
+        self.assertEqual(anchored.protected, frozenset({rollback, serving}))
+        self.assertEqual(anchored.delete_revisions, (failed,))
+        # Without an explicit rollback, retain the newest fallback instead.
+        unanchored = MODULE.plan_cleanup(state, revisions, 2, set())
+        self.assertTrue({failed, serving}.issubset(unanchored.protected))
+
     def test_refuses_ambiguous_traffic_and_missing_protected_revision(self):
         state = service(
             {"revisionName": revision(2)["metadata"]["name"], "percent": 99}
