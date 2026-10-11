@@ -1,5 +1,7 @@
 "use client";
 
+import { LivingMemoryDocument } from "@/components/profile/living-memory-document";
+
 import { useDocumentFeedStream } from "@/lib/feed/use-document-feed-stream";
 import {
   Suspense,
@@ -588,7 +590,6 @@ function describePasskeyWrapper(wrapper: VaultWrapper): string {
   return parts.join(" / ");
 }
 
-
 function profileRouteRequiresUnlockedVault(
   panel: ProfilePanel | null,
   detail: ProfileDetail | null,
@@ -779,8 +780,8 @@ function ProfilePageContent({
     () =>
       isPanePresentation
         ? null
-        : buildLegacyDocumentPayoutReturnRoute(pathname, searchParams) ??
-          buildCanonicalProfileRouteFromLegacyQuery(pathname, searchParams),
+        : (buildLegacyDocumentPayoutReturnRoute(pathname, searchParams) ??
+          buildCanonicalProfileRouteFromLegacyQuery(pathname, searchParams)),
     [isPanePresentation, pathname, searchParams],
   );
   const profileRouteState = useMemo(
@@ -807,9 +808,13 @@ function ProfilePageContent({
   const supportRouteKind = supportComposeKind ?? supportQueryKind;
   const sendingSupportMessage = supportComposerState.status === "sending";
   const supportPresentation = SUPPORT_INTENT_PRESENTATION[supportKind];
-  useDocumentFeedStream(activePanel === "payouts" && !authLoading ? user : null);
+  useDocumentFeedStream(
+    activePanel === "payouts" && !authLoading ? user : null,
+  );
 
-  const effectiveReplyEmail = user?.emailVerified ? user.email?.trim() || "" : "";
+  const effectiveReplyEmail = user?.emailVerified
+    ? user.email?.trim() || ""
+    : "";
   const supportReplyLine = effectiveReplyEmail
     ? `Replies go to ${effectiveReplyEmail}`
     : "Verify an account email to receive a reply.";
@@ -870,7 +875,13 @@ function ProfilePageContent({
       });
     }
     return null;
-  }, [activeDetail, activePanel, isPanePresentation, searchParams, supportComposeKind]);
+  }, [
+    activeDetail,
+    activePanel,
+    isPanePresentation,
+    searchParams,
+    supportComposeKind,
+  ]);
 
   useEffect(() => {
     if (!legacySupportRouteHref || isPanePresentation) return;
@@ -1865,7 +1876,13 @@ function ProfilePageContent({
   function openVaultBackedPanel(
     panel: Extract<
       ProfilePanel,
-      "my-data" | "payouts" | "request-pricing" | "connected-systems" | "connectors" | "gmail" | "security"
+      | "my-data"
+      | "payouts"
+      | "request-pricing"
+      | "connected-systems"
+      | "connectors"
+      | "gmail"
+      | "security"
     >,
     detail: ProfileDetail | null = null,
   ) {
@@ -1938,12 +1955,16 @@ function ProfilePageContent({
       setSupportMessage("");
       return { kind: "accepted" };
     } catch (error) {
-      console.error("[ProfilePage] Support delivery failed:", error instanceof SupportDeliveryUncertainError ? "uncertain" : "failed");
+      console.error(
+        "[ProfilePage] Support delivery failed:",
+        error instanceof SupportDeliveryUncertainError ? "uncertain" : "failed",
+      );
       setSupportComposerState({
         status: "error",
-        message: error instanceof SupportDeliveryUncertainError
-          ? "We couldn't confirm delivery. Please wait before trying again."
-          : "We couldn't send your message. Try again.",
+        message:
+          error instanceof SupportDeliveryUncertainError
+            ? "We couldn't confirm delivery. Please wait before trying again."
+            : "We couldn't send your message. Try again.",
       });
       return { kind: "failed" };
     }
@@ -2300,7 +2321,8 @@ function ProfilePageContent({
       {
         id: "profile_payouts",
         label: "Payouts",
-        purpose: "opens payout setup, linked bank details, and transaction history.",
+        purpose:
+          "opens payout setup, linked bank details, and transaction history.",
         actionId: "route.profile_payouts",
         role: "card",
         voiceAliases: ["payouts", "link my bank", "document earnings"],
@@ -2364,7 +2386,8 @@ function ProfilePageContent({
       {
         id: "profile_trusted_devices",
         label: "Trusted devices",
-        purpose: "opens devices connected as an extension of your private agent.",
+        purpose:
+          "opens devices connected as an extension of your private agent.",
         actionId: "route.profile_trusted_devices",
         role: "card",
         voiceAliases: ["trusted devices", "connected devices", "devices"],
@@ -2459,17 +2482,17 @@ function ProfilePageContent({
               ? "Payouts"
               : activePanel === "request-pricing"
                 ? "Request pricing"
-            : activePanel === "my-data"
-              ? "Memory"
-              : activePanel === "connected-systems"
-                ? "Connected Systems"
-                : activePanel === "preferences"
-                  ? PROFILE_LABELS.preferences
-                  : activePanel === "security"
-                    ? PROFILE_LABELS.security
-                    : activePanel === "gmail"
-                      ? "Mail receipts"
-                      : PROFILE_LABELS.support,
+                : activePanel === "my-data"
+                  ? "Memory"
+                  : activePanel === "connected-systems"
+                    ? "Connected Systems"
+                    : activePanel === "preferences"
+                      ? PROFILE_LABELS.preferences
+                      : activePanel === "security"
+                        ? PROFILE_LABELS.security
+                        : activePanel === "gmail"
+                          ? "Mail receipts"
+                          : PROFILE_LABELS.support,
           ...(activeDetail ? [activeDetail] : []),
         ]
       : [
@@ -2491,52 +2514,55 @@ function ProfilePageContent({
       activePanel === "payouts" || activePanel === "request-pricing"
         ? []
         : activePanel === "gmail"
-        ? [
-            gmailPresentation.isConnected
-              ? "Sync Mail receipts"
-              : gmailPresentation.state === "needs_reauthentication"
-                ? "Reconnect Mail"
-                : "Connect Mail",
-            "Open receipts",
-            ...(gmailPresentation.isConnected ? ["Disconnect Mail"] : []),
-          ]
-        : activePanel === "support"
           ? [
-              "Choose Problem",
-              "Choose Help",
-              "Choose Feedback",
-              "Send support message",
+              gmailPresentation.isConnected
+                ? "Sync Mail receipts"
+                : gmailPresentation.state === "needs_reauthentication"
+                  ? "Reconnect Mail"
+                  : "Connect Mail",
+              "Open receipts",
+              ...(gmailPresentation.isConnected ? ["Disconnect Mail"] : []),
             ]
-          : activePanel === "connected-systems"
+          : activePanel === "support"
             ? [
-                "Load Salesforce CRM schema",
-                "Read Salesforce CRM record",
-                "Propose Salesforce CRM create",
-                "Propose Salesforce CRM update",
+                "Choose Problem",
+                "Choose Help",
+                "Choose Feedback",
+                "Send support message",
               ]
-            : activePanel === "account"
-              ? [phoneNumber ? "Change phone number" : "Add phone number"]
-              : activePanel === "preferences"
-                ? []
-                : activePanel === "security"
-                  ? [
-                      vaultAccess.needsVaultCreation
-                        ? "Create your vault"
-                        : "Unlock vault",
-                      "Change passphrase",
-                      "Delete account",
-                    ]
-                  : [
-                      "Open your account",
-                      "Open security & privacy",
-                      "Open help & feedback",
-                    ];
+            : activePanel === "connected-systems"
+              ? [
+                  "Load Salesforce CRM schema",
+                  "Read Salesforce CRM record",
+                  "Propose Salesforce CRM create",
+                  "Propose Salesforce CRM update",
+                ]
+              : activePanel === "account"
+                ? [phoneNumber ? "Change phone number" : "Add phone number"]
+                : activePanel === "preferences"
+                  ? []
+                  : activePanel === "security"
+                    ? [
+                        vaultAccess.needsVaultCreation
+                          ? "Create your vault"
+                          : "Unlock vault",
+                        "Change passphrase",
+                        "Delete account",
+                      ]
+                    : [
+                        "Open your account",
+                        "Open security & privacy",
+                        "Open help & feedback",
+                      ];
 
     return {
       surfaceDefinition: {
-        screenId: activePanel === "request-pricing"
-          ? "profile_request_pricing"
-          : activePanel ? `profile_${activePanel}` : "profile_home",
+        screenId:
+          activePanel === "request-pricing"
+            ? "profile_request_pricing"
+            : activePanel
+              ? `profile_${activePanel}`
+              : "profile_home",
         title: activePanel
           ? activePanel === "account"
             ? PROFILE_LABELS.account
@@ -2544,17 +2570,17 @@ function ProfilePageContent({
               ? "Payouts"
               : activePanel === "request-pricing"
                 ? "Request pricing"
-            : activePanel === "my-data"
-              ? "Memory"
-              : activePanel === "connected-systems"
-                ? "Connected Systems"
-                : activePanel === "preferences"
-                  ? PROFILE_LABELS.preferences
-                  : activePanel === "security"
-                    ? PROFILE_LABELS.security
-                    : activePanel === "gmail"
-                      ? "Mail receipts"
-                      : PROFILE_LABELS.support
+                : activePanel === "my-data"
+                  ? "Memory"
+                  : activePanel === "connected-systems"
+                    ? "Connected Systems"
+                    : activePanel === "preferences"
+                      ? PROFILE_LABELS.preferences
+                      : activePanel === "security"
+                        ? PROFILE_LABELS.security
+                        : activePanel === "gmail"
+                          ? "Mail receipts"
+                          : PROFILE_LABELS.support
           : "Profile",
         purpose:
           "This surface manages account details, payouts, request pricing, appearance, help, and vault privacy.",
@@ -2842,7 +2868,11 @@ function ProfilePageContent({
     // Stripe returns to Payouts with a short callback marker. Keep that route
     // while the owner unlocks so an expired Connect link can be refreshed.
     const documentPayoutReturn = searchParams.get("documentPayouts");
-    if (activePanel && documentPayoutReturn !== "refresh" && documentPayoutReturn !== "done") {
+    if (
+      activePanel &&
+      documentPayoutReturn !== "refresh" &&
+      documentPayoutReturn !== "done"
+    ) {
       setPendingProfileTarget({
         panel: activePanel,
         detail: activeDetail ?? null,
@@ -3389,7 +3419,14 @@ function ProfilePageContent({
   };
 
   const myDataContent = (
-    <div className={cn("space-y-4 sm:space-y-5", isPanePresentation && "profile-account-content", isPanePresentation && accountStyles.paneAccountContent, isPanePresentation && accountStyles.managedContent)}>
+    <div
+      className={cn(
+        "space-y-4 sm:space-y-5",
+        isPanePresentation && "profile-account-content",
+        isPanePresentation && accountStyles.paneAccountContent,
+        isPanePresentation && accountStyles.managedContent,
+      )}
+    >
       <PkmDataManagerPanel
         signedIn={Boolean(user)}
         loading={profileManagerLoading}
@@ -3422,7 +3459,9 @@ function ProfilePageContent({
           )
         }
       />
-      {isVaultUnlocked ? <SharedWithYouGroup vaultOwnerToken={vaultOwnerToken} /> : null}
+      {isVaultUnlocked ? (
+        <SharedWithYouGroup vaultOwnerToken={vaultOwnerToken} />
+      ) : null}
       {isVaultUnlocked ? <SecretsListGroup onUnlock={() => undefined} /> : null}
     </div>
   );
@@ -3457,7 +3496,11 @@ function ProfilePageContent({
 
       <SettingsGroup>
         <SettingsRow
-          icon={isPanePresentation ? ProfileSecondaryLocationIcon : LocationAgentIcon}
+          icon={
+            isPanePresentation
+              ? ProfileSecondaryLocationIcon
+              : LocationAgentIcon
+          }
           iconTone="capability"
           title="Location sharing"
           description="Manage live location."
@@ -3477,7 +3520,9 @@ function ProfilePageContent({
           onClick={() => router.push(ROUTES.CONSENTS)}
         />
         <SettingsRow
-          icon={isPanePresentation ? ProfileInnerPeopleIcon : DiscoverableRowIcon}
+          icon={
+            isPanePresentation ? ProfileInnerPeopleIcon : DiscoverableRowIcon
+          }
           iconTone="capability"
           title="Find and connect me by phone number"
           description={contactDiscoverableStatusText}
@@ -3495,7 +3540,11 @@ function ProfilePageContent({
           }
         />
         <SettingsRow
-          icon={isPanePresentation ? ProfileSecondaryVisibilityIcon : MarketplaceAgentIcon}
+          icon={
+            isPanePresentation
+              ? ProfileSecondaryVisibilityIcon
+              : MarketplaceAgentIcon
+          }
           iconTone="capability"
           title="Marketplace visibility"
           description={marketplaceStatusText}
@@ -3525,10 +3574,17 @@ function ProfilePageContent({
   };
 
   const accountContent = (
-    <div className={cn("profile-account-content", isPanePresentation && accountStyles.paneAccountContent)}>
+    <div
+      className={cn(
+        "profile-account-content",
+        isPanePresentation && accountStyles.paneAccountContent,
+      )}
+    >
       <SettingsGroup title="Identity">
         <SettingsRow
-          icon={isPanePresentation ? ProfileAccountNameIcon : AccountProfileIcon}
+          icon={
+            isPanePresentation ? ProfileAccountNameIcon : AccountProfileIcon
+          }
           iconTone="capability"
           title="Display name"
           description={user.displayName || "Not available"}
@@ -3541,7 +3597,10 @@ function ProfilePageContent({
         />
         {editingDisplayName ? (
           <div
-            className={cn("px-4 pb-3", isPanePresentation && accountStyles.paneEditor)}
+            className={cn(
+              "px-4 pb-3",
+              isPanePresentation && accountStyles.paneEditor,
+            )}
             data-testid="profile-account-display-name-editor"
           >
             <DisplayNameEditor
@@ -3575,17 +3634,21 @@ function ProfilePageContent({
         <SettingsRow
           icon={isPanePresentation ? ProfileAccountProviderIcon : undefined}
           iconTone="capability"
-          leading={isPanePresentation ? undefined : (
-            <span className="profile-account-provider-icon inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
-              <ProviderIcon providerId={provider.id} email={user.email} />
-            </span>
-          )}
+          leading={
+            isPanePresentation ? undefined : (
+              <span className="profile-account-provider-icon inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
+                <ProviderIcon providerId={provider.id} email={user.email} />
+              </span>
+            )
+          }
           title="Sign-in provider"
           description={provider.name}
         />
         {walletCardEntryEnabled ? (
           <SettingsRow
-            icon={isPanePresentation ? ProfileAccountWalletIcon : WalletAgentIcon}
+            icon={
+              isPanePresentation ? ProfileAccountWalletIcon : WalletAgentIcon
+            }
             iconTone="capability"
             className="profile-account-service-row"
             title={WALLET_CARD_COPY.profileEntry.title}
@@ -3627,96 +3690,106 @@ function ProfilePageContent({
           accent={appAccent}
           onAccentChange={writeAccent}
           onGeminiClick={() =>
-            updateProfileView({ panel: "preferences", detail: "gemini" }, "push")
+            updateProfileView(
+              { panel: "preferences", detail: "gemini" },
+              "push",
+            )
           }
           onVoiceClick={() =>
             updateProfileView({ panel: "preferences", detail: "voice" }, "push")
           }
         />
       ) : (
-      <SettingsGroup>
-        <SettingsRow
-          className="profile-preferences-control-row"
-          icon={AppearanceRowIcon}
-          iconTone="capability"
-          title="Appearance"
-          description="Light, dark, or system."
-          trailing={
-            <ThemeToggleLean
-              size="expanded"
-              className="h-12 w-full min-w-0 p-0.5 sm:w-full [&_button]:min-h-11 [&_span.text-xs]:inline"
-            />
-          }
-          stackTrailingOnMobile
-        />
-        <SettingsRow
-          className="profile-preferences-control-row"
-          icon={AccentRowIcon}
-          iconTone="capability"
-          title="Accent"
-          description="Choose the app accent."
-          trailing={
-            <Select
-              value={appAccent}
-              onValueChange={(value) => {
-                writeAccent(value as AppAccent);
-              }}
-            >
-              <SelectTrigger
-                className="h-11 w-full min-w-0"
-                aria-label="App accent color"
+        <SettingsGroup>
+          <SettingsRow
+            className="profile-preferences-control-row"
+            icon={AppearanceRowIcon}
+            iconTone="capability"
+            title="Appearance"
+            description="Light, dark, or system."
+            trailing={
+              <ThemeToggleLean
+                size="expanded"
+                className="h-12 w-full min-w-0 p-0.5 sm:w-full [&_button]:min-h-11 [&_span.text-xs]:inline"
+              />
+            }
+            stackTrailingOnMobile
+          />
+          <SettingsRow
+            className="profile-preferences-control-row"
+            icon={AccentRowIcon}
+            iconTone="capability"
+            title="Accent"
+            description="Choose the app accent."
+            trailing={
+              <Select
+                value={appAccent}
+                onValueChange={(value) => {
+                  writeAccent(value as AppAccent);
+                }}
               >
-                <SelectValue placeholder="iOS Blue" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="blue">
-                  <span className="flex items-center gap-2">
-                    <span
-                      aria-hidden
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: "var(--accent-preview-blue)" }}
-                    />
-                    iOS Blue
-                  </span>
-                </SelectItem>
-                <SelectItem value="gold">
-                  <span className="flex items-center gap-2">
-                    <span
-                      aria-hidden
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: "var(--accent-preview-gold)" }}
-                    />
-                    Molten Gold
-                  </span>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          }
-          stackTrailingOnMobile
-        />
-        <SettingsRow
-          leading={<GeminiLogo className="h-8 w-8" />}
-          title="Gemini"
-          description="Choose managed or BYOK."
-          chevron
-          onClick={() =>
-            updateProfileView(
-              { panel: "preferences", detail: "gemini" },
-              "push",
-            )
-          }
-        />
-        <SettingsRow
-          icon={VoiceRowIcon}
-          iconTone="capability"
-          title="Voice"
-          description="What One's voice can do, and its safety controls."
-          chevron
-          onClick={() =>
-            updateProfileView({ panel: "preferences", detail: "voice" }, "push")
-          }
-        />
-      </SettingsGroup>
+                <SelectTrigger
+                  className="h-11 w-full min-w-0"
+                  aria-label="App accent color"
+                >
+                  <SelectValue placeholder="iOS Blue" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="blue">
+                    <span className="flex items-center gap-2">
+                      <span
+                        aria-hidden
+                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{
+                          backgroundColor: "var(--accent-preview-blue)",
+                        }}
+                      />
+                      iOS Blue
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="gold">
+                    <span className="flex items-center gap-2">
+                      <span
+                        aria-hidden
+                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{
+                          backgroundColor: "var(--accent-preview-gold)",
+                        }}
+                      />
+                      Molten Gold
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            }
+            stackTrailingOnMobile
+          />
+          <SettingsRow
+            leading={<GeminiLogo className="h-8 w-8" />}
+            title="Gemini"
+            description="Choose managed or BYOK."
+            chevron
+            onClick={() =>
+              updateProfileView(
+                { panel: "preferences", detail: "gemini" },
+                "push",
+              )
+            }
+          />
+          <SettingsRow
+            icon={VoiceRowIcon}
+            iconTone="capability"
+            title="Voice"
+            description="What One's voice can do, and its safety controls."
+            chevron
+            onClick={() =>
+              updateProfileView(
+                { panel: "preferences", detail: "voice" },
+                "push",
+              )
+            }
+          />
+        </SettingsGroup>
       )}
       <CommunicationPreferencesSection
         userId={user?.uid ?? null}
@@ -3731,7 +3804,11 @@ function ProfilePageContent({
     <div className="space-y-4">
       <SettingsGroup>
         <SettingsRow
-          icon={isPanePresentation ? ProfilePaneSecurityIcon : FingerprintProfileIcon}
+          icon={
+            isPanePresentation
+              ? ProfilePaneSecurityIcon
+              : FingerprintProfileIcon
+          }
           iconTone="capability"
           title="Vault methods"
           description="Passphrase, passkey, and unlock method."
@@ -3745,7 +3822,12 @@ function ProfilePageContent({
   );
 
   const supportContent = (
-    <div className={cn("mx-auto flex w-full max-w-[580px] flex-col px-0", auxiliaryTabStyles.support)}>
+    <div
+      className={cn(
+        "mx-auto flex w-full max-w-[580px] flex-col px-0",
+        auxiliaryTabStyles.support,
+      )}
+    >
       {supportComposerState.status === "sent" ? (
         <section
           aria-labelledby="support-success-heading"
@@ -3872,7 +3954,8 @@ function ProfilePageContent({
             {supportReplyLine}
           </p>
           <p className="mt-1 text-[13px] leading-[18px] text-muted-foreground">
-            Your message goes to One support, with an internal copy to our support lead. No automatic receipt is sent.
+            Your message goes to One support, with an internal copy to our
+            support lead. No automatic receipt is sent.
           </p>
 
           {supportComposerState.status === "error" ? (
@@ -3993,7 +4076,9 @@ function ProfilePageContent({
           <>
             {vaultMethod ? (
               <SettingsRow
-                icon={isPanePresentation ? ProfilePaneSecurityIcon : VaultRowIcon}
+                icon={
+                  isPanePresentation ? ProfilePaneSecurityIcon : VaultRowIcon
+                }
                 iconTone="capability"
                 title="Default unlock"
                 trailing={
@@ -4044,7 +4129,9 @@ function ProfilePageContent({
             ) : null}
             {!vaultAccess.canMutateSecureData ? (
               <SettingsRow
-                icon={isPanePresentation ? ProfilePaneSecurityIcon : VaultRowIcon}
+                icon={
+                  isPanePresentation ? ProfilePaneSecurityIcon : VaultRowIcon
+                }
                 iconTone="capability"
                 title="Unlock vault"
                 description="Change methods or passphrase."
@@ -4055,7 +4142,11 @@ function ProfilePageContent({
 
             {vaultAccess.canMutateSecureData && recommendedQuickMethod ? (
               <SettingsRow
-                icon={isPanePresentation ? ProfileSecondaryFingerprintIcon : FingerprintProfileIcon}
+                icon={
+                  isPanePresentation
+                    ? ProfileSecondaryFingerprintIcon
+                    : FingerprintProfileIcon
+                }
                 iconTone="capability"
                 title={
                   enrolledPasskeyWrappers.length > 0
@@ -4076,7 +4167,11 @@ function ProfilePageContent({
               return (
                 <SettingsRow
                   key={vaultWrapperKey(wrapper)}
-                  icon={isPanePresentation ? ProfileSecondaryFingerprintIcon : FingerprintProfileIcon}
+                  icon={
+                    isPanePresentation
+                      ? ProfileSecondaryFingerprintIcon
+                      : FingerprintProfileIcon
+                  }
                   iconTone="capability"
                   title={
                     enrolledPasskeyWrappers.length > 1
@@ -4138,7 +4233,11 @@ function ProfilePageContent({
 
             {vaultMethod ? (
               <SettingsRow
-                icon={isPanePresentation ? ProfileSecondaryPassphraseIcon : PassphraseRowIcon}
+                icon={
+                  isPanePresentation
+                    ? ProfileSecondaryPassphraseIcon
+                    : PassphraseRowIcon
+                }
                 iconTone="capability"
                 title="Change passphrase"
                 disabled={switchingVaultMethod}
@@ -4146,7 +4245,6 @@ function ProfilePageContent({
                 onClick={() => setPassphraseDialogOpen(true)}
               />
             ) : null}
-
           </>
         ) : null}
       </SettingsGroup>
@@ -4243,7 +4341,9 @@ function ProfilePageContent({
       />
 
       <SettingsRow
-        icon={isPanePresentation ? ProfileSecondaryReceiptIcon : MemoryAgentIcon}
+        icon={
+          isPanePresentation ? ProfileSecondaryReceiptIcon : MemoryAgentIcon
+        }
         iconTone="capability"
         title="Open receipts"
         description="Review synced receipts, merchants, and extracted totals."
@@ -4253,7 +4353,9 @@ function ProfilePageContent({
 
       {gmailPresentation.isConnected ? (
         <SettingsRow
-          icon={isPanePresentation ? ProfileSecondaryUnlinkIcon : DisconnectRowIcon}
+          icon={
+            isPanePresentation ? ProfileSecondaryUnlinkIcon : DisconnectRowIcon
+          }
           iconTone="capability"
           title="Disconnect Mail"
           description="Revoke Mail, stop future syncs, and delete Mail receipt data."
@@ -4358,7 +4460,10 @@ function ProfilePageContent({
               onCompleted={handleAccountPhoneCompleted}
               onCancel={popProfileStack}
               confirmLabel="Save phone number"
-              className={cn("gap-5", isPanePresentation && accountStyles.phoneDetail)}
+              className={cn(
+                "gap-5",
+                isPanePresentation && accountStyles.phoneDetail,
+              )}
               helperText={
                 phoneNumber
                   ? "Enter the new phone number."
@@ -4375,7 +4480,14 @@ function ProfilePageContent({
       key: "panel:payouts",
       title: "Payouts",
       content: (
-        <div className={cn("space-y-4", isPanePresentation && "profile-account-content", isPanePresentation && accountStyles.paneAccountContent, isPanePresentation && accountStyles.managedContent)}>
+        <div
+          className={cn(
+            "space-y-4",
+            isPanePresentation && "profile-account-content",
+            isPanePresentation && accountStyles.paneAccountContent,
+            isPanePresentation && accountStyles.managedContent,
+          )}
+        >
           <DocumentHashcoinPayouts />
           <AnswerPayoutAccount />
         </div>
@@ -4391,12 +4503,22 @@ function ProfilePageContent({
       key: "panel:request-pricing",
       title: "Request pricing",
       content: (
-        <div className={cn(isPanePresentation && "profile-account-content", isPanePresentation && accountStyles.paneAccountContent, isPanePresentation && accountStyles.managedContent)}>
+        <div
+          className={cn(
+            isPanePresentation && "profile-account-content",
+            isPanePresentation && accountStyles.paneAccountContent,
+            isPanePresentation && accountStyles.managedContent,
+          )}
+        >
           <DocumentRequestPricingCard
-            onSaved={pricingReturnTo ? () => {
-              toast.success("Price saved");
-              router.replace(pricingReturnTo);
-            } : undefined}
+            onSaved={
+              pricingReturnTo
+                ? () => {
+                    toast.success("Price saved");
+                    router.replace(pricingReturnTo);
+                  }
+                : undefined
+            }
           />
         </div>
       ),
@@ -4406,7 +4528,12 @@ function ProfilePageContent({
       key: "panel:my-data",
       title: "Memory",
       description: "Saved details and sharing.",
-      content: myDataContent,
+      content: (
+        <div className="space-y-4">
+          <LivingMemoryDocument />
+          {myDataContent}
+        </div>
+      ),
     });
     if (selectedDomain) {
       profileStackEntries.push({
@@ -4602,7 +4729,9 @@ function ProfilePageContent({
         content: (
           <SettingsGroup title={PROFILE_LABELS.accountAccess}>
             <SettingsRow
-              icon={isPanePresentation ? ProfilePaneSignOutIcon : SignOutProfileIcon}
+              icon={
+                isPanePresentation ? ProfilePaneSignOutIcon : SignOutProfileIcon
+              }
               iconTone="capability"
               title="Sign out"
               description="Sign out on this device."
@@ -4694,7 +4823,11 @@ function ProfilePageContent({
           <div className="profile-home-content">
             <SettingsGroup title="Your settings" separatorInset>
               <SettingsRow
-                icon={isPanePresentation ? ProfilePaneAccountIcon : AccountProfileIcon}
+                icon={
+                  isPanePresentation
+                    ? ProfilePaneAccountIcon
+                    : AccountProfileIcon
+                }
                 iconTone="capability"
                 title={PROFILE_LABELS.account}
                 chevron
@@ -4723,7 +4856,9 @@ function ProfilePageContent({
                 onClick={() => openVaultBackedPanel("request-pricing")}
               />
               <SettingsRow
-                icon={isPanePresentation ? ProfilePaneWalletIcon : MemoryAgentIcon}
+                icon={
+                  isPanePresentation ? ProfilePaneWalletIcon : MemoryAgentIcon
+                }
                 iconTone="capability"
                 title="Memory"
                 chevron
@@ -4734,14 +4869,22 @@ function ProfilePageContent({
                 onClick={() => openVaultBackedPanel("my-data")}
               />
               <SettingsRow
-                icon={isPanePresentation ? ProfilePaneAppearanceIcon : PreferencesProfileIcon}
+                icon={
+                  isPanePresentation
+                    ? ProfilePaneAppearanceIcon
+                    : PreferencesProfileIcon
+                }
                 iconTone="capability"
                 title={PROFILE_LABELS.preferences}
                 chevron
                 onClick={openPreferencesPanel}
               />
               <SettingsRow
-                icon={isPanePresentation ? ProfilePaneSecurityIcon : SecurityProfileIcon}
+                icon={
+                  isPanePresentation
+                    ? ProfilePaneSecurityIcon
+                    : SecurityProfileIcon
+                }
                 iconTone="capability"
                 title={PROFILE_LABELS.security}
                 chevron
@@ -4752,7 +4895,11 @@ function ProfilePageContent({
                 onClick={openSecurityPanel}
               />
               <SettingsRow
-                icon={isPanePresentation ? ProfilePaneDevicesIcon : DevicesProfileIcon}
+                icon={
+                  isPanePresentation
+                    ? ProfilePaneDevicesIcon
+                    : DevicesProfileIcon
+                }
                 iconTone="capability"
                 title="Trusted devices"
                 chevron
@@ -4761,7 +4908,11 @@ function ProfilePageContent({
                 }
               />
               <SettingsRow
-                icon={isPanePresentation ? ProfilePaneConnectorsIcon : ConnectedSystemsAgentIcon}
+                icon={
+                  isPanePresentation
+                    ? ProfilePaneConnectorsIcon
+                    : ConnectedSystemsAgentIcon
+                }
                 iconTone="capability"
                 title="Connectors"
                 description="Google Workspace and finance connections"
@@ -4769,7 +4920,11 @@ function ProfilePageContent({
                 onClick={() => openVaultBackedPanel("connectors")}
               />
               <SettingsRow
-                icon={isPanePresentation ? ProfilePaneInviteIcon : InviteFriendsProfileIcon}
+                icon={
+                  isPanePresentation
+                    ? ProfilePaneInviteIcon
+                    : InviteFriendsProfileIcon
+                }
                 iconTone="capability"
                 title={PROFILE_LABELS.referrals}
                 chevron
@@ -4780,7 +4935,9 @@ function ProfilePageContent({
                 onClick={() => router.push(ROUTES.ONE_REFERRALS)}
               />
               <SettingsRow
-                icon={isPanePresentation ? ProfilePaneHelpIcon : SupportProfileIcon}
+                icon={
+                  isPanePresentation ? ProfilePaneHelpIcon : SupportProfileIcon
+                }
                 iconTone="capability"
                 title={PROFILE_LABELS.support}
                 chevron
@@ -4815,7 +4972,11 @@ function ProfilePageContent({
 
             <SettingsGroup title={PROFILE_LABELS.accountAccess} separatorInset>
               <SettingsRow
-                icon={isPanePresentation ? ProfilePaneSignOutIcon : SignOutProfileIcon}
+                icon={
+                  isPanePresentation
+                    ? ProfilePaneSignOutIcon
+                    : SignOutProfileIcon
+                }
                 iconTone="capability"
                 title="Sign out"
                 tone="destructive"
@@ -4842,7 +5003,9 @@ function ProfilePageContent({
       className={cn(
         "relative isolate",
         isPanePresentation ? "profile-pane-page" : "pb-3",
-        isPanePresentation && activePanel !== null && "profile-pane-page--inner",
+        isPanePresentation &&
+          activePanel !== null &&
+          "profile-pane-page--inner",
       )}
       nativeTest={
         isPanePresentation
@@ -5048,8 +5211,14 @@ function ProfilePageContent({
 
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent
-          className={cn("w-[calc(100%-1rem)] sm:max-w-lg", isPanePresentation && accountStyles.accountDialog, isPanePresentation && accountStyles.dangerDialog)}
-          overlayClassName={isPanePresentation ? accountStyles.accountDialogOverlay : undefined}
+          className={cn(
+            "w-[calc(100%-1rem)] sm:max-w-lg",
+            isPanePresentation && accountStyles.accountDialog,
+            isPanePresentation && accountStyles.dangerDialog,
+          )}
+          overlayClassName={
+            isPanePresentation ? accountStyles.accountDialogOverlay : undefined
+          }
         >
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2 text-[color:var(--app-destructive)]">
@@ -5084,8 +5253,13 @@ function ProfilePageContent({
 
       <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
         <AlertDialogContent
-          className={cn("w-[calc(100%-1rem)] sm:max-w-lg", isPanePresentation && accountStyles.accountDialog)}
-          overlayClassName={isPanePresentation ? accountStyles.accountDialogOverlay : undefined}
+          className={cn(
+            "w-[calc(100%-1rem)] sm:max-w-lg",
+            isPanePresentation && accountStyles.accountDialog,
+          )}
+          overlayClassName={
+            isPanePresentation ? accountStyles.accountDialogOverlay : undefined
+          }
         >
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">

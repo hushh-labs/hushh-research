@@ -124,3 +124,18 @@ class TestPromptBoundary:
 def test_schema_requires_an_answer_string():
     assert ANSWER_COMPOSE_SCHEMA["required"] == ["answer"]
     assert ANSWER_COMPOSE_SCHEMA["properties"]["answer"]["type"] == "STRING"
+
+
+async def test_oversized_projection_is_rejected_whole_before_model_dispatch():
+    called = False
+
+    async def runner(prompt):
+        nonlocal called
+        called = True
+        return {"answer": "unused"}
+
+    with pytest.raises(AnswerComposerError):
+        await AnswerComposer(runner=runner).compose(
+            question="q", projection={"memory": "x" * 60001, "values": PROJECTION}
+        )
+    assert not called

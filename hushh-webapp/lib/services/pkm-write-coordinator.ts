@@ -1,9 +1,7 @@
 "use client";
 
 import { isAccountDeletionActive } from "@/lib/auth/account-deletion-activity";
-import type {
-  DomainManifest,
-} from "@/lib/personal-knowledge-model/manifest";
+import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { PkmMetadataReviewRequired } from "@/lib/personal-knowledge-model/manifest";
 import {
   buildConfirmedPkmMutationPlanV2,
@@ -111,10 +109,15 @@ function buildSyncCheckpoint(params: {
   conflictRetry: boolean;
 }): PkmSyncCheckpointMetadata {
   const expectedDataVersion = toNullableVersion(
-    params.context.currentEncryptedDomain?.dataVersion ?? params.context.expectedDataVersion
+    params.context.currentEncryptedDomain?.dataVersion ??
+      params.context.expectedDataVersion,
   );
-  const currentManifestVersion = toNullableVersion(params.context.currentManifest?.manifest_version);
-  const targetManifestVersion = toNullableVersion(params.plan.manifest?.manifest_version);
+  const currentManifestVersion = toNullableVersion(
+    params.context.currentManifest?.manifest_version,
+  );
+  const targetManifestVersion = toNullableVersion(
+    params.plan.manifest?.manifest_version,
+  );
   const upgradeRunId = null;
 
   return {
@@ -144,7 +147,7 @@ function buildSyncCheckpoint(params: {
 
 function emptyResult(
   saveState: PkmWriteCoordinatorSaveState,
-  message?: string
+  message?: string,
 ): PkmWriteCoordinatorResult {
   return {
     saveState,
@@ -166,29 +169,43 @@ function pkmWriteFailureResult(
   userId: string,
 ): PkmWriteCoordinatorResult {
   if (error instanceof PkmMetadataReviewRequired) {
-    return emptyResult("failed", "This memory has conflicting labels or sensitivity assessments. Review and prepare it again before saving; nothing was saved.");
+    return emptyResult(
+      "failed",
+      "This memory has conflicting labels or sensitivity assessments. Review and prepare it again before saving; nothing was saved.",
+    );
   }
   if (error instanceof PkmAutomaticUpgradeRequired) {
-    return emptyResult("blocked_pending_upgrade", "Open Memory to update it before saving this detail.");
+    return emptyResult(
+      "blocked_pending_upgrade",
+      "Open Memory to update it before saving this detail.",
+    );
   }
   if (error instanceof ReservedBranchWriteBlocked) {
     // The store's own writer-versus-scope check (enforce mode only).
     return reservedBlockedResult(error.refusals);
   }
   if (error instanceof DOMException && error.name === "AbortError") {
-    return emptyResult("blocked_pending_unlock", "Memory saving stopped because the session changed.");
+    return emptyResult(
+      "blocked_pending_unlock",
+      "Memory saving stopped because the session changed.",
+    );
   }
-  const rawMessage = error instanceof Error ? error.message : String(error || "");
+  const rawMessage =
+    error instanceof Error ? error.message : String(error || "");
   if (rawMessage.includes("PKM_SHARING_IMPACT_CHANGED")) {
-    console.warn("[PkmWriteCoordinator] Sharing impact changed during confirmation.");
+    console.warn(
+      "[PkmWriteCoordinator] Sharing impact changed during confirmation.",
+    );
     return emptyResult(
       "failed",
-      "Sharing changed while you were reviewing this detail. Review the current recipients and confirm again."
+      "Sharing changed while you were reviewing this detail. Review the current recipients and confirm again.",
     );
   }
   if (isAccountDeletionActive(userId)) {
     // The account is being erased under this write; nothing is left to save.
-    console.warn("[PkmWriteCoordinator] PKM write stopped by account deletion.");
+    console.warn(
+      "[PkmWriteCoordinator] PKM write stopped by account deletion.",
+    );
     return emptyResult(
       "blocked_pending_unlock",
       "Memory saving stopped because the session changed.",
@@ -214,9 +231,15 @@ export function getReservedWouldRefuseShadowCount(): number {
   return reservedWouldRefuseShadowCount;
 }
 
-function reservedBlockedResult(refusals: readonly ReservedRefusal[]): PkmWriteCoordinatorResult {
-  const entry = refusals[0] ? reservedEntryFor(refusals[0].domain, refusals[0].branch) : null;
-  const owner = entry?.ownerFeature ? ` in ${entry.ownerFeature.replace(/_/g, " ")}` : "";
+function reservedBlockedResult(
+  refusals: readonly ReservedRefusal[],
+): PkmWriteCoordinatorResult {
+  const entry = refusals[0]
+    ? reservedEntryFor(refusals[0].domain, refusals[0].branch)
+    : null;
+  const owner = entry?.ownerFeature
+    ? ` in ${entry.ownerFeature.replace(/_/g, " ")}`
+    : "";
   return {
     ...emptyResult(
       "blocked_reserved_branch",
@@ -268,12 +291,15 @@ function guardReservedBranchWrite(params: {
     return null;
   } catch (error) {
     if (error instanceof ReservedBranchWriteBlocked) {
-      console.warn("[PkmWriteCoordinator] pkm.reserved_refused", error.refusals.map((refusal) => ({
-        domain: refusal.domain,
-        branch: refusal.branch,
-        writer: refusal.writerId,
-        reason: refusal.reason,
-      })));
+      console.warn(
+        "[PkmWriteCoordinator] pkm.reserved_refused",
+        error.refusals.map((refusal) => ({
+          domain: refusal.domain,
+          branch: refusal.branch,
+          writer: refusal.writerId,
+          reason: refusal.reason,
+        })),
+      );
       return reservedBlockedResult(error.refusals);
     }
     // Shadow mode must not be able to block or fail a save; enforce fails closed.
@@ -281,8 +307,12 @@ function guardReservedBranchWrite(params: {
   }
 }
 
-function kycReplyAuthorizationOf(confirmation: PkmWriteAuthorization): KycReplyAuthorizationV1 | undefined {
-  return "kycReplyAuthorization" in confirmation ? confirmation.kycReplyAuthorization : undefined;
+function kycReplyAuthorizationOf(
+  confirmation: PkmWriteAuthorization,
+): KycReplyAuthorizationV1 | undefined {
+  return "kycReplyAuthorization" in confirmation
+    ? confirmation.kycReplyAuthorization
+    : undefined;
 }
 
 function writeCapabilities(params: {
@@ -290,8 +320,12 @@ function writeCapabilities(params: {
   locationFinalizeAuthorization?: LocationPkmFinalizeAuthorizationV1;
 }): string[] {
   const held: string[] = [];
-  if (params.locationFinalizeAuthorization) held.push("location_finalize_authorization");
-  if ("kycReplyAuthorization" in params.confirmation && params.confirmation.kycReplyAuthorization) {
+  if (params.locationFinalizeAuthorization)
+    held.push("location_finalize_authorization");
+  if (
+    "kycReplyAuthorization" in params.confirmation &&
+    params.confirmation.kycReplyAuthorization
+  ) {
     held.push("information_request_id");
   }
   return held;
@@ -342,39 +376,49 @@ async function ensureWritableVersion(params: {
       true,
       params.vaultOwnerToken,
       { allowStaleFallback: params.allowImplicitUpgrade !== false },
-    ).catch((error) => { if (params.allowImplicitUpgrade === false) throw error; return null; }),
+    ).catch((error) => {
+      if (params.allowImplicitUpgrade === false) throw error;
+      return null;
+    }),
     PersonalKnowledgeModelService.getDomainManifest(
       params.userId,
       params.domain,
-      params.vaultOwnerToken
-    ).catch((error) => { if (params.allowImplicitUpgrade === false) throw error; return null; }),
+      params.vaultOwnerToken,
+    ).catch((error) => {
+      if (params.allowImplicitUpgrade === false) throw error;
+      return null;
+    }),
   ]);
 
   if (metadata?.upgradeStatus === "client_update_required") {
     throw new Error(
-      "This saved information was created by a newer app version. Update the app before changing it."
+      "This saved information was created by a newer app version. Update the app before changing it.",
     );
   }
 
   const domainStatus = metadata?.upgradableDomains.find(
-    (entry) => entry.domain === params.domain
+    (entry) => entry.domain === params.domain,
   );
-  const manifestContractVersion = Number(manifest?.domain_contract_version || 0);
-  const manifestReadableVersion = Number(manifest?.readable_summary_version || 0);
+  const manifestContractVersion = Number(
+    manifest?.domain_contract_version || 0,
+  );
+  const manifestReadableVersion = Number(
+    manifest?.readable_summary_version || 0,
+  );
   const hasUnsupportedFutureVersion =
     manifestContractVersion > currentDomainContractVersion(params.domain) ||
     manifestReadableVersion > CURRENT_READABLE_SUMMARY_VERSION ||
     comparePkmSemanticVersions(
       String(manifest?.pkm_contract_version || "0.0.0"),
-      CURRENT_PKM_CONTRACT_VERSION
+      CURRENT_PKM_CONTRACT_VERSION,
     ) > 0 ||
     comparePkmSemanticVersions(
       String(manifest?.readable_projection_version || "0.0.0"),
-      CURRENT_READABLE_PROJECTION_VERSION
+      CURRENT_READABLE_PROJECTION_VERSION,
     ) > 0;
   if (hasUnsupportedFutureVersion) {
     throw new Error(
-      "This saved information was created by a newer app version. Update the app before changing it."
+      "This saved information was created by a newer app version. Update the app before changing it.",
     );
   }
   const needsUpgrade =
@@ -389,7 +433,8 @@ async function ensureWritableVersion(params: {
 
   // Background capture must not start/resume an independent upgrade with
   // captured credentials. The owner can use the governed upgrade surface.
-  if (params.allowImplicitUpgrade === false) throw new PkmAutomaticUpgradeRequired();
+  if (params.allowImplicitUpgrade === false)
+    throw new PkmAutomaticUpgradeRequired();
 
   await PkmUpgradeOrchestrator.ensureRunning({
     userId: params.userId,
@@ -405,7 +450,7 @@ async function ensureWritableVersion(params: {
   }).catch(() => null);
   if (refreshedStatus?.upgradeStatus === "client_update_required") {
     throw new Error(
-      "This saved information was created by a newer app version. Update the app before changing it."
+      "This saved information was created by a newer app version. Update the app before changing it.",
     );
   }
   return { upgraded: true };
@@ -428,7 +473,10 @@ export class PkmWriteCoordinator {
     build: (context: BaseContext) => Promise<MergedWritePlan> | MergedWritePlan;
   }): Promise<PkmWriteCoordinatorResult> {
     if (!params.vaultKey || !params.vaultOwnerToken) {
-      return emptyResult("blocked_pending_unlock", "Unlock your vault before saving.");
+      return emptyResult(
+        "blocked_pending_unlock",
+        "Unlock your vault before saving.",
+      );
     }
 
     let upgradedInSession = false;
@@ -445,7 +493,10 @@ export class PkmWriteCoordinator {
             // A background refresh of a linked source never triggers a memory
             // upgrade on the owner's behalf.
             allowImplicitUpgrade:
-              params.confirmation.authorizationMode !== "owner_connected_source_sync",
+              params.confirmation.authorizationMode !==
+                "owner_connected_source_sync" &&
+              params.confirmation.authorizationMode !==
+                "owner_source_projection",
           });
           upgradedInSession = upgrade.upgraded;
         }
@@ -464,7 +515,8 @@ export class PkmWriteCoordinator {
           domain: params.domain,
           currentManifest: context.currentManifest,
           targetManifest: plan.manifest,
-          operation: plan.operation || (context.currentManifest ? "update" : "create"),
+          operation:
+            plan.operation || (context.currentManifest ? "update" : "create"),
           scopePath: plan.scopePath,
           sourceRevision: context.currentEncryptedDomain?.dataVersion,
           confirmation: params.confirmation,
@@ -475,7 +527,8 @@ export class PkmWriteCoordinator {
           context,
           plan,
           writerId: mutationPlan.writer_id,
-          authorizationMode: mutationPlan.confirmation_receipt.authorization_mode,
+          authorizationMode:
+            mutationPlan.confirmation_receipt.authorization_mode,
           capabilities: writeCapabilities({
             confirmation: params.confirmation,
             locationFinalizeAuthorization: params.locationFinalizeAuthorization,
@@ -490,25 +543,33 @@ export class PkmWriteCoordinator {
           plan,
           conflictRetry: retryingAfterConflict,
         });
-        const result = await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
-          userId: params.userId,
-          vaultKey: params.vaultKey,
-          vaultOwnerToken: params.vaultOwnerToken,
-          domain: params.domain,
-          domainData: plan.domainData,
-          summary: plan.summary,
-          mergeDecision: plan.mergeDecision,
-          manifest: plan.manifest,
-          writeProjections: plan.writeProjections,
-          baseFullBlob: context.baseFullBlob,
-          expectedDataVersion: context.currentEncryptedDomain?.dataVersion ?? context.expectedDataVersion,
-          syncCheckpoint,
-          mutationPlan,
-          locationFinalizeAuthorization: params.locationFinalizeAuthorization,
-          kycReplyAuthorization: kycReplyAuthorizationOf(params.confirmation),
-          beforeEffect: params.beforeEffect,
-          cacheFullBlob: false,
-        });
+        const result =
+          await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob(
+            {
+              userId: params.userId,
+              vaultKey: params.vaultKey,
+              vaultOwnerToken: params.vaultOwnerToken,
+              domain: params.domain,
+              domainData: plan.domainData,
+              summary: plan.summary,
+              mergeDecision: plan.mergeDecision,
+              manifest: plan.manifest,
+              writeProjections: plan.writeProjections,
+              baseFullBlob: context.baseFullBlob,
+              expectedDataVersion:
+                context.currentEncryptedDomain?.dataVersion ??
+                context.expectedDataVersion,
+              syncCheckpoint,
+              mutationPlan,
+              locationFinalizeAuthorization:
+                params.locationFinalizeAuthorization,
+              kycReplyAuthorization: kycReplyAuthorizationOf(
+                params.confirmation,
+              ),
+              beforeEffect: params.beforeEffect,
+              cacheFullBlob: false,
+            },
+          );
         const resultCheckpoint = {
           ...syncCheckpoint,
           resultDataVersion: toNullableVersion(result.dataVersion),
@@ -564,10 +625,15 @@ export class PkmWriteCoordinator {
     idempotencyScope?: string;
     beforeEffect?: () => Promise<void>;
     mayPublish?: () => boolean;
-    build: (context: BaseContext) => Promise<PreparedWritePlan> | PreparedWritePlan;
+    build: (
+      context: BaseContext,
+    ) => Promise<PreparedWritePlan> | PreparedWritePlan;
   }): Promise<PkmWriteCoordinatorResult> {
     if (!params.vaultKey || !params.vaultOwnerToken) {
-      return emptyResult("blocked_pending_unlock", "Unlock your vault before saving.");
+      return emptyResult(
+        "blocked_pending_unlock",
+        "Unlock your vault before saving.",
+      );
     }
 
     let upgradedInSession = false;
@@ -582,7 +648,9 @@ export class PkmWriteCoordinator {
             domain: params.domain,
             vaultKey: params.vaultKey,
             vaultOwnerToken: params.vaultOwnerToken,
-            allowImplicitUpgrade: !isAutomaticPkmWriteAuthorization(params.confirmation),
+            allowImplicitUpgrade: !isAutomaticPkmWriteAuthorization(
+              params.confirmation,
+            ),
           });
           upgradedInSession = upgrade.upgraded;
         }
@@ -600,14 +668,17 @@ export class PkmWriteCoordinator {
         await params.beforeEffect?.();
         const plan = await params.build(context);
         await params.beforeEffect?.();
-        const mergeMode = String(plan.mergeDecision?.merge_mode || "").trim().toLowerCase();
-        const operation = mergeMode === "delete_entity"
-          ? "delete"
-          : mergeMode === "correct_entity"
-            ? "update"
-            : context.currentManifest
+        const mergeMode = String(plan.mergeDecision?.merge_mode || "")
+          .trim()
+          .toLowerCase();
+        const operation =
+          mergeMode === "delete_entity"
+            ? "delete"
+            : mergeMode === "correct_entity"
               ? "update"
-              : "create";
+              : context.currentManifest
+                ? "update"
+                : "create";
         const mutationPlan = await buildConfirmedPkmMutationPlanV2({
           userId: params.userId,
           domain: params.domain,
@@ -615,7 +686,9 @@ export class PkmWriteCoordinator {
           targetManifest: plan.manifest,
           operation,
           confidence: Number(plan.structureDecision?.confidence ?? 1),
-          explanation: String(plan.structureDecision?.explanation || "").trim() || undefined,
+          explanation:
+            String(plan.structureDecision?.explanation || "").trim() ||
+            undefined,
           scopePath: plan.scopePath,
           sourceRevision: context.currentEncryptedDomain?.dataVersion,
           confirmation: params.confirmation,
@@ -626,8 +699,11 @@ export class PkmWriteCoordinator {
           context,
           plan,
           writerId: mutationPlan.writer_id,
-          authorizationMode: mutationPlan.confirmation_receipt.authorization_mode,
-          capabilities: writeCapabilities({ confirmation: params.confirmation }),
+          authorizationMode:
+            mutationPlan.confirmation_receipt.authorization_mode,
+          capabilities: writeCapabilities({
+            confirmation: params.confirmation,
+          }),
         });
         if (reservedBlock) return reservedBlock;
         const syncCheckpoint = buildSyncCheckpoint({
@@ -638,26 +714,33 @@ export class PkmWriteCoordinator {
           plan,
           conflictRetry: retryingAfterConflict,
         });
-        const result = await PersonalKnowledgeModelService.storePreparedDomainWithPreparedBlob({
-          userId: params.userId,
-          vaultKey: params.vaultKey,
-          vaultOwnerToken: params.vaultOwnerToken,
-          domain: params.domain,
-          domainData: plan.domainData,
-          summary: plan.summary,
-          mergeDecision: plan.mergeDecision,
-          structureDecision: plan.structureDecision,
-          manifest: plan.manifest,
-          writeProjections: plan.writeProjections,
-          baseFullBlob: context.baseFullBlob,
-          expectedDataVersion: context.currentEncryptedDomain?.dataVersion ?? context.expectedDataVersion,
-          syncCheckpoint,
-          mutationPlan,
-          kycReplyAuthorization: kycReplyAuthorizationOf(params.confirmation),
-          cacheFullBlob: false,
-          beforeEffect: params.beforeEffect,
-          mayPublish: params.mayPublish,
-        });
+        const result =
+          await PersonalKnowledgeModelService.storePreparedDomainWithPreparedBlob(
+            {
+              userId: params.userId,
+              vaultKey: params.vaultKey,
+              vaultOwnerToken: params.vaultOwnerToken,
+              domain: params.domain,
+              domainData: plan.domainData,
+              summary: plan.summary,
+              mergeDecision: plan.mergeDecision,
+              structureDecision: plan.structureDecision,
+              manifest: plan.manifest,
+              writeProjections: plan.writeProjections,
+              baseFullBlob: context.baseFullBlob,
+              expectedDataVersion:
+                context.currentEncryptedDomain?.dataVersion ??
+                context.expectedDataVersion,
+              syncCheckpoint,
+              mutationPlan,
+              kycReplyAuthorization: kycReplyAuthorizationOf(
+                params.confirmation,
+              ),
+              cacheFullBlob: false,
+              beforeEffect: params.beforeEffect,
+              mayPublish: params.mayPublish,
+            },
+          );
         const resultCheckpoint = {
           ...syncCheckpoint,
           resultDataVersion: toNullableVersion(result.dataVersion),

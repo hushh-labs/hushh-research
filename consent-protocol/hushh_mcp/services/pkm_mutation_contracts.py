@@ -309,6 +309,7 @@ class PkmMutationPlanV2(BaseModel):
                 or self.affected_grant_ids
                 or self.affected_export_ids
                 or self.sharing_impact.active_recipient_count
+                or self.sharing_impact.recipient_labels
                 or self.sharing_impact.enters_next_export_revision
             ):
                 raise ValueError("source_projection_requires_private_inventory")

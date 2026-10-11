@@ -150,3 +150,76 @@ def test_scope_descriptor_is_strict_and_domain_bound() -> None:
                 "unexpected": True,
             }
         )
+
+
+def _source_projection_plan(**overrides):
+    payload = _plan(
+        proposed_domain="one_living_sources",
+        proposed_scope="_private",
+        writer_id="one_living_memory_source_projection",
+    )
+    payload["confirmation_receipt"].update(
+        displayed_domain="one_living_sources",
+        displayed_scope="_private",
+        authorization_mode="owner_source_projection",
+    )
+    payload.update(overrides)
+    return payload
+
+
+def test_source_projection_is_owner_bound_without_fabricating_review_or_sharing():
+    plan = PkmMutationPlanV2.model_validate(_source_projection_plan())
+    assert not plan.confirmation_receipt.sharing_impact_acknowledged
+    validate_mutation_plan_for_write(
+        plan=plan, authenticated_user_id="user-1", domain="one_living_sources"
+    )
+    with pytest.raises(ValueError, match="confirmation_subject_mismatch"):
+        validate_mutation_plan_for_write(
+            plan=plan, authenticated_user_id="user-2", domain="one_living_sources"
+        )
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"writer_id": "owner_confirmed_write"},
+        {"operation": "delete", "source_scope_handle": "s_abcdefabcdef"},
+        {"operation": "move", "source_scope_handle": "s_abcdefabcdef"},
+        {"affected_grant_ids": ["grant-1"]},
+        {"affected_export_ids": ["export-1"]},
+        {
+            "sharing_impact": {
+                "active_recipient_count": 1,
+                "recipient_labels": [],
+                "enters_next_export_revision": False,
+                "summary": "invalid",
+            }
+        },
+        {
+            "sharing_impact": {
+                "active_recipient_count": 0,
+                "recipient_labels": ["recipient"],
+                "enters_next_export_revision": False,
+                "summary": "invalid",
+            }
+        },
+    ],
+)
+def test_source_projection_cannot_expand_write_or_sharing_authority(override):
+    with pytest.raises(ValidationError, match="source_projection_requires_private_inventory"):
+        PkmMutationPlanV2.model_validate(_source_projection_plan(**override))
+
+
+@pytest.mark.parametrize(
+    "receipt_field",
+    [
+        {"sharing_impact_acknowledged": True},
+        {"connected_source_provider": "plaid"},
+        {"auto_save_policy_version": 1},
+    ],
+)
+def test_source_projection_cannot_impersonate_other_authorizations(receipt_field):
+    payload = _source_projection_plan()
+    payload["confirmation_receipt"].update(receipt_field)
+    with pytest.raises(ValidationError, match="source_projection_receipt_invalid"):
+        PkmMutationPlanV2.model_validate(payload)

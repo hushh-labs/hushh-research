@@ -23,7 +23,7 @@ sealed to the requester's key and refuses anything shaped like plaintext.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Response
@@ -152,7 +152,7 @@ async def answer_payout_account(
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "private, no-store"
     try:
-        return await _payouts().account_status(user_id=user_id)
+        return cast(dict[str, Any], await _payouts().account_status(user_id=user_id))
     except (PacketOrderError, ValueError):
         raise HTTPException(
             status_code=503, detail="Could not verify answer payout setup. Please retry."
@@ -169,8 +169,10 @@ async def answer_payout_link(
     try:
         service = _payouts()
         if action == "onboarding":
-            return await service.onboarding_link(user_id=user_id, surface="answers")
-        return await service.management_link(user_id=user_id)
+            return cast(
+                dict[str, Any], await service.onboarding_link(user_id=user_id, surface="answers")
+            )
+        return cast(dict[str, Any], await service.management_link(user_id=user_id))
     except (PacketOrderError, ValueError):
         raise HTTPException(
             status_code=503,

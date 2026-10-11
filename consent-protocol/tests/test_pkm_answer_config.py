@@ -18,6 +18,7 @@ def env(monkeypatch):
         "PKM_ANSWER_STRIPE_SECRET_KEY",
         "PKM_ANSWER_STRIPE_WEBHOOK_SECRET",
         "PKM_ANSWER_COMPOSER_ENABLED",
+        "PKM_ANSWER_LIVE_PROVIDER_REVIEWED",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(
@@ -62,3 +63,37 @@ def test_production_refuses_test_mode(monkeypatch):
     monkeypatch.setenv("PKM_ANSWER_STRIPE_MODE", "test")
     with pytest.raises(ValueError):
         config.answer_payment_config()
+
+
+def test_live_composition_requires_separate_provider_review(monkeypatch):
+    monkeypatch.setenv("PKM_ANSWER_STRIPE_MODE", "live")
+    monkeypatch.setenv("PKM_ANSWER_COMPOSER_ENABLED", "true")
+    assert not config.answer_composer_enabled()
+    monkeypatch.setenv("PKM_ANSWER_LIVE_PROVIDER_REVIEWED", "true")
+    assert config.answer_composer_enabled()
+
+
+@pytest.mark.parametrize(
+    "environment,mode,origin,allowed",
+    [
+        ("development", "test", "http://localhost:3000", True),
+        ("development", "test", "http://example.com", False),
+        ("uat", "test", "http://localhost:3000", False),
+        ("development", "live", "http://localhost:3000", False),
+    ],
+)
+def test_only_isolated_local_test_checkout_may_use_http(
+    monkeypatch, environment, mode, origin, allowed
+):
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    monkeypatch.setenv("PKM_ANSWER_STRIPE_MODE", mode)
+    monkeypatch.setenv("PKM_ANSWER_STRIPE_SECRET_KEY", f"sk_{mode}_isolated_key_123456")
+    monkeypatch.setenv("PKM_ANSWER_STRIPE_WEBHOOK_SECRET", "whsec_isolated_signing_value")
+    monkeypatch.setattr(
+        config, "get_app_runtime_settings", lambda: Mock(app_frontend_origin=origin)
+    )
+    if allowed:
+        assert config.answer_payment_config()[2] == origin
+    else:
+        with pytest.raises(ValueError):
+            config.answer_payment_config()

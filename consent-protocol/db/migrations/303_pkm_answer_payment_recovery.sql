@@ -60,9 +60,8 @@ CREATE TRIGGER pkm_answer_request_changed AFTER INSERT OR UPDATE ON pkm_answer_r
 DROP TRIGGER IF EXISTS pkm_answer_payment_changed ON pkm_answer_payment_orders;
 CREATE TRIGGER pkm_answer_payment_changed AFTER INSERT OR UPDATE ON pkm_answer_payment_orders
   FOR EACH ROW EXECUTE FUNCTION notify_pkm_answer_changed();
-COMMIT;
-
 -- Consent is bound to the exact approved terms; historical approvals stay unset.
 ALTER TABLE pkm_answer_requests ADD COLUMN IF NOT EXISTS composer_consent_at timestamptz;
 ALTER TABLE pkm_answer_requests ADD COLUMN IF NOT EXISTS composer_consent_version text;
 ALTER TABLE pkm_answer_requests ADD COLUMN IF NOT EXISTS composer_consent_digest text;
+COMMIT;

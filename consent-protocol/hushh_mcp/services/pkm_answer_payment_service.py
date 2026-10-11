@@ -284,7 +284,9 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             # transaction because it is a network call. Until Stripe confirms
             # the old session is dead the order keeps pointing at it, so every
             # possible webhook still has an order to settle or refund against.
-            verdict = self._retire_session(decision["stale"], key)
+            from fastapi.concurrency import run_in_threadpool
+
+            verdict = await run_in_threadpool(self._retire_session, decision["stale"], key)
             if verdict == "paid":
                 # The requester paid the session we were about to discard.
                 # Leave the order bound to it; the webhook settles it.
@@ -470,6 +472,16 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
         if not persisted:
             # Settlement may have won; never advertise an orphan payable URL.
             raise AnswerPaymentError("payment_in_flight")
+        if (
+            not created.get("url")
+            or not created.get("id")
+            or not isinstance(created.get("expires_at"), (int, float))
+            or created["expires_at"] <= _now().timestamp()
+            or created.get("status") in {"expired", "complete"}
+        ):
+            # Identity is retained for the next verified retire/reconciliation.
+            # Never advertise Stripe's cached expired recovery response.
+            raise AnswerPaymentError("checkout_unavailable")
         return {"checkoutUrl": created.get("url"), "amountCents": reserved["amount_cents"]}
 
     # --------------------------------------------------------------- webhook

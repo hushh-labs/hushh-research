@@ -78,7 +78,7 @@ describe("TodoListPkmService", () => {
           ],
         },
       }),
-    ).toEqual({ tasks: [task] });
+    ).toEqual({ tasks: [{ ...task, revision: 0 }] });
   });
 
   it("creates a safe automatic input from a confirmed Calendar event", () => {
@@ -193,5 +193,123 @@ describe("TodoListPkmService", () => {
     expect(readTodoListState(plan.domainData).tasks).toEqual([
       expect.objectContaining({ id: automatic.id, status: "deleted" }),
     ]);
+  });
+  it("persists completion for a provider projection not yet in encrypted tasks", async () => {
+    const save = mockSuccessfulWrite();
+    const automatic = buildTodo(
+      {
+        id: "calendar_existing-event",
+        title: "Existing calendar event",
+        type: "automatic",
+        source: "calendar",
+        sourceId: "existing-event",
+      },
+      task.createdAt,
+    );
+    await TodoListPkmService.setStatus({
+      ...persistence,
+      task: automatic,
+      status: "done",
+    });
+    const plan = await save.mock.calls[0]![0].build({
+      ...coordinatorContext,
+      currentDomainData: { _private: { tasks: [] } },
+    });
+    const restored = readTodoListState(
+      JSON.parse(JSON.stringify(plan.domainData)),
+    ).tasks;
+    expect(restored).toHaveLength(1);
+    expect(restored[0]).toMatchObject({
+      id: automatic.id,
+      sourceId: "existing-event",
+      status: "done",
+      createdAt: task.createdAt,
+      revision: 1,
+    });
+    expect(restored[0]!.completedAt).toEqual(expect.any(String));
+    expect(openTodoItems(restored)).toEqual([]);
+  });
+  it("stale completion cannot resurrect a deleted row", async () => {
+    const save = mockSuccessfulWrite();
+    const deleted = {
+      ...task,
+      status: "deleted" as const,
+      deletedAt: "2026-10-08T00:00:00.000Z",
+      updatedAt: "2026-10-08T00:00:00.000Z",
+      revision: 4,
+    };
+    await TodoListPkmService.setStatus({
+      ...persistence,
+      task,
+      status: "done",
+    });
+    const plan = await save.mock.calls[0]![0].build({
+      ...coordinatorContext,
+      currentDomainData: { _private: { tasks: [deleted] } },
+    });
+    expect(readTodoListState(plan.domainData).tasks).toEqual([deleted]);
+    expect(plan.summary).toMatchObject({
+      completed_item_count: 0,
+      open_item_count: 0,
+    });
+  });
+  it("completion uses the latest edited record after a write retry", async () => {
+    const save = mockSuccessfulWrite();
+    await TodoListPkmService.setStatus({
+      ...persistence,
+      task,
+      status: "done",
+    });
+    const build = save.mock.calls[0]![0].build;
+    await build({
+      ...coordinatorContext,
+      currentDomainData: { _private: { tasks: [task] } },
+    });
+    const latest = {
+      ...task,
+      title: "Owner correction",
+      notes: "Keep the newer notes",
+      revision: 7,
+    };
+    const retried = await build({
+      ...coordinatorContext,
+      attempt: 1,
+      currentDomainData: { _private: { tasks: [latest] } },
+    });
+    expect(readTodoListState(retried.domainData).tasks[0]).toMatchObject({
+      title: latest.title,
+      notes: latest.notes,
+      revision: 8,
+      status: "done",
+      createdAt: task.createdAt,
+    });
+  });
+  it("changing one task preserves all large legacy records beyond the former display cap", async () => {
+    const save = mockSuccessfulWrite();
+    const rows = Array.from({ length: 401 }, (_, i) => ({
+      ...task,
+      id: `legacy-${i}`,
+      title: `title-${i}:` + "T".repeat(1000),
+      notes: "N".repeat(5000),
+      revision: 9,
+    }));
+    await TodoListPkmService.setStatus({
+      ...persistence,
+      task: rows[0]!,
+      status: "done",
+    });
+    const plan = await save.mock.calls[0]![0].build({
+      ...coordinatorContext,
+      currentDomainData: { _private: { tasks: rows } },
+    });
+    const restored = readTodoListState(
+      JSON.parse(JSON.stringify(plan.domainData)),
+    ).tasks;
+    expect(restored).toHaveLength(401);
+    expect(restored.find((row) => row.id === "legacy-400")).toEqual(rows[400]);
+    expect(restored.find((row) => row.id === "legacy-0")).toMatchObject({
+      status: "done",
+      revision: 10,
+    });
   });
 });

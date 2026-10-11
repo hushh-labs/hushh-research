@@ -75,7 +75,8 @@
     "guard_hashcoin_redemption",
     "activate_reserved_wallet_cards",
     "remove_wallet_card_registrations",
-    "guard_wallet_card_access_grant"
+    "guard_wallet_card_access_grant",
+    "notify_pkm_answer_changed"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -2296,7 +2297,10 @@
       "cancelled_at",
       "expires_at",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "composer_consent_at",
+      "composer_consent_version",
+      "composer_consent_digest"
     ],
     "pkm_blobs": [
       "user_id",

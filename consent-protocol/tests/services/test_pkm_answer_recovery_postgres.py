@@ -472,3 +472,113 @@ async def test_unbound_historical_mode_requires_reconciliation(answer_engine):
         "succeeded"
     ] == 0
     api.Refund.create.assert_not_called()
+
+
+async def test_existing_feed_status_projection_and_rollback(answer_engine):
+    service, request, _ = await _approved(answer_engine)
+    query = text(
+        "SELECT metadata FROM feed_events WHERE source_domain='consent' AND source_row_id=:source ORDER BY id"
+    )
+    values = {"source": f"answer_request:{request}"}
+    with answer_engine.connect() as c:
+        before = list(c.execute(query, values).scalars())
+    assert before
+    with answer_engine.connect() as c:
+        tx = c.begin()
+        c.execute(
+            text(
+                "UPDATE pkm_answer_requests SET status='cancelled',updated_at=clock_timestamp() WHERE request_id=:r"
+            ),
+            {"r": request},
+        )
+        assert all(value["status"] == "cancelled" for value in c.execute(query, values).scalars())
+        tx.rollback()
+    with answer_engine.connect() as c:
+        assert list(c.execute(query, values).scalars()) == before
+    await service.cancel(requester_user_id=REQUESTER, request_id=request)
+    with answer_engine.connect() as c:
+        assert all(value["status"] == "cancelled" for value in c.execute(query, values).scalars())
+
+
+async def test_recovered_expired_checkout_never_advertises_stale_url(answer_engine):
+    _, request, _ = await _approved(answer_engine)
+    api = Mock()
+    api.checkout.Session.create.return_value = {
+        "id": "cs_expired",
+        "url": "https://checkout.stripe.com/c/pay/cs_expired",
+        "expires_at": 1,
+        "status": "expired",
+    }
+    service = PkmAnswerPaymentService(db=_db(answer_engine), stripe_api=api)
+    with pytest.raises(AnswerPaymentError, match="checkout_unavailable"):
+        await service.checkout(requester_user_id=REQUESTER, request_id=request)
+    assert (
+        row(answer_engine, "pkm_answer_payment_orders", request)["stripe_checkout_session_id"]
+        == "cs_expired"
+    )
+
+
+async def test_answer_center_role_status_isolation_and_single_row_per_request(answer_engine):
+    from hushh_mcp.services.pkm_answer_center_contributor import PkmAnswerCenterContributor
+
+    service, request, _ = await _approved(answer_engine)
+    center = PkmAnswerCenterContributor(requests=service)
+    expected = {
+        "pending_resolution": ("outgoing_requests", "outgoing_requests"),
+        "awaiting_owner": ("incoming_requests", "outgoing_requests"),
+        "approved": ("outgoing_requests", "incoming_requests"),
+        "answering": ("incoming_requests", "outgoing_requests"),
+        "answered": ("history", "history"),
+        "declined": ("history", "history"),
+        "cancelled": ("history", "history"),
+        "expired": ("history", "history"),
+    }
+    for status, participant_buckets in expected.items():
+        with answer_engine.begin() as c:
+            c.execute(
+                text(
+                    "UPDATE pkm_answer_requests SET status=:status, answered_at=CASE WHEN :status='answered' THEN clock_timestamp() ELSE NULL END, updated_at=clock_timestamp() WHERE request_id=:r"
+                ),
+                {"status": status, "r": request},
+            )
+        for user, bucket, role, counterpart in [
+            (OWNER, participant_buckets[0], "owner", REQUESTER),
+            (REQUESTER, participant_buckets[1], "requester", OWNER),
+        ]:
+            buckets = await center.collect(user)
+            all_rows = [entry for entries in buckets.values() for entry in entries]
+            assert len(all_rows) == 1
+            assert len(buckets[bucket]) == 1
+            entry = buckets[bucket][0]
+            assert entry["id"] == f"answer_request:{request}"
+            assert entry["counterpart_id"] == counterpart
+            assert entry["metadata"]["role"] == role
+            assert entry["metadata"]["request_status"] == status
+            assert entry["scope"] is None
+            assert entry["action"] == "ANSWER_REQUEST_REVIEW"
+            assert set(entry["metadata"]) == {
+                "request_source",
+                "role",
+                "direction",
+                "request_status",
+                "payment_status",
+            }
+        assert all(not entries for entries in (await center.collect("unrelated-account")).values())
+    with answer_engine.begin() as c:
+        c.execute(
+            text(
+                "UPDATE pkm_answer_requests SET status='approved',answered_at=NULL WHERE request_id=:r"
+            ),
+            {"r": request},
+        )
+        c.execute(
+            text(
+                "UPDATE connections SET status='revoked' WHERE (user_a_id=:a AND user_b_id=:b) OR (user_a_id=:b AND user_b_id=:a)"
+            ),
+            {"a": OWNER, "b": REQUESTER},
+        )
+    for user in [OWNER, REQUESTER]:
+        buckets = await center.collect(user)
+        assert buckets["incoming_requests"] == buckets["outgoing_requests"] == []
+        assert len(buckets["history"]) == 1
+        assert buckets["history"][0]["status"] == "connection_revoked"

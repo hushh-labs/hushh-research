@@ -2216,8 +2216,9 @@ class ConsentCenterService:
         ):
             # B's requests remain rediscoverable, including after disconnect or
             # a rollout pause. They never enter A's Needs You / approval count.
+            extra = await self._extra_buckets_async(user_id)
             paged = await self._paginate_with_drive(
-                [],
+                extra.get("outgoing_requests", []),
                 user_id=user_id,
                 surface="sent",
                 page=safe_page,

@@ -5,7 +5,11 @@ import { useId, useState, type ReactNode } from "react";
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { DocumentPayoutAccountCard } from "@/components/consent/document-payout-account";
 import { SettingsDetailPanel } from "@/components/app-ui/settings-ui";
-import { BodyText, FormLabel, HelperText } from "@/components/app-ui/typography";
+import {
+  BodyText,
+  FormLabel,
+  HelperText,
+} from "@/components/app-ui/typography";
 import {
   InputGroup,
   InputGroupAddon,
@@ -99,7 +103,9 @@ function RequestTerm({ label, value }: { label: string; value: string }) {
  * Allow for a document request from outside the Trusted circle. The owner
  * sets what the requester pays; nothing is searched or shared before that.
  */
-export function DocumentRequestPriceSheet(props: DocumentRequestPriceSheetProps) {
+export function DocumentRequestPriceSheet(
+  props: DocumentRequestPriceSheetProps,
+) {
   // Each opening starts at this request's draft (or the default), never the
   // previous request's choice. A newly loaded draft resets the pending sheet.
   const [opening, setOpening] = useState({ open: props.open, count: 0 });
@@ -109,7 +115,12 @@ export function DocumentRequestPriceSheet(props: DocumentRequestPriceSheetProps)
       count: opening.count + (props.open ? 1 : 0),
     });
   }
-  return <PriceSheet key={`${opening.count}:${props.initialAmountCents ?? "default"}`} {...props} />;
+  return (
+    <PriceSheet
+      key={`${opening.count}:${props.initialAmountCents ?? "default"}`}
+      {...props}
+    />
+  );
 }
 
 function PriceSheet({
@@ -131,10 +142,17 @@ function PriceSheet({
   onCancel,
 }: DocumentRequestPriceSheetProps) {
   const startingAmount = isValidDocumentRequestPriceCents(initialAmountCents)
-    ? initialAmountCents : DEFAULT_DOCUMENT_REQUEST_PRICE_CENTS;
-  const startingPreset = DOCUMENT_REQUEST_PRICE_PRESETS_CENTS.some((amount) => amount === startingAmount);
-  const [choice, setChoice] = useState<PriceChoice>(startingPreset ? startingAmount : "custom");
-  const [customText, setCustomText] = useState(startingPreset ? "" : String(startingAmount / 100));
+    ? initialAmountCents
+    : DEFAULT_DOCUMENT_REQUEST_PRICE_CENTS;
+  const startingPreset = DOCUMENT_REQUEST_PRICE_PRESETS_CENTS.some(
+    (amount) => amount === startingAmount,
+  );
+  const [choice, setChoice] = useState<PriceChoice>(
+    startingPreset ? startingAmount : "custom",
+  );
+  const [customText, setCustomText] = useState(
+    startingPreset ? "" : String(startingAmount / 100),
+  );
   const priceLabelId = useId();
   const customInputId = useId();
   const customRuleId = useId();
@@ -147,9 +165,9 @@ function PriceSheet({
     ? null
     : lockedQuote
       ? lockedAmountCents
-    : choice === "custom"
-      ? customCents
-      : choice;
+      : choice === "custom"
+        ? customCents
+        : choice;
   const ready = !detailsPending && (!paymentRequired || amountCents !== null);
   const purposeText = purpose?.trim() || null;
   const recipientText = recipientEmail?.trim() || null;
@@ -188,7 +206,9 @@ function PriceSheet({
               onClick={submit}
             >
               {amountCents === null
-                ? priceOnly ? "Save" : "Allow"
+                ? priceOnly
+                  ? "Save"
+                  : "Allow"
                 : `${priceOnly ? "Save" : "Allow"} · ${formatDocumentRequestPrice(amountCents)}`}
             </Button>
           }
@@ -233,90 +253,110 @@ function PriceSheet({
         {paymentRequired ? (
           <>
             {lockedQuote ? (
-              <div className="space-y-1" aria-label="Locked document request quote">
-                <FormLabel as="p">Request price</FormLabel>
-                <BodyText>{formatDocumentRequestPrice(lockedAmountCents)}</BodyText>
-                <HelperText>The requester saw this price before sending. It stays fixed for this request.</HelperText>
-              </div>
-            ) : <>
-            <FormLabel as="p" id={priceLabelId}>
-              Price
-            </FormLabel>
-            <div
-              role="group"
-              aria-labelledby={priceLabelId}
-              className={CHIP_ROW_CLASS}
-            >
-              {DOCUMENT_REQUEST_PRICE_PRESETS_CENTS.map((cents) => (
-                <button
-                  key={cents}
-                  type="button"
-                  aria-pressed={choice === cents}
-                  disabled={busy}
-                  onClick={() => setChoice(cents)}
-                  className={cn(
-                    CHIP_CLASS,
-                    choice === cents ? CHIP_ON_CLASS : CHIP_OFF_CLASS,
-                  )}
-                >
-                  {formatDocumentRequestPrice(cents)}
-                </button>
-              ))}
-              <button
-                type="button"
-                aria-pressed={choice === "custom"}
-                aria-expanded={choice === "custom"}
-                disabled={busy}
-                onClick={() => setChoice("custom")}
-                className={cn(
-                  CHIP_CLASS,
-                  choice === "custom" ? CHIP_ON_CLASS : CHIP_OFF_CLASS,
-                )}
+              <div
+                className="space-y-1"
+                aria-label="Locked document request quote"
               >
-                Custom
-              </button>
-            </div>
-            {choice === "custom" ? (
-              <div className="space-y-1.5">
-                <FormLabel htmlFor={customInputId}>Custom price</FormLabel>
-                <InputGroup className="h-11 border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)]">
-                  <InputGroupAddon className="ui-text-input-value text-[color:var(--app-secondary-label)]">
-                    $
-                  </InputGroupAddon>
-                  <InputGroupInput
-                    id={customInputId}
-                    // Opening Custom is asking to type the amount.
-                    autoFocus
-                    inputMode="numeric"
-                    autoComplete="off"
-                    enterKeyHint="done"
-                    placeholder="Whole dollars"
-                    value={customText}
-                    disabled={busy}
-                    aria-invalid={customInvalid}
-                    aria-describedby={customInvalid ? customRuleId : undefined}
-                    onChange={(event) => setCustomText(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key !== "Enter") return;
-                      event.preventDefault();
-                      submit();
-                    }}
-                  />
-                </InputGroup>
-                {customInvalid ? (
-                  <HelperText id={customRuleId} role="alert">
-                    {DOCUMENT_REQUEST_PRICE_RULE}
-                  </HelperText>
-                ) : null}
+                <FormLabel as="p">Request price</FormLabel>
+                <BodyText>
+                  {formatDocumentRequestPrice(lockedAmountCents)}
+                </BodyText>
+                <HelperText>
+                  The requester saw this price before sending. It stays fixed
+                  for this request.
+                </HelperText>
               </div>
-            ) : null}
-            </>}
-            {settlement ?? <>
-            <HelperText>
-              Your net earnings are calculated after delivery, minus Hushh&apos;s 3% commission and the actual Stripe fee. Undelivered files are refunded to the requester.
-            </HelperText>
-            <DocumentPayoutAccountCard active={open} compact disabled={busy} />
-            </>}
+            ) : (
+              <>
+                <FormLabel as="p" id={priceLabelId}>
+                  Price
+                </FormLabel>
+                <div
+                  role="group"
+                  aria-labelledby={priceLabelId}
+                  className={CHIP_ROW_CLASS}
+                >
+                  {DOCUMENT_REQUEST_PRICE_PRESETS_CENTS.map((cents) => (
+                    <button
+                      key={cents}
+                      type="button"
+                      aria-pressed={choice === cents}
+                      disabled={busy}
+                      onClick={() => setChoice(cents)}
+                      className={cn(
+                        CHIP_CLASS,
+                        choice === cents ? CHIP_ON_CLASS : CHIP_OFF_CLASS,
+                      )}
+                    >
+                      {formatDocumentRequestPrice(cents)}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    aria-pressed={choice === "custom"}
+                    aria-expanded={choice === "custom"}
+                    disabled={busy}
+                    onClick={() => setChoice("custom")}
+                    className={cn(
+                      CHIP_CLASS,
+                      choice === "custom" ? CHIP_ON_CLASS : CHIP_OFF_CLASS,
+                    )}
+                  >
+                    Custom
+                  </button>
+                </div>
+                {choice === "custom" ? (
+                  <div className="space-y-1.5">
+                    <FormLabel htmlFor={customInputId}>Custom price</FormLabel>
+                    <InputGroup className="h-11 border-[color:var(--app-separator)] bg-[color:var(--app-secondary-surface)]">
+                      <InputGroupAddon className="ui-text-input-value text-[color:var(--app-secondary-label)]">
+                        $
+                      </InputGroupAddon>
+                      <InputGroupInput
+                        id={customInputId}
+                        // Opening Custom is asking to type the amount.
+                        autoFocus
+                        inputMode="numeric"
+                        autoComplete="off"
+                        enterKeyHint="done"
+                        placeholder="Whole dollars"
+                        value={customText}
+                        disabled={busy}
+                        aria-invalid={customInvalid}
+                        aria-describedby={
+                          customInvalid ? customRuleId : undefined
+                        }
+                        onChange={(event) => setCustomText(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter") return;
+                          event.preventDefault();
+                          submit();
+                        }}
+                      />
+                    </InputGroup>
+                    {customInvalid ? (
+                      <HelperText id={customRuleId} role="alert">
+                        {DOCUMENT_REQUEST_PRICE_RULE}
+                      </HelperText>
+                    ) : null}
+                  </div>
+                ) : null}
+              </>
+            )}
+            {settlement ?? (
+              <>
+                <HelperText>
+                  Your net earnings are calculated after delivery, minus
+                  Hushh&apos;s 3% commission and the actual Stripe fee.
+                  Undelivered files are refunded to the requester.
+                </HelperText>
+                <DocumentPayoutAccountCard
+                  active={open}
+                  compact
+                  disabled={busy}
+                />
+              </>
+            )}
           </>
         ) : null}
         {error ? <HelperText role="alert">{error}</HelperText> : null}

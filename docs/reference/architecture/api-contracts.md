@@ -1164,6 +1164,25 @@ separate work; a static export or native compile is not sign-in proof.
 | POST   | `/api/one/calendar/proposals/execute` | VAULT_OWNER Bearer | Execute one reviewed proposal after re-reading its event ETag; stale proposals fail closed.                         |
 | POST   | `/api/one/drive/reviewed-actions/execute` | VAULT_OWNER Bearer | Run one Drive share or trash the owner confirmed in Chat; the ledger matches the exact file, address, role, conversation and current Drive connection, once, or nothing is sent. |
 
+### Request scope paid answers
+
+`/api/one/answer-requests` uses Firebase participant authentication and an active connection, without Trusted circle membership or connector setup. Feed and Consent Center use the same answer review card and participant status. The owner approves the exact question, narrowed scopes and whole-dollar price with explicit model-processing consent; approval never creates a standing grant.
+
+| Method | Path under `/api/one/answer-requests` | Contract |
+| --- | --- | --- |
+| GET | `/availability` | Configuration and independent composer/payment admission gates; unavailable profiles retain a disabled CTA. |
+| POST | `/` | Create a connected-person question and resolve eligible scopes through the existing resolver. |
+| GET | `/inbox`, `/{id}/state` | Owner review queue or exact participant state; unrelated users cannot read the question. |
+| POST | `/{id}/approve`, `/{id}/decline`, `/{id}/cancel` | Exact terms and model-processing consent, refusal or withdrawal; paid cancellation owes a full refund. |
+| GET / POST | `/{id}/payment`, `/{id}/payment/checkout` | Quote/status and mode-bound hosted Checkout with durable overlapping-session recovery. |
+| POST | `/api/payments/stripe/webhook` (shared endpoint) | Raw signed provider event; exact attempt, terms, currency, amount and mode verification. |
+| GET | `/answerable` | Paid, approved owner work with requester recipient public key and bounded leases. |
+| POST | `/{id}/compose`, `/{id}/deliver` | Separate default-off transient composer, then requester-only encrypted envelope delivery; no backend PKM decryption or key transfer. |
+| GET | `/{id}/answer` | Ciphertext to its requester only. |
+| GET / POST | `/payout-account`, `/payout-account/{action}` | Verified mode-specific owner account, onboarding or bank-management link; Drive resumption is excluded. |
+
+Answers remain manual while unlocked. Exact approved plaintext reaches the backend composer and Google Vertex AI for one call, with application NO_CONTENT telemetry and no plaintext persistence. Live mode additionally requires provider-retention review attestation; it does not establish provider zero retention. Payments retain Drive's 3% platform fee, actual Stripe fee, full refund and owner-earnings rules. The separate authenticated answer drain handles deadlines, refunds and settlement even when admission is paused. Historical unbound modes and approvals without consent require explicit reconciliation. See [enablement steps](../operations/env-and-secrets.md#request-scope-enablement-follow-up-2026-10-11) and [memory/runtime boundary](./living-memory-freshness-adr.md).
+
 ### Contact Discovery
 
 Matching an address book against the Hussh user directory. The shared iOS, Android,

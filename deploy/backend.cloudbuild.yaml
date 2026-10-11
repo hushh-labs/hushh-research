@@ -204,6 +204,10 @@ steps:
             exit 1
           fi
         fi
+        if [[ "${_PKM_ANSWER_PAYMENTS_ENABLED}" == "true" && "${_PKM_ANSWER_STRIPE_MODE}" == "live" && "${_PKM_ANSWER_LIVE_PROVIDER_REVIEWED}" != "true" ]]; then
+          echo "Live answers require verified provider retention and owner disclosure before admission." >&2
+          exit 1
+        fi
         add_secret "${_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET}" "PKM_ANSWER_STRIPE_SECRET_KEY"
         add_secret "${_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET}" "PKM_ANSWER_STRIPE_WEBHOOK_SECRET"
         source deploy/drive/verify_hashcoin_config.sh "$PROJECT_ID"
@@ -297,6 +301,7 @@ steps:
         done
         add_env "PKM_ANSWER_PAYMENTS_ENABLED" "${_PKM_ANSWER_PAYMENTS_ENABLED}"
         add_env "PKM_ANSWER_COMPOSER_ENABLED" "${_PKM_ANSWER_COMPOSER_ENABLED}"
+        add_env "PKM_ANSWER_LIVE_PROVIDER_REVIEWED" "${_PKM_ANSWER_LIVE_PROVIDER_REVIEWED}"
         add_env "PKM_ANSWER_STRIPE_MODE" "${_PKM_ANSWER_STRIPE_MODE}"
         add_env "ANSWER_WORK_DRAIN_ENABLED" "${_ANSWER_WORK_DRAIN_ENABLED}"
         add_env "ANSWER_WORK_DRAIN_AUDIENCE" "${_ANSWER_WORK_DRAIN_AUDIENCE}"
@@ -659,6 +664,7 @@ substitutions:
   _DRIVE_SHARING_KEY_V1_SECRET: ""
   _PKM_ANSWER_PAYMENTS_ENABLED: "false"
   _PKM_ANSWER_COMPOSER_ENABLED: "false"
+  _PKM_ANSWER_LIVE_PROVIDER_REVIEWED: "false"
   _PKM_ANSWER_STRIPE_MODE: "test"
   _PKM_ANSWER_STRIPE_SECRET_KEY_SECRET: ""
   _PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET: ""

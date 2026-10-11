@@ -68,7 +68,9 @@ export function AnswerRequestReview({
       setPriceOpen(false);
       onResolved?.(request.requestId);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "This could not be saved.");
+      setError(
+        cause instanceof Error ? cause.message : "This could not be saved.",
+      );
     } finally {
       setBusy(false);
     }
@@ -77,7 +79,13 @@ export function AnswerRequestReview({
   const approve = (amountCents: number | null) => {
     if (amountCents === null) return;
     void run((token) =>
-      AnswerRequestService.approve(token, request.requestId, chosen, amountCents, consented),
+      AnswerRequestService.approve(
+        token,
+        request.requestId,
+        chosen,
+        amountCents,
+        consented,
+      ),
     );
   };
 
@@ -98,8 +106,8 @@ export function AnswerRequestReview({
           and the owner is entitled to know which one they are doing. */}
       {request.resolutionMode === "skipped" ? (
         <HelperText as="p" role="status">
-          This question was not matched to your information automatically. Choose what it
-          may use yourself.
+          This question was not matched to your information automatically.
+          Choose what it may use yourself.
         </HelperText>
       ) : null}
 
@@ -107,8 +115,8 @@ export function AnswerRequestReview({
         <legend className="mb-2">What this answer may use</legend>
         {request.proposedScopes.length === 0 ? (
           <HelperText as="p" role="status">
-            Nothing of yours matched this question. Decline it, or answer in a message
-            instead.
+            Nothing of yours matched this question. Decline it, or answer in a
+            message instead.
           </HelperText>
         ) : (
           request.proposedScopes.map((entry) => (
@@ -130,13 +138,30 @@ export function AnswerRequestReview({
       </fieldset>
 
       <HelperText as="p">
-        When you choose Write answer in the unlocked app, only this approved information is sent temporarily to
-        the answer service and its model provider to write this answer. Your device
-        encrypts the answer for the requester. If it is not delivered within 72 hours,
-        the requester receives a full refund.
+        When you choose Write answer in the unlocked app, only this approved
+        information is sent temporarily to the answer service and its model
+        provider to write this answer. Your device encrypts the answer for the
+        requester. If it is not delivered within 72 hours, the requester
+        receives a full refund.
       </HelperText>
 
-      <Label className="flex items-start gap-2"><input type="checkbox" checked={consented} disabled={busy} onChange={(event) => setConsented(event.target.checked)} />I agree to model processing of this question and only the selected information to write this answer.</Label>
+      <HelperText as="p">
+        Google Vertex AI processes the approved information. Its policies may
+        allow up to 90 days of abuse-monitoring retention and up to 24 hours of
+        memory caching, unless the project has verified exemptions or disabled
+        caching. These settings must be reviewed before live use.
+      </HelperText>
+
+      <Label className="flex items-start gap-2">
+        <input
+          type="checkbox"
+          checked={consented}
+          disabled={busy}
+          onChange={(event) => setConsented(event.target.checked)}
+        />
+        I agree to model processing of this question and only the selected
+        information to write this answer.
+      </Label>
 
       {error ? (
         <HelperText as="p" role="alert">
@@ -161,7 +186,11 @@ export function AnswerRequestReview({
             size="standard"
             variant="none"
             disabled={busy}
-            onClick={() => void run((token) => AnswerRequestService.decline(token, request.requestId))}
+            onClick={() =>
+              void run((token) =>
+                AnswerRequestService.decline(token, request.requestId),
+              )
+            }
           >
             Don&apos;t allow
           </Button>

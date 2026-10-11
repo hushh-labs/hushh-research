@@ -30,8 +30,14 @@
  * separately reviewed flag; delivery storage receives only ciphertext.
  */
 
-import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
-import { AnswerRequestService, type AnswerableWork } from "@/lib/services/answer-request-service";
+import {
+  isVaultSessionEpochCurrent,
+  snapshotVaultSessionEpoch,
+} from "@/lib/vault/session-epoch";
+import {
+  AnswerRequestService,
+  type AnswerableWork,
+} from "@/lib/services/answer-request-service";
 import { encryptSliceForRecipient } from "@/lib/one-marketplace/encryption";
 import { buildConsentExportForScope } from "@/lib/consent/export-builder";
 import {
@@ -106,7 +112,8 @@ export async function buildAnswerPayload(
   const unavailableScopes: string[] = [];
 
   for (const scope of work.approvedScopes) {
-    if (!isVaultSessionEpochCurrent(epoch)) throw new Error("Vault session changed");
+    if (!isVaultSessionEpochCurrent(epoch))
+      throw new Error("Vault session changed");
     try {
       const built = await buildConsentExportForScope({
         userId: params.userId,
@@ -142,24 +149,34 @@ export async function buildAnswerPayload(
   const memorySlice = buildAnswerMemorySlice({
     byScope: projected.byScope,
     sourceRevisions: projected.sourceRevisions,
-    ownerIdentity: work.ownerIdentity ?? null,
+    ownerIdentity: null,
     builtAt: new Date().toISOString(),
   });
 
   // Have the answer written from that memory document. A failure is carried
   // through as 'projection', never dressed up as a written answer.
-  let written: { answerMode: "agent" | "projection"; answer: string | null; covers?: string[]; gaps?: string[] } = {
+  let written: {
+    answerMode: "agent" | "projection";
+    answer: string | null;
+    covers?: string[];
+    gaps?: string[];
+  } = {
     answerMode: "projection",
     answer: null,
   };
-  if (!isVaultSessionEpochCurrent(epoch)) throw new Error("Vault session changed");
+  if (!isVaultSessionEpochCurrent(epoch))
+    throw new Error("Vault session changed");
   if (firebaseIdToken && projected.hasContent) {
-    written = await AnswerRequestService.compose(firebaseIdToken, work.requestId, {
-      // The memory document is the answer's source of truth; the per-scope
-      // values travel beside it so the gene can cite exact figures.
-      memory: memorySlice.markdown,
-      values: projected.byScope,
-    }).catch(() => ({ answerMode: "projection" as const, answer: null }));
+    written = await AnswerRequestService.compose(
+      firebaseIdToken,
+      work.requestId,
+      {
+        // The memory document is the answer's source of truth; the per-scope
+        // values travel beside it so the gene can cite exact figures.
+        memory: memorySlice.markdown,
+        values: projected.byScope,
+      },
+    ).catch(() => ({ answerMode: "projection" as const, answer: null }));
   }
 
   return {
@@ -194,8 +211,14 @@ export async function runAnswerDeliverySweep(
   params: AnswerSweepParams,
   epoch = snapshotVaultSessionEpoch(),
 ): Promise<AnswerSweepResult> {
-  const result: AnswerSweepResult = { delivered: 0, empty: 0, skipped: 0, retry: 0 };
-  if (!params.vaultKey || !params.vaultOwnerToken || !params.firebaseIdToken) return result;
+  const result: AnswerSweepResult = {
+    delivered: 0,
+    empty: 0,
+    skipped: 0,
+    retry: 0,
+  };
+  if (!params.vaultKey || !params.vaultOwnerToken || !params.firebaseIdToken)
+    return result;
 
   let queue: AnswerableWork[] = [];
   try {
@@ -224,7 +247,12 @@ export async function runAnswerDeliverySweep(
       //
       // An empty answer is different and still delivers: there is genuinely
       // nothing to say, the delivery records that, and it refunds itself.
-      if (hasContent && payload.answerMode !== "agent") {
+      if (
+        hasContent &&
+        (payload.answerMode !== "agent" ||
+          !payload.memoryComplete ||
+          payload.unavailableScopes.length > 0)
+      ) {
         result.retry += 1;
         continue;
       }
@@ -237,11 +265,15 @@ export async function runAnswerDeliverySweep(
         metadata: { kind: "pkm_answer", requestId: work.requestId },
       });
       if (!isVaultSessionEpochCurrent(epoch)) break;
-      await AnswerRequestService.deliver(params.firebaseIdToken, work.requestId, {
-        envelope,
-        sourceRevisions: payload.sourceRevisions,
-        hasContent,
-      });
+      await AnswerRequestService.deliver(
+        params.firebaseIdToken,
+        work.requestId,
+        {
+          envelope,
+          sourceRevisions: payload.sourceRevisions,
+          hasContent,
+        },
+      );
       if (hasContent) result.delivered += 1;
       else result.empty += 1;
     } catch {

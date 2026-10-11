@@ -17,7 +17,12 @@ def answer_stripe_mode() -> str:
 
 
 def answer_composer_enabled() -> bool:
-    return (os.getenv("PKM_ANSWER_COMPOSER_ENABLED") or "").strip().lower() == "true"
+    enabled = (os.getenv("PKM_ANSWER_COMPOSER_ENABLED") or "").strip().lower() == "true"
+    if not enabled:
+        return False
+    if answer_stripe_mode() == "live":
+        return (os.getenv("PKM_ANSWER_LIVE_PROVIDER_REVIEWED") or "").strip().lower() == "true"
+    return True
 
 
 def answer_payment_config() -> tuple[str, str, str]:
@@ -31,12 +36,18 @@ def answer_payment_config() -> tuple[str, str, str]:
         secret = (os.getenv("STRIPE_WEBHOOK_SECRET") or "").strip()
     origin = get_app_runtime_settings().app_frontend_origin.rstrip("/")
     parsed = urlsplit(origin)
+    local_test = (
+        mode == "test"
+        and (os.getenv("ENVIRONMENT") or "").lower() in {"development", "local"}
+        and parsed.scheme == "http"
+        and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+    )
     if (
         not key.startswith(f"sk_{mode}_")
         or len(key) < 24
         or not secret.startswith("whsec_")
         or len(secret) < 20
-        or parsed.scheme != "https"
+        or (parsed.scheme != "https" and not local_test)
         or not parsed.hostname
         or parsed.username
         or parsed.password
