@@ -73,6 +73,8 @@ def test_readiness_probe_has_cold_response_headroom() -> None:
 async def test_stalled_live_preserves_slower_command_verdicts(
     monkeypatch: pytest.MonkeyPatch, hard_failure: bool
 ) -> None:
+    monkeypatch.delenv("HUSHH_MANAGED_VERTEX_PROBE_MODE", raising=False)
+    monkeypatch.delenv("HUSHH_ONE_CHAT_VERTEX_PROJECT", raising=False)
     spec = importlib.util.spec_from_file_location("readiness_timeout_test", SCRIPT_PATH)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -88,7 +90,9 @@ async def test_stalled_live_preserves_slower_command_verdicts(
 
     class AdkModel:
         async def generate_content_async(self, *args, **kwargs):
-            yield None
+            yield SimpleNamespace(
+                error_code=None, content=SimpleNamespace(parts=[SimpleNamespace(text="OK")])
+            )
 
     cancelled = []
 
@@ -167,3 +171,74 @@ async def test_stalled_live_preserves_slower_command_verdicts(
     assert report["advisory"] is (not hard_failure)
     assert len(report["probes"]) == 5
     assert cancelled == ["live"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scenario", ["success", "billing_denied", "adk_error", "empty_reply"])
+async def test_chat_credit_project_requires_a_successful_runtime_identity_probe(
+    monkeypatch: pytest.MonkeyPatch, scenario: str
+) -> None:
+    spec = importlib.util.spec_from_file_location("chat_vertex_readiness_test", SCRIPT_PATH)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    monkeypatch.setenv("HUSHH_ONE_CHAT_VERTEX_PROJECT", "hussh-511311")
+    monkeypatch.setenv("HUSHH_MANAGED_VERTEX_PROBE_MODE", "one_chat")
+    monkeypatch.setattr(
+        module,
+        "_managed_manifest_models",
+        lambda: pytest.fail("Chat-only readiness must not probe unrelated models"),
+    )
+    monkeypatch.setattr(
+        module.ManagedGeminiRuntimeBinding,
+        "from_environment",
+        classmethod(
+            lambda cls, *, vertex_project=None: cls(
+                project=vertex_project or "hushh-vertex-personal54",
+                locations=("global",),
+                auth_mode="vertex_adc",
+            )
+        ),
+    )
+
+    class AdkModel:
+        def __init__(self, project: str):
+            self.project = project
+
+        async def generate_content_async(self, *_args, **_kwargs):
+            if self.project == "hussh-511311" and scenario == "billing_denied":
+                raise RuntimeError("Billing is not enabled")
+            if scenario == "adk_error":
+                yield SimpleNamespace(error_code="MAX_TOKENS", error_message="", content=None)
+            elif scenario == "empty_reply":
+                yield SimpleNamespace(
+                    error_code=None, content=SimpleNamespace(parts=[SimpleNamespace(text="")])
+                )
+            else:
+                yield SimpleNamespace(
+                    error_code=None, content=SimpleNamespace(parts=[SimpleNamespace(text="OK")])
+                )
+
+    monkeypatch.setattr(
+        module.ManagedGeminiRuntimeBinding,
+        "build_regional_adk_model",
+        lambda self, _model: AdkModel(self.project),
+    )
+
+    report = await module.main()
+    chat_probe = next(p for p in report["probes"] if str(p["probe"]).startswith("one_chat:"))
+    chat_available = scenario == "success"
+
+    assert report["one_chat_project"] == "hussh-511311"
+    assert report["one_chat_probe_ok"] is chat_available
+    assert chat_probe["ok"] is chat_available
+    assert report["ok"] is chat_available
+    assert report["advisory"] is chat_available
+    if not chat_available:
+        expected_classification = (
+            "provider_unavailable" if scenario == "billing_denied" else "candidate_misconfigured"
+        )
+        assert chat_probe["classification"] == expected_classification
+        assert report["classification"] == expected_classification
+        assert report["candidate_models_exercised"] is (scenario != "billing_denied")

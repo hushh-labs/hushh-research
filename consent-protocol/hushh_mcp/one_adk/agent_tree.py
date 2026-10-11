@@ -2299,7 +2299,7 @@ def _build_ria_agent(*, model: Any | None = None) -> LlmAgent:
     )
 
 
-def _resolve_text_model(model: Any | None) -> Any:
+def _resolve_text_model(model: Any | None, *, vertex_project: str | None = None) -> Any:
     """Resolve text-model authority without requiring cloud ADC in test collection.
 
     Text agents use the regional model: a 429/500/503 while a request is being
@@ -2310,9 +2310,15 @@ def _resolve_text_model(model: Any | None) -> Any:
     The Live head stays pinned to its own location.
     """
     if model is not None:
+        if vertex_project is not None:
+            raise ValueError("Explicit text model and Vertex project override are exclusive")
         return model
     if os.getenv("TESTING", "").strip().lower() in {"1", "true", "yes"}:
         return _SPECIALIST_MODEL
+    if vertex_project is not None:
+        return build_managed_regional_gemini_adk_model(
+            _SPECIALIST_MODEL, vertex_project=vertex_project
+        )
     return build_managed_regional_gemini_adk_model(_SPECIALIST_MODEL)
 
 
@@ -2649,6 +2655,7 @@ def _one_consent_before_model(callback_context: Any, llm_request: Any) -> None:
 def build_one_text_agent(
     *,
     model: Any | None = None,
+    vertex_project: str | None = None,
     allow_workspace_tools: bool = False,
     include_thought_summaries: bool = False,
 ) -> LlmAgent:
@@ -2662,7 +2669,7 @@ def build_one_text_agent(
     # Route modules construct both ADK apps during import so FastAPI can
     # register the canonical endpoint. The shared resolver keeps that import
     # credential-independent in tests while hosted runtimes stay explicit.
-    text_model = _resolve_text_model(model)
+    text_model = _resolve_text_model(model, vertex_project=vertex_project)
     return LlmAgent(
         name="one",
         model=text_model,

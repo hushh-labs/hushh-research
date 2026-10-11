@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
 import uuid
 from typing import Any
@@ -519,9 +520,15 @@ async def _admit_consent_continuation(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
 
 
+_ONE_CHAT_VERTEX_PROJECT = (os.getenv("HUSHH_ONE_CHAT_VERTEX_PROJECT") or "").strip() or None
+
 _app = App(
     name=ONE_APP_NAME,
-    root_agent=build_one_text_agent(allow_workspace_tools=True, include_thought_summaries=True),
+    root_agent=build_one_text_agent(
+        vertex_project=_ONE_CHAT_VERTEX_PROJECT,
+        allow_workspace_tools=True,
+        include_thought_summaries=True,
+    ),
     resumability_config=ResumabilityConfig(is_resumable=True),
 )
 _intro_app = App(

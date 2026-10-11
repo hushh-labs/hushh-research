@@ -290,6 +290,36 @@ class TestAgentTreeShape:
         assert finance_tool.agent.model is turn_model
         assert investor_tool.agent.model is turn_model
 
+    def test_chat_vertex_project_flows_through_text_roster(self, monkeypatch):
+        from google.adk.models import Gemini
+
+        monkeypatch.delenv("TESTING", raising=False)
+        projects: list[str | None] = []
+
+        def managed_model(_model: str, *, vertex_project: str | None = None):
+            projects.append(vertex_project)
+            return Gemini(
+                model="gemini-chat-test",
+                client_kwargs={"vertexai": True, "project": vertex_project, "location": "global"},
+            )
+
+        monkeypatch.setattr(_tree, "build_managed_regional_gemini_adk_model", managed_model)
+
+        agent = build_one_text_agent(vertex_project="hussh-511311")
+        finance_tool = next(tool for tool in agent.tools if getattr(tool, "name", "") == "finance")
+        investor_tool = next(
+            tool for tool in finance_tool.agent.tools if getattr(tool, "name", "") == "investor"
+        )
+
+        assert projects == ["hussh-511311"]
+        assert agent.model.client_kwargs["project"] == "hussh-511311"
+        assert finance_tool.agent.model is agent.model
+        assert investor_tool.agent.model is agent.model
+
+        intro_agent = build_one_intro_text_agent()
+        assert intro_agent.model.client_kwargs["project"] is None
+        assert projects == ["hussh-511311", None]
+
     def test_text_runtime_import_is_credential_independent_in_ci(
         self, monkeypatch: pytest.MonkeyPatch
     ):
