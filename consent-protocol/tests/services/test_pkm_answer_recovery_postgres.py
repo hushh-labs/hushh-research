@@ -65,6 +65,14 @@ def refund_api(status="succeeded", **overrides):
         "status": status,
         **overrides,
     }
+    api.PaymentIntent.retrieve.side_effect = lambda intent_id, **kwargs: {
+        "id": intent_id,
+        "status": "succeeded",
+        "livemode": False,
+        "amount": 1000,
+        "amount_received": 1000,
+        "currency": "usd",
+    }
     api.Refund.create.return_value = result
     api.Refund.retrieve.return_value = result
     api.Refund.list.return_value = {"data": [], "has_more": False}
@@ -582,3 +590,38 @@ async def test_answer_center_role_status_isolation_and_single_row_per_request(an
         assert buckets["incoming_requests"] == buckets["outgoing_requests"] == []
         assert len(buckets["history"]) == 1
         assert buckets["history"][0]["status"] == "connection_revoked"
+
+
+async def test_real_refund_shape_without_livemode_uses_verified_source_intent(answer_engine):
+    service, request = await paid(answer_engine)
+    await service.cancel(requester_user_id=REQUESTER, request_id=request)
+    api = refund_api()
+    del api.Refund.create.return_value["livemode"]
+    assert (await PkmAnswerWorkWorker(_db(answer_engine), stripe_api=api).run_refunds())[
+        "succeeded"
+    ] == 1
+    api.PaymentIntent.retrieve.assert_called_once()
+    assert row(answer_engine, "pkm_answer_payment_orders", request)["status"] == "refunded"
+
+
+@pytest.mark.parametrize(
+    "override",
+    [{"livemode": True}, {"amount_received": 999}, {"currency": "eur"}, {"id": "pi_wrong"}],
+)
+async def test_refund_verifies_source_mode_and_terms_before_dispatch(answer_engine, override):
+    service, request = await paid(answer_engine)
+    await service.cancel(requester_user_id=REQUESTER, request_id=request)
+    api = refund_api()
+    api.PaymentIntent.retrieve.side_effect = None
+    api.PaymentIntent.retrieve.return_value = {
+        "id": "pi_x",
+        "status": "succeeded",
+        "livemode": False,
+        "amount": 1000,
+        "amount_received": 1000,
+        "currency": "usd",
+        **override,
+    }
+    result = await PkmAnswerWorkWorker(_db(answer_engine), stripe_api=api).run_refunds()
+    assert result["manual_review"] == 1 and result["succeeded"] == 0
+    api.Refund.create.assert_not_called()

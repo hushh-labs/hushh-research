@@ -600,13 +600,26 @@ class TestPaymentArrivingAfterTheRequestClosed:
         assert row["refunds"] == 0
 
 
+def _stripe_refund_api():
+    api = Mock()
+    api.PaymentIntent.retrieve.side_effect = lambda intent_id, **kwargs: {
+        "id": intent_id,
+        "status": "succeeded",
+        "livemode": False,
+        "amount": 1000,
+        "amount_received": 1000,
+        "currency": "usd",
+    }
+    return api
+
+
 class TestRefundRetry:
     async def test_a_refused_refund_is_retried_not_lost(self, answer_engine):  # noqa: F811
         service, request_id, digest = await _approved(answer_engine)
         _mark_paid(answer_engine, request_id, digest)
         await service.cancel(requester_user_id=REQUESTER, request_id=request_id)
 
-        failing = Mock()
+        failing = _stripe_refund_api()
         failing.Refund.create.side_effect = RuntimeError("provider down")
         worker = PkmAnswerWorkWorker(_db(answer_engine), stripe_api=failing)
         outcome = await worker.run_refunds(max_jobs=5)
@@ -633,7 +646,7 @@ class TestRefundRetry:
         assert row["backed_off"] is True
 
         # The next sweep succeeds and the order becomes refunded.
-        ok = Mock()
+        ok = _stripe_refund_api()
         ok.Refund.create.return_value = {
             "id": "re_test_ok",
             "status": "succeeded",
@@ -676,7 +689,7 @@ class TestRefundRetry:
         _mark_paid(answer_engine, request_id, digest)
         await service.cancel(requester_user_id=REQUESTER, request_id=request_id)
 
-        api = Mock()
+        api = _stripe_refund_api()
         api.Refund.create.side_effect = [
             RuntimeError("down"),
             {
@@ -711,13 +724,13 @@ class TestRefundRetry:
         _mark_paid(answer_engine, request_id, digest)
         await service.cancel(requester_user_id=REQUESTER, request_id=request_id)
 
-        slow = Mock()
+        slow = _stripe_refund_api()
         slow.Refund.create.side_effect = RuntimeError("down")
         first = PkmAnswerWorkWorker(_db(answer_engine), stripe_api=slow)
         await first.run_refunds(max_jobs=5)
 
         # The row is backed off, so a concurrent drain finds nothing due.
-        second = Mock()
+        second = _stripe_refund_api()
         second.Refund.create.return_value = {"id": "re_double"}
         outcome = await PkmAnswerWorkWorker(_db(answer_engine), stripe_api=second).run_refunds(
             max_jobs=5

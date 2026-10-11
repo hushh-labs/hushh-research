@@ -166,6 +166,22 @@ class PkmAnswerWorkWorker(ExternalConnectorLifecycleStore):
         return {**charge, "fee": balance["fee"]}
 
     def _refund(self, row: dict, key: str) -> dict:
+        # Stripe Refund has no livemode field. Verify the source PaymentIntent
+        # under this mode-bound key BEFORE dispatch; verify the returned refund
+        # refers to that same intent and exact full amount. Source contract:
+        # https://docs.stripe.com/api/refunds/object
+        intent = _stripe_dict(
+            self.stripe_api.PaymentIntent.retrieve(row["stripe_payment_intent_id"], api_key=key)
+        )
+        if (
+            intent.get("id") != row["stripe_payment_intent_id"]
+            or intent.get("status") != "succeeded"
+            or intent.get("livemode") is not key.startswith("sk_live_")
+            or intent.get("amount") != row["amount_cents"]
+            or intent.get("amount_received") != row["amount_cents"]
+            or intent.get("currency") != "usd"
+        ):
+            raise ValueError("provider_mismatch")
         if row["stripe_refund_id"]:
             refund = _stripe_dict(
                 self.stripe_api.Refund.retrieve(row["stripe_refund_id"], api_key=key)
@@ -203,7 +219,7 @@ class PkmAnswerWorkWorker(ExternalConnectorLifecycleStore):
             or refund.get("payment_intent") != row["stripe_payment_intent_id"]
             or refund.get("amount") != row["amount_cents"]
             or refund.get("currency") != "usd"
-            or refund.get("livemode") is not key.startswith("sk_live_")
+            or ("livemode" in refund and refund["livemode"] is not key.startswith("sk_live_"))
             or refund.get("status") not in {"succeeded", "pending", "requires_action"}
         ):
             raise ValueError("provider_mismatch")
