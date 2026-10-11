@@ -823,7 +823,17 @@ final class AppUITests: XCTestCase {
         }
         let openProfile = app.buttons["Open Profile"].firstMatch
         let closeProfile = app.buttons["Close Profile"].firstMatch
+        let puppy = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Puppy One, on your machine, with its own conversation")).firstMatch
+        let cloud = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "One, your cloud agent")).firstMatch
         for cycle in 0..<10 {
+            guard waitForAdmittedControl(puppy) else { XCTFail("SHARED_DOCK_AGENT_TAB_MISSING"); return }
+            puppy.tap()
+            let cloudCovered = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == false"), object: editor)
+            XCTAssertEqual(XCTWaiter.wait(for: [cloudCovered], timeout: 10), .completed, "SHARED_DOCK_CLOUD_EDITOR_STILL_INTERACTIVE")
+            guard waitForAdmittedControl(cloud) else { XCTFail("SHARED_DOCK_CLOUD_TAB_MISSING"); return }
+            cloud.tap()
+            guard waitForAdmittedControl(editor) else { XCTFail("SHARED_DOCK_CLOUD_EDITOR_NOT_RESTORED"); return }
+            XCTAssertTrue((editor.value as? String) == expectedDraft, "SHARED_DOCK_AGENT_TAB_CHANGED_DRAFT")
             guard waitForAdmittedControl(openProfile) else { XCTFail("SHARED_DOCK_PROFILE_ENTRY_MISSING"); return }
             openProfile.coordinate(withNormalizedOffset: CGVector(dx: cycle % 2 == 0 ? 0.2 : 0.8, dy: 0.5)).tap()
             guard waitForAdmittedControl(closeProfile) else { XCTFail("SHARED_DOCK_PROFILE_CLOSE_MISSING"); return }

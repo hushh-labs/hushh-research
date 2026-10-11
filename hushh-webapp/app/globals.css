@@ -5560,7 +5560,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   border-radius: 50%;
   background: var(--app-accent);
 }
-.agent-chat-composer-actions .shell-action-surface:not([type="submit"]):not([data-testid="agent-chat-stop-turn"])::before {
+.agent-chat-composer-actions .shell-action-surface:not([data-agent-composer-action="send"]):not([data-agent-composer-action="stop"])::before {
   background: transparent;
 }
 .agent-chat-composer-actions .shell-action-surface:disabled::before {
@@ -5587,8 +5587,13 @@ html.kb-open [data-agent-dock-chat] [data-bottom-shell-motion-stack] {
  * stays at the authored resting position; translating it would feed a second
  * keyboard offset back into the next native projection. */
 html:not(.kb-resizes) [data-agent-dock-chat]:not([data-native-agent-dock]) [data-bottom-shell-agent-slot] {
-  translate: 0 calc(max(0px, var(--kb-height, 0px) - var(--app-bottom-shell-height, 0px) + 0.5rem) * -1);
+  /* Shell admission can briefly report zero navigation height. That is not
+     a keyboard event and must not start an 8px keyboard animation. */
+  translate: 0 0;
   transition: translate var(--kb-motion-duration) var(--kb-motion-curve);
+}
+html.kb-open:not(.kb-resizes) [data-agent-dock-chat]:not([data-native-agent-dock]) [data-bottom-shell-agent-slot] {
+  translate: 0 calc(max(0px, var(--kb-height, 0px) - var(--app-bottom-shell-height, 0px) + 0.5rem) * -1);
 }
 html.kb-open.kb-resizes [data-agent-dock-chat] {
   padding-bottom: 0.5rem !important;

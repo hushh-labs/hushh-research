@@ -28,6 +28,7 @@ export function PuppyOneSurface({
   className,
   active = true,
   sharedDock = false,
+  composerDisabled = false,
   conversations,
   activeConversationId,
   onCreateConversation,
@@ -46,6 +47,7 @@ export function PuppyOneSurface({
    */
   active?: boolean;
   sharedDock?: boolean;
+  composerDisabled?: boolean;
 }) {
   const link = usePuppyLink();
   return (
@@ -88,7 +90,7 @@ export function PuppyOneSurface({
           {/* With no selected Puppy conversation, do not expose Cloud's voice
               launcher under the Puppy header. The authored New chat owns entry. */}
           <AgentDockPortal enabled={sharedDock && active && conversations !== undefined && !conversations.some(conversation => conversation.id === activeConversationId)} visible={false} suppressed>{null}</AgentDockPortal>
-          {conversations === undefined ? <HermesChatPanel active={active} sharedDock={sharedDock} /> : (
+          {conversations === undefined ? <HermesChatPanel active={active} sharedDock={sharedDock} composerDisabled={composerDisabled} /> : (
             <>
               {conversations.length === 0 ? (
                 <div className="flex flex-1 items-center justify-center p-4">
@@ -100,6 +102,7 @@ export function PuppyOneSurface({
                   key={conversation.id}
                   active={active && activeConversationId === conversation.id}
                   sharedDock={sharedDock}
+                  composerDisabled={composerDisabled}
                   className={cn(activeConversationId !== conversation.id && "hidden")}
                 />
               ))}

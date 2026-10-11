@@ -8723,6 +8723,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           type="button"
           data-native-voice-control-id="one_voice_agent_chat_start"
           data-testid="one-voice-agent-chat-start"
+          data-agent-composer-action="mic"
           className="text-[rgba(0,0,0,0.50)] max-sm:text-[color:var(--app-accent-deep)] dark:text-zinc-400 dark:max-sm:text-[color:var(--app-accent-deep)]"
           disabled={!canToggleVoice}
           onClick={() => {
@@ -8741,6 +8742,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           type="button"
           rippleEffect="fill"
           data-testid="agent-chat-stop-turn"
+          data-agent-composer-action="stop"
           className="border-transparent bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
           aria-label="Stop One"
           title="Stop One"
@@ -8753,6 +8755,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       ) : (
       <ShellActionSurface
         type="submit"
+        data-agent-composer-action="send"
         rippleEffect="fill"
         className="border-transparent bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500"
         disabled={!canSend}
@@ -9097,6 +9100,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               key={user?.uid ?? "signed-out"}
               active={isPuppySurface}
               sharedDock={isCanonicalChatRoute}
+              composerDisabled={isHistoryDrawerOpen}
               conversations={puppyConversations}
               activeConversationId={puppyConversationId}
               onCreateConversation={handleCreateNewPuppyChat}

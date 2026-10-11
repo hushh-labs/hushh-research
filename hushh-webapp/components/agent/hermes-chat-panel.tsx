@@ -79,6 +79,7 @@ export function HermesChatPanel({
   className,
   active = true,
   sharedDock = false,
+  composerDisabled = false,
 }: {
   className?: string;
   /**
@@ -94,6 +95,7 @@ export function HermesChatPanel({
   active?: boolean;
   /** Presentation only: Puppy retains its own draft and guarded send owner. */
   sharedDock?: boolean;
+  composerDisabled?: boolean;
 }) {
   const [status, setStatus] = useState<PuppyStatus | null>(null);
   const [turns, setTurns] = useState<PuppyTurn[]>([]);
@@ -267,7 +269,7 @@ export function HermesChatPanel({
 
   async function send() {
     const message = draft.trim();
-    if (!message || sending) return;
+    if (!active || composerDisabled || !connected || !message || sending) return;
     // A secret never reaches a model, on this device or in the cloud. Puppy
     // has no vault-backed Secrets writer, so it keeps the draft and says so;
     // One's composer is where a secret is kept (lib/pkm/secret-span-guard.ts).
@@ -478,7 +480,7 @@ export function HermesChatPanel({
           rule was the clearest sign this surface was a different, lesser app.
           15px on phones, as One's, so the field reads at One's size. */}
       <AgentDockPortal enabled={sharedDock && active} visible>
-      <AgentBarSurface embedded={sharedDock} className={cn("agent-chat-composer-surface agent-chat-composer-compact min-w-0 shrink-0 items-end gap-2", !sharedDock && "mt-3")}>
+      <AgentBarSurface embedded={sharedDock} inert={composerDisabled} className={cn("agent-chat-composer-surface agent-chat-composer-compact min-w-0 shrink-0 items-end gap-2", !sharedDock && "mt-3")}>
         <textarea
           ref={editorRef}
           value={draft}
@@ -491,7 +493,7 @@ export function HermesChatPanel({
           }}
           // Still disabled while checking: not knowing yet is not permission
           // to send. Only the words change.
-          disabled={!connected || sending}
+          disabled={!active || composerDisabled || !connected || sending}
           rows={1}
           placeholder={
             connected
@@ -506,9 +508,10 @@ export function HermesChatPanel({
         <div className="agent-chat-composer-actions flex shrink-0 items-center">
         <ShellActionSurface
           type="button"
-          className="text-[color:var(--app-accent)]"
+          data-agent-composer-action="send"
+          className="text-[color:var(--app-accent-fg)] disabled:text-muted-foreground"
           onClick={() => void send()}
-          disabled={!connected || sending || !draft.trim()}
+          disabled={!active || composerDisabled || !connected || sending || !draft.trim()}
           aria-label="Send to Puppy One"
         >
           <Send className="size-4" />
