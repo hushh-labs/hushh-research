@@ -23,7 +23,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 from sqlalchemy import text
@@ -52,6 +52,20 @@ MAX_QUESTION_CHARS = 2000
 
 class AnswerRequestError(RuntimeError):
     """Safe error code. Never carries SQL, credentials or PKM values."""
+
+
+def _optional_period_date(value: str | None) -> str | None:
+    """Omitted dates are valid; supplied dates must be real ISO calendar dates."""
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str):
+        raise AnswerRequestError("invalid_period")
+    try:
+        if date.fromisoformat(value).isoformat() != value:
+            raise ValueError("non-canonical date")
+    except ValueError:
+        raise AnswerRequestError("invalid_period") from None
+    return value
 
 
 class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
@@ -160,7 +174,9 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
         text_question = canonical_question(question)
         if not MIN_QUESTION_CHARS <= len(text_question) <= MAX_QUESTION_CHARS:
             raise AnswerRequestError("invalid_question")
-        if bool(period_start) != bool(period_end):
+        period_start = _optional_period_date(period_start)
+        period_end = _optional_period_date(period_end)
+        if (period_start is None) != (period_end is None):
             raise AnswerRequestError("invalid_period")
         if period_start and period_end and period_start > period_end:
             raise AnswerRequestError("invalid_period")

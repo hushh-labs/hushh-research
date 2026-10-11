@@ -242,8 +242,8 @@ async def create_answer_request(
                 requester_user_id=requester_user_id,
                 owner_user_id=owner_user_id,
                 question=str(body.get("question") or ""),
-                period_start=(body.get("periodStart") or None),
-                period_end=(body.get("periodEnd") or None),
+                period_start=body.get("periodStart"),
+                period_end=body.get("periodEnd"),
             )
         )
     except Exception as error:
