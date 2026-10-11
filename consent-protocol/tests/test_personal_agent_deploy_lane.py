@@ -181,6 +181,36 @@ def _env_vars(argv: list[str]) -> dict[str, str]:
     return out
 
 
+@pytest.mark.parametrize(
+    ("requests", "payments", "expected"),
+    [
+        ("true", "false", "true"),
+        ("false", "true", "false"),
+        ("", "false", None),
+    ],
+)
+def test_request_intake_flag_reaches_the_runtime_independently(
+    tmp_path, requests, payments, expected
+):
+    values = _env_vars(
+        _run(
+            tmp_path,
+            _DEPLOY_ENV="production",
+            _PKM_ANSWER_REQUESTS_ENABLED=requests,
+            _PKM_ANSWER_PAYMENTS_ENABLED=payments,
+            _PKM_ANSWER_COMPOSER_ENABLED=payments,
+        )
+    )
+    assert values.get("PKM_ANSWER_REQUESTS_ENABLED") == expected
+    assert values["PKM_ANSWER_PAYMENTS_ENABLED"] == payments
+
+
+def test_invalid_request_intake_flag_stops_before_deployment(tmp_path):
+    with pytest.raises(AssertionError, match="_PKM_ANSWER_REQUESTS_ENABLED must be"):
+        _run(tmp_path, _DEPLOY_ENV="production", _PKM_ANSWER_REQUESTS_ENABLED="invalid")
+    assert not (tmp_path / "run0/argv.txt").exists()
+
+
 @pytest.fixture
 def dev(tmp_path):
     return _env_vars(_run(tmp_path, _DEPLOY_ENV="dev", _BUILD_POD_IMAGE="true"))

@@ -33,28 +33,41 @@ on the new origin after correcting the standalone relay's certificate trust setu
 
 ## Main readiness — October 11
 
-**Do not merge or roll out BYOC yet.** Infrastructure `14876c2a3b8d` passed
-[all 23 hosted checks](https://github.com/hushh-labs/hushh-research/actions/runs/38132031368).
-[PR 7555](https://github.com/hushh-labs/hushh-research/pull/7555) still requires
-review, and main advanced to `c3dad00c997b` after that validation. The active
-hardening patch adds outbound relay expiry/revocation/incarnation checks,
-corrects the idle-wait race, and refuses Shared selection with unresolved pod
-resources. Its lifecycle baseline passes 185 cases, with 129 final focused cases after
-the cohesive relay extraction; 29 new boundary cases fail
-against the original source in an isolated, memory-only negative control.
-These corrections are not deployed and need final combined validation.
+**Hold the application merge and BYOC rollout.** The integrated candidate freezes
+main `b80dbbdd6d93`, retains the reviewed ADK presentation delta `5c86617f2c`
+and preserves active worktrees. [PR 7555](https://github.com/hushh-labs/hushh-research/pull/7555)
+requires review and exact combined-SHA validation. Prior
+[23-check validation](https://github.com/hushh-labs/hushh-research/actions/runs/38132031368)
+applies to `14876c2a3b8d`, not this candidate.
 
 | Gate | Current result / next evidence |
 | --- | --- |
-| CI/deploy convergence | Same Actions authority and Cloud Build executor. Dev adopts UAT's selected preservation/reviewer plan; frontend-only UAT preservation runs independently of migrations. Production gains automatic service selection. Workflow edits require governed landing and a live rehearsal. |
-| Existing users / Shared | Explicit owner choice plus the strictly evidenced legacy cohort; assigned, pending or unresolved pods never become Shared by default. Canonical migration 311 and parked dev 958 need environment-specific adoption evidence. The first-update changelog framework exists, but UAT/production release content is intentionally unconfigured; it must be bound to the reviewed rollout rather than shown to new users. |
-| Updates / erasure | Exact-release approvals and isolated recovery pass; normal Dev 15 installation passes. Active-work drain, production provenance/channels, production erasure and retained-resource disposition need their own receipts. |
-| Puppy / phone | BYOC-only signed owner/device/pod authority exists; personal dev inference and cancellation pass. Independent phone/Mac internet acceptance and the latest relay image remain unverified. |
-| Both-cloud launch | Native Google/connector journeys, production IAM/retention/recovery, hub capacity and UAT acceptance remain release gates. Matched-resource cold p95 is about 71s on each cloud, above the 30s target. |
+| CI/deploy convergence | GitHub Actions governs; Cloud Build builds. All environments use the same changed-SHA verification selector. Selected dev reviewer checks fail closed, and frontend-only preservation runs independently of migrations. Production supports automatic service selection and preserves deployment helpers when checking out an older rollback target. Full hosted browser/security gates remain required. Workflow edits need governed landing and a live rehearsal. |
+| Existing users / Shared | Explicit owner choice plus the strictly evidenced legacy cohort. Assigned, pending or unresolved pods cannot become Shared by default. Canonical migration 312 and parked dev 958 require environment adoption evidence. Existing-user changelog admission exists; UAT/production content remains unconfigured until a reviewed rollout. New users do not receive the update modal. |
+| Updates / erasure | Exact-release approval, isolated recovery and normal Dev 15 installation pass. Active-work drain, production release provenance, erasure and retained-resource disposition still require live receipts. No automatic owner upgrade. |
+| Puppy / phone | BYOC-only signed owner/device/pod authority; personal dev inference, cancellation and idle wake pass. New outbound expiry/revocation/incarnation and idle-race protections pass focused tests but are not deployed. Physical phone/Mac independent internet acceptance remains unverified. Native phone HTTP/SSE admission and Mac device WSS are distinct transports. |
+| Both-cloud launch | Native Google/connector journeys, production IAM/retention/recovery, hub capacity and independent UAT acceptance remain release gates. Matched-resource cold p95 is about 71s on each cloud, above the 30s target. |
 
-Source readiness and environment acceptance are separate decisions. Keep all
-owner resources and selected configurations; no automatic upgrade, main merge,
-UAT/production deployment or stable publication is authorized by this memo.
+Local verification is composite and revision-bound: the original `4c2575227c`
+core recorded 17,825 passing unit cases and one fixed actor-proof timing fixture;
+its repaired boundary passes without changing assertions. The integrated main
+surfaces pass 176 backend and 189 frontend cases, 857 canonical PostgreSQL cases,
+388 preservation cases, MCP packaging, all-test import collection, generated UI
+contracts, security/type checks, governance and the production web build. The
+stale helper-location assertion was corrected by the concurrent session and
+its canonical integration stage passed on replay. Original failed receipts are
+retained. Exact-SHA hosted validation remains the final source gate.
+
+Main owns migration 306 for business-profile completion. The six unapplied pod
+migrations move from 306–311 to 307–312 in original order, with rollback, fixture
+and schema references reconciled. Read-only ADC filename-ledger checks found none
+recorded in dev or UAT; production has no migration ledger, which is recorded as
+an evidence limit. Existing applied and parked migration checksums are unchanged.
+Destructive history migration 249 remains deferred.
+
+No main merge, UAT/production deployment, stable publication or owner installation
+was performed in this readiness pass. Source readiness does not clear the live
+gates above.
 
 ## Source and serving evidence
 
@@ -114,71 +127,17 @@ tails extend paid time. Spending thresholds warn without stopping service.
 
 ## Reviewed integration debt
 
-The October 10 candidate combines infrastructure `fac10c796d`, ADK `b5fc73b5c6`
-and main `89cf5c75f7`. Independent review accepted 239 inherited finding slots
-and 75 exact integration spans. Calendar selection and Mail dispatch were
-extracted into existing-module genes before accepting the combined baseline.
-Exact occurrence-ranked values and source hashes are retained in the governed
-baseline. Budgets (500/250/80), scanner, exclusions and future regression gates
-are unchanged. Final review accepts only four exact-owner regression assertions
-and fourteen generated compatibility lines, plus the exact 503-line deployment
-fixture span after mandatory formatting. Duplicate provider-binding checks have
-a bounded consolidation follow-up under quality contracts. Direct-message timestamp presentation
-and the network route catalog are extracted into their existing owners instead
-of raising those size allowances. This records structural debt, not live acceptance.
-
-The October 11 synchronization retains the original 2,328 baseline entries and
-reviews only 225 changed occurrence-ranked slots against infrastructure
-`f0517d5f` and incoming main `14a052a8`: 154 exact main sources, 26 metrics
-within the incoming parent's sizes, and 45 bounded combined spans. Independent
-backend, frontend/native and deployment reviews inspected the combined spans;
-their exact values, parent values, source hashes and reasons are recorded under
-`main_synchronization_20261011` in the baseline. The four changed same-named
-Drive operation slots remain 1/2/3/5; unchanged slots 0/4 are preserved. No
-scanner, budget, exclusion, dependency or import rule changed. A one-line future
-growth negative control still fails the ratchet. Required core and hosted CI
-remain separate gates; accepting inherited size debt proves neither deployment
-nor the scope-payment lifecycle.
-
-The subsequent `5685d52f` hardening is integrated through the same branch.
-Seven additional size slots are independently reviewed under
-`main_profile_hardening_20261011`: incoming main research/card/fixture spans,
-the retained attachment-test union, and the generated compatibility revision.
-The owner-bound no-store and sequential Search receipts improve public research
-admission; they do not implement selected-owner private model processing. The
-feature remains default-off pending that qualification. Capability and Location
-schema producers also restore DDL column ordering without changing the required
-schema sets or migration head 311.
-
-Core integration repairs retain the architecture ratchet. Eight exact size slots
-are independently reviewed under `main_contract_repairs_20261011`: existing Wallet
-erasure wiring, the full-account financial refusal guard, four participant and
-rollback PostgreSQL cases, the four incoming provider-secret fixture bindings,
-and existing provider-dispatch and placement-change regression coverage.
-The separate small answer-erasure gene stays below the current budgets. The
-canonical Hashcoin provider-dispatch barrier remains authoritative; resets preserve
-financial wallets and orphan wallets refuse deletion. Paid-answer financial history
-also refuses deletion until that lane supports identity-free recovery. No budget,
-scanner exclusion or dependency/import rule changes accompany these repairs.
-
-The existing Location fixture independently restores isolation under
-`location_fixture_isolation_20261011`: unmount before restoring clocks/globals
-and reset queued responses for eight mocks whose defaults are reinstalled.
-All 179 Location cases pass after the seven-line change. Production behavior,
-assertions, timeouts and gate configuration remain unchanged.
+The [governed architecture baseline](./architecture-fitness-baseline.json) records
+inherited debt, exact occurrence-ranked spans, parent revisions, reviewer reasons
+and source hashes. Historical synchronization and extraction receipts remain
+there and in Git history. The latest main integration reviews exactly nine new
+or increased slots: independent request gates, real directory admission, nearest
+boundary tests, Wallet geometry, generated compatibility and executed deployment
+rollback coverage. Independent frontend and pipeline reviews found no additional
+blocking source defect. Budgets (500/250/80), scanner, exclusions and unrelated
+allowances are unchanged. Baseline acceptance is not deployment acceptance.
 
 ## Owners and next gate
-
-The exact sixteen size slots in `canonical_dev_origin_main_sync_20261011`
-were reviewed against main `c3dad00c` and combined source `b7228c98`.
-Incoming optional-date validation, Finance/Location presentation and their
-nearest contract coverage preserve existing authority. Combined Profile owner
-fences, fixture isolation and the executable Dev-origin negative control remain
-intact. One redundant availability mock was removed without removing assertions.
-All other finding occurrences and prior reviews remain unchanged; the 500/250/80
-budgets, scanner and exclusions are unchanged. Focused checks pass 281 backend,
-129 frontend and 422 Back cases. These receipts do not establish deployed
-commerce acceptance; combined core and exact hosted CI remain required.
 
 | Owner | Required receipt |
 | --- | --- |
@@ -204,15 +163,15 @@ Google/Azure choices and cloud-specific gates belong to the deployment standard.
 Historical pointer: early source checks were not owner-cloud activation receipts.
 Dev history cleanup 944 completed September 28 under
 [run 36392414630](https://github.com/hushh-labs/hushh-research/actions/runs/36392414630).
-The former branch-only profile bridge is now pending canonical 302; canonical 249 remains
+The former branch-only profile bridge was pending canonical 302 in that historical source; its current canonical number is 310. Canonical 249 remains
 deferred in shared-dev pending separate cutover evidence. Current acceptance belongs to the
 matrix above; Git history retains the chronology.
 
-The final main-readiness integration freezes main `c3dad00c997b` and carries the
-13-path ADK retained-dock delta `5c86617f2c`, preserving deployed private Puppy,
-voice readiness and all active ADK edits. Earlier disabled native qualification
-remains in its active owner. Twenty exact size slots have independent main UI,
-release/backend and ADK presentation review with source hashes; no budget,
-scanner or unrelated allowance changes. SOS publication uses the root's bounded
-condition wait, superseding main's equivalent polling fix. The current canonical
-dev origin is validated by the actual resolver and retired-origin negative control.
+The final main-readiness integration freezes main `b80dbbdd6d93` and carries
+the 13-path ADK retained-dock delta `5c86617f2c`, preserving private Puppy,
+voice readiness and ongoing ADK edits. Incoming request intake remains independent
+of payment admission; composition retains both private-content and paid-lane
+checks. Business completion is cosmetic owner metadata, not an access grant.
+Combined UI projections are regenerated from their owners. The Wallet meaning transition records exact predecessor `0f847cb897c39c4a` with the existing reject policy, rather than a broad compatibility exception. Existing structural
+debt is reviewed only for changed occurrence-ranked slots; budgets, scanner and
+unrelated allowances remain unchanged.

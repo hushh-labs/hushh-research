@@ -32,6 +32,8 @@ describe("Agent One chat workspace wiring contract", () => {
       source.indexOf("const [businessSuggestionVisible"),
     );
     expect(readiness).toContain("hasChatAccess && !isPuppySurface && !sessionVerificationRequired");
+    expect(readiness).toContain("chatOnboarding.resolved");
+    expect(source).toContain("startSignal: Boolean(user?.uid && pendingEntryWelcome?.userId === user.uid) || Boolean(postSetupWelcomeContext)");
     expect(readiness).not.toMatch(/business|Business/);
     const backgroundTurn = source.slice(
       source.indexOf("const renderBackgroundCardTurn ="),
@@ -41,6 +43,9 @@ describe("Agent One chat workspace wiring contract", () => {
     expect(backgroundTurn).toContain("enabled={backgroundCardsEnabled}");
     expect(backgroundTurn).toContain("ephemeralCard={card}");
     expect(backgroundTurn).not.toContain("businessSuggestionVisible");
+    const endSlot = source.slice(source.indexOf('renderChatOnboarding({ kind: "end", visibleMessageIds })'));
+    expect(endSlot.indexOf("renderBackgroundCardTurn()")).toBeGreaterThan(0);
+    expect(endSlot).toContain("backgroundCardTurnAnchor.afterId === visibleMessageIds.at(-1)");
   });
 
   it("refreshes recent Drive sharing only while chat history is open", () => {

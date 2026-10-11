@@ -2701,6 +2701,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     (state) => state.pendingHandoff,
   );
   const handoff = pendingSessionHandoff;
+  const pendingEntryWelcome = useOneConversationSession((state) => state.pendingEntryWelcome);
   const postSetupWelcomeContext = useEntryWelcome({
     userId: user?.uid, isVaultUnlocked, vaultKey, vaultOwnerToken,
   });
@@ -3769,7 +3770,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     vaultKey,
     vaultOwnerToken,
     isVaultUnlocked,
-    startSignal: Boolean(postSetupWelcomeContext),
+    startSignal: Boolean(user?.uid && pendingEntryWelcome?.userId === user.uid) || Boolean(postSetupWelcomeContext),
     messages,
     conversationId,
     onFocusComposer: () => composerTextareaRef.current?.focus(),
@@ -8245,7 +8246,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // A contextual One turn belongs at the point it entered this conversation,
   // not in a dashboard after every subsequent reply. Keep public suggestions
   // session-only: they must not enter chat history or the model's context.
-  const backgroundCardsEnabled = hasChatAccess && !isPuppySurface && !sessionVerificationRequired;
+  const backgroundCardsEnabled = hasChatAccess && !isPuppySurface && !sessionVerificationRequired && chatOnboarding.resolved;
   const [businessSuggestionVisible, setBusinessSuggestionVisible] = useState(false);
   const [dismissedBusinessSuggestionIds, setDismissedBusinessSuggestionIds] = useState<Set<string>>(() => new Set());
   const dismissBusinessSuggestion = useCallback((businessUid: string) => {
@@ -9457,10 +9458,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 )
               ) : null}
 
-              {!backgroundCardTurnAnchor?.afterId || !visibleMessageIds.includes(backgroundCardTurnAnchor.afterId) ? renderBackgroundCardTurn() : null}
-              {visibleMessages.map((message) => (
+              {!backgroundCardTurnAnchor?.afterId ? renderBackgroundCardTurn() : null}
+              {visibleMessages.map((message, index) => (
                 <Fragment key={message.id}>
                   {renderChatOnboarding({ kind: "before", messageId: message.id, visibleMessageIds })}
+                  {index > 0 && visibleMessageIds[index - 1] === backgroundCardTurnAnchor?.afterId ? renderBackgroundCardTurn() : null}
                   {timeSeparators.has(message.id) ? (
                     <ChatTimeSeparatorRow separator={timeSeparators.get(message.id)!} />
                   ) : null}
@@ -9761,10 +9763,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   {message.id === emailDraftAnchorMessageId
                     ? renderEmailDraftCard()
                     : null}
-                  {message.id === backgroundCardTurnAnchor?.afterId ? renderBackgroundCardTurn() : null}
                 </Fragment>
               ))}
               {renderChatOnboarding({ kind: "end", visibleMessageIds })}
+              {backgroundCardTurnAnchor?.afterId && (backgroundCardTurnAnchor.afterId === visibleMessageIds.at(-1) ||
+                !visibleMessageIds.includes(backgroundCardTurnAnchor.afterId)) ? renderBackgroundCardTurn() : null}
 
               {walletWidgets.map((widget) =>
                 widget.kind === "secrets" ? (

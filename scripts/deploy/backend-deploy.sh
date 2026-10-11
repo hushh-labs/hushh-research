@@ -113,6 +113,8 @@ done
 # UAT's Drive work-drain scheduler identity is packed into one Cloud Build
 # entry with the payment rollout switch. Keep all five values explicit so a
 # missing substitution cannot enable a rollout or drop the drain's identity.
+_PKM_ANSWER_REQUESTS_ENABLED=""
+_answer_requests_seen=0
 IFS=',' read -r -a _drive_work_pairs <<< "${_DRIVE_WORK_DRAIN_SETTINGS:?missing Drive work-drain settings}"
 for _pair in "${_drive_work_pairs[@]}"; do
   [[ "${_pair}" == *=* ]] || { echo "Invalid Drive work-drain settings." >&2; exit 1; }
@@ -128,6 +130,10 @@ for _pair in "${_drive_work_pairs[@]}"; do
     connect_mode) _STRIPE_CONNECT_MODE="${_value}" ;;
     hashcoins_enabled) _DRIVE_REQUEST_HASHCOINS_ENABLED="${_value}" ;;
     hashcoins_live_enabled) _DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED="${_value}" ;;
+    answer_requests)
+      [[ "${_answer_requests_seen}" == "0" ]] || { echo "Duplicate answer requests flag." >&2; exit 1; }
+      _answer_requests_seen=1
+      _PKM_ANSWER_REQUESTS_ENABLED="${_value}" ;;
     answer_payments) _PKM_ANSWER_PAYMENTS_ENABLED="${_value}" ;;
     answer_composer) _PKM_ANSWER_COMPOSER_ENABLED="${_value}" ;;
     answer_live_provider_reviewed) _PKM_ANSWER_LIVE_PROVIDER_REVIEWED="${_value}" ;;
@@ -137,11 +143,11 @@ for _pair in "${_drive_work_pairs[@]}"; do
     *) echo "Drive work-drain settings carry an unknown key." >&2; exit 1 ;;
   esac
 done
-if [[ "${#_drive_work_pairs[@]}" -ne 16 ]] ||
+if [[ "${#_drive_work_pairs[@]}" -ne $((16 + _answer_requests_seen)) ]] ||
   [[ "${_DRIVE_WORK_DRAIN_ENABLED:-}" != "true" && "${_DRIVE_WORK_DRAIN_ENABLED:-}" != "false" ]] ||
   [[ "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED:-}" != "true" && "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED:-}" != "false" ]] ||
   [[ "${_DRIVE_REQUEST_PAYMENTS_ENABLED:-}" != "true" && "${_DRIVE_REQUEST_PAYMENTS_ENABLED:-}" != "false" ]]; then
-  echo "Drive work-drain settings require sixteen keys and explicit rollout booleans." >&2; exit 1
+  echo "Drive work-drain settings require all base keys and explicit rollout booleans." >&2; exit 1
 fi
 if [[ -n "${_STRIPE_MODE}" && "${_STRIPE_MODE}" != "test" && "${_STRIPE_MODE}" != "live" ]]; then
   echo "Stripe mode must be test or live." >&2; exit 1
@@ -163,6 +169,10 @@ fi
 for _required in _STRIPE_CONNECT_SECRET_KEY_SECRET _STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET _PKM_ANSWER_STRIPE_SECRET_KEY_SECRET _PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET _STRIPE_CONNECT_MODE _DRIVE_REQUEST_HASHCOINS_ENABLED _DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED _PKM_ANSWER_PAYMENTS_ENABLED _PKM_ANSWER_COMPOSER_ENABLED _PKM_ANSWER_LIVE_PROVIDER_REVIEWED _PKM_ANSWER_STRIPE_MODE _ANSWER_WORK_DRAIN_ENABLED _ANSWER_WORK_DRAIN_AUDIENCE; do
   declare -p "${_required}" >/dev/null 2>&1 || { echo "Missing payment settings key." >&2; exit 1; }
 done
+case "${_PKM_ANSWER_REQUESTS_ENABLED:-}" in
+  ""|true|false) ;;
+  *) echo "_PKM_ANSWER_REQUESTS_ENABLED must be true, false, or empty." >&2; exit 1 ;;
+esac
 for _required in _DRIVE_REQUEST_HASHCOINS_ENABLED _DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED _PKM_ANSWER_PAYMENTS_ENABLED _PKM_ANSWER_COMPOSER_ENABLED _PKM_ANSWER_LIVE_PROVIDER_REVIEWED _ANSWER_WORK_DRAIN_ENABLED; do
   if [[ "${!_required}" != "true" && "${!_required}" != "false" ]]; then
     echo "Payment settings require explicit rollout booleans." >&2; exit 1
@@ -422,6 +432,7 @@ append_optional_env "STRIPE_MODE" "${_STRIPE_MODE}"
 append_optional_env "STRIPE_CONNECT_MODE" "${_STRIPE_CONNECT_MODE}"
 append_optional_env "DRIVE_REQUEST_HASHCOINS_ENABLED" "${_DRIVE_REQUEST_HASHCOINS_ENABLED}"
 append_optional_env "DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED" "${_DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED}"
+append_optional_env "PKM_ANSWER_REQUESTS_ENABLED" "${_PKM_ANSWER_REQUESTS_ENABLED:-}"
 append_optional_env "PKM_ANSWER_PAYMENTS_ENABLED" "${_PKM_ANSWER_PAYMENTS_ENABLED}"
 append_optional_env "PKM_ANSWER_COMPOSER_ENABLED" "${_PKM_ANSWER_COMPOSER_ENABLED}"
 append_optional_env "PKM_ANSWER_LIVE_PROVIDER_REVIEWED" "${_PKM_ANSWER_LIVE_PROVIDER_REVIEWED}"

@@ -57,3 +57,26 @@ def answer_payment_config() -> tuple[str, str, str]:
     ):
         raise ValueError("answer_payment_unavailable")
     return key, secret, origin
+
+
+def answer_requests_enabled() -> bool:
+    """Request intake and owner review, independent of the payment lane.
+
+    Asking a connected person a question, and that person reviewing it and
+    setting a price, move no money and need no written answer. So this gate
+    deliberately consults neither Stripe mode, nor the answer credentials,
+    nor the composer: coupling them is what left an intake-ready deployment
+    showing a dead control.
+
+    Unset falls back to the payment flag, so a deployment already taking paid
+    answers keeps accepting questions without a new binding. An explicit
+    value wins in both directions and remains the kill switch.
+    """
+    raw = (os.getenv("PKM_ANSWER_REQUESTS_ENABLED") or "").strip().lower()
+    if raw in {"true", "false"}:
+        return raw == "true"
+    # Imported at call time: the payment service imports this module, so a
+    # module-level import here would close the cycle.
+    from hushh_mcp.services.pkm_answer_payment_service import answer_payments_enabled
+
+    return answer_payments_enabled()

@@ -55,34 +55,53 @@ export function RequestScopeButton({
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<string | null>(null);
   // Every active connection can open this, exactly like Request files. A
-  // deployment that has not switched the paid-answer lane on says so inside
-  // the dialog; a disabled trigger left the person clicking a dead control
-  // with no reason and no next step. The real guard is server-side: the
-  // create endpoint still 503s when the lane is off.
+  // deployment that has not switched request intake on says so inside the
+  // dialog; a disabled trigger left the person clicking a dead control with
+  // no reason and no next step. The real guard is server-side: the create
+  // endpoint still 503s when intake is off.
   //
-  // Tri-state, because "we have not asked yet" and "the answer was no" are
-  // different things to show. Starting at 'unavailable' would flash the wrong
-  // reason on every open.
-  const [availability, setAvailability] = useState<
-    "checking" | "available" | "unavailable"
-  >("checking");
+  // Only the `requests` gate is consulted. Payments are a separate gate and
+  // are not reached from this form: the owner has to approve scopes and set
+  // a price first, so a paused payment lane must not hide the question box.
+  //
+  // Four states, because "we have not asked yet", "intake is switched off"
+  // and "we could not ask" need different words. Collapsing the last two
+  // told people a feature was disabled when they were signed out or offline,
+  // and offered them no retry.
+  const [gate, setGate] = useState<
+    | { kind: "checking" }
+    | { kind: "ready" }
+    | { kind: "disabled" }
+    | { kind: "blocked"; message: string }
+  >({ kind: "checking" });
+  const [recheck, setRecheck] = useState(0);
 
   useEffect(() => {
-    setAvailability("checking");
+    setGate({ kind: "checking" });
     let cancelled = false;
     void (async () => {
-      const token = await AuthService.getIdToken().catch(() => null);
-      // No token is not a configuration answer, but it is still not sendable,
-      // and `available` already fails closed on anything it cannot confirm.
-      const available = token
-        ? await AnswerRequestService.available(token)
-        : false;
-      if (!cancelled) setAvailability(available ? "available" : "unavailable");
+      try {
+        const token = await AuthService.getIdToken();
+        if (!token) throw new Error("Sign in to send this request.");
+        const gates = await AnswerRequestService.gates(token);
+        if (!cancelled)
+          setGate(gates.requests ? { kind: "ready" } : { kind: "disabled" });
+      } catch (cause) {
+        if (cancelled) return;
+        // Still not sendable, but retryable and for a different reason.
+        setGate({
+          kind: "blocked",
+          message:
+            cause instanceof Error
+              ? cause.message
+              : "Could not check whether this can be sent.",
+        });
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [personRef, user?.uid]);
+  }, [personRef, user?.uid, recheck]);
 
   const valid = validAnswerRequest({ question });
 
@@ -151,7 +170,7 @@ export function RequestScopeButton({
       <DialogContent
         data-request-scope-dialog
         className="max-h-[85dvh] overflow-y-auto sm:max-w-md"
-        showCloseButton={Boolean(created) || availability !== "available"}
+        showCloseButton={Boolean(created) || gate.kind !== "ready"}
         srDescription={`Ask ${personName} a question.`}
       >
         <DialogHeader className="text-left">
@@ -188,16 +207,35 @@ export function RequestScopeButton({
               Ask another question
             </Button>
           </div>
-        ) : availability === "checking" ? (
+        ) : gate.kind === "checking" ? (
           <BodyText role="status">Checking whether this can be sent…</BodyText>
-        ) : availability === "unavailable" ? (
+        ) : gate.kind === "disabled" ? (
           // A reason and a next step, not a dead control. Deliberately does
-          // not name an env flag: the person reading it cannot set one.
+          // not name an env flag: the person reading it cannot set one. No
+          // retry, because retrying cannot change a deployment setting.
           <div className="min-w-0 space-y-4">
             <BodyText role="status">
-              Paid answers are not switched on here yet, so this question
-              cannot be sent. Nothing has been sent to {personName}.
+              Requests are not switched on here yet, so this question cannot
+              be sent. Nothing has been sent to {personName}.
             </BodyText>
+            <Button type="button" size="standard" variant="none" onClick={close}>
+              Close
+            </Button>
+          </div>
+        ) : gate.kind === "blocked" ? (
+          // Signed out or unreachable: a different cause from a disabled
+          // lane, so it gets its own words and a retry that can succeed.
+          <div className="min-w-0 space-y-4">
+            <BodyText role="status">
+              {gate.message} Nothing has been sent to {personName}.
+            </BodyText>
+            <Button
+              type="button"
+              size="prominent"
+              onClick={() => setRecheck((value) => value + 1)}
+            >
+              Try again
+            </Button>
             <Button type="button" size="standard" variant="none" onClick={close}>
               Close
             </Button>

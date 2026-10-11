@@ -49,6 +49,7 @@ const EXPLANATION: ChatOnboardingTurn = {
 function Harness() {
   const [tipOpen, setTipOpen] = useState(true);
   const controller: ChatOnboardingController = {
+    resolved: false,
     turns: [...TURNS, EXPLANATION],
     activeChipTurnId: "t3",
     shownTurns: new Map([...TURNS, EXPLANATION].map((turn) => [turn.id, "9:41 AM"])),

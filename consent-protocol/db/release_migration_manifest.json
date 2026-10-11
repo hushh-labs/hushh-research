@@ -277,12 +277,13 @@
     "303_hashcoin_live_redemption.sql",
     "304_connect_bank_payout_reconciliation.sql",
     "305_pkm_answer_payment_recovery.sql",
-    "306_vault_environment_enrollment.sql",
-    "307_consumer_scope_commerce.sql",
-    "308_one_shared_hosting_choice.sql",
-    "309_public_profile_bridge.sql",
-    "310_one_placement_reader_foundation.sql",
-    "311_one_legacy_shared_continuity.sql"
+    "306_one_business_profile_saved.sql",
+    "307_vault_environment_enrollment.sql",
+    "308_consumer_scope_commerce.sql",
+    "309_one_shared_hosting_choice.sql",
+    "310_public_profile_bridge.sql",
+    "311_one_placement_reader_foundation.sql",
+    "312_one_legacy_shared_continuity.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -439,7 +440,8 @@
       "275_scheduled_mail_send.sql",
       "283_gmail_send_grant_generation.sql",
       "285_one_wallet_card_auto_provision.sql",
-      "286_one_referral_link_open_notify.sql"
+      "286_one_referral_link_open_notify.sql",
+      "306_one_business_profile_saved.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -585,11 +587,12 @@
     "303_hashcoin_live_redemption.sql": "rollback/303_hashcoin_live_redemption.rollback.sql",
     "304_connect_bank_payout_reconciliation.sql": "rollback/304_connect_bank_payout_reconciliation.rollback.sql",
     "305_pkm_answer_payment_recovery.sql": "rollback/305_pkm_answer_payment_recovery.rollback.sql",
-    "306_vault_environment_enrollment.sql": "rollback/306_vault_environment_enrollment.rollback.sql",
-    "307_consumer_scope_commerce.sql": "rollback/307_consumer_scope_commerce.rollback.sql",
-    "308_one_shared_hosting_choice.sql": "rollback/308_one_shared_hosting_choice.rollback.sql",
-    "309_public_profile_bridge.sql": "rollback/309_public_profile_bridge.rollback.sql",
-    "310_one_placement_reader_foundation.sql": "rollback/310_one_placement_reader_foundation.rollback.sql",
-    "311_one_legacy_shared_continuity.sql": "rollback/311_one_legacy_shared_continuity.rollback.sql"
+    "307_vault_environment_enrollment.sql": "rollback/307_vault_environment_enrollment.rollback.sql",
+    "308_consumer_scope_commerce.sql": "rollback/308_consumer_scope_commerce.rollback.sql",
+    "309_one_shared_hosting_choice.sql": "rollback/309_one_shared_hosting_choice.rollback.sql",
+    "310_public_profile_bridge.sql": "rollback/310_public_profile_bridge.rollback.sql",
+    "311_one_placement_reader_foundation.sql": "rollback/311_one_placement_reader_foundation.rollback.sql",
+    "312_one_legacy_shared_continuity.sql": "rollback/312_one_legacy_shared_continuity.rollback.sql",
+    "306_one_business_profile_saved.sql": "rollback/306_one_business_profile_saved.rollback.sql"
   }
 }

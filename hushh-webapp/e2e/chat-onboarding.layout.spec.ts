@@ -151,7 +151,8 @@ async function assertContract(page: Page, viewportWidth: number) {
         expect(geometries.every((geometry) => geometry.y === geometries[0].y)).toBe(true);
         const firstGap = geometries[1].x - geometries[0].right;
         expect(Math.abs(firstGap - (geometries[2].x - geometries[1].right))).toBeLessThanOrEqual(1);
-        expect(firstGap).toBe(24);
+        // Compact starters use the production grid's sm:gap-3 (12px).
+        expect(firstGap).toBe(12);
       }
     } else if (viewportWidth < 600) {
       expect((await prompts.last().boundingBox())!.height).toBeGreaterThan(44);

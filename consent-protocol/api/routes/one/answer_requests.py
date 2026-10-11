@@ -40,6 +40,7 @@ from hushh_mcp.services.person_profile_service import (
 from hushh_mcp.services.pkm_answer_config import (
     answer_composer_enabled,
     answer_payment_config,
+    answer_requests_enabled,
     answer_stripe_mode,
 )
 from hushh_mcp.services.pkm_answer_payment_service import (
@@ -118,12 +119,33 @@ def _payments() -> PkmAnswerPaymentService:
     return PkmAnswerPaymentService()
 
 
-def _require_enabled() -> None:
-    """Staged rollout, defaulting closed exactly like the Drive paywall."""
+def _require_paid_lane_enabled() -> None:
+    """Gate for the money and written-answer path only.
+
+    Staged rollout, defaulting closed exactly like the Drive paywall. Named
+    for what it actually gates: asking a question and reviewing one are
+    admitted by `_require_requests_enabled` instead, so pausing payments no
+    longer closes intake.
+    """
     if not (answer_payments_enabled() and answer_composer_enabled()):
         raise HTTPException(
             status_code=503,
             detail="Answers are not available yet.",
+            headers={"Cache-Control": "no-store"},
+        )
+
+
+def _require_requests_enabled() -> None:
+    """Gate for intake and owner review. Independent of payments.
+
+    A question to a connected person, and that person approving scopes and a
+    price, move no money. Checkout keeps its own gate, so a deployment can
+    take questions with payments still paused.
+    """
+    if not answer_requests_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="Requests are not available yet.",
             headers={"Cache-Control": "no-store"},
         )
 
@@ -133,19 +155,30 @@ async def answer_requests_available(
     response: Response,
     _user_id: str = Depends(require_firebase_auth_read_only),
 ) -> dict[str, bool]:
-    """Whether this environment offers paid answers at all.
+    """The two independent gates, reported separately.
 
-    The lane ships disabled, so Request scope checks this before admission.
-    The profile always shows the control; unavailable deployments disable it.
+    `requests` admits the question form and the owner's review. `payments`
+    admits checkout, and additionally requires usable answer credentials:
+    offering a Pay control that cannot mint a Checkout session is the same
+    dead control in a more expensive place.
+
+    `enabled` is retained with its original paid-lane meaning so an older
+    deployed client keeps failing closed rather than reading a missing field
+    as permission.
     """
     response.headers["Cache-Control"] = "private, no-store"
-    enabled = answer_payments_enabled() and answer_composer_enabled()
-    if enabled:
+    payments = answer_payments_enabled() and answer_composer_enabled()
+    if payments:
         try:
             answer_payment_config()
         except ValueError:
-            enabled = False
-    return {"enabled": enabled}
+            payments = False
+    return {
+        "enabled": payments,
+        "requests": answer_requests_enabled(),
+        "payments": payments,
+        "payouts": _payout_mode_allowed(),
+    }
 
 
 def _payouts() -> PkmPayoutService:
@@ -153,13 +186,21 @@ def _payouts() -> PkmPayoutService:
     return PkmPayoutService(mode=answer_stripe_mode(), api_key=key, resume_documents=False)
 
 
-def _require_payout_mode() -> None:
-    """A paused answers lane must not open an Express account in another Connect mode."""
+def _payout_mode_allowed() -> bool:
+    """A paused answers lane must not open an Express account in another Connect mode.
+
+    Reported by `/availability` as well as enforced here, so the owner's
+    review sheet can omit the payout control instead of offering one that
+    404s. One predicate, both callers.
+    """
     try:
-        allowed = answer_payments_enabled() or answer_stripe_mode() == configured_connect_mode()
+        return bool(answer_payments_enabled() or answer_stripe_mode() == configured_connect_mode())
     except ValueError:
-        allowed = False
-    if not allowed:
+        return False
+
+
+def _require_payout_mode() -> None:
+    if not _payout_mode_allowed():
         raise HTTPException(
             status_code=404,
             detail="Answer payouts are not available.",
@@ -209,7 +250,7 @@ async def create_answer_request(
     body: dict[str, Any] = Body(...),
     requester_user_id: str = Depends(require_firebase_auth),
 ) -> dict[str, Any]:
-    _require_enabled()
+    _require_requests_enabled()
     response.headers["Cache-Control"] = "private, no-store"
     person_ref = str(body.get("personRef") or "").strip()
     owner_user_id = str(body.get("ownerUserId") or "").strip()
@@ -283,7 +324,7 @@ async def approve_answer_request(
     body: dict[str, Any] = Body(...),
     owner_user_id: str = Depends(require_firebase_auth),
 ) -> dict[str, Any]:
-    _require_enabled()
+    _require_requests_enabled()
     response.headers["Cache-Control"] = "private, no-store"
     scopes = body.get("scopes")
     if not isinstance(scopes, list):
@@ -357,7 +398,7 @@ async def create_answer_checkout(
     response: Response,
     requester_user_id: str = Depends(require_firebase_auth),
 ) -> dict[str, Any]:
-    _require_enabled()
+    _require_paid_lane_enabled()
     response.headers["Cache-Control"] = "private, no-store"
     try:
         return dict(
@@ -379,7 +420,7 @@ async def answerable_for_owner(
     Returns questions and approved scope handles only; the device reads values
     from its own decrypted PKM.
     """
-    _require_enabled()
+    _require_paid_lane_enabled()
     response.headers["Cache-Control"] = "private, no-store"
     try:
         return {"requests": await _requests().claim_answerable(owner_user_id=owner_user_id)}
@@ -404,7 +445,7 @@ async def compose_answer(
     backend decrypts nothing here -- the device had already decrypted its own
     PKM and chose what to send.
     """
-    _require_enabled()
+    _require_paid_lane_enabled()
     response.headers["Cache-Control"] = "private, no-store"
     if not answer_composer_enabled():
         raise HTTPException(
@@ -480,7 +521,16 @@ async def get_answer(
     response: Response,
     requester_user_id: str = Depends(require_firebase_auth_read_only),
 ) -> dict[str, Any]:
-    _require_enabled()
+    """Ciphertext to its requester only. Deliberately ungated.
+
+    Reading an answer already delivered is not a purchase. The rollout gate
+    used to sit here, which meant pausing payments made an answer the
+    requester had already paid for unreadable -- the same regression
+    `test_cancel_remains_available_after_admission_paused` guards on the
+    other side. Entitlement is enforced where it belongs and does not depend
+    on a flag: a delivery row exists only because `/deliver` verified a paid
+    order, and the read joins on `requester_user_id`.
+    """
     response.headers["Cache-Control"] = "private, no-store"
     try:
         return dict(

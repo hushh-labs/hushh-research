@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2398,
+  "finding_count": 2400,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4541,7 +4541,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/business_directory_suggestions.py",
       "symbol": "project_directory_response",
-      "value": 135
+      "value": 143
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -12389,7 +12389,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_prod_drive_deploy_contract.py",
       "symbol": "test_older_target_keeps_release_tooling_but_cannot_enable_drive",
-      "value": 103
+      "value": 115
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -16682,7 +16682,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_business_suggestions.py",
       "symbol": null,
-      "value": 539
+      "value": 700
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20255,7 +20255,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/wallet-workspace.layout.spec.ts",
       "symbol": null,
-      "value": 904
+      "value": 911
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20462,7 +20462,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts",
       "symbol": null,
-      "value": 1474
+      "value": 1477
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20966,7 +20966,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/answer-request-service.ts",
       "symbol": null,
-      "value": 544
+      "value": 566
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21524,7 +21524,7 @@
       "limit": 500,
       "path": "scripts/deploy/backend-deploy.sh",
       "symbol": null,
-      "value": 1000
+      "value": 1011
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21589,6 +21589,24 @@
       "ratchet_reason": "new finding",
       "symbol": null,
       "value": 535
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/api/routes/one/answer_requests.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/api/routes/one/answer_requests.py",
+      "symbol": null,
+      "value": 542
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_personal_agent_deploy_lane.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_personal_agent_deploy_lane.py",
+      "symbol": null,
+      "value": 510
     }
   ],
   "inspected_files": 6625,
@@ -31843,6 +31861,90 @@
         "function_spans": "New investor helpers/tests span at most51 lines, below80; environment lookup and DSN adaptation occur only during the explicit disposable fixture.",
         "investor": "Four existing service cases and two actual isolated-PostgreSQL cases pass using the CI-shaped DSN; original056, original057 and missing manual-reason guard negative controls fail."
       }
+    },
+    "main_b80_release_readiness_20261011": {
+      "main_revision": "b80dbbdd6d93a735197a3c500ceb49a8886e58ce",
+      "infrastructure_predecessor": "2f42c9416ee21528a5edfb69a93d1dcc6d5e7002",
+      "reviewers": [
+        "main_ui_fitness_review",
+        "pipeline_convergence_review"
+      ],
+      "reviewed_at": "2026-10-11",
+      "changes": [
+        {
+          "key": "function_size|consent-protocol/hushh_mcp/services/business_directory_suggestions.py|project_directory_response|function exceeds the advisory gene budget",
+          "path": "consent-protocol/hushh_mcp/services/business_directory_suggestions.py",
+          "before": 135,
+          "after": 143,
+          "source_sha256": "1cfe59d276274c4a7497b04de04058b7ea7d48f213ab10652d5d0d4143f1b0e2",
+          "reason": "Reject upstream demo and test markers before admitting directory candidates."
+        },
+        {
+          "key": "function_size|consent-protocol/tests/test_prod_drive_deploy_contract.py|test_older_target_keeps_release_tooling_but_cannot_enable_drive|function exceeds the advisory gene budget",
+          "path": "consent-protocol/tests/test_prod_drive_deploy_contract.py",
+          "before": 103,
+          "after": 115,
+          "source_sha256": "8805ec77285be38e9b2ebb1fb8895c4a8b012333375da41baf648940616154a2",
+          "reason": "Existing executed older-target rehearsal preserves extracted helper closure without enabling unsupported Drive."
+        },
+        {
+          "key": "module_size|hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts",
+          "before": 1474,
+          "after": 1477,
+          "source_sha256": "013f4ac2e26855d5835f2ee1a93f9e7fee44637cbca05882e3d5991bd77bee9f",
+          "reason": "Generator retains the root and incoming main graph revisions in proved workflow compatibility history after exact Wallet retirement acknowledgement."
+        },
+        {
+          "key": "module_size|scripts/deploy/backend-deploy.sh||module exceeds the advisory operon budget",
+          "path": "scripts/deploy/backend-deploy.sh",
+          "before": 1000,
+          "after": 1011,
+          "source_sha256": "823c8c61d7c40480d9676db3e016cdaa32b6ed0eec470395a1753cf2239345c2",
+          "reason": "Existing compact parser carries intake independently with duplicate/invalid refusal and blank compatibility."
+        },
+        {
+          "key": "module_size|hushh-webapp/e2e/wallet-workspace.layout.spec.ts||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/e2e/wallet-workspace.layout.spec.ts",
+          "before": 904,
+          "after": 911,
+          "source_sha256": "e1a4f7b4b069bc31bad33ee2dd9a0b5de67794690f9ee8e908fac0c604380edb",
+          "reason": "Existing browser pack measures compact mobile geometry and shared desktop alignment."
+        },
+        {
+          "key": "module_size|consent-protocol/tests/test_business_suggestions.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/test_business_suggestions.py",
+          "before": 539,
+          "after": 700,
+          "source_sha256": "9db03ed510836cfad061f5af55267eee3615445a1f178f2cbd011d58fb8d42df",
+          "reason": "Nearest owner-bound completion, partial-save and real-source boundary coverage."
+        },
+        {
+          "key": "module_size|hushh-webapp/lib/services/answer-request-service.ts||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/lib/services/answer-request-service.ts",
+          "before": 544,
+          "after": 566,
+          "source_sha256": "4a217be8e9cd381a211699cbea67504f513bc34eb854cd29ae1b610f157d1499",
+          "reason": "Typed independent requests/payments/payouts; missing fields fail closed."
+        },
+        {
+          "key": "module_size|consent-protocol/api/routes/one/answer_requests.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/api/routes/one/answer_requests.py",
+          "before": null,
+          "after": 542,
+          "source_sha256": "1e7708d015570a4736e5914bd80c221bcd2f2caec0583528f69fc68c0b141bb9",
+          "reason": "Independent intake/review gates preserve private placement and requester entitlement."
+        },
+        {
+          "key": "module_size|consent-protocol/tests/test_personal_agent_deploy_lane.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/test_personal_agent_deploy_lane.py",
+          "before": null,
+          "after": 510,
+          "source_sha256": "54e17911c47c0741aaa41d466d888a409346f0e502aceeb265fd5ccbf647d073",
+          "reason": "Actual stub deployment proves independent flag and rejection before side effects."
+        }
+      ],
+      "boundary": "Exactly nine source-hash-reviewed slots; budgets, scanner, exclusions and unrelated occurrence-ranked findings unchanged."
     }
   },
   "status": "advisory"

@@ -410,6 +410,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     tools = (
         "resolve_prod_release_mode.py",
         "verify_prod_prerequisites.py",
+        "verify_hashcoin_config.sh",
         "setup_native_callback_log_exclusion.sh",
         "deploy_worker_service_prod.sh",
         "setup_work_drain_scheduler_prod.sh",
@@ -422,6 +423,17 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
         "scripts/ci/cloudrun-retention.py",
         "scripts/ops/verify-env-secrets-parity.py",
         *(f"deploy/drive/{name}" for name in tools),
+        *(
+            f"scripts/deploy/{name}"
+            for name in (
+                "backend-deploy.sh",
+                "backend-model-settings.sh",
+                "commerce-preview-bindings.sh",
+                "scope-commerce-secrets.sh",
+                "pod-release-env.sh",
+                "preserve-pod-release.py",
+            )
+        ),
     ]
     for path in current_paths:
         write(path, (ROOT / path).read_text())
