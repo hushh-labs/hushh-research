@@ -122,6 +122,16 @@ def test_stripe_secret_bindings_survive_payment_rollout_switch_off() -> None:
     assert backend["env"]["STRIPE_UAT_MODE"] == mode_variable
     assert worker["env"]["STRIPE_UAT_MODE"] == mode_variable
     assert "source deploy/drive/uat_stripe_bindings.sh" in backend["run"]
+    assert backend["env"]["DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED"] == (
+        "${{ vars.DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED || 'false' }}"
+    )
+    assert (
+        "_DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED=${DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED}"
+        in backend["run"]
+    )
+    assert worker["env"]["DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED"] == (
+        "${{ vars.DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED || 'false' }}"
+    )
     for runtime_name, selector_name in (
         ("STRIPE_SECRET_KEY", "STRIPE_UAT_KEY_SECRET"),
         ("STRIPE_WEBHOOK_SECRET", "STRIPE_UAT_WEBHOOK_SECRET"),
@@ -133,6 +143,7 @@ def test_stripe_secret_bindings_survive_payment_rollout_switch_off() -> None:
     assert "source deploy/drive/uat_stripe_bindings.sh" in worker_script
     assert "STRIPE_SECRET_KEY=${STRIPE_UAT_KEY_SECRET}:latest" in worker_script
     assert "STRIPE_WEBHOOK_SECRET=${STRIPE_UAT_WEBHOOK_SECRET}:latest" in worker_script
+    assert "STRIPE_CONNECT_WEBHOOK_SECRET=${STRIPE_UAT_CONNECT_SECRET}:latest" in worker_script
     selector = str(REPO_ROOT / "deploy/drive/uat_stripe_bindings.sh")
     # Selecting mode never depends on either new-order rollout switch: existing
     # money must retain its exact provider family even when enrollment stops.

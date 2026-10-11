@@ -79,8 +79,36 @@ describe("Hussh Coins financial boundary", () => {
     }));
     apiJson.mockResolvedValueOnce({ ...result, stripeMode: "live" });
     await expect(DocumentPayoutService.redeemTest("vault", 911, nextId)).rejects.toThrow("Invalid Hussh Coins redemption");
-    await expect(DocumentPayoutService.redeemTest("vault", 0.5, nextId)).rejects.toThrow("Invalid test redemption");
+    await expect(DocumentPayoutService.redeemTest("vault", 0.5, nextId)).rejects.toThrow("Invalid redemption");
     await expect(DocumentPayoutService.redeemTest("", 911, nextId)).rejects.toThrow(/Unlock/);
+  });
+
+  it("accepts only an explicit live wallet source and mode-matched redemption", async () => {
+    const live = { ...wallet(), payoutMode: "live", testPayouts: false, liveRedemptionEnabled: true,
+      live: { ...wallet().live, nextRedeemCoins: 911 }, sandbox: { ...wallet().sandbox, reservedCoins: 0, availableCoins: 911 } };
+    apiJson.mockResolvedValueOnce(live);
+    expect(await DocumentPayoutService.hashcoins("vault")).toEqual(live);
+    for (const invalid of [
+      { ...live, live: { ...live.live, nextRedeemCoins: 912 } },
+      { ...live, live: { ...live.live, nextRedeemCoins: 0.5 } },
+      { ...live, live: { ...wallet().live } },
+      { ...live, redemptionHistory: [{ id: requestId, amountCoins: 911, status: "succeeded", stripeMode: "test" }] },
+    ]) {
+      apiJson.mockResolvedValueOnce(invalid);
+      await expect(DocumentPayoutService.hashcoins("vault")).rejects.toThrow(/Invalid Hussh Coins/);
+    }
+    const result = { id: requestId, clientRequestId: nextId, amountCoins: 911, status: "succeeded", stripeMode: "live", reversalStatus: "none" };
+    apiJson.mockResolvedValueOnce(result);
+    expect(await DocumentPayoutService.redeemLive("vault", 911, nextId)).toEqual(result);
+    expect(apiJson).toHaveBeenLastCalledWith("/api/one/payouts/hashcoins/redeem", expect.objectContaining({
+      body: JSON.stringify({ amountCoins: 911, clientRequestId: nextId, mode: "live" }),
+    }));
+    apiJson.mockResolvedValueOnce({ ...result, stripeMode: "test" });
+    await expect(DocumentPayoutService.redeemLive("vault", 911, nextId)).rejects.toThrow("Invalid Hussh Coins redemption");
+    apiJson.mockResolvedValueOnce({ ...result, reversalStatus: "reversed" });
+    expect((await DocumentPayoutService.redeemLive("vault", 911, nextId)).reversalStatus).toBe("reversed");
+    apiJson.mockResolvedValueOnce({ ...result, reversalStatus: undefined });
+    await expect(DocumentPayoutService.redeemLive("vault", 911, nextId)).rejects.toThrow("Invalid Hussh Coins redemption");
   });
 });
 
