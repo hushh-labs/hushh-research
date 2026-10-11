@@ -30,7 +30,10 @@ name agreement cannot silently drift afterwards.
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from tests._deploy_contract import backend_deploy_surface
 
@@ -109,3 +112,107 @@ def test_the_pems_stay_optional_so_the_deploy_survives_their_absence() -> None:
 
     for env_name in PEM_ENV_NAMES:
         assert f"{env_name}=${{_{env_name}_SECRET}}:latest" not in cloudbuild
+
+
+def test_temporary_card_sharing_flag_reaches_runtime_and_defaults_off() -> None:
+    cloudbuild = _read(CLOUDBUILD)
+    assert (
+        'append_optional_env "WALLET_CARD_ACCESS_ENABLED" "${_WALLET_CARD_ACCESS_ENABLED}"'
+        in backend_deploy_surface()
+    )
+    assert "card_access=${_WALLET_CARD_ACCESS_ENABLED}" in cloudbuild
+    assert '  _WALLET_CARD_ACCESS_ENABLED: "false"' in cloudbuild
+
+
+def test_uat_enables_temporary_card_sharing_with_its_encryption_key() -> None:
+    workflow = _read(REPO_ROOT / ".github/workflows/deploy-uat.yml")
+    assert (
+        "##_WALLET_CARD_ACCESS_ENABLED=${{ vars.WALLET_CARD_ACCESS_UAT_ENABLED || 'true' }}"
+        in workflow
+    )
+    assert "##_DIRECT_MESSAGE_ENCRYPTION_KEY_V1_SECRET=DIRECT_MESSAGE_ENCRYPTION_KEY_V1" in workflow
+    manifest = _read(REPO_ROOT / "consent-protocol/db/release_migration_manifest.json")
+    assert '"302_wallet_temporary_card_access.sql"' in manifest
+    production = _read(REPO_ROOT / ".github/workflows/deploy-production.yml")
+    assert "_WALLET_CARD_ACCESS_ENABLED=true" not in production
+
+
+@pytest.mark.parametrize("supports_flag", [False, True])
+@pytest.mark.parametrize("flag_value", ["true", "false"])
+def test_uat_card_sharing_substitution_preserves_historical_deploys(
+    tmp_path: Path, supports_flag: bool, flag_value: str
+) -> None:
+    workflow = _read(REPO_ROOT / ".github/workflows/deploy-uat.yml")
+    guard = re.search(
+        r"(?m)^          if grep -q [^\n]*_WALLET_CARD_ACCESS_ENABLED[^\n]*\n"
+        r"(?:^          .*\n)*?^          fi$",
+        workflow,
+    )
+    assert guard, "UAT must guard new substitutions against the selected build config"
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    (deploy / "backend.cloudbuild.yaml").write_text(
+        'substitutions:\n  _WALLET_CARD_ACCESS_ENABLED: "false"\n'
+        if supports_flag
+        else 'substitutions:\n  _BACKEND_SERVICE: "consent-protocol"\n',
+        encoding="utf-8",
+    )
+    script = guard.group().replace(
+        "${{ vars.WALLET_CARD_ACCESS_UAT_ENABLED || 'true' }}", flag_value
+    )
+    result = subprocess.run(  # noqa: S603 - Checked-in workflow code and fixed test values.
+        [
+            "bash",
+            "-euc",
+            'SUBSTITUTIONS="_BACKEND_SERVICE=consent-protocol"\n'
+            + script
+            + '\nprintf "%s" "$SUBSTITUTIONS"',
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    expected = "_BACKEND_SERVICE=consent-protocol"
+    if supports_flag:
+        expected += f"##_WALLET_CARD_ACCESS_ENABLED={flag_value}"
+    assert result.stdout == expected
+
+
+@pytest.mark.parametrize(
+    "packed,expected",
+    [
+        ("review=,wallet=true,card_access=false", "|true|false"),
+        ("review=false,wallet=,card_access=true", "false||true"),
+        ("review=true,wallet=false,card_access=", "true|false|"),
+        ("review=,wallet=true,card_access=invalid", None),
+        ("review=,wallet=true,wallet=false", None),
+        ("review=,wallet=true,unknown=false", None),
+        ("review=,wallet=true", None),
+    ],
+)
+def test_application_flags_preserve_values_and_refuse_malformed_packing(packed, expected):
+    script = _read(REPO_ROOT / "scripts/deploy/backend-deploy.sh")
+    parser = script[
+        script.index("IFS=',' read -r -a _app_surface_pairs") : script.index(
+            "# The account-deletion cleanup scheduler identity"
+        )
+    ]
+    result = subprocess.run(  # noqa: S603 - Repository parser, no cloud operations.
+        [
+            "bash",
+            "-euc",
+            parser
+            + '\nprintf "%s|%s|%s" "${_APP_REVIEW_MODE}" "${_ONE_WALLET_CARD_ENABLED}" "${_WALLET_CARD_ACCESS_ENABLED}"',
+        ],
+        env={"_APP_SURFACE_SETTINGS": packed},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if expected is None:
+        assert result.returncode != 0
+        assert result.stdout == ""
+    else:
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == expected

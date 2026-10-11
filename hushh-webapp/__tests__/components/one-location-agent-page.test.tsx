@@ -3928,7 +3928,6 @@ describe("OneLocationAgentPage", () => {
     );
 
     // This case owns a pending authority mutation, not onboarding.
-    window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
     const { rerender, unmount } = render(<OneLocationAgentPage />);
     try {
       await skipLocationEntryFlow();

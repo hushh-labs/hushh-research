@@ -34,7 +34,7 @@ on the new origin after correcting the standalone relay's certificate trust setu
 ## Main readiness — October 11
 
 **Hold the application merge and BYOC rollout.** The integrated candidate freezes
-main `f74922bf20005`, retains the reviewed ADK presentation delta `5c86617f2c`
+main `3c47412f77f0`, retains the reviewed ADK presentation delta `5c86617f2c`
 and preserves active worktrees. [PR 7555](https://github.com/hushh-labs/hushh-research/pull/7555)
 requires review and exact combined-SHA validation. Prior
 [23-check validation](https://github.com/hushh-labs/hushh-research/actions/runs/38132031368)
@@ -76,6 +76,13 @@ and resumed login assertions before failing simulator termination. This remains
 a failed gate. Three local Location cases pass with their original timeouts;
 the cancellation fixture now settles its deferred grant and revocation retry
 before teardown. The native security correction requires exact-SHA validation.
+
+The final Wallet rollback delta from `3c47412f77f0` preserves the extracted
+deployment owner. Its initial union exceeded Cloud Build's 100-variable cap;
+three related application flags now share one validated entry (99 total).
+The unchanged limit gate and flag/rollback boundary pass 33 focused cases.
+Empty values, duplicate keys, unknown keys and invalid booleans are covered;
+historical rollback images do not receive unsupported substitutions.
 
 Main owns migration 306 for Business, 313 for Feed and 314 for Magic completion.
 The six unapplied pod migrations occupy 315–320 in original order, with rollback, fixture
