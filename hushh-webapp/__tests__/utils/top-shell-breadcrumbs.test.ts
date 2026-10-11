@@ -7,6 +7,21 @@ import {
 } from "@/lib/navigation/top-shell-breadcrumbs";
 
 describe("top shell breadcrumbs", () => {
+  it.each(["market", "portfolio", "analysis"])("keeps %s root chrome back-only", (tab) => {
+    const config = resolveTopShellBreadcrumb("/one/kai", new URLSearchParams({ tab }));
+    expect(config?.suppressFallbackTitle).toBe(true);
+    expect(visibleTopShellBreadcrumbItems(config?.items ?? [])).toEqual([]);
+  });
+
+  it.each(["/one/setup/finance", "/one/setup/kai"])("keeps re-entry chrome stable through %s", (path) => {
+    for (const setupDismissed of [false, true]) {
+      const config = resolveTopShellBreadcrumb(path, new URLSearchParams("from=/one"), { setupDismissed });
+      expect(config?.backHref).toBe("/one");
+      expect(config?.suppressFallbackTitle).toBe(true);
+      expect(config?.items).toEqual([]);
+    }
+  });
+
   it("shows only the immediate parent and current page in deep trails", () => {
     expect(
       visibleTopShellBreadcrumbItems([
@@ -199,10 +214,8 @@ describe("top shell breadcrumbs", () => {
       // Back is now always available on the wizard so the user is never trapped
       // on the questionnaire; re-entry honors the `from` origin.
       hideBack: false,
-      items: [
-        { label: "One", href: "/one" },
-        { label: "Setup", href: "/one/setup" },
-      ],
+      suppressFallbackTitle: true,
+      items: [],
     });
 
     // Bare entry (no `from`) still shows back, falling to the setup hub rather
@@ -376,7 +389,8 @@ describe("top shell breadcrumbs", () => {
     const completed = { setupDismissed: true };
     expect(resolveTopShellBreadcrumb("/one/setup/finance", undefined, completed)).toMatchObject({
       backHref: "/one",
-      items: [{ label: "One", href: "/one" }, { label: "Finance" }],
+      suppressFallbackTitle: true,
+      items: [],
     });
     expect(resolveTopShellBreadcrumb(
       "/one/setup/finance", new URLSearchParams("from=/one/setup"), completed,
