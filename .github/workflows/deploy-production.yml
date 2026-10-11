@@ -159,6 +159,10 @@ jobs:
           done
           cp scripts/ops/sync_backend_runtime_secrets.py \
             "${RUNNER_TEMP}/release-tools/sync_backend_runtime_secrets.py"
+          cp scripts/ops/verify-env-secrets-parity.py \
+            "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py"
+          cp scripts/ci/cloudrun-retention.py \
+            "${RUNNER_TEMP}/release-tools/cloudrun-retention.py"
           git log -1 --diff-filter=A --format=%H -- \
             consent-protocol/hushh_mcp/services/drive_prod_registry_provisioning.py \
             > "${RUNNER_TEMP}/release-tools/prod-drive-feature-commit"
@@ -178,6 +182,10 @@ jobs:
           cp "${RUNNER_TEMP}/release-tools/drive/"* deploy/drive/
           cp "${RUNNER_TEMP}/release-tools/sync_backend_runtime_secrets.py" \
             scripts/ops/sync_backend_runtime_secrets.py
+          cp "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py" \
+            scripts/ops/verify-env-secrets-parity.py
+          cp "${RUNNER_TEMP}/release-tools/cloudrun-retention.py" \
+            scripts/ci/cloudrun-retention.py
 
       - name: Report production deploy lane
         run: |
