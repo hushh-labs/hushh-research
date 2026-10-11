@@ -1730,6 +1730,7 @@ jobs:
         run: |
           set -euo pipefail
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify_uat_release.py \
+            --run-live-model-checks "${{ steps.verification-plan.outputs.run_live_model_checks }}" \
             --backend-url "${{ steps.current-state.outputs.backend_url }}" \
             --frontend-url "${{ env.APP_FRONTEND_ORIGIN }}" \
             --protocol-env consent-protocol/.env \
@@ -1745,6 +1746,7 @@ jobs:
           set -euo pipefail
           sleep 20
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify_uat_release.py \
+            --run-live-model-checks "${{ steps.verification-plan.outputs.run_live_model_checks }}" \
             --backend-url "${{ steps.current-state.outputs.backend_url }}" \
             --frontend-url "${{ env.APP_FRONTEND_ORIGIN }}" \
             --protocol-env consent-protocol/.env \
