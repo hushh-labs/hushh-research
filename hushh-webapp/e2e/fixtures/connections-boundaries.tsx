@@ -70,7 +70,7 @@ export const ApiService = {
 export const GmailReceiptsService = {
   startConnect: async () => ({
     configured: true,
-    authorize_url: "https://accounts.google.com/o/oauth2/v2/auth?fixture=mail",
+    authorize_url: "https://accounts.google.com/o/oauth2/v2/auth?fixture=mail&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fgmail%2Foauth%2Freturn",
     expires_at: new Date(Date.now() + 60_000).toISOString(),
   }),
   // Owner status read, routed by the browser harness like the real endpoint.

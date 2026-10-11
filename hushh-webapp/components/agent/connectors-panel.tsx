@@ -64,7 +64,7 @@ import {
   type CuratedPopupAttempt,
 } from "@/lib/profile/curated-connector-popup";
 import { connectCalendarInPlace } from "@/lib/connections/google-connect-in-place";
-import { OAUTH_WINDOW_BLOCKED_COPY } from "@/lib/connections/oauth-window";
+import { assertOAuthReturnOrigin, OAUTH_WINDOW_BLOCKED_COPY } from "@/lib/connections/oauth-window";
 import {
   ExternalConnectorService,
   type ConnectorOverview,
@@ -1125,6 +1125,7 @@ function OwnerConnectorsPanel({
           authorizeUrl.hostname !== "accounts.google.com" ||
           authorizeUrl.pathname !== "/o/oauth2/v2/auth"
         ) throw new Error("invalid_drive_authorize_url");
+        assertOAuthReturnOrigin(authorizeUrl.href);
         const readiness = onPrepareRecovery
           ? await onPrepareRecovery({
               attemptId: start.attemptId,

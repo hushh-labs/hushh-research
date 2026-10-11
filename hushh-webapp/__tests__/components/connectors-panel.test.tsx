@@ -122,7 +122,7 @@ describe("supported connector catalog", () => {
     state.calendarRefresh.mockReset();
     state.calendarDisconnect.mockReset().mockResolvedValue({ connected: false, status: "disconnected" });
     state.calendarStartConnect.mockReset().mockResolvedValue({
-      authorize_url: "https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar",
+      authorize_url: "https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fgoogle%2Foauth%2Freturn",
       redirect_uri: "http://localhost:3000/one/profile/google/oauth/return",
       expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
     });
@@ -294,7 +294,7 @@ describe("supported connector catalog", () => {
     } as unknown as Window;
     vi.spyOn(window, "open").mockReturnValue(popup);
     state.startOAuthConnect.mockResolvedValue({
-      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=synthetic",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=synthetic&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fconnectors%2Foauth%2Freturn",
       attemptId: "synthetic-attempt-id",
       connectorId: "google_drive",
       // The server grants ten minutes, but its clock is 30 seconds ahead.
@@ -449,7 +449,7 @@ describe("supported connector catalog", () => {
         value: { origin: "https://uat.one.hushh.ai", assign },
       });
       state.startOAuthConnect.mockReset().mockResolvedValue({
-        authorizeUrl: "https://mcp.hubspot.com/oauth/authorize/user?state=signed",
+        authorizeUrl: "https://mcp.hubspot.com/oauth/authorize/user?state=signed&redirect_uri=https%3A%2F%2Fuat.one.hushh.ai%2Fone%2Fprofile%2Fconnectors%2Foauth%2Freturn",
         expiresAt: new Date(Date.now() + 600_000).toISOString(),
         attemptId: "attempt-abcdefghijklmnopqrstuvwxyz0123456789",
         connectorId: "hubspot",
@@ -569,7 +569,7 @@ describe("supported connector catalog", () => {
     it("offers a second curated provider with no provider-specific frontend code", async () => {
       state.overview.mockResolvedValue(withFlag([hubspot, notion]));
       state.startOAuthConnect.mockReset().mockResolvedValue({
-        authorizeUrl: "https://mcp.notion.com/authorize?state=signed",
+        authorizeUrl: "https://mcp.notion.com/authorize?state=signed&redirect_uri=https%3A%2F%2Fuat.one.hushh.ai%2Fone%2Fprofile%2Fconnectors%2Foauth%2Freturn",
         expiresAt: new Date(Date.now() + 600_000).toISOString(),
         attemptId: "attempt-abcdefghijklmnopqrstuvwxyz0123456789",
         connectorId: "notion",
@@ -586,7 +586,7 @@ describe("supported connector catalog", () => {
       fireEvent.click(await screen.findByRole("button", { name: "Connect Notion" }));
       await waitFor(() =>
         expect(providerPopup.location.replace).toHaveBeenCalledExactlyOnceWith(
-          "https://mcp.notion.com/authorize?state=signed",
+          "https://mcp.notion.com/authorize?state=signed&redirect_uri=https%3A%2F%2Fuat.one.hushh.ai%2Fone%2Fprofile%2Fconnectors%2Foauth%2Freturn",
         ),
       );
       expect(state.startOAuthConnect).toHaveBeenCalledWith(
@@ -649,7 +649,7 @@ describe("supported connector catalog", () => {
 
     describe("signs in inside the session", () => {
       const ATTEMPT_KEY = "one_curated_popup_attempt_v1";
-      const AUTHORIZE_URL = "https://mcp.hubspot.com/oauth/authorize/user?state=signed";
+      const AUTHORIZE_URL = "https://mcp.hubspot.com/oauth/authorize/user?state=signed&redirect_uri=https%3A%2F%2Fuat.one.hushh.ai%2Fone%2Fprofile%2Fconnectors%2Foauth%2Freturn";
       const fakePopup = () =>
         ({
           closed: false,
@@ -1306,7 +1306,7 @@ describe("supported connector catalog", () => {
       );
       await waitFor(() =>
         expect(popup.location.replace).toHaveBeenCalledExactlyOnceWith(
-          "https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar",
+          "https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fgoogle%2Foauth%2Freturn",
         ),
       );
       expect(state.calendarStartConnect).toHaveBeenCalledExactlyOnceWith({

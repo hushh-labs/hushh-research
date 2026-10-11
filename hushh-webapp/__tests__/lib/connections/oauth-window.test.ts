@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   OAUTH_POPUP_FEATURES,
+  assertOAuthReturnOrigin,
   openOAuthWindow,
 } from "@/lib/connections/oauth-window";
 import { openGoogleOAuthPopup } from "@/lib/google/google-oauth-popup";
@@ -25,7 +26,27 @@ const fakeWindow = () => {
 };
 
 describe("openOAuthWindow", () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+  it.each(["one.hussh.ai", "uat.one.hussh.ai"])(
+    "keeps the %s callback in the original window's origin", (host) => {
+      vi.stubGlobal("window", { location: { origin: `https://${host}` } });
+      const authorize = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+      authorize.searchParams.set("redirect_uri", `https://${host}/one/profile/google/oauth/return`);
+      expect(() => assertOAuthReturnOrigin(authorize.href)).not.toThrow();
+      authorize.searchParams.set("redirect_uri", `https://${host.replace("hussh", "hushh")}/one/profile/google/oauth/return`);
+      expect(() => assertOAuthReturnOrigin(authorize.href)).toThrow("cannot return to this window");
+    },
+  );
+
+  it.each([
+    "", "?redirect_uri=not-a-url", "?redirect_uri=https://attacker.invalid/return",
+    `?redirect_uri=${encodeURIComponent("http://localhost/return#fragment")}`,
+    `?redirect_uri=${encodeURIComponent("http://user:password@localhost/return")}`,
+    "?redirect_uri=http://localhost/return&redirect_uri=http://localhost/other",
+  ])("rejects ambiguous or unsafe callback metadata %s", (query) => {
+    expect(() => assertOAuthReturnOrigin(`https://accounts.google.com/o/oauth2/v2/auth${query}`)).toThrow();
+  });
 
   it("prefers a sized popup and never navigates the current window", () => {
     const popup = fakeWindow();
