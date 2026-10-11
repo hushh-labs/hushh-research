@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 from collections import Counter
 
 from hushh_mcp.services.drive_request_owner_payout_service import (
     DriveRequestOwnerPayoutService,
     payout_enabled,
 )
+from hushh_mcp.services.stripe_mode import connect_config
+
+logger = logging.getLogger(__name__)
 
 
 class DriveRequestOwnerPayoutWorker:
@@ -25,6 +29,27 @@ class DriveRequestOwnerPayoutWorker:
             await self.service.reconcile_reversals(max_orders=max_jobs),
         ):
             outcomes.update(result)
+        # Separate sandbox credentials never replace the live payment client.
+        # Continue already reserved redemptions even if new earning is paused.
+        try:
+            connect_config()
+        except ValueError:
+            pass
+        else:
+            from hushh_mcp.services.hashcoin_redemption_service import HashcoinRedemptionService
+            from hushh_mcp.services.stripe_connect_bank_payouts import StripeConnectBankPayouts
+
+            outcomes.update(await HashcoinRedemptionService().reconcile_due(max_items=max_jobs))
+            try:
+                outcomes.update(
+                    await StripeConnectBankPayouts(connect_mode=True).reconcile_due(
+                        max_accounts=1, max_payouts_per_account=20
+                    )
+                )
+            except Exception as exc:
+                # Bank status polling cannot interrupt financial reconciliation.
+                logger.warning("bank_payout.reconcile_deferred type=%s", type(exc).__name__)
+                outcomes["bank_provider_deferred"] += 1
         if not payout_enabled() and not any(
             outcomes.get(key) for key in ("checked", "claimed", "reversal_due")
         ):

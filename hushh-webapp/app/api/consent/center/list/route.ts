@@ -23,12 +23,14 @@ export async function GET(request: NextRequest) {
   const requestId = resolveRequestId(request);
   const authHeader = request.headers.get("authorization") || "";
   const targetUrl = `${getPythonApiUrl()}/api/consent/center/list${request.nextUrl.search}`;
-  const hotCacheKey = authHeader
-    ? `${request.nextUrl.search}:${authHeader}`
-    : null;
+  const sourceRead = request.nextUrl.searchParams.get("source_read") === "true";
+  const hotCacheKey =
+    authHeader && !sourceRead
+      ? `${request.nextUrl.search}:${authHeader}`
+      : null;
   // Right after the person's own consent change: the hot entry, or a load
   // already in flight, may still hold the list from before it.
-  const revalidate = requestsRevalidation(request);
+  const revalidate = sourceRead || requestsRevalidation(request);
 
   if (hotCacheKey && !revalidate) {
     const cached = hotGet.read(hotCacheKey);
@@ -51,6 +53,7 @@ export async function GET(request: NextRequest) {
     const load = (async () => {
       const response = await fetch(targetUrl, {
         method: "GET",
+        ...(sourceRead ? { cache: "no-store" as const } : {}),
         headers: createUpstreamHeaders(requestId, {
           ...(authHeader ? { Authorization: authHeader } : {}),
         }),
@@ -78,6 +81,9 @@ export async function GET(request: NextRequest) {
     }
     return withRequestIdJson(requestId, result.payload, {
       status: result.status,
+      ...(sourceRead
+        ? { headers: { "Cache-Control": "private, no-store" } }
+        : {}),
     });
   } catch (error) {
     console.error(

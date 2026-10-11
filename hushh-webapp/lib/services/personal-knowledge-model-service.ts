@@ -1,3 +1,4 @@
+import { canonicalPkmSegmentId, pkmStorageSegmentId } from "@/lib/personal-knowledge-model/segmentation";
 // hushh-webapp/lib/services/personal-knowledge-model-service.ts
 /**
  * Personal Knowledge Model service for PKM operations.
@@ -37,6 +38,7 @@ import { ApiService } from "./api-service";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "./cache-service";
 import { DeviceResourceCacheService } from "./device-resource-cache-service";
 import {
+  bindPkmManifestStorageRouting,
   buildPersonalKnowledgeModelStructureArtifacts,
   type DomainManifest,
   type PathDescriptor,
@@ -48,7 +50,6 @@ import {
   CURRENT_PKM_MODEL_VERSION,
   CURRENT_READABLE_SUMMARY_VERSION,
   CURRENT_READABLE_PROJECTION_VERSION,
-  PKM_QUARANTINE_SEGMENT_ID,
   currentDomainContractVersion,
 } from "@/lib/personal-knowledge-model/upgrade-contracts";
 import {
@@ -884,19 +885,7 @@ export class PersonalKnowledgeModelService {
   }
 
   private static canonicalSegmentId(segmentId: string): string {
-    // The quarantine segment keeps its exact spelling: the server requires a
-    // `__quarantine_v1` segment for any upgrade that quarantined something
-    // (migration 098), and stripping the underscores would also rename the key
-    // when the segment is decrypted back into the domain.
-    if (String(segmentId || "").trim().toLowerCase() === PKM_QUARANTINE_SEGMENT_ID) {
-      return PKM_QUARANTINE_SEGMENT_ID;
-    }
-    const normalized = String(segmentId || "")
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9_]/g, "_")
-      .replace(/^_+|_+$/g, "");
-    return normalized || "root";
+    return canonicalPkmSegmentId(segmentId);
   }
 
   private static normalizeSegmentIds(segmentIds?: string[] | null): string[] {
@@ -942,15 +931,11 @@ export class PersonalKnowledgeModelService {
 
   private static partitionDomainDataIntoSegments(domainData: Record<string, unknown>): Record<string, unknown> {
     const segmented: Record<string, unknown> = {};
-    const rootPayload: Record<string, unknown> = {};
+    const rootPayload: Record<string, unknown> = Object.create(null);
 
     for (const [key, value] of Object.entries(domainData || {})) {
-      const segmentId = this.canonicalSegmentId(key);
-      const isSegmentCandidate =
-        value !== null &&
-        value !== undefined &&
-        (Array.isArray(value) || typeof value === "object");
-      if (!isSegmentCandidate || segmentId === "root") {
+      const segmentId = pkmStorageSegmentId(key, value);
+      if (segmentId === "root") {
         rootPayload[key] = value;
         continue;
       }
@@ -1024,7 +1009,9 @@ export class PersonalKnowledgeModelService {
 
     const domainData: Record<string, unknown> = {};
     const requestedSegmentIds = this.normalizeSegmentIds(params.segmentIds);
-    const segmentEntries = Object.entries(segments).filter(([segmentId]) =>
+    const segmentEntries = Object.entries(segments).sort(([a], [b]) =>
+      a === "root" ? -1 : b === "root" ? 1 : a.localeCompare(b)
+    ).filter(([segmentId]) =>
       requestedSegmentIds.length === 0
         ? true
         : requestedSegmentIds.includes(this.canonicalSegmentId(segmentId))
@@ -1042,10 +1029,21 @@ export class PersonalKnowledgeModelService {
       );
       const parsed = JSON.parse(decrypted);
       if (segmentId === "root" && parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        Object.assign(domainData, parsed as Record<string, unknown>);
+        for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+          Object.defineProperty(domainData, key, { value, enumerable: true, writable: true, configurable: true });
+        }
         continue;
       }
-      domainData[segmentId] = parsed;
+      // Compatibility for private feature records written before exact-key
+      // preservation. These domains have one authored `_private` authority;
+      // never infer or rename user-authored keys in other domains.
+      const recordKey = requestedSegmentIds.length === 0 && segmentId === "private" &&
+        ["one_todos", "one_living_sources"].includes(params.domain) &&
+        !Object.hasOwn(domainData, "_private") ? "_private" : segmentId;
+      if (Object.hasOwn(domainData, recordKey)) {
+        throw new Error("Encrypted memory has overlapping record segments. Review before saving.");
+      }
+      Object.defineProperty(domainData, recordKey, { value: parsed, enumerable: true, writable: true, configurable: true });
     }
     return domainData;
   }
@@ -2107,6 +2105,9 @@ export class PersonalKnowledgeModelService {
     vaultOwnerToken?: string;
   }): Promise<StoreDomainDataResult> {
     this.assertReservedWriterMayWrite(params);
+    const storageManifest = params.domainData && params.manifest
+      ? bindPkmManifestStorageRouting(params.domainData, params.manifest)
+      : params.manifest;
     const metadataTimestamp = new Date().toISOString();
     const normalizedSummary: Record<string, unknown> = {
       ...params.summary,
@@ -2126,43 +2127,43 @@ export class PersonalKnowledgeModelService {
           : metadataTimestamp,
     };
     const manifestSummaryProjection = params.manifest?.summary_projection || {};
-    const normalizedManifest: DomainManifest | undefined = params.manifest
+    const normalizedManifest: DomainManifest | undefined = storageManifest
       ? {
-          ...params.manifest,
+          ...storageManifest,
           domain_contract_version:
-            Number(params.manifest.domain_contract_version) ||
+            Number(storageManifest.domain_contract_version) ||
             currentDomainContractVersion(params.domain),
           readable_summary_version:
-            Number(params.manifest.readable_summary_version) ||
+            Number(storageManifest.readable_summary_version) ||
             CURRENT_READABLE_SUMMARY_VERSION,
           pkm_contract_version: this.normalizeSemanticVersion(
-            params.manifest.pkm_contract_version
+            storageManifest.pkm_contract_version
           ),
           readable_projection_version: this.normalizeSemanticVersion(
-            params.manifest.readable_projection_version
+            storageManifest.readable_projection_version
           ),
           upgraded_at:
-            typeof params.manifest.upgraded_at === "string" &&
-            params.manifest.upgraded_at.trim().length > 0
-              ? params.manifest.upgraded_at
+            typeof storageManifest.upgraded_at === "string" &&
+            storageManifest.upgraded_at.trim().length > 0
+              ? storageManifest.upgraded_at
               : metadataTimestamp,
           summary_projection: {
             ...manifestSummaryProjection,
             domain_contract_version:
               Number(manifestSummaryProjection.domain_contract_version) ||
-              Number(params.manifest.domain_contract_version) ||
+              Number(storageManifest.domain_contract_version) ||
               currentDomainContractVersion(params.domain),
             readable_summary_version:
               Number(manifestSummaryProjection.readable_summary_version) ||
-              Number(params.manifest.readable_summary_version) ||
+              Number(storageManifest.readable_summary_version) ||
               CURRENT_READABLE_SUMMARY_VERSION,
             pkm_contract_version: this.normalizeSemanticVersion(
               manifestSummaryProjection.pkm_contract_version ||
-                params.manifest.pkm_contract_version
+                storageManifest.pkm_contract_version
             ),
             readable_projection_version: this.normalizeSemanticVersion(
               manifestSummaryProjection.readable_projection_version ||
-                params.manifest.readable_projection_version
+                storageManifest.readable_projection_version
             ),
             upgraded_at:
               typeof manifestSummaryProjection.upgraded_at === "string" &&
@@ -3674,6 +3675,9 @@ export class PersonalKnowledgeModelService {
       domain: params.domain,
       domainData: params.domainData,
     });
+    const storageManifest = params.manifest
+      ? bindPkmManifestStorageRouting(merged.domainData, params.manifest)
+      : undefined;
     const metadataTimestamp = new Date().toISOString();
     const normalizedSummary = {
       domain_intent: params.domain,
@@ -3699,43 +3703,43 @@ export class PersonalKnowledgeModelService {
           : metadataTimestamp,
     };
     const manifestSummaryProjection = params.manifest?.summary_projection || {};
-    const normalizedManifest: DomainManifest | undefined = params.manifest
+    const normalizedManifest: DomainManifest | undefined = storageManifest
       ? {
-          ...params.manifest,
+          ...storageManifest,
           domain_contract_version:
-            Number(params.manifest.domain_contract_version) ||
+            Number(storageManifest.domain_contract_version) ||
             currentDomainContractVersion(params.domain),
           readable_summary_version:
-            Number(params.manifest.readable_summary_version) ||
+            Number(storageManifest.readable_summary_version) ||
             CURRENT_READABLE_SUMMARY_VERSION,
           pkm_contract_version: this.normalizeSemanticVersion(
-            params.manifest.pkm_contract_version
+            storageManifest.pkm_contract_version
           ),
           readable_projection_version: this.normalizeSemanticVersion(
-            params.manifest.readable_projection_version
+            storageManifest.readable_projection_version
           ),
           upgraded_at:
-            typeof params.manifest.upgraded_at === "string" &&
-            params.manifest.upgraded_at.trim().length > 0
-              ? params.manifest.upgraded_at
+            typeof storageManifest.upgraded_at === "string" &&
+            storageManifest.upgraded_at.trim().length > 0
+              ? storageManifest.upgraded_at
               : metadataTimestamp,
           summary_projection: {
             ...manifestSummaryProjection,
             domain_contract_version:
               Number(manifestSummaryProjection.domain_contract_version) ||
-              Number(params.manifest.domain_contract_version) ||
+              Number(storageManifest.domain_contract_version) ||
               currentDomainContractVersion(params.domain),
             readable_summary_version:
               Number(manifestSummaryProjection.readable_summary_version) ||
-              Number(params.manifest.readable_summary_version) ||
+              Number(storageManifest.readable_summary_version) ||
               CURRENT_READABLE_SUMMARY_VERSION,
             pkm_contract_version: this.normalizeSemanticVersion(
               manifestSummaryProjection.pkm_contract_version ||
-                params.manifest.pkm_contract_version
+                storageManifest.pkm_contract_version
             ),
             readable_projection_version: this.normalizeSemanticVersion(
               manifestSummaryProjection.readable_projection_version ||
-                params.manifest.readable_projection_version
+                storageManifest.readable_projection_version
             ),
             upgraded_at:
               typeof manifestSummaryProjection.upgraded_at === "string" &&
@@ -4475,6 +4479,7 @@ export class PersonalKnowledgeModelService {
     explanation: string;
     confirmation: PkmUserConfirmation;
     applyMutation: (base: Record<string, unknown>) => Record<string, unknown>;
+    mayPublish?: () => boolean;
   }): Promise<StoreDomainDataResult> {
     const domain = "wallet";
     const build = async (
@@ -4547,7 +4552,10 @@ export class PersonalKnowledgeModelService {
     );
 
     return runRuntimeSecretCommitWithRetry<StoreDomainDataResult>({
-      send: () => this.storeDomainData(built),
+      send: () => {
+        if (params.mayPublish && !params.mayPublish()) throw new DOMException("The effect session changed.", "AbortError");
+        return this.storeDomainData({ ...built, mayPublish: params.mayPublish });
+      },
       rebuildAfterConflict: async () => {
         const cache = CacheService.getInstance();
         cache.invalidate(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(params.userId, domain));

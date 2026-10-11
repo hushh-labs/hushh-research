@@ -1,0 +1,15 @@
+.reader {
+  --type-form-label-size: 13px;
+  --type-input-value-size: 12px;
+  --type-helper-text-size: 12px;
+  --type-button-label-size: 14px;
+}
+.value {
+  width: 100%;
+  max-width: 36ch;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  overflow: visible;
+  text-overflow: clip;
+  text-align: right;
+}

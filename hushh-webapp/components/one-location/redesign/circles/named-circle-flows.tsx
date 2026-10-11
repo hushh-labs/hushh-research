@@ -13,7 +13,6 @@ import {
   Plus,
   Search,
   Share2,
-  ShieldCheck,
   Trash2,
   UsersRound,
 } from "@/components/icons";
@@ -675,7 +674,7 @@ export function CreateCircleFlow({
       <h1 className="sr-only">Create a Circle</h1>
 
       <p className="text-[15px] leading-6 text-[color:var(--app-secondary-label)]">
-        Name your Circle. You can add people next.
+        Name your Circle, then add at least one person.
       </p>
 
       <label className="block space-y-2">
@@ -739,6 +738,9 @@ export function CreateCircleFlow({
               const next = CIRCLE_KIND_OPTIONS[nextIndex];
               if (next) {
                 setKind(next.value);
+                event.currentTarget.querySelector<HTMLButtonElement>(
+                  `[data-testid="one-location-circle-kind-${next.value}"]`,
+                )?.focus();
                 if (nameMissing) setNameRequirementActive(true);
               }
             };
@@ -764,18 +766,20 @@ export function CreateCircleFlow({
                 type="button"
                 role="radio"
                 aria-checked={selected}
+                tabIndex={selected ? 0 : -1}
                 data-testid={`one-location-circle-kind-${option.value}`}
                 onClick={() => {
                   setKind(option.value);
                   if (nameMissing) setNameRequirementActive(true);
                 }}
                 className={cn(
-                  "flex h-12 items-center justify-center rounded-[14px] border px-4 text-[15px] font-semibold leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
+                  "flex h-12 items-center justify-center gap-1.5 rounded-[14px] border px-3 text-[15px] font-semibold leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
                   selected
-                    ? "border-transparent bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+                    ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-primary-label)]"
                     : "border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] text-[color:var(--app-primary-label)] hover:bg-[color:var(--app-secondary-fill)]",
                 )}
               >
+                {selected ? <Check className="size-4 shrink-0" aria-hidden="true" /> : null}
                 {option.label}
               </button>
             );
@@ -1319,8 +1323,20 @@ function CircleMemberRow({
   );
 }
 
+function CircleMembersLoading() {
+  return <div role="status" aria-label="Loading circle members" className="space-y-3 rounded-[18px] border border-border bg-card p-4">
+    <span className="sr-only">Loading circle members…</span>
+    {[0, 1, 2].map((row) => <div key={row} aria-hidden="true" className="flex min-h-14 items-center gap-3">
+      <div className="size-10 shrink-0 rounded-full bg-muted animate-pulse motion-reduce:animate-none" />
+      <div className="flex-1 space-y-2"><div className="h-3 w-1/2 rounded bg-muted animate-pulse motion-reduce:animate-none" /><div className="h-2 w-1/3 rounded bg-muted" /></div>
+    </div>)}
+  </div>;
+}
+
 export function CircleDetailFlow({
   circleId,
+  initialCircleSummary,
+  sessionScope,
   currentUserId,
   busy,
   onBack,
@@ -1346,11 +1362,20 @@ export function CircleDetailFlow({
   livingCircleExperience = false,
   renderChat,
   chatIntent = false,
+  memberSetup = false,
+  onMemberSetupComplete,
   onPhotoUpdate,
 }: {
   circleId: string;
+  /** Display identity only; fresh detail remains the sole authority for actions. */
+  initialCircleSummary?: Pick<OneLocationCircleSummary, "id" | "name" | "memberCount">;
+  /** In-memory unlock identity; never serialized or used as an access grant. */
+  sessionScope?: unknown;
   renderChat?: (circle: OneLocationCircleOverview, options: { active: boolean; readingBlocked: boolean }) => ReactNode;
   chatIntent?: boolean;
+  /** Creation enters the existing inline member flow; a reload retains it. */
+  memberSetup?: boolean;
+  onMemberSetupComplete?: () => void;
   onPhotoUpdate?: (circleId: string, photoUrl: string | null) => Promise<OneLocationCircleOverview>;
   currentUserId: string | null;
   busy: boolean;
@@ -1426,10 +1451,26 @@ export function CircleDetailFlow({
   const [loadedCircle, setCircle] = useState<
     OneLocationCircleDetail | OneLocationCircleOverview | null
   >(null);
-  const [detailView, setDetailView] = useState("chat");
-  useEffect(() => { setDetailView("chat"); }, [circleId]);
-  useEffect(() => { if (chatIntent) setDetailView("chat"); }, [chatIntent]);
+  const [detailView, setDetailView] = useState(memberSetup && !chatIntent ? "members" : "chat");
+  const initialViewCircleRef = useRef<string | null>(null);
+  const entryChatIntentRef = useRef(chatIntent);
+  useEffect(() => {
+    initialViewCircleRef.current = null;
+    entryChatIntentRef.current = chatIntent;
+    setDetailView(memberSetup && !chatIntent ? "members" : "chat");
+    // Capture entry intent once per circle. Consuming a transient URL intent
+    // must not reset the current tab or redirect an already-open chat.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [circleId]);
+  useEffect(() => {
+    if (!chatIntent) return;
+    entryChatIntentRef.current = true;
+    setDetailView("chat");
+  }, [chatIntent]);
   const [memberRows, setMemberRows] = useState<OneLocationCircleMember[]>([]);
+  const [membersLoading, setMembersLoading] = useState(true);
+  const [membersLoaded, setMembersLoaded] = useState(false);
+  const loadedScopeRef = useRef({ currentUserId, sessionScope });
   const [orbitMembers, setOrbitMembers] = useState<OneLocationCircleMember[]>([]);
   const [memberPage, setMemberPage] = useState(1);
   const [memberHasMore, setMemberHasMore] = useState(false);
@@ -1474,17 +1515,32 @@ export function CircleDetailFlow({
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const loadRequestRef = useRef(0);
   const memberRequestRef = useRef(0);
+  const lastMemberSearchRef = useRef({ circleId, currentUserId, sessionScope, query: memberSearch, loader: onLoadMembersPage });
   const peopleRequestRef = useRef(0);
   const peopleSubmitInFlightRef = useRef(false);
   const cancelInviteInFlightRef = useRef(false);
 
   const usesPagedMembers = Boolean(onLoadOverview && onLoadMembersPage);
 
-  const reload = async (): Promise<
+  const applyOverview = (overview: OneLocationCircleOverview) => {
+    loadedScopeRef.current = { currentUserId, sessionScope };
+    setCircle(overview); setCircleName(overview.name);
+    setInviteCode(overview.activeInviteCode ?? null);
+    if (!(overview.viewerCapabilities?.canInviteMembers ?? overview.role === "owner")) {
+      setPeopleSheetOpen(false);
+      setSelectedConnections(new Map());
+      peopleRequestRef.current += 1;
+    }
+  };
+
+  const reload = async (memberQuery = memberSearch): Promise<
     OneLocationCircleDetail | OneLocationCircleOverview | null
   > => {
     const requestId = ++loadRequestRef.current;
+    const memberRequestId = ++memberRequestRef.current;
     setLoadError(null);
+    setMembersLoading(true);
+    setMemberLoadingMore(false);
     if (!circleId) {
       setCircle(null);
       setLoadError("This Circle link is incomplete.");
@@ -1493,42 +1549,44 @@ export function CircleDetailFlow({
     try {
       const [nextCircle, nextMembersPage] = usesPagedMembers
         ? await Promise.all([
-            onLoadOverview!(circleId),
+            onLoadOverview!(circleId).then((overview) => {
+              if (requestId === loadRequestRef.current) {
+                applyOverview(overview);
+              }
+              return overview;
+            }),
             onLoadMembersPage!(circleId, {
               page: 1,
               limit: 50,
-              query: memberSearch.trim() || undefined,
+              query: memberQuery.trim() || undefined,
             }),
           ])
         : [await onLoad(circleId), null];
       if (requestId !== loadRequestRef.current) return null;
-      setCircle(nextCircle);
+      // The paged overview is already visible. Reapplying it here would
+      // overwrite edits or saved changes made while its roster was pending.
+      if (!usesPagedMembers) applyOverview(nextCircle);
+      if (memberRequestId !== memberRequestRef.current) return nextCircle;
+      setMembersLoading(false);
+      setMembersLoaded(true);
       if (nextMembersPage) {
         setMemberRows(nextMembersPage.items);
-        if (!memberSearch.trim()) setOrbitMembers(nextMembersPage.items);
+        if (!memberQuery.trim()) setOrbitMembers(nextMembersPage.items);
         setMemberPage(nextMembersPage.page);
         setMemberHasMore(nextMembersPage.hasMore);
         setMemberTotalCount(nextMembersPage.totalCount);
       } else {
         const completeMembers = (nextCircle as OneLocationCircleDetail).members;
         setMemberRows(completeMembers);
-        if (!memberSearch.trim()) setOrbitMembers(completeMembers);
+        if (!memberQuery.trim()) setOrbitMembers(completeMembers);
         setMemberPage(1);
         setMemberHasMore(false);
         setMemberTotalCount(completeMembers.length);
       }
-      setCircleName(nextCircle.name);
-      setInviteCode(nextCircle.activeInviteCode ?? null);
-      const nextCanInvite =
-        nextCircle.viewerCapabilities?.canInviteMembers ??
-        nextCircle.role === "owner";
-      if (!nextCanInvite) {
-        setPeopleSheetOpen(false);
-        peopleRequestRef.current += 1;
-      }
       return nextCircle;
     } catch (error) {
-      if (requestId !== loadRequestRef.current) return null;
+      if (requestId !== loadRequestRef.current || memberRequestId !== memberRequestRef.current) return null;
+      setMembersLoading(false);
       setLoadError(
         error instanceof Error ? error.message : "Could not load this Circle.",
       );
@@ -1539,6 +1597,7 @@ export function CircleDetailFlow({
   useEffect(() => {
     setCircle(null);
     setMemberRows([]);
+    setMembersLoaded(false);
     setOrbitMembers([]);
     setInviteCode(null);
     setPeopleSheetOpen(false);
@@ -1550,16 +1609,16 @@ export function CircleDetailFlow({
     setMemberSearch("");
     setSavingName(false);
     peopleRequestRef.current += 1;
-    void reload();
-    // `onLoad` is a stable page callback. Reload only when the selected id
-    // changes; unrelated page refreshes must not refetch the focused detail.
+    void reload("");
+    // Reset on selection, owner or unlock changes. Unrelated page refreshes
+    // must not refetch the focused detail.
     return () => {
       loadRequestRef.current += 1;
       memberRequestRef.current += 1;
       peopleRequestRef.current += 1;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [circleId]);
+  }, [circleId, currentUserId, sessionScope]);
 
   // A re-read the caller asked for. Unlike the effect above it resets nothing:
   // the sheet stays open, the search keeps its text, the selection survives.
@@ -1573,7 +1632,9 @@ export function CircleDetailFlow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadSignal]);
 
-  const circle = loadedCircle?.id === circleId ? loadedCircle : null;
+  const scopeMatches = loadedScopeRef.current.currentUserId === currentUserId && loadedScopeRef.current.sessionScope === sessionScope;
+  const circle = scopeMatches && loadedCircle?.id === circleId ? loadedCircle : null;
+  const summary = initialCircleSummary?.id === circleId ? initialCircleSummary : null;
   const isOwner = circle?.role === "owner";
   const hasChat = Boolean(livingCircleExperience && renderChat && circle && !circle.isSystem && circle.systemKind == null);
   // Stated by the server rather than inferred here.
@@ -1617,6 +1678,22 @@ export function CircleDetailFlow({
     ? Number(circle?.memberCount ?? memberTotalCount)
     : members.length;
   const visibleMemberSummary = circleDetailMemberCountLabel(visibleMemberCount);
+  const needsFirstMember = Boolean(
+    livingCircleExperience && circle && isOwner && canInviteMembers &&
+    !circle.isSystem && circle.systemKind == null && circle.memberCount <= 1,
+  );
+  useEffect(() => {
+    if (!circle || initialViewCircleRef.current === circle.id) return;
+    initialViewCircleRef.current = circle.id;
+    // An unfinished circle remains recoverable after leaving or reopening it.
+    // Explicit chat links (including notifications) retain their own intent.
+    if (!entryChatIntentRef.current && (memberSetup || needsFirstMember)) setDetailView("members");
+  }, [circle, memberSetup, needsFirstMember]);
+  const changeDetailView = (view: string) => {
+    if (view === "chat" && memberSetup && needsFirstMember && !entryChatIntentRef.current) return;
+    setDetailView(view);
+    if (view === "chat" && memberSetup) onMemberSetupComplete?.();
+  };
 
   // Filters the already-loaded Members list client-side, same as the "Add
   // people" sheet's connection search — a circle's roster is small enough
@@ -1662,7 +1739,16 @@ export function CircleDetailFlow({
 
   useEffect(() => {
     if (!usesPagedMembers || !circleId || !onLoadMembersPage) return;
+    const previous = lastMemberSearchRef.current;
+    const scopeChanged = previous.circleId !== circleId || previous.currentUserId !== currentUserId || previous.sessionScope !== sessionScope;
+    lastMemberSearchRef.current = { circleId, currentUserId, sessionScope, query: scopeChanged ? "" : memberSearch, loader: onLoadMembersPage };
+    // reload owns the initial roster and scope resets; search only reads a
+    // changed query. All roster reads share one generation with pagination.
+    if (scopeChanged || (previous.query === memberSearch && previous.loader === onLoadMembersPage)) return;
     const requestId = ++memberRequestRef.current;
+    setMembersLoading(true);
+    setMemberLoadingMore(false);
+    setLoadError(null);
     const timer = window.setTimeout(() => {
       void onLoadMembersPage(circleId, {
         page: 1,
@@ -1672,6 +1758,8 @@ export function CircleDetailFlow({
         .then((result) => {
           if (requestId !== memberRequestRef.current) return;
           setMemberRows(result.items);
+          setMembersLoading(false);
+          setMembersLoaded(true);
           if (!memberSearch.trim()) setOrbitMembers(result.items);
           setMemberPage(result.page);
           setMemberHasMore(result.hasMore);
@@ -1679,16 +1767,20 @@ export function CircleDetailFlow({
         })
         .catch((error) => {
           if (requestId !== memberRequestRef.current) return;
+          setMembersLoading(false);
           setLoadError(
             circleFlowErrorMessage(error, "Could not load Circle members."),
           );
         });
     }, 250);
-    return () => window.clearTimeout(timer);
-  }, [circleId, memberSearch, onLoadMembersPage, usesPagedMembers]);
+    return () => {
+      window.clearTimeout(timer);
+      if (requestId === memberRequestRef.current) memberRequestRef.current += 1;
+    };
+  }, [circleId, currentUserId, sessionScope, memberSearch, onLoadMembersPage, usesPagedMembers]);
 
   const loadMoreMembers = async () => {
-    if (!onLoadMembersPage || !memberHasMore || memberLoadingMore) return;
+    if (!onLoadMembersPage || !memberHasMore || membersLoading || memberLoadingMore) return;
     const requestId = ++memberRequestRef.current;
     setMemberLoadingMore(true);
     try {
@@ -1894,6 +1986,7 @@ export function CircleDetailFlow({
   const sendMemberInvites = async () => {
     if (
       !circle ||
+      !canInviteMembers ||
       peopleSubmitInFlightRef.current ||
       !selectedConnections.size
     ) {
@@ -2085,9 +2178,12 @@ export function CircleDetailFlow({
     // screen used to pair a 24px stack gap with `SettingsGroup`'s own 28px
     // heading margin, so the one gap on the page that mattered least -- the
     // one above "Members" -- was also the largest.
-    <Tabs value={hasChat ? detailView : "members"} onValueChange={setDetailView} className="gap-5" data-testid="one-location-circle-detail-flow">
+    <Tabs value={hasChat ? detailView : "members"} onValueChange={changeDetailView} className="gap-5" data-testid="one-location-circle-detail-flow">
       {!circle ? (
-        <TaskFlowHeader title="Circle" description="Loading Circle…" />
+        <>
+          <TaskFlowHeader title={summary?.name ?? "Circle"} description={summary ? circleDetailMemberCountLabel(summary.memberCount) : "Getting members ready…"} />
+          {!loadError ? <CircleMembersLoading /> : null}
+        </>
       ) : null}
 
       {loadError ? (
@@ -2146,7 +2242,7 @@ export function CircleDetailFlow({
 
           {hasChat ? <>
             <TabsList variant="line" aria-label="Circle views" className="min-h-11 w-fit justify-start border-b border-border/70">
-              <TabsTrigger value="chat" className="min-h-11 min-w-24 flex-none after:!bottom-0 data-[state=active]:!text-[color:var(--app-accent)] after:bg-[color:var(--app-accent)]">Chat</TabsTrigger>
+              <TabsTrigger value="chat" disabled={memberSetup && needsFirstMember && !entryChatIntentRef.current} className="min-h-11 min-w-24 flex-none after:!bottom-0 data-[state=active]:!text-[color:var(--app-accent)] after:bg-[color:var(--app-accent)]">Chat</TabsTrigger>
               <TabsTrigger value="members" className="min-h-11 min-w-24 flex-none after:!bottom-0 data-[state=active]:!text-[color:var(--app-accent)] after:bg-[color:var(--app-accent)]">Members</TabsTrigger>
             </TabsList>
             <TabsContent value="chat" forceMount hidden={detailView !== "chat"} className="space-y-2">
@@ -2162,9 +2258,27 @@ export function CircleDetailFlow({
             </TabsContent>
           </> : null}
           <TabsContent value="members" forceMount hidden={hasChat && detailView !== "members"} className="space-y-5">
+          {livingCircleExperience && canInviteMembers && !circle.isSystem && circle.systemKind == null && (needsFirstMember || memberSetup) ? (
+            <div data-testid="circle-member-setup" className="space-y-2" aria-live="polite">
+              <h2 className="ui-text-card-title">{needsFirstMember ? memberSetup ? "Add your first member" : "Add people to your Circle" : "Your Circle is ready"}</h2>
+              <p className={MUTED_TEXT}>
+                {needsFirstMember
+                  ? memberSetup
+                    ? "Choose at least one connection below, or share an invite code. Chat will be ready when someone joins."
+                    : "Choose a connection below, or share an invite code to bring someone into this Circle."
+                  : "You've added your first member. Add more people below or start chatting."}
+              </p>
+              {!needsFirstMember && hasChat ? (
+                <Button type="button" size="prominent" onClick={() => changeDetailView("chat")} className="w-full sm:w-auto">
+                  Open chat
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
           {livingCircleExperience ? (
             <LivingCirclePanel
               key={circle.id}
+              focusOnAdding={memberSetup && needsFirstMember}
               circleName={circle.name}
               members={orbitMembers}
               memberCount={visibleMemberCount}
@@ -2751,6 +2865,7 @@ export function CircleDetailFlow({
                   type="button"
                   size="prominent"
                   disabled={
+                    !canInviteMembers ||
                     !selectedConnections.size ||
                     peopleLoading ||
                     peopleSubmitting ||
@@ -2818,7 +2933,7 @@ export function CircleDetailFlow({
               </label>
             ) : null}
 
-            {filteredMembers.length ? (
+            {!membersLoaded && loadError ? null : membersLoading && !members.length ? <CircleMembersLoading /> : filteredMembers.length ? (
               <SettingsGroup
                 testId="one-location-circle-members"
                 // A synced Circle can hold up to 100 members (migration 158).
@@ -3001,10 +3116,6 @@ export function CircleDetailFlow({
           ) : null}
           </TabsContent>
         </>
-      ) : !loadError ? (
-        <div className="flex min-h-40 items-center justify-center rounded-[var(--app-card-radius-standard,24px)] bg-muted/35">
-          <ShieldCheck className="h-8 w-8 animate-pulse text-muted-foreground" />
-        </div>
       ) : null}
     </Tabs>
   );

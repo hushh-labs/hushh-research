@@ -23,9 +23,15 @@ import { warmGeminiRuntimeConnection } from "@/lib/connections/gemini-runtime-co
 
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { KaiFinancialResourceService } from "@/lib/kai/kai-financial-resource";
-import { loadFinancialForVault, refreshVaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
+import {
+  loadFinancialForVault,
+  refreshVaultConnections,
+} from "@/lib/kai/plaid-vault/vault-sync";
 import { recoverPendingSeals } from "@/lib/kai/plaid-vault/pending-seal";
-import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import {
+  isVaultSessionEpochCurrent,
+  snapshotVaultSessionEpoch,
+} from "@/lib/vault/session-epoch";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
 import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
@@ -321,20 +327,26 @@ export class UnlockWarmOrchestrator {
   }): void {
     if (shouldSkipReviewerBackgroundWritesForAutomation()) return;
     const vaultEpoch = snapshotVaultSessionEpoch();
-    if (this.vaultPlaidRefreshedByUser.get(params.userId) === vaultEpoch) return;
+    if (this.vaultPlaidRefreshedByUser.get(params.userId) === vaultEpoch)
+      return;
     this.vaultPlaidRefreshedByUser.set(params.userId, vaultEpoch);
     void loadFinancialForVault(params)
       .then(async (financial) => {
         // Fail closed: without a vault read we cannot tell a sealed link from
         // an orphan, so pending links wait for the next unlock.
         if (!financial || !isVaultSessionEpochCurrent(vaultEpoch)) return null;
-        const sealed = (financial.connections_v1 ?? {}) as Record<string, unknown>;
+        const sealed = (financial.connections_v1 ?? {}) as Record<
+          string,
+          unknown
+        >;
         // Links that never reached the vault (app closed mid-link) are
         // disconnected at Plaid before anything else reads the connections.
-        await recoverPendingSeals({ ...params, sealedItemIds: new Set(Object.keys(sealed)) }).catch(
-          () => undefined,
-        );
-        return isVaultSessionEpochCurrent(vaultEpoch) && Object.keys(sealed).length > 0
+        await recoverPendingSeals({
+          ...params,
+          sealedItemIds: new Set(Object.keys(sealed)),
+        }).catch(() => undefined);
+        return isVaultSessionEpochCurrent(vaultEpoch) &&
+          Object.keys(sealed).length > 0
           ? refreshVaultConnections({ ...params, financial })
           : null;
       })
@@ -343,7 +355,10 @@ export class UnlockWarmOrchestrator {
         if (this.vaultPlaidRefreshedByUser.get(params.userId) === vaultEpoch) {
           this.vaultPlaidRefreshedByUser.delete(params.userId);
         }
-        console.warn("[UnlockWarmOrchestrator] Vault Plaid refresh failed:", error);
+        console.warn(
+          "[UnlockWarmOrchestrator] Vault Plaid refresh failed:",
+          error,
+        );
       });
   }
 
@@ -562,7 +577,8 @@ export class UnlockWarmOrchestrator {
       let prewarmedFinancialDomain: Record<string, unknown> | null = null;
       let financialHydrated = false;
 
-      const skipBackgroundWrites = shouldSkipReviewerBackgroundWritesForAutomation();
+      const skipBackgroundWrites =
+        shouldSkipReviewerBackgroundWritesForAutomation();
       const shouldSyncProfile =
         warmPriority === "profile" ||
         warmPriority === "dashboard" ||
@@ -570,15 +586,17 @@ export class UnlockWarmOrchestrator {
         warmPriority === "default";
       const syncPromise =
         shouldSyncProfile && shouldWarmMetadata && !skipBackgroundWrites
-        ? KaiProfileSyncService.syncPendingToVault({
-            userId: params.userId,
-            vaultKey: params.vaultKey,
-            vaultOwnerToken: params.vaultOwnerToken,
-          })
-        : Promise.resolve({
-            synced: false,
-            reason: skipBackgroundWrites ? "skipped_for_reviewer_policy" : "skipped_for_route",
-          } as const);
+          ? KaiProfileSyncService.syncPendingToVault({
+              userId: params.userId,
+              vaultKey: params.vaultKey,
+              vaultOwnerToken: params.vaultOwnerToken,
+            })
+          : Promise.resolve({
+              synced: false,
+              reason: skipBackgroundWrites
+                ? "skipped_for_reviewer_policy"
+                : "skipped_for_route",
+            } as const);
 
       if (shouldWarmFinancial || shouldHydrateFinancialCacheOnly) {
         const hydratedFinancial =
@@ -704,7 +722,10 @@ export class UnlockWarmOrchestrator {
       result.metadataWarmed =
         shouldWarmMetadata && metadataResult.status === "fulfilled";
 
-      if (shouldWarmLocationState && locationStateResult.status === "fulfilled") {
+      if (
+        shouldWarmLocationState &&
+        locationStateResult.status === "fulfilled"
+      ) {
         result.locationStateWarmed = true;
       }
 
@@ -886,6 +907,7 @@ export class UnlockWarmOrchestrator {
         vaultKey: params.vaultKey,
         vaultOwnerToken: params.vaultOwnerToken,
       });
+      // Written answers are fulfilled only by the owner's explicit action.
       this.queueVaultPlaidRefresh({
         userId: params.userId,
         vaultKey: params.vaultKey,

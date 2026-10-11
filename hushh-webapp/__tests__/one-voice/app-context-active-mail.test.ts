@@ -15,7 +15,7 @@ import {
   collectActiveMail,
   type ActiveMailHint,
 } from "@/lib/one-voice/app-context";
-import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import type { VoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 const CONVERSATION_ID = "0f4d8f2e-7c3a-4b1e-9d2f-5a6b7c8d9e01";
 

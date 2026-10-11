@@ -32,6 +32,62 @@ KYC, Connected Systems, and Connections. It replaced the top-bar
 `ActivityInbox` bell (which only ever surfaced Consent + background-task
 activity) with a real bottom-nav tab and a dedicated route, `/one/feed`.
 
+## Chat conversation presentation
+
+Circle photo sends show the original from mounted-view memory on the Send tap,
+with an explicit pending status until the server confirms delivery. Transcript
+confirmation reconciles the same sender/client identity even when the POST
+response is late; uncertain retries reuse the entire sealed payload unchanged.
+At most four sent originals remain in the mounted thread, and object URLs are
+released on hide, background, access loss, and unmount.
+
+New photo content may include a JPEG thumbnail of at most 1,536 bytes inside
+the authenticated encrypted attachment metadata. It arrives with the message
+and stays visible during the authorized original download; older messages still
+use the original image path. Serialized UTF-8 content must fit the existing
+24,000-character ciphertext limit, otherwise the optional thumbnail is omitted.
+Original photo bytes and existing recipient/membership authorization are unchanged.
+Recipients still wait for the sender's encrypted upload to commit.
+
+Circle detail entry relays only the selected circle's display name and member
+count while fresh reads resolve. Fresh overview can render before the member
+page; pending members occupy a bounded roster placeholder. Relayed summaries
+never grant controls or chat access, and detail authority is scoped to the
+current person and in-memory unlock identity.
+
+Circle messages share one Feed entry per Circle; received Direct Messages share
+one entry per authenticated conversation. The API groups before applying the
+cursor and page limit, using the newest immutable source event as the entry id.
+Other event types remain independent. `chat_thread_key`, `chat_message_count`
+and `chat_unread_count` are computed response metadata, never trusted from
+stored payloads. Feed unread counts count visible groups; the new-message count
+means unseen Feed events. Opening Feed marks that presentation seen without
+marking chat messages read. Clearing Feed keeps its existing source-id watermark.
+
+Client refresh/load-more deduplicates chat entries by thread key. Cursor
+continuity still requires overlapping source ids, since a moved conversation
+cannot prove there are no intervening events.
+
+Chat delivery extends the existing migration 290 pipeline: modern installations
+have their own encrypted preview key and durable provider acceptance receipt.
+Circle and direct workers reuse the same registry, ownership fences and retry
+contract. Committed Circle events wake the existing worker; its adaptive polling
+repairs missed events and full batches drain immediately.
+
+System presentation groups by conversation: web replaces an owner-key-scoped
+card and requests renotification; Android retains MessagingStyle children and a
+silent conversation summary; iOS uses the existing conversation thread.
+Authoritative unread counts enrich alert and read payloads for supported badges.
+Only a focused, readable matching conversation suppresses foreground sound.
+
+Read cleanup preserves Circle sequence and direct source-time/exact-message
+boundaries. Local web cleanup and native silent read synchronization persist a
+key-scoped presentation frontier against delayed alerts. Silent read pushes are
+limited to native platforms: Safari requires every Web Push to be user-visible.
+The iOS extension can silence a stale accepted alert but cannot discard it
+without Apple's restricted filtering entitlement. Physical delivery acceptance
+is documented in the [release checklist](../quality/circle-chat-notification-release-checklist.md).
+
 ## The `feed_events` table
 
 Migration `consent-protocol/db/migrations/117_feed_events.sql` adds a single,

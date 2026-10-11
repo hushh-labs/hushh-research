@@ -55,7 +55,9 @@ vi.mock("@/lib/vault/vault-context", () => ({
 }));
 
 vi.mock("@/lib/services/drive-sharing-service", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/services/drive-sharing-service")>()),
+  ...(await importOriginal<
+    typeof import("@/lib/services/drive-sharing-service")
+  >()),
   DriveSharingService: {
     allow: mocks.allow,
     setRequestPrice: mocks.setRequestPrice,
@@ -169,7 +171,11 @@ vi.mock("@/lib/consent/consent-display", () => ({
 vi.mock("@/lib/navigation/routes", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/navigation/routes")>()),
   buildKaiMarketRoute: () => "/one/kai",
-  ROUTES: { PROFILE_PAYOUTS: "/one/profile/payouts", PROFILE_REQUEST_PRICING: "/one/profile/request-pricing" },
+  ROUTES: {
+    ONE_FEED: "/one/feed",
+    PROFILE_PAYOUTS: "/one/profile/payouts",
+    PROFILE_REQUEST_PRICING: "/one/profile/request-pricing",
+  },
 }));
 
 vi.mock("@/lib/feed/use-agent-deployment-follow", () => ({
@@ -276,7 +282,9 @@ describe("useFeedActionables — connection request de-duplication", () => {
       "confirm",
     ]);
     // A report is irreversible for the sender, so it needs a second tap.
-    expect(row.actions.find((action) => action.key === "report")?.confirm).toBe(true);
+    expect(row.actions.find((action) => action.key === "report")?.confirm).toBe(
+      true,
+    );
   });
 
   it("still renders ordinary consent requests from the consent lane", () => {
@@ -303,16 +311,18 @@ describe("useFeedActionables — connection request de-duplication", () => {
 
   it("keeps a user's consent-request photo on the Feed card", () => {
     mocks.pendingCount = 1;
-    mocks.consentItems = [{
-      id: "consent-with-photo",
-      kind: "incoming_request",
-      status: "pending",
-      action: "REQUESTED",
-      counterpart_type: "ria",
-      counterpart_id: "advisor-1",
-      counterpart_label: "Meena Rao",
-      counterpart_image_url: "https://example.test/meena.png",
-    }];
+    mocks.consentItems = [
+      {
+        id: "consent-with-photo",
+        kind: "incoming_request",
+        status: "pending",
+        action: "REQUESTED",
+        counterpart_type: "ria",
+        counterpart_id: "advisor-1",
+        counterpart_label: "Meena Rao",
+        counterpart_image_url: "https://example.test/meena.png",
+      },
+    ];
 
     const { result } = renderHook(() => useFeedActionables());
 
@@ -324,15 +334,17 @@ describe("useFeedActionables — connection request de-duplication", () => {
 
   it("shows an older person consent photo even without a counterpart id", () => {
     mocks.pendingCount = 1;
-    mocks.consentItems = [{
-      id: "legacy-person-consent",
-      kind: "incoming_request",
-      status: "pending",
-      action: "REQUESTED",
-      counterpart_type: "person",
-      counterpart_label: "Kunal",
-      counterpart_image_url: "https://example.test/kunal.png",
-    }];
+    mocks.consentItems = [
+      {
+        id: "legacy-person-consent",
+        kind: "incoming_request",
+        status: "pending",
+        action: "REQUESTED",
+        counterpart_type: "person",
+        counterpart_label: "Kunal",
+        counterpart_image_url: "https://example.test/kunal.png",
+      },
+    ];
 
     const { result } = renderHook(() => useFeedActionables());
 
@@ -343,16 +355,18 @@ describe("useFeedActionables — connection request de-duplication", () => {
   });
 
   it("uses the Circle inviter photo already returned by Location state", () => {
-    mocks.circleMemberInvites = [{
-      id: "circle-invite-1",
-      circleId: "circle-1",
-      circleName: "Family",
-      inviterUserId: "friend-1",
-      inviterDisplayName: "Priya Nair",
-      inviterPhotoUrl: "https://example.test/priya.png",
-      inviteeUserId: "user-1",
-      status: "pending",
-    }];
+    mocks.circleMemberInvites = [
+      {
+        id: "circle-invite-1",
+        circleId: "circle-1",
+        circleName: "Family",
+        inviterUserId: "friend-1",
+        inviterDisplayName: "Priya Nair",
+        inviterPhotoUrl: "https://example.test/priya.png",
+        inviteeUserId: "user-1",
+        status: "pending",
+      },
+    ];
 
     const { result } = renderHook(() => useFeedActionables());
 
@@ -392,16 +406,24 @@ describe("useFeedActionables — connection request de-duplication", () => {
 
   it("never presents outgoing or directionless document requests as Needs You", () => {
     mocks.pendingCount = 3;
-    mocks.consentItems = ["incoming", "outgoing", null].map((direction, index) => ({
-      id: `document_share_request:11111111-1111-4111-8111-11111111111${index}`,
-      request_id: `11111111-1111-4111-8111-11111111111${index}`,
-      kind: direction === "outgoing" ? "outgoing_request" : "incoming_request",
-      status: "pending", scope: null, counterpart_label: "Document request",
-      scope_description: index === 0 ? "Enable background Drive access" : "Google Drive files",
-      metadata: { request_source: "drive_document_share_request", direction },
-    }));
+    mocks.consentItems = ["incoming", "outgoing", null].map(
+      (direction, index) => ({
+        id: `document_share_request:11111111-1111-4111-8111-11111111111${index}`,
+        request_id: `11111111-1111-4111-8111-11111111111${index}`,
+        kind:
+          direction === "outgoing" ? "outgoing_request" : "incoming_request",
+        status: "pending",
+        scope: null,
+        counterpart_label: "Document request",
+        scope_description:
+          index === 0 ? "Enable background Drive access" : "Google Drive files",
+        metadata: { request_source: "drive_document_share_request", direction },
+      }),
+    );
     const { result } = renderHook(() => useFeedActionables());
-    const documents = result.current.actionables.filter((row) => row.id.startsWith("consent:document_share_request:"));
+    const documents = result.current.actionables.filter((row) =>
+      row.id.startsWith("consent:document_share_request:"),
+    );
     expect(documents).toHaveLength(1);
     expect(documents[0].id).toBe(`consent:${mocks.consentItems[0].id}`);
     expect(documents[0].description).toBe("Enable background Drive access");
@@ -411,20 +433,30 @@ describe("useFeedActionables — connection request de-duplication", () => {
 
   it("routes only incoming Drive questions to their own card, with no inline actions", () => {
     mocks.pendingCount = 3;
-    mocks.consentItems = ["incoming", "outgoing", null].map((direction, index) => ({
-      id: `drive_query_request:11111111-1111-4111-8111-11111111111${index}`,
-      request_id: `11111111-1111-4111-8111-11111111111${index}`,
-      kind: direction === "outgoing" ? "outgoing_request" : "incoming_request",
-      status: "pending", action: "DRIVE_QUERY_REVIEW", scope: null,
-      scope_description: "Google Drive question", counterpart_label: "Drive question",
-      metadata: { request_source: "drive_live_query_request", direction },
-    }));
+    mocks.consentItems = ["incoming", "outgoing", null].map(
+      (direction, index) => ({
+        id: `drive_query_request:11111111-1111-4111-8111-11111111111${index}`,
+        request_id: `11111111-1111-4111-8111-11111111111${index}`,
+        kind:
+          direction === "outgoing" ? "outgoing_request" : "incoming_request",
+        status: "pending",
+        action: "DRIVE_QUERY_REVIEW",
+        scope: null,
+        scope_description: "Google Drive question",
+        counterpart_label: "Drive question",
+        metadata: { request_source: "drive_live_query_request", direction },
+      }),
+    );
     const { result } = renderHook(() => useFeedActionables());
-    const questions = result.current.actionables.filter((row) => row.id.startsWith("consent:drive_query_request:"));
+    const questions = result.current.actionables.filter((row) =>
+      row.id.startsWith("consent:drive_query_request:"),
+    );
     expect(questions).toHaveLength(1);
     expect(questions[0].id).toBe(`consent:${mocks.consentItems[0].id}`);
     expect(questions[0].actions).toEqual([]);
-    expect(questions[0].href).toContain(encodeURIComponent(mocks.consentItems[0].id));
+    expect(questions[0].href).toContain(
+      encodeURIComponent(mocks.consentItems[0].id),
+    );
   });
 
   it("keeps failed background work visible with recovery and dismiss actions", () => {
@@ -586,7 +618,10 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
     const entries = [
       documentEntry(
         "33333333-3333-4333-8333-333333333331",
-        { owner_decision_available: false, payment_waiting_for_requester: true },
+        {
+          owner_decision_available: false,
+          payment_waiting_for_requester: true,
+        },
         { scope_description: "Waiting for requester payment" },
       ),
       documentEntry(
@@ -607,7 +642,11 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
   });
 
   it("Allow opens the price step at once and sends the owner's price on this vault session", async () => {
-    mocks.allow.mockResolvedValue({ requestId: DOC_ID, status: "pending", revision: 3 });
+    mocks.allow.mockResolvedValue({
+      requestId: DOC_ID,
+      status: "pending",
+      revision: 3,
+    });
     const { result } = renderWith(documentEntry(DOC_ID));
     expect(result.current.documentPricePrompt.open).toBe(false);
 
@@ -642,7 +681,9 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
     expect(mocks.allow).not.toHaveBeenCalled();
 
     act(() => result.current.documentPricePrompt.submit(2000));
-    await waitFor(() => expect(result.current.documentPricePrompt.open).toBe(false));
+    await waitFor(() =>
+      expect(result.current.documentPricePrompt.open).toBe(false),
+    );
 
     expect(mocks.allow).toHaveBeenCalledExactlyOnceWith(
       "vault-token",
@@ -662,7 +703,9 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
   });
 
   it("holds Allow until the request's terms load, and sends nothing without them", async () => {
-    mocks.review.mockRejectedValue(new DriveSharingError("request_unavailable", 404));
+    mocks.review.mockRejectedValue(
+      new DriveSharingError("request_unavailable", 404),
+    );
     const { result } = renderWith(documentEntry(DOC_ID));
     act(() => {
       actionOf(documentRow(result), "allow").run();
@@ -715,10 +758,17 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
     // was lost after the server allowed it, so the re-read finds it allowed
     // and the row settles as an answered request.
     mocks.review.mockResolvedValueOnce(
-      ownerReview({ revision: 4, allowAvailable: false, ownerAllowed: true, priceCents: 3000 }),
+      ownerReview({
+        revision: 4,
+        allowAvailable: false,
+        ownerAllowed: true,
+        priceCents: 3000,
+      }),
     );
     act(() => result.current.documentPricePrompt.submit(3000));
-    await waitFor(() => expect(result.current.documentPricePrompt.open).toBe(false));
+    await waitFor(() =>
+      expect(result.current.documentPricePrompt.open).toBe(false),
+    );
     expect(mocks.allow).toHaveBeenLastCalledWith(
       "vault-token",
       DOC_ID,
@@ -731,9 +781,15 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
   });
 
   it("allows a free request without a price", async () => {
-    mocks.allow.mockResolvedValue({ requestId: DOC_ID, status: "pending", revision: 3 });
+    mocks.allow.mockResolvedValue({
+      requestId: DOC_ID,
+      status: "pending",
+      revision: 3,
+    });
     mocks.review.mockResolvedValue(ownerReview({ paymentRequired: false }));
-    const { result } = renderWith(documentEntry(DOC_ID, { payment_required: false }));
+    const { result } = renderWith(
+      documentEntry(DOC_ID, { payment_required: false }),
+    );
     act(() => {
       actionOf(documentRow(result), "allow").run();
     });
@@ -743,7 +799,9 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
     expect(result.current.documentPricePrompt.paymentRequired).toBe(false);
 
     act(() => result.current.documentPricePrompt.submit(null));
-    await waitFor(() => expect(result.current.documentPricePrompt.open).toBe(false));
+    await waitFor(() =>
+      expect(result.current.documentPricePrompt.open).toBe(false),
+    );
     expect(mocks.allow).toHaveBeenCalledExactlyOnceWith(
       "vault-token",
       DOC_ID,
@@ -818,26 +876,28 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
 
   it("shows payout setup as waiting without a requester Pay action", () => {
     const paymentId = "44444444-4444-4444-8444-444444444444";
-    mocks.consentItems = [{
-      id: `document_share_request:${paymentId}`,
-      request_id: paymentId,
-      kind: "outgoing_request",
-      status: "pending",
-      action: "DOCUMENT_SHARE_REVIEW",
-      scope: null,
-      counterpart_type: "investor",
-      counterpart_label: "Meena Rao",
-      issued_at: 1790000000000,
-      metadata: {
-        request_source: "drive_document_share_request",
-        direction: "outgoing",
-        paymentStatus: "checkout_open",
-        paymentAmountCents: 2000,
-        paymentCurrency: "usd",
-        checkoutExpiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
-        ownerPayoutAccountReady: false,
+    mocks.consentItems = [
+      {
+        id: `document_share_request:${paymentId}`,
+        request_id: paymentId,
+        kind: "outgoing_request",
+        status: "pending",
+        action: "DOCUMENT_SHARE_REVIEW",
+        scope: null,
+        counterpart_type: "investor",
+        counterpart_label: "Meena Rao",
+        issued_at: 1790000000000,
+        metadata: {
+          request_source: "drive_document_share_request",
+          direction: "outgoing",
+          paymentStatus: "checkout_open",
+          paymentAmountCents: 2000,
+          paymentCurrency: "usd",
+          checkoutExpiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+          ownerPayoutAccountReady: false,
+        },
       },
-    }];
+    ];
     const { result } = renderHook(() => useFeedActionables());
     const payment = result.current.actionables.find(
       (row) => row.id === `drive-payment:${paymentId}`,
@@ -853,72 +913,243 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
   it("shows payout setup first on each affected request and routes to Profile", async () => {
     const otherId = "33333333-3333-4333-8333-333333333333";
     const { result } = renderWith(
-      documentEntry(DOC_ID, { ownerPayoutAccountReady: false, ownerPriceRequired: true }),
-      documentEntry(otherId, { ownerPayoutAccountReady: false, owner_decision_available: false }),
+      documentEntry(DOC_ID, {
+        ownerPayoutAccountReady: false,
+        ownerPriceRequired: true,
+      }),
+      documentEntry(otherId, {
+        ownerPayoutAccountReady: false,
+        owner_decision_available: false,
+      }),
     );
     for (const id of [DOC_ID, otherId]) {
       const row = documentRow(result, id)!;
-      expect(row.description).toBe("Link payouts");
+      expect(row.description).toBe("Requested a document");
       expect(row.actions.map(({ label }) => label)).toEqual(["Link payouts"]);
-      expect(result.current.actionables.filter((item) => item.id === row.id)).toHaveLength(1);
+      expect(
+        result.current.actionables.filter((item) => item.id === row.id),
+      ).toHaveLength(1);
     }
+    // The row body takes the same step as its button. It used to do nothing:
+    // a row with actions ignores `href`, and this row set no `onSelect`.
+    act(() => documentRow(result)!.onSelect?.());
     await act(async () => actionOf(documentRow(result), "setup-payouts").run());
-    expect(mocks.push).toHaveBeenCalledWith("/one/profile/payouts?from=%2Fone%2Ffeed");
+    expect(mocks.push.mock.calls).toEqual([
+      ["/one/profile/payouts?from=%2Fone%2Ffeed"],
+      ["/one/profile/payouts?from=%2Fone%2Ffeed"],
+    ]);
     expect(mocks.account).not.toHaveBeenCalled();
   });
 
+  it.each(["row", "button"] as const)(
+    "asks for Google Drive first and opens it over the Feed from the %s",
+    async (target) => {
+      window.history.replaceState(null, "", "/one/feed");
+      const pushState = vi.spyOn(window.history, "pushState");
+      const { result } = renderWith(
+        documentEntry(DOC_ID, {
+          ownerDriveReady: false,
+          ownerPayoutAccountReady: false,
+        }),
+      );
+      const row = documentRow(result)!;
+      expect(row).toMatchObject({
+        title: "Kushal Trivedi",
+        description: "Requested a document",
+      });
+      // One row: Drive comes before payouts and before Allow or Deny.
+      expect(row.actions.map(({ label }) => label)).toEqual([
+        "Connect Google Drive",
+      ]);
+      expect(
+        result.current.actionables.filter((item) => item.id === row.id),
+      ).toHaveLength(1);
+
+      await act(async () => {
+        if (target === "row") row.onSelect?.();
+        else await actionOf(row, "setup-drive").run();
+      });
+
+      expect(pushState).toHaveBeenCalledOnce();
+      const [state, , url] = pushState.mock.calls[0]!;
+      expect(url).toBe(
+        "/one/feed?profile_pane=1&profile_panel=connectors&profile_detail=connector%3Agoogle_drive",
+      );
+      // Closing Google Drive returns to the Feed, not to Connectors.
+      expect((state as Record<string, unknown>).__hushhProfilePane).toEqual({
+        depth: 1,
+        returnsToOrigin: true,
+      });
+      expect(mocks.push).not.toHaveBeenCalled();
+      pushState.mockRestore();
+      window.history.replaceState(null, "", "/");
+    },
+  );
+
   it("replaces payout setup with price setup as the streamed projection changes", async () => {
-    const { result, rerender } = renderWith(documentEntry(DOC_ID, {
-      ownerPayoutAccountReady: false, ownerPriceRequired: true, owner_decision_available: false,
-    }));
-    expect(documentRow(result)?.description).toBe("Link payouts");
-    mocks.consentItems = [documentEntry(DOC_ID, {
-      ownerPayoutAccountReady: true, ownerPriceRequired: true, owner_decision_available: false,
-    })];
+    const { result, rerender } = renderWith(
+      documentEntry(DOC_ID, {
+        ownerPayoutAccountReady: false,
+        ownerPriceRequired: true,
+        owner_decision_available: false,
+      }),
+    );
+    expect(documentRow(result)?.actions.map(({ label }) => label)).toEqual([
+      "Link payouts",
+    ]);
+    mocks.consentItems = [
+      documentEntry(DOC_ID, {
+        ownerPayoutAccountReady: true,
+        ownerPriceRequired: true,
+        owner_decision_available: false,
+      }),
+    ];
     rerender();
-    expect(documentRow(result)?.actions.map(({ label }) => label)).toEqual(["Set price"]);
+    expect(documentRow(result)?.actions.map(({ label }) => label)).toEqual([
+      "Set price",
+    ]);
     await act(async () => actionOf(documentRow(result), "setup-price").run());
-    expect(mocks.push).toHaveBeenCalledWith("/one/profile/request-pricing?from=%2Fone%2Ffeed");
-    mocks.consentItems = [documentEntry(DOC_ID, {
-      ownerPayoutAccountReady: true, ownerPriceRequired: false, owner_decision_available: false,
-    })];
+    expect(mocks.push).toHaveBeenCalledWith(
+      "/one/profile/request-pricing?from=%2Fone%2Ffeed",
+    );
+    mocks.consentItems = [
+      documentEntry(DOC_ID, {
+        ownerPayoutAccountReady: true,
+        ownerPriceRequired: false,
+        owner_decision_available: false,
+      }),
+    ];
     rerender();
     expect(documentRow(result)?.actions).toEqual([]);
     expect(mocks.account).not.toHaveBeenCalled();
   });
 
-  it.each([null, 1200])("uses a price-only command for a trusted request with draft price %s", async (draftPrice) => {
-    mocks.review.mockResolvedValue(ownerReview({
-      allowAvailable: false, priceOnlyAvailable: true, ownerPriceRequired: draftPrice === null,
-      ownerPayoutAccountReady: true, trustedAuto: true, priceCents: draftPrice,
-    }));
-    mocks.setRequestPrice.mockResolvedValue({ requestId: DOC_ID, revision: 4, status: "pending" });
-    const { result } = renderWith(documentEntry(DOC_ID, {
-      ownerPayoutAccountReady: true, ownerPriceRequired: draftPrice === null,
-      owner_decision_available: false, owner_price_available: true,
-    }));
-    expect(documentRow(result)?.actions.map(({ label }) => label)).toEqual(["Set price"]);
-    await act(async () => actionOf(documentRow(result), "allow").run());
-    await waitFor(() => expect(result.current.documentPricePrompt.detailsPending).toBe(false));
-    expect(result.current.documentPricePrompt.priceOnly).toBe(true);
-    expect(result.current.documentPricePrompt.initialAmountCents).toBe(draftPrice);
-    await act(async () => result.current.documentPricePrompt.submit(500));
-    await waitFor(() => expect(mocks.setRequestPrice).toHaveBeenCalledExactlyOnceWith(
-      "vault-token", DOC_ID, { revision: 3, amountCents: 500 }, expect.any(Function),
-    ));
-    expect(mocks.allow).not.toHaveBeenCalled();
-  });
+  it.each([null, 1200])(
+    "uses a price-only command for a trusted request with draft price %s",
+    async (draftPrice) => {
+      mocks.review.mockResolvedValue(
+        ownerReview({
+          allowAvailable: false,
+          priceOnlyAvailable: true,
+          ownerPriceRequired: draftPrice === null,
+          ownerPayoutAccountReady: true,
+          trustedAuto: true,
+          priceCents: draftPrice,
+        }),
+      );
+      mocks.setRequestPrice.mockResolvedValue({
+        requestId: DOC_ID,
+        revision: 4,
+        status: "pending",
+      });
+      const { result } = renderWith(
+        documentEntry(DOC_ID, {
+          ownerPayoutAccountReady: true,
+          ownerPriceRequired: draftPrice === null,
+          owner_decision_available: false,
+          owner_price_available: true,
+        }),
+      );
+      expect(documentRow(result)?.actions.map(({ label }) => label)).toEqual([
+        "Set price",
+      ]);
+      await act(async () => actionOf(documentRow(result), "allow").run());
+      await waitFor(() =>
+        expect(result.current.documentPricePrompt.detailsPending).toBe(false),
+      );
+      expect(result.current.documentPricePrompt.priceOnly).toBe(true);
+      expect(result.current.documentPricePrompt.initialAmountCents).toBe(
+        draftPrice,
+      );
+      await act(async () => result.current.documentPricePrompt.submit(500));
+      await waitFor(() =>
+        expect(mocks.setRequestPrice).toHaveBeenCalledExactlyOnceWith(
+          "vault-token",
+          DOC_ID,
+          { revision: 3, amountCents: 500 },
+          expect.any(Function),
+        ),
+      );
+      expect(mocks.allow).not.toHaveBeenCalled();
+    },
+  );
 
   it("keeps non-trusted price choice inside Allow once payouts are ready", () => {
-    const { result } = renderWith(documentEntry(DOC_ID, {
-      ownerPayoutAccountReady: true, ownerPriceRequired: true,
-    }));
-    expect(documentRow(result)?.actions.map(({ label }) => label)).toEqual(["Deny", "Allow"]);
+    const { result } = renderWith(
+      documentEntry(DOC_ID, {
+        ownerPayoutAccountReady: true,
+        ownerPriceRequired: true,
+      }),
+    );
+    expect(documentRow(result)?.actions.map(({ label }) => label)).toEqual([
+      "Deny",
+      "Allow",
+    ]);
   });
 
   it("keeps legacy requests out of Connect setup discovery", () => {
     const { result } = renderWith(documentEntry(DOC_ID));
-    expect(result.current.actionables.find((row) => row.id === "drive-payout-setup")).toBeUndefined();
+    expect(
+      result.current.actionables.find((row) => row.id === "drive-payout-setup"),
+    ).toBeUndefined();
     expect(mocks.account).not.toHaveBeenCalled();
+  });
+});
+
+const ANSWER_ID = "answer_request:11111111-2222-3333-4444-555555555555";
+const answerEntry = (
+  role: string,
+  state: string,
+  overrides: Record<string, unknown> = {},
+) => ({
+  id: ANSWER_ID,
+  request_id: ANSWER_ID,
+  kind: "incoming_request",
+  status: state,
+  action: "ANSWER_REQUEST_REVIEW",
+  scope: null,
+  counterpart_type: "person",
+  counterpart_label: "Connected person",
+  metadata: { request_source: "answer_request", request_status: state, role },
+  ...overrides,
+});
+describe("Request scope Needs you", () => {
+  it.each([
+    ["owner", "awaiting_owner", "Review question"],
+    ["owner", "answering", "Write answer"],
+    ["requester", "approved", "Review price and pay"],
+  ])("routes %s %s through its review card", async (role, state, label) => {
+    mocks.pendingCount = 1;
+    mocks.consentItems = [answerEntry(role, state)];
+    const { result } = renderHook(() => useFeedActionables());
+    const row = result.current.actionables.find(
+      (item) => item.id === `consent:${ANSWER_ID}`,
+    )!;
+    expect(row.description).toBe(label);
+    expect(row.actions.map((action) => action.key)).toEqual(["review-answer"]);
+    await act(async () => {
+      await row.actions[0].run();
+    });
+    expect(mocks.push).toHaveBeenCalledWith(
+      expect.stringContaining(encodeURIComponent(ANSWER_ID)),
+    );
+    expect(mocks.allow).not.toHaveBeenCalled();
+    expect(mocks.decide).not.toHaveBeenCalled();
+  });
+  it.each([
+    { scope: "attr.financial.*", allowed_next_action: "review_request" },
+    {
+      bundle_items: [
+        { id: "legacy", scope: "attr.financial.*", status: "pending" },
+      ],
+    },
+  ])("never grants generic consent for an answer row (%j)", (overrides) => {
+    mocks.pendingCount = 1;
+    mocks.consentItems = [answerEntry("owner", "pending", overrides)];
+    const { result } = renderHook(() => useFeedActionables());
+    const row = result.current.actionables.find(
+      (item) => item.id === `consent:${ANSWER_ID}`,
+    )!;
+    expect(row.actions.map((action) => action.key)).toEqual(["review-answer"]);
   });
 });

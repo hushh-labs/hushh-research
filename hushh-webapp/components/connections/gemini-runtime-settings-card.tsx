@@ -724,7 +724,7 @@ function OwnerRuntimeSettingsCard({
   };
 
   return (
-    <div className={cn(requiresExplicitSelection ? "space-y-6" : "contents", detailStyles.geminiRoot)}>
+    <div className={cn(requiresExplicitSelection ? "space-y-3" : "contents", detailStyles.geminiRoot)}>
       {agentOutcome ? (
         <p
           role="status"

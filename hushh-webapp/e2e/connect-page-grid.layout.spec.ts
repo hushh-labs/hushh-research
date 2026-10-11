@@ -24,6 +24,7 @@ const STUBBED = [
   "@/lib/cache/cache-sync-service",
   "@/lib/one-location/service",
   "@/lib/contacts/use-contact-sync",
+  "@/lib/kai/actions/voice-surface-metadata",
   "@/lib/agent/local-onboarding-actions",
   "@/lib/connections/use-outgoing-request-resolution-watch",
   "@/lib/connections/connection-graph-events",

@@ -17,6 +17,26 @@ flowchart LR
   Payout -->|failure| Repair[Stripe-hosted bank repair]
 ```
 
+## Hussh Coins and payout sandbox
+
+New Hussh Coins-settled document orders earn without bank setup. Profile → Payouts
+shows real Hussh Coins above a separate sandbox balance and redemption flow.
+Sandbox redemption consumes only test coins. Legacy direct transfers continue
+under their recorded payment mode. Real coin redemption remains disabled until
+live activation and its separate acceptance contract are complete.
+
+`STRIPE_MODE` and `STRIPE_SECRET_KEY` continue to own Checkout, refunds and actual
+fee retrieval. `STRIPE_CONNECT_MODE` and `STRIPE_CONNECT_SECRET_KEY` independently
+select the document bank setup and sandbox redemption client. UAT uses live
+Checkout and test Connect. Never set the payment key to test to enable sandbox
+bank linking. Account mappings remain isolated by `(user_id,stripe_mode)`.
+
+The existing `/api/one/payouts/connect/webhook` and signing secret retain legacy
+payment-mode event handling. `/api/one/payouts/connect/sandbox-webhook` accepts
+only test events verified with `STRIPE_CONNECT_TEST_WEBHOOK_SECRET`. Live/test
+account identifiers, signatures and payment sources cannot cross this boundary.
+Both API and Drive worker receive the sandbox key for durable redemption retry.
+
 ## UAT and production setup
 
 Use the owner's US Express connected account for the configured Stripe mode.
@@ -30,15 +50,31 @@ legacy mapping for rolling compatibility. Test onboarding never satisfies live
 payout readiness. UAT and production retain separate Cloud SQL instances; do not
 copy payout mappings between them. See the [live UAT rollout](./drive-request-stripe-paywall.md).
 
+A live API key does not prove Connect is activated. Before offering live bank
+setup, finish Stripe Dashboard → Connect → Set up, including any required
+identity verification and final-details review. Stripe can reject account
+creation with “complete your platform profile” even after the platform
+questionnaire is marked complete. The app returns
+`PAYOUT_PLATFORM_SETUP_REQUIRED` and explains that Hussh must activate payouts;
+the owner should not be sent into a repeated bank-setup retry loop. This provider
+prerequisite cannot be repaired by replacing an owner's bank or changing keys.
+
+Legacy sandbox account recovery accepts only Stripe's explicit, account-specific
+test-mode verdict or missing-resource response. Stripe's Python SDK decodes the
+test-mode HTTP 400 as `InvalidRequestError`; transport-level tests cover that
+actual decoding. Authentication, network, and unrelated provider failures must
+never authorize a replacement connected account.
+
 In each Stripe environment, create a **Connected accounts** event destination
 pointing to `POST /api/one/payouts/connect/webhook`. Select `account.updated`,
 `account.external_account.created`, `account.external_account.updated`,
 `account.external_account.deleted`, `payout.created`, `payout.updated`,
-`payout.paid`, and `payout.failed`. Store that
+`payout.paid`, `payout.failed`, and `payout.canceled`. Store that
 destination's signing secret as `STRIPE_CONNECT_WEBHOOK_SECRET` in the backend
 Secret Manager project. It must differ from the platform Checkout endpoint's
 `STRIPE_WEBHOOK_SECRET`. Bind both secrets only to the backend runtime, never
-the webapp. Production Connect destinations may deliver test and live events;
+the webapp. The private worker also needs the Connect webhook secret to
+reconcile an accepted live redemption after a retry. Production Connect destinations may deliver test and live events;
 the handler checks `event.livemode`, top-level `event.account`, the mapped
 connected account, and a provider read under the matching Stripe API key.
 
@@ -50,6 +86,10 @@ error. The account owner can read at most 20 recent deposits through
 `GET /api/one/payouts/account/bank-payouts`; the response has no bank account
 details and no document request ID.
 
+The private worker also scans bounded pages of connected-account payouts using
+a durable cursor. A missed webhook can therefore update deposit status without
+an owner refresh; the scan never attributes a bank deposit to a single request.
+
 ## Bank management
 
 Profile → Payouts → **Manage bank** issues a fresh, owner-scoped Express login
@@ -58,6 +98,12 @@ eligible payout banks. Hussh never accepts account numbers or routing numbers.
 Deleted, non-US, or non-Express accounts cannot receive a management link.
 Restricted Express accounts remain manageable so the owner can fix a failed
 bank or finish verification.
+
+Express login links use either `https://stripe.com/express/...` or
+`https://connect.stripe.com/express/...`. Both backend and frontend accept these
+documented forms while rejecting unrelated hosts, paths, credentials, and
+ports. The link is short-lived; request a fresh link for every visit. Successful
+navigation or a return URL alone does not prove that bank setup is complete.
 
 The platform's Stripe **Connect → Payouts → External accounts** setting controls
 whether owners may keep several banks in one currency (up to ten). Enable

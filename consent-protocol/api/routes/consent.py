@@ -1285,6 +1285,21 @@ async def get_consent_center_summary(
     return await service.get_center_summary(firebase_uid, actor=actor, mode=mode)
 
 
+@router.get("/center/source-fence")
+async def get_consent_source_fence(firebase_uid: str = Depends(require_firebase_auth)):
+    try:
+        fence = await ConsentCenterService(require_complete=True).source_fence(firebase_uid)
+    except Exception:
+        raise HTTPException(
+            status_code=503, detail="Consent source inventory unavailable"
+        ) from None
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(
+        {"user_id": firebase_uid, "fence": fence}, headers={"Cache-Control": "private, no-store"}
+    )
+
+
 @router.get("/center/list")
 async def get_consent_center_list(
     actor: str | None = Query(default=None, max_length=50),
@@ -1295,9 +1310,10 @@ async def get_consent_center_list(
     page: int = Query(default=1, ge=1, le=1_000),
     limit: int = Query(default=20, ge=1, le=100),
     request_view: str = Query(default="received", pattern="^(received|sent)$"),
+    source_read: bool = Query(default=False),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
-    service = ConsentCenterService()
+    service = ConsentCenterService(require_complete=True) if source_read else ConsentCenterService()
     return await service.list_center(
         firebase_uid,
         actor=actor,

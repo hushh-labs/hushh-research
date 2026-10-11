@@ -2,6 +2,9 @@ import Foundation
 import Capacitor
 import UserNotifications
 import FirebaseMessaging
+import FirebaseAuth
+import FirebaseCore
+import UIKit
 
 /**
  * HushhNotificationsPlugin - Push token registration (Capacitor 8)
@@ -26,10 +29,53 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "unregisterPushToken", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "prepareNotificationKey", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "clearNotificationKey", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "clearChatNotifications", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "clearChatNotifications", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setActiveChat", returnType: CAPPluginReturnPromise)
     ]
 
     private let TAG = "HushhNotifications"
+    private var chatHandler: ChatNotificationHandler?
+    private let chatLock = NSLock()
+    private var activeChatTag = ""
+    private var activeChatKey = ""
+
+    override public func load() {
+        super.load()
+        installChatHandler()
+    }
+
+    private func installChatHandler() {
+        guard let router = bridge?.notificationRouter, let previous = router.pushNotificationHandler,
+              !(previous is ChatNotificationHandler) else { return }
+        let handler = ChatNotificationHandler(forwarded: previous, owner: self)
+        chatHandler = handler
+        router.pushNotificationHandler = handler
+    }
+
+    @objc func setActiveChat(_ call: CAPPluginCall) {
+        guard let key = call.getString("keyId"), ChatPreviewKeys.matches(keyId: key) else { call.resolve(); return }
+        chatLock.lock(); activeChatTag = call.getString("tag") ?? ""; activeChatKey = key; chatLock.unlock()
+        call.resolve()
+    }
+
+    fileprivate func acceptsChat(_ info: [AnyHashable: Any]) -> Bool {
+        if let key = info["recipient_key_id"] as? String {
+            if !ChatPreviewKeys.matches(keyId: key) { return false }
+        } else {
+            guard FirebaseApp.app() != nil, let user = Auth.auth().currentUser?.uid,
+                  info["user_id"] as? String == user else { return false }
+        }
+        if ChatPreviewKeys.isRead(info) { return false }
+        if let raw = info["chat_expires_at"] as? String, let expiry = Double(raw), expiry < Date().timeIntervalSince1970 { return false }
+        return true
+    }
+
+    fileprivate func quietChat(_ info: [AnyHashable: Any]) -> Bool {
+        let tag = info["type"] as? String == "location_circle_message"
+            ? "circle-chat:\(info["circle_id"] as? String ?? "")" : "direct-chat:\(info["conversation_id"] as? String ?? "")"
+        chatLock.lock(); let active = activeChatTag; let key = activeChatKey; chatLock.unlock()
+        return UIApplication.shared.applicationState == .active && active == tag && ChatPreviewKeys.matches(keyId: key)
+    }
 
     private func getBackendUrl(_ call: CAPPluginCall) -> String {
         return HushhProxyClient.resolveBackendUrl(
@@ -164,6 +210,7 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func prepareNotificationKey(_ call: CAPPluginCall) {
+        installChatHandler()
         guard let user = call.getString("userId"), let device = call.getString("deviceId") else { call.reject("Notification identity required"); return }
         do { call.resolve(try ChatPreviewKeys.prepare(userId: user, deviceId: device)) }
         catch { call.reject("Notification keys unavailable") }
@@ -174,19 +221,39 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
         let sequence = call.getDouble("sequence")
         let before = call.getDouble("before")
         let messageId = call.getString("messageId")
+        Self.clearRead(thread: thread, key: key, sequence: sequence, before: before, messageId: messageId, badgeCount: call.getInt("badgeCount"), badgeVersion: call.getDouble("badgeVersion")) { call.resolve() }
+    }
+
+    static func handleReadSync(_ info: [AnyHashable: Any], completion: @escaping () -> Void) -> Bool {
+        guard let kind = info["type"] as? String, ["direct_message_read", "location_circle_chat_read"].contains(kind) else { return false }
+        guard let key = ChatPreviewKeys.recipientKey(info),
+              let thread = (info["circle_id"] as? String) ?? (info["conversation_id"] as? String) else { completion(); return true }
+        func number(_ field: String) -> Double? { (info[field] as? String).flatMap(Double.init) }
+        clearRead(thread: thread, key: key, sequence: number("chat_sequence"), before: number("chat_read_before"),
+                  messageId: info["chat_read_message_id"] as? String, badgeCount: (info["chat_badge_count"] as? String).flatMap(Int.init), badgeVersion: number("chat_badge_version"), completion: completion)
+        return true
+    }
+
+    private static func clearRead(thread: String, key: String, sequence: Double?, before: Double?, messageId: String?, badgeCount: Int?, badgeVersion: Double?, completion: @escaping () -> Void) {
+        ChatPreviewKeys.recordRead(keyId: key, thread: thread, sequence: sequence, before: before, messageId: messageId)
         UNUserNotificationCenter.current().getDeliveredNotifications { notifications in
-            guard ChatPreviewKeys.matches(keyId: key) else { call.resolve(); return }
+            guard ChatPreviewKeys.matches(keyId: key) else { completion(); return }
             let ids = notifications.filter { notification in
                 let info = notification.request.content.userInfo
-                guard (info["recipient_key_id"] as? String) == key,
+                guard ChatPreviewKeys.recipientKey(info) == key,
                       ((info["conversation_id"] as? String) ?? (info["circle_id"] as? String)) == thread else { return false }
                 if let messageId = messageId, info["message_id"] as? String == messageId { return true }
-                if let sequence = sequence, let raw = info["chat_sequence"] as? String, let number = Double(raw) { return number <= sequence }
-                if let before = before, let raw = info["chat_sent_at"] as? String, let number = Double(raw) { return number <= before }
+                if let sequence = sequence, let raw = info["chat_sequence"] as? String, let number = Double(raw) { return number > 0 && number <= sequence }
+                if let before = before, let raw = info["chat_sent_at"] as? String, let number = Double(raw) { return number > 0 && number <= before }
                 return false
             }.map { $0.request.identifier }
             UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ids)
-            call.resolve()
+            if let count = badgeCount {
+                let applied = ChatPreviewKeys.applyBadge(keyId: key, version: badgeVersion) {
+                    UNUserNotificationCenter.current().setBadgeCount(max(0, min(9999, count))) { _ in completion() }
+                }
+                if !applied { completion() }
+            } else { completion() }
         }
     }
 
@@ -194,7 +261,25 @@ public class HushhNotificationsPlugin: CAPPlugin, CAPBridgedPlugin {
         guard let user = call.getString("userId") else { call.reject("Notification identity required"); return }
         do {
             _ = try ChatPreviewKeys.clear(userId: user)
+            chatLock.lock(); activeChatTag = ""; activeChatKey = ""; chatLock.unlock()
             call.resolve()
         } catch { call.reject("Notification cleanup unavailable") }
     }
+}
+
+private final class ChatNotificationHandler: NSObject, NotificationHandlerProtocol {
+    let forwarded: NotificationHandlerProtocol
+    weak var owner: HushhNotificationsPlugin?
+    init(forwarded: NotificationHandlerProtocol, owner: HushhNotificationsPlugin) {
+        self.forwarded = forwarded; self.owner = owner; super.init()
+    }
+    func willPresent(notification: UNNotification) -> UNNotificationPresentationOptions {
+        let inherited = forwarded.willPresent(notification: notification)
+        let info = notification.request.content.userInfo
+        guard let kind = info["type"] as? String, ["direct_message", "location_circle_message"].contains(kind) else { return inherited }
+        guard let owner = owner, owner.acceptsChat(info) else { return [] }
+        if owner.quietChat(info) { return inherited.subtracting([.alert, .banner, .list, .sound]) }
+        return inherited.union([.banner, .list, .sound])
+    }
+    func didReceive(response: UNNotificationResponse) { forwarded.didReceive(response: response) }
 }

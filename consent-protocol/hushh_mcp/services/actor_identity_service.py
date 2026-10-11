@@ -1197,7 +1197,7 @@ class ActorIdentityService:
             return []
         return [self._normalize_alias_row(row) for row in rows]
 
-    async def list_account_identifiers(self, user_id: str) -> list[str]:
+    async def list_account_identifiers(self, user_id: str, *, refresh: bool = True) -> list[str]:
         """
         Return identifiers that are verified or first-party known for this account.
 
@@ -1219,7 +1219,7 @@ class ActorIdentityService:
             if normalized and normalized not in identifiers:
                 identifiers.append(normalized)
 
-        identity = await self.sync_from_firebase(normalized_user_id)
+        identity = await self.sync_from_firebase(normalized_user_id) if refresh else None
         if not identity:
             identity = (await self.get_many([normalized_user_id])).get(normalized_user_id) or {}
 

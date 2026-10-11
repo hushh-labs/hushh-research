@@ -798,6 +798,96 @@
       "control_ids": [],
       "state_exposure": [],
       "speaker_persona": "one"
+    },
+    {
+      "action_id": "profile.payouts.test_redeem",
+      "label": "Test Hussh Coins redemption",
+      "meaning": "Redeems the available sandbox balance to a test Stripe account. Real Hussh Coins and real money remain unchanged.",
+      "aliases": [
+        "test redeem",
+        "test my payout"
+      ],
+      "search_keywords": [
+        "Hussh Coins",
+        "sandbox redemption",
+        "test payout"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/payouts"
+        ],
+        "screens": [
+          "profile_payouts"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Unlocked vault; test balance available; Stripe test payout account linked."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "profile.payouts.test_redeem"
+      },
+      "control_ids": [
+        "profile_payouts_test_redeem"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "components/consent/document-hashcoins.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "profile.payouts.redeem",
+      "label": "Redeem Hussh Coins",
+      "meaning": "Transfers one eligible document earning from Hussh Coins to the owner's verified live Stripe account. Bank deposit follows the owner's Stripe payout settings.",
+      "aliases": [
+        "redeem my earnings",
+        "cash out my coins"
+      ],
+      "search_keywords": [
+        "Hussh Coins",
+        "redeem",
+        "bank payout"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/payouts"
+        ],
+        "screens": [
+          "profile_payouts"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Unlocked vault; eligible live earning; verified live Stripe payout account."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "profile.payouts.redeem"
+      },
+      "control_ids": [
+        "profile_payouts_redeem"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "components/consent/document-hashcoins.tsx"
+      ],
+      "speaker_persona": "one"
     }
   ],
   "search": {}

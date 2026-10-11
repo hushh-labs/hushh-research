@@ -22,7 +22,7 @@ vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ vaultKey: null, vaultOwnerToken: null, isVaultUnlocked: false }),
 }));
 vi.mock("@/lib/agent/local-onboarding-actions", () => ({ useLocalOnboardingActionHandler: vi.fn() }));
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({ usePublishVoiceSurfaceMetadata: vi.fn() }));
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({ usePublishVoiceSurfaceMetadata: vi.fn() }));
 vi.mock("@/lib/utils/browser-navigation", () => ({ requestInternalAppNavigation: navigate }));
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
   PreVaultUserStateService: {

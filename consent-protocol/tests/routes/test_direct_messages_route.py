@@ -39,6 +39,8 @@ def test_send_person_ref_threads_authenticated_sender_and_never_accepts_a_peer_u
         recipient_user_id=None,
         recipient_person_ref="11111111-1111-4111-8111-111111111111",
         reply_to_message_id="22222222-2222-4222-8222-222222222222",
+        client_message_id=None,
+        attachment=None,
     )
 
 
@@ -73,6 +75,7 @@ def test_attachment_send_and_read_keep_authenticated_identity_and_private_bytes(
         recipient_user_id=None,
         recipient_person_ref=conversation_id,
         reply_to_message_id=None,
+        client_message_id=None,
         attachment=attachment,
     )
     assert fetched.status_code == 200

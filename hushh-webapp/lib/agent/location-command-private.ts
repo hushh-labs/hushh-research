@@ -21,7 +21,7 @@
  */
 import type { AgentActionRuntimeResult } from "@/lib/agent/agent-action-runtime";
 import { ApiService } from "@/lib/services/api-service";
-import { getKaiActionById, type KaiActionDefinition } from "@/lib/voice/kai-action-gateway";
+import { getKaiActionById, type KaiActionDefinition } from "@/lib/kai/actions/kai-action-gateway";
 import type {
   CommandCheckpoint,
   CommandGate,

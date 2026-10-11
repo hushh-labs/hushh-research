@@ -16,7 +16,7 @@ import {
   setTopShellTabSwipeState,
   subscribeTopShellTabSelection,
 } from "@/lib/navigation/top-shell-tab-swipe-progress";
-import { VoiceSurfaceActivityBoundary } from "@/lib/voice/voice-surface-activity";
+import { VoiceSurfaceActivityBoundary } from "@/lib/kai/actions/voice-surface-activity";
 import { cn } from "@/lib/utils";
 
 /**
@@ -697,6 +697,10 @@ export function SwipeViews({
       if (widthChanged || engineIsStale || slideCountStale) api.reInit();
       if (targetIdx !== -1) {
         scrollToIndexSafely(api, targetIdx, true);
+        // A geometry repair jumps without scroll/settle events. Publish its
+        // resting position here too, or the shell retains the prior highlight.
+        isAnimatingRef.current = false;
+        setTopShellTabSwipeState(tabSetId, targetIdx, false);
       }
     };
 
@@ -723,7 +727,7 @@ export function SwipeViews({
       if (resizeFrameRef.current !== null) cancelAnimationFrame(resizeFrameRef.current);
       resizeFrameRef.current = null;
     };
-  }, [emblaApi]);
+  }, [emblaApi, tabSetId]);
 
   /**
    * Lets the viewport come down to the pane the person is now looking at.

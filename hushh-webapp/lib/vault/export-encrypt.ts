@@ -42,6 +42,21 @@ export async function generateExportKey(): Promise<string> {
     .join("");
 }
 
+/** Portable password encryption for files; independent of the owner's vault key. */
+export const PASSWORD_EXPORT_ITERATIONS = 600_000;
+export async function derivePasswordExportKey(password: string, salt: Uint8Array): Promise<string> {
+  if (!password || new TextEncoder().encode(password).length > 1024 || salt.byteLength !== 16) {
+    throw new Error("Invalid file password.");
+  }
+  const passwordBytes = new TextEncoder().encode(password);
+  let derived: Uint8Array | undefined;
+  try {
+    const material = await crypto.subtle.importKey("raw", toArrayBuffer(passwordBytes), "PBKDF2", false, ["deriveBits"]);
+    derived = new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", salt: toArrayBuffer(salt), iterations: PASSWORD_EXPORT_ITERATIONS, hash: "SHA-256" }, material, 256));
+    return Array.from(derived, byte => byte.toString(16).padStart(2, "0")).join("");
+  } finally { passwordBytes.fill(0); derived?.fill(0); }
+}
+
 /**
  * Encrypt data with an export key for consent-based access
  */

@@ -479,3 +479,40 @@ async def test_push_worker_keeps_blocking_sdk_work_off_loop(monkeypatch):
     await consent_listener._send_fcm_for_user("synthetic-owner", {"action": "REQUESTED"})
     assert observed[0][0] != loop_thread
     assert observed[0][1:] == ("synthetic-owner", {"action": "REQUESTED"})
+
+
+async def test_answer_doorbell_claim_is_global_and_participant_bound(monkeypatch):
+    from api import consent_listener
+
+    queued, pushed, keys = [], [], set()
+
+    async def queue(uid, payload):
+        queued.append(uid)
+
+    async def claim(key):
+        if key in keys:
+            return False
+        keys.add(key)
+        return True
+
+    async def push(uid, payload):
+        pushed.append(uid)
+
+    monkeypatch.setattr(consent_listener, "_serving_loop", asyncio.get_running_loop())
+    monkeypatch.setattr(consent_listener, "_push_to_consent_queue", queue)
+    monkeypatch.setattr(consent_listener, "claim_delivery", claim)
+    monkeypatch.setattr(consent_listener, "_send_fcm_for_user", push)
+    base = {
+        "type": "answer_request_changed",
+        "request_id": "11111111-2222-3333-4444-555555555555",
+        "event_id": "request:approved:1",
+    }
+    for uid in ["owner-1", "owner-1", "requester-1"]:
+        consent_listener._user_state_notify_callback(
+            None, 0, consent_listener.USER_STATE_CHANNEL, json.dumps({**base, "user_id": uid})
+        )
+    await asyncio.sleep(0)
+    await asyncio.gather(*list(consent_listener._background_notify_tasks))
+    assert queued == ["owner-1", "owner-1", "requester-1"]
+    assert pushed == ["owner-1", "requester-1"]
+    assert len(keys) == 2

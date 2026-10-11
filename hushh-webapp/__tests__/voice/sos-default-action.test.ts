@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { getKaiActionById, listKaiActions } from "@/lib/voice/kai-action-gateway";
-import { resolveNavigationJourney } from "@/lib/voice/navigation-journey";
+import { getKaiActionById, listKaiActions } from "@/lib/kai/actions/kai-action-gateway";
+import { resolveNavigationJourney } from "@/lib/kai/actions/navigation-journey";
 
 /**
  * A bare or ambiguous emergency phrase ("save me", "sos", "help", "turn on

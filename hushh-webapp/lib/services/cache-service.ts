@@ -166,6 +166,7 @@ class CacheService {
       CACHE_KEYS.PKM_METADATA(userId),
       CACHE_KEYS.PKM_BLOB(userId),
       CACHE_KEYS.PKM_DECRYPTED_BLOB(userId),
+      `pkm_memory_document_${userId}`,
       CACHE_KEYS.VAULT_STATUS(userId),
       CACHE_KEYS.VAULT_CHECK(userId),
       CACHE_KEYS.ACCOUNT_IDENTITY(userId),

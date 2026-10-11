@@ -17,7 +17,7 @@ import {
   decryptData,
   type EncryptedPayload,
 } from "@/lib/vault/encrypt";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 import { PrivateLocationCommand } from "@/lib/agent/location-command-private";
 import { ownerContentIsPrivate } from "@/lib/services/private-agent-specialist-chat";
 import type { AgentActionRuntimeResult } from "@/lib/agent/agent-action-runtime";

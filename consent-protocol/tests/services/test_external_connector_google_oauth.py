@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from types import SimpleNamespace
@@ -245,9 +246,10 @@ def test_live_consent_accepts_drive_with_optional_prior_selected_scope(service, 
 
 
 @pytest.mark.asyncio
-async def test_live_verification_requires_a_drive_search_before_marking_connected(
-    service, monkeypatch
+async def test_live_verification_requires_a_drive_search_then_resumes_waiting_requests(
+    service, monkeypatch, caplog
 ):
+    from hushh_mcp.services import drive_sharing_service
     from hushh_mcp.services import google_drive_rest_transport as rest
 
     monkeypatch.setattr(oauth, "connector_feature_enabled", lambda *_: True)
@@ -261,13 +263,37 @@ async def test_live_verification_requires_a_drive_search_before_marking_connecte
     probe = AsyncMock(side_effect=oauth.DriveOAuthError("connector_unavailable", status_code=502))
     monkeypatch.setattr(oauth.GoogleDriveAdapter, "account", account)
     monkeypatch.setattr(rest.GoogleDriveRestTransport, "probe", probe)
-    service.lifecycle.mark_verified = AsyncMock()
+    resume = AsyncMock()
+
+    class Sharing:
+        def __init__(self, **kwargs):
+            assert kwargs == {"oauth": service}
+            self.resume_owner_drive = resume
+
+    monkeypatch.setattr(drive_sharing_service, "DriveSharingService", Sharing)
+    service.lifecycle.mark_verified = AsyncMock(return_value=True)
     with pytest.raises(oauth.DriveOAuthError, match="connector_unavailable"):
         await service.verify_live(user_id="owner")
     account.assert_awaited_once()
     probe.assert_awaited_once()
     service.lifecycle.mark_verified.assert_not_awaited()
     probe.side_effect = None
-    assert (
-        await service.verify_live(user_id="owner") is service.lifecycle.mark_verified.return_value
-    )
+    # A superseded credential is not verified, so nothing resumes.
+    service.lifecycle.mark_verified.return_value = False
+    assert await service.verify_live(user_id="owner") is False
+    resume.assert_not_awaited()
+    service.lifecycle.mark_verified.return_value = True
+    assert await service.verify_live(user_id="owner") is True
+    resume.assert_awaited_once_with(user_id="owner")
+
+    # The committed verification never fails or waits on a failed or slow resume.
+    async def hang(**_):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(oauth, "RESUME_TIMEOUT_SECONDS", 0.01)
+    for failure in (RuntimeError("synthetic provider detail"), hang):
+        resume.side_effect = failure
+        caplog.clear()
+        assert await service.verify_live(user_id="owner") is True
+        assert "request_resume_deferred" in caplog.text
+        assert "synthetic" not in caplog.text and "owner" not in caplog.text

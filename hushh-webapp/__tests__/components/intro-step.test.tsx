@@ -8,8 +8,9 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { IntroStep } from "@/components/onboarding/IntroStep";
+import { HUSHH_MARK_PATH } from "@/lib/brand/hushh-mark";
 import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
-import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { getVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 vi.mock("@/components/onboarding/OnboardingHeroBackground", () => ({
   OnboardingHeroBackground: () => null,
@@ -186,6 +187,10 @@ describe("IntroStep voice contract", () => {
     ).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Sign in", exact: true })).not.toBeInTheDocument();
     expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "1");
+    const welcomeMark = document.querySelector("[data-hushh-mark] img");
+    const markUrl = new URL(welcomeMark?.getAttribute("src") ?? "", "http://localhost");
+    expect(markUrl.searchParams.get("url") ?? markUrl.pathname).toBe(HUSHH_MARK_PATH);
+    expect(screen.queryByText("🤫")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
     expect(onLogin).not.toHaveBeenCalled();
     expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "2");

@@ -36,6 +36,11 @@ PUSH_TOKENS_FOR_USER_SQL = f"""
 """  # nosec B608 # Composes the fixed registry query; user_id remains a bound parameter.
 
 
+PUSH_NOTIFICATION_DEVICES_FOR_USER_SQL = f"""
+ SELECT token,platform,preview_key_id FROM ({PUSH_TOKEN_REGISTRY_SQL}) registrations WHERE user_id=:user_id
+"""  # nosec B608 # Fixed registry SQL; recipient remains a bound parameter.
+
+
 def remove_stale_push_token(db, user_id: str, token: str) -> None:
     # Always legacy first, matching registration/its DB reconciliation trigger.
     result = db.execute_raw(

@@ -19,7 +19,7 @@ import {
   type KaiCommandBarOpenRequest,
 } from "@/lib/navigation/kai-command-bar-events";
 import { isKaiCommandBarOpen } from "@/lib/navigation/search-route";
-import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { getVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import { startAppGoal } from "@/lib/agent/app-goal-client";

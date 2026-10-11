@@ -54,7 +54,7 @@ import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
 import { useInteractionIntents } from "@/lib/interaction/interaction-intent-coordinator";
 import { useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { useNativeNavigation, NATIVE_NAVIGATION_TABS, type NativeNavigationTab } from "@/lib/capacitor/native-navigation";
-import { useVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { useVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 const BOTTOM_GAP_PX = 4;
 

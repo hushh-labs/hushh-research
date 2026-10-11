@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { getKaiActionById, listKaiActions } from "@/lib/voice/kai-action-gateway";
+import { getKaiActionById, listKaiActions } from "@/lib/kai/actions/kai-action-gateway";
 import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";

@@ -39,7 +39,7 @@ import {
   type RiaRequestScopeTemplate,
 } from "@/lib/services/ria-service";
 import { useRiaClientWorkspaceState } from "@/components/ria/use-ria-client-workspace-state";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 type WorkspaceTab = "overview" | "access" | "kai" | "explorer";
 

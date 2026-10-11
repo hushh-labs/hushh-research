@@ -372,3 +372,13 @@ as historical preview evidence, outside the release manifest. Never relabel an
 applied ledger row or replay this lineage on a preview that recorded the old IDs.
 The shared dev ledger readback contained neither old ID; recheck the target ledger
 and recovery immediately before any governed deployment.
+
+### Infrastructure integration lineage (2026-10-10)
+
+Main 299–305 retain their canonical identities. Infrastructure 299–304 moved to
+306–311 with byte-identical SQL and rollbacks; the exact prior `f0517d5f` manifest
+and original files remain under `db/legacy/scope-commerce-infrastructure-f0517d5f/`.
+The current release manifest owns the combined head. Shared Dev's 59 parked
+receipts and absent canonical baseline permit source registration; they do not
+prove canonical application or authorize receipt relabeling. Revalidate the target
+ledger, existing deferral, recovery and schema gates before deployment.

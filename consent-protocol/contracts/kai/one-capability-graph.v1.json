@@ -2905,6 +2905,151 @@
     },
     {
       "aliases": [
+        "Open Mail connection",
+        "open mail connection"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "route.mail_connections",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Navigates from Mail to open mail connection.",
+      "execution": {
+        "binding_ref": "route:/one/gmail",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/gmail"
+        }
+      },
+      "goal_id": "goal.route.mail_connections",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Open Mail connection",
+      "navigation": {
+        "fallback": "/one/gmail",
+        "routes": [
+          "/one/email"
+        ],
+        "screens": [
+          "email_agent"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": false,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "mail",
+        "open mail connection"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open Files",
         "open my files",
         "go to files",
@@ -14764,6 +14909,151 @@
     },
     {
       "aliases": [
+        "Back to Connections",
+        "back to connections"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "route.messages_connections",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Navigates from Messages to connections.",
+      "execution": {
+        "binding_ref": "route:/one/connect",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/connect"
+        }
+      },
+      "goal_id": "goal.route.messages_connections",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Back to Connections",
+      "navigation": {
+        "fallback": "/one/connect",
+        "routes": [
+          "/one/messages"
+        ],
+        "screens": [
+          "one_messages"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": false,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "messages",
+        "back to connections"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open Agents",
         "open agents",
         "open one agents",
@@ -18214,6 +18504,459 @@
     },
     {
       "aliases": [
+        "Test Hussh Coins redemption",
+        "test redeem",
+        "test my payout"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_owner_token"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.payouts.test_redeem",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Redeems the available sandbox balance to a test Stripe account. Real Hussh Coins and real money remain unchanged.",
+      "execution": {
+        "binding_ref": "semantic_action:profile.payouts.test_redeem",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "profile.payouts.test_redeem"
+        }
+      },
+      "goal_id": "goal.profile.payouts.test_redeem",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Test Hussh Coins redemption",
+      "navigation": {
+        "fallback": "profile.payouts.test_redeem",
+        "routes": [
+          "/one/profile/payouts"
+        ],
+        "screens": [
+          "profile_payouts"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "Hussh Coins",
+        "sandbox redemption",
+        "test payout"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Redeem Hussh Coins",
+        "redeem my earnings",
+        "cash out my coins"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_owner_token"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.payouts.redeem",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Transfers one eligible document earning from Hussh Coins to the owner's verified live Stripe account. Bank deposit follows the owner's Stripe payout settings.",
+      "execution": {
+        "binding_ref": "semantic_action:profile.payouts.redeem",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "profile.payouts.redeem"
+        }
+      },
+      "goal_id": "goal.profile.payouts.redeem",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Redeem Hussh Coins",
+      "navigation": {
+        "fallback": "profile.payouts.redeem",
+        "routes": [
+          "/one/profile/payouts"
+        ],
+        "screens": [
+          "profile_payouts"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "Hussh Coins",
+        "redeem",
+        "bank payout"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Back to Agents",
+        "back to agents"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "route.puppy_agents",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Navigates from Puppy to agents.",
+      "execution": {
+        "binding_ref": "route:/one",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one"
+        }
+      },
+      "goal_id": "goal.route.puppy_agents",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Back to Agents",
+      "navigation": {
+        "fallback": "/one",
+        "routes": [
+          "/one/puppy"
+        ],
+        "screens": [
+          "puppy_one"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": false,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "puppy",
+        "back to agents"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Connect Calendar",
         "connect calendar",
         "connect my calendar",
@@ -21415,6 +22158,151 @@
     },
     {
       "aliases": [
+        "Back to Wallet cards",
+        "back to wallet cards"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "route.wallet_profile_cards",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Navigates from Wallet Profile to wallet cards.",
+      "execution": {
+        "binding_ref": "route:/one/wallet",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/wallet"
+        }
+      },
+      "goal_id": "goal.route.wallet_profile_cards",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Back to Wallet cards",
+      "navigation": {
+        "fallback": "/one/wallet",
+        "routes": [
+          "/one/wallet-card"
+        ],
+        "screens": [
+          "one_wallet_card"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": false,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "wallet profile",
+        "back to wallet cards"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open Wallet",
         "open my wallet",
         "go to wallet",
@@ -22582,6 +23470,157 @@
       "settlement_proof": "validated_route_settlement",
       "side_effect": {
         "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Request scope",
+        "request scope",
+        "ask them a question",
+        "ask about their information"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "people.profile.request_scope",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens the Request scope composer to ask this person's private agent a question. It does not send the question until the person confirms in the dialog, and the owner still approves the exact question, the exact information it would use, and a price before any payment.",
+      "execution": {
+        "binding_ref": "semantic_action:people.profile.request_scope",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "people.profile.request_scope"
+        }
+      },
+      "goal_id": "goal.people.profile.request_scope",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Request scope",
+      "navigation": {
+        "fallback": "people.profile.request_scope",
+        "routes": [
+          "/people/[personRef]"
+        ],
+        "screens": [
+          "one_person_profile"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "question",
+        "ask",
+        "scope",
+        "request",
+        "answer",
+        "paid"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
       },
       "supported_entrypoints": [
         "voice",
@@ -38516,7 +39555,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "5e73c87b9188fa0d7a8317032243f137793a9226936eaf3c6b10d93251fdb636",
+      "projection_digest": "67cd7729a171caeabb9e3fefb67108fb03ee4e094dbd400a222cf91442dacbe1",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -38535,7 +39574,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
       },
-      "source_revision": "6d4f353397278c4c",
+      "source_revision": "69a26ed9b120f8b6",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -40053,7 +41092,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "6d4f353397278c4c",
+    "source_revision": "69a26ed9b120f8b6",
     "web": {
       "actions": [
         {
@@ -40096,7 +41135,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "7415bdbe30774ac685ee1e3c496cbeaecfaaff610ad50b0da526400a68a17636",
+      "projection_digest": "0c93396664535140d1613c688afd4f68fdccb28edd6e7975be47a55ff426f5e4",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -40115,7 +41154,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
       },
-      "source_revision": "6d4f353397278c4c",
+      "source_revision": "69a26ed9b120f8b6",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -41672,7 +42711,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "6d4f353397278c4c",
+  "revision": "69a26ed9b120f8b6",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -42052,6 +43091,7 @@
     },
     {
       "action_ids": [
+        "route.connected_system_list",
         "route.profile_connected_systems"
       ],
       "capability_id": "screen:/one/connected-systems",
@@ -42062,10 +43102,13 @@
       "version": 1
     },
     {
-      "action_ids": [],
+      "action_ids": [
+        "route.connected_system_list",
+        "route.profile_connected_systems"
+      ],
       "capability_id": "screen:/one/connected-systems/[systemId]",
       "kind": "screen",
-      "label": "app",
+      "label": "connected_systems",
       "route_pattern": "/one/connected-systems/[systemId]",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
@@ -42084,10 +43127,12 @@
       "version": 1
     },
     {
-      "action_ids": [],
+      "action_ids": [
+        "route.mail_connections"
+      ],
       "capability_id": "screen:/one/email",
       "kind": "screen",
-      "label": "app",
+      "label": "email_agent",
       "route_pattern": "/one/email",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
@@ -42520,10 +43565,12 @@
       "version": 1
     },
     {
-      "action_ids": [],
+      "action_ids": [
+        "route.messages_connections"
+      ],
       "capability_id": "screen:/one/messages",
       "kind": "screen",
-      "label": "app",
+      "label": "one_messages",
       "route_pattern": "/one/messages",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
@@ -42578,6 +43625,8 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.payouts.redeem",
+        "profile.payouts.test_redeem",
         "profile.reset_account",
         "profile.set_contact_discoverable",
         "profile.sign_out",
@@ -42627,6 +43676,8 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.payouts.redeem",
+        "profile.payouts.test_redeem",
         "profile.reset_account",
         "profile.set_contact_discoverable",
         "profile.sign_out",
@@ -42658,6 +43709,8 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.payouts.redeem",
+        "profile.payouts.test_redeem",
         "profile.reset_account",
         "profile.set_contact_discoverable",
         "profile.sign_out",
@@ -42686,6 +43739,7 @@
     },
     {
       "action_ids": [
+        "route.connected_system_list",
         "route.profile_connected_systems"
       ],
       "capability_id": "screen:/one/profile/connected-systems",
@@ -42809,6 +43863,8 @@
     },
     {
       "action_ids": [
+        "profile.payouts.redeem",
+        "profile.payouts.test_redeem",
         "route.profile_payouts"
       ],
       "capability_id": "screen:/one/profile/payouts",
@@ -43043,10 +44099,12 @@
       "version": 1
     },
     {
-      "action_ids": [],
+      "action_ids": [
+        "route.puppy_agents"
+      ],
       "capability_id": "screen:/one/puppy",
       "kind": "screen",
-      "label": "app",
+      "label": "puppy_one",
       "route_pattern": "/one/puppy",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
@@ -43257,10 +44315,12 @@
       "version": 1
     },
     {
-      "action_ids": [],
+      "action_ids": [
+        "route.wallet_profile_cards"
+      ],
       "capability_id": "screen:/one/wallet-card",
       "kind": "screen",
-      "label": "app",
+      "label": "one_wallet_card",
       "route_pattern": "/one/wallet-card",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
@@ -43271,6 +44331,7 @@
         "people.profile.connect",
         "people.profile.manage_consent",
         "people.profile.remove_connection",
+        "people.profile.request_scope",
         "people.profile.review_information_request",
         "route.person_profile"
       ],
@@ -43515,6 +44576,15 @@
     },
     {
       "action_ids": [],
+      "capability_id": "screen:/wallet/open",
+      "kind": "screen",
+      "label": "app",
+      "route_pattern": "/wallet/open",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
+      "action_ids": [],
       "capability_id": "screen:/welcome",
       "kind": "screen",
       "label": "app",
@@ -43525,7 +44595,14 @@
   ],
   "semantic_diff": {
     "added": [
+      "actions:people.profile.request_scope",
+      "actions:profile.payouts.redeem",
+      "actions:profile.payouts.test_redeem",
+      "actions:route.mail_connections",
+      "actions:route.messages_connections",
       "actions:route.one_files",
+      "actions:route.puppy_agents",
+      "actions:route.wallet_profile_cards",
       "actions:setup.finish_cloud",
       "actions:setup.open_cloud",
       "screens:screen:/one/files",
@@ -43534,12 +44611,25 @@
       "screens:screen:/one/profile/software-updates",
       "screens:screen:/one/setup/cloud",
       "screens:screen:/one/setup/cloud/azure/return",
+      "screens:screen:/wallet/open",
       "services:service.cloud",
       "workflows:workflow.setup.cloud"
     ],
     "breaking": [],
     "changed": [
-      "screens:screen:/one/setup"
+      "screens:screen:/one/connected-systems",
+      "screens:screen:/one/connected-systems/[systemId]",
+      "screens:screen:/one/email",
+      "screens:screen:/one/messages",
+      "screens:screen:/one/profile",
+      "screens:screen:/one/profile/account",
+      "screens:screen:/one/profile/account/phone",
+      "screens:screen:/one/profile/connected-systems",
+      "screens:screen:/one/profile/payouts",
+      "screens:screen:/one/puppy",
+      "screens:screen:/one/setup",
+      "screens:screen:/one/wallet-card",
+      "screens:screen:/people/[personRef]"
     ],
     "compatible": [],
     "deprecated": [],
@@ -45832,18 +46922,18 @@
     "capability_graph_evolution": "b99e70e7a502fc76b70c9d2d010c8be01fb93aba6972bd6d4e1fab938b7b6b59",
     "capability_runtime_compiler": "465de0a7294d6b0733e422548f9ed9c087fc41fd5b2632431d0f120136da819f",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "b8fe3d27551c6a45d8f90f393ec62258a2b0965a423e1753f294d3039ad06c64",
+    "kai_action_gateway": "cb6115a6cdb1d7c18d00433809a524fa796d3b656640d7d6ba4d62c6f30d9466",
     "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
     "location_knowledge_package": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "c0f7fbf88f8aaf00d497572ec38d1c2a68f49296b98192ecfb1e94ed1a7430bd",
-    "route_orchestration_index": "a92acb9ed5151270c8a8755ffc403c8566fcc215474aee0fee2a4436601b0eb0",
+    "product_agent_registry": "15ed750679261f9ab839362e12c811640de7cc8473ce3cc57896667227780443",
+    "route_orchestration_index": "ebd2978f46782a16903e581c22f0e45cc49c00939e98d3253698c1c2dd32246e",
     "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
   },
-  "source_revision": "6d4f353397278c4c",
+  "source_revision": "69a26ed9b120f8b6",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "6d4f353397278c4c",
+    "current_graph_revision": "69a26ed9b120f8b6",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {

@@ -1204,6 +1204,18 @@
       "primary_access_path": "Google OAuth connection service and confirmation-bound Calendar live-read/action service"
     },
     {
+      "data_class": "audit_regulated",
+      "exact_tables": [
+        "hashcoin_wallets",
+        "hashcoin_ledger_entries",
+        "hashcoin_redemptions"
+      ],
+      "id": "hashcoin_owner_earnings",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Profile Payouts reads owner-scoped live and sandbox wallets. Verified document settlement appends one immutable net-cent credit per request; each live earning also seeds an isolated test demonstration balance. Test redemption reserves coins under a wallet row lock, then reconciles an idempotent Stripe test transfer before appending a debit. Postgres is authoritative; future Redis may cache projections only and never authorize spending."
+    },
+    {
       "data_class": "personal_metadata",
       "exact_tables": [
         "hushh_tech_account_links",
@@ -1595,6 +1607,50 @@
       "primary_access_path": "Dev-only migration950. hushh_mcp/services/personal_agent_standby_store.py (statements in personal_agent_standby_sql.py): add_standby for a provisioned, signing primary (latching identity_mode), read_standby for the hub signed-request verifier's key and epoch fence, claim_sync_lease / list_standbys_due / record_sync_result for the standby sync, swap_primary_and_standby for a switch (one statement, fenced on placement_epoch and the observed standby pod_key_id, promoting only a standby with a completed sync), remove_standby keeping coordinates only under the registry's backend_metadata.detachedPlacements. Design: docs/future/personal-agent/STANDBY-SYNC.md."
     },
     {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
+        "pkm_answer_deliveries"
+      ],
+      "id": "pkm_answer_deliveries",
+      "lifecycle_status": "customer0",
+      "owner": "vault-pkm-governance",
+      "primary_access_path": "The owner's unlocked device produces the answer from decrypted PKM within the approved scopes, seals it to the requester's ECDH P-256 recipient key and posts the envelope; the requester fetches and decrypts it on their own device. The server is a blind relay, exactly as in the marketplace delivery sweep."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "pkm_answer_payment_orders",
+        "pkm_answer_payment_obligations",
+        "pkm_answer_payment_webhook_events"
+      ],
+      "id": "pkm_answer_payment_authority",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Sibling of drive_request_payment_authority for the question lane. A USD Stripe Checkout order opens only after the owner approves a question at a whole-dollar price from 100 to 50000 cents. The signed Stripe webhook, routed on payment_kind 'pkm_answer', settles only when the session, attempt, amount, currency and terms_digest all match the locked order; a per-lane event table makes a replayed event a no-op. Refunds cover owner decline, requester cancellation, fulfilment timeout and an empty answer."
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "pkm_answer_requests",
+        "pkm_answer_request_scopes"
+      ],
+      "id": "pkm_answer_requests",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Paid answers on a connected person's profile: any active connection submits a question through Request scope; the required semantic resolver stage proposes scopes, deterministic fail-closed validation drops anything the owner does not hold or that another person may never request, and the owner approves the exact question, the exact scopes and a whole-dollar price. The approved terms are fixed by a terms_digest covering question, scopes, both participants and the quote."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "pkm_answer_payment_refunds",
+        "pkm_answer_owner_payouts"
+      ],
+      "id": "pkm_answer_settlement",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Durable settlement for the paid-answer lane, on the existing Drive work drain. A refund obligation is written in the same transaction as the decline, cancellation, empty answer or deadline expiry that caused it, then claimed under a lease and retried on its own backoff with a stable per-request idempotency key. An owner earning becomes due only when an answer is delivered with content, pays gross minus 300 bps commission to the owner's Stripe Connect account, and is voided if the order is refunded."
+    },
+    {
       "data_class": "workflow_state",
       "exact_tables": [
         "pkm_credit_subscription_cancellations"
@@ -1885,6 +1941,19 @@
       "lifecycle_status": "current",
       "owner": "vault-pkm-governance",
       "primary_access_path": "vault setup, unlock-status, wrapper selection, and account deletion services"
+    },
+    {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
+        "wallet_card_registrations",
+        "wallet_card_share_requests",
+        "wallet_card_access_grants",
+        "wallet_card_access_audit"
+      ],
+      "id": "wallet_temporary_card_access",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Owner-confirmed canonical Wallet commits register saved payment cards automatically, including older cards refreshed by the owner's Share action. Owner grants bind individual active connections; authenticated recipients read only their current grant."
     },
     {
       "data_class": "personal_metadata",
@@ -3086,6 +3155,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "route.connected_system_list",
           "route.profile_connected_systems"
         ],
         "delegate_agent_ids": [],
@@ -3111,7 +3181,10 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.connected_system_list",
+          "route.profile_connected_systems"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.connected.systems.systemid"
       }
@@ -3224,7 +3297,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.mail_connections"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.email"
       }
@@ -4167,7 +4242,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.messages_connections"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.messages"
       }
@@ -4302,6 +4379,8 @@
           "help.open_examples",
           "profile.delete_account",
           "profile.marketplace_visibility.toggle",
+          "profile.payouts.redeem",
+          "profile.payouts.test_redeem",
           "profile.reset_account",
           "profile.set_contact_discoverable",
           "profile.sign_out",
@@ -4412,6 +4491,8 @@
           "help.open_examples",
           "profile.delete_account",
           "profile.marketplace_visibility.toggle",
+          "profile.payouts.redeem",
+          "profile.payouts.test_redeem",
           "profile.reset_account",
           "profile.set_contact_discoverable",
           "profile.sign_out",
@@ -4457,6 +4538,8 @@
           "help.open_examples",
           "profile.delete_account",
           "profile.marketplace_visibility.toggle",
+          "profile.payouts.redeem",
+          "profile.payouts.test_redeem",
           "profile.reset_account",
           "profile.set_contact_discoverable",
           "profile.sign_out",
@@ -4500,6 +4583,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "route.connected_system_list",
           "route.profile_connected_systems"
         ],
         "delegate_agent_ids": [],
@@ -4831,6 +4915,8 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "profile.payouts.redeem",
+          "profile.payouts.test_redeem",
           "route.profile_payouts"
         ],
         "delegate_agent_ids": [],
@@ -5381,7 +5467,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.puppy_agents"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.puppy"
       }
@@ -5882,7 +5970,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.wallet_profile_cards"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.wallet.card"
       }
@@ -5928,6 +6018,7 @@
           "people.profile.connect",
           "people.profile.manage_consent",
           "people.profile.remove_connection",
+          "people.profile.request_scope",
           "people.profile.review_information_request",
           "route.person_profile"
         ],
@@ -6532,6 +6623,29 @@
       "implementation_override": null,
       "lifecycle": "canonical",
       "native_surface_id": null,
+      "page_file": "app/wallet/open/page.tsx",
+      "pathname": "/wallet/open",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.wallet.encrypted_file.open"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
       "page_file": "app/welcome/page.tsx",
       "pathname": "/welcome",
       "route_mode": "standard",
@@ -6577,28 +6691,28 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "eec9a448fd685fcc615e4e7c5e87274b2f8f7d591111575b7d21394ce57edeb3",
-    "action_gateway": "b8fe3d27551c6a45d8f90f393ec62258a2b0965a423e1753f294d3039ad06c64",
-    "agent_registry": "c0f7fbf88f8aaf00d497572ec38d1c2a68f49296b98192ecfb1e94ed1a7430bd",
-    "cache_manifest": "41d7d48e3655c6363237f10548ff5d892a1325999a3c5bf2c98fa16886584891",
-    "data_plane": "6658d8b925cfcfe05a558ebb85a6f386cd57a70c00dbeea8b2b3246a922a4c99",
+    "action_gateway": "cb6115a6cdb1d7c18d00433809a524fa796d3b656640d7d6ba4d62c6f30d9466",
+    "agent_registry": "15ed750679261f9ab839362e12c811640de7cc8473ce3cc57896667227780443",
+    "cache_manifest": "2f4ccfba59c856698838753971f14d3aa12e0dced3f8834cfe33ad8f98f75656",
+    "data_plane": "ac17616db674813d1773d0d61f41b5db1902f6eb5ab967d07cae7081f666c1a9",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
-    "one_specialist_tools": "db1a56bfbe51b3672a418f3bdfe707f0c4b61d8ba706c7adcfea7e91b81ab336",
-    "route_index": "a92acb9ed5151270c8a8755ffc403c8566fcc215474aee0fee2a4436601b0eb0",
-    "route_layout": "25a26781740d61abc9b0604651b0bc6dca5e71bcb79257127b6f17802d86958c",
-    "surface_map": "bd18f3eba6d93d1e9677ac189f63255af28a327a8d5bfcfc9f13bfccf050acf4",
+    "one_specialist_tools": "5fb9a81824a10aeaa2034f90a2642fb6d19acf1caab29a28e482447493b40b2a",
+    "route_index": "ebd2978f46782a16903e581c22f0e45cc49c00939e98d3253698c1c2dd32246e",
+    "route_layout": "b576aee042b1fa3060db485e0acdb03dbdc050f71e05e28bd2570364a74e2826",
+    "surface_map": "5f5cac77a147a7ed7da6860dfae0062eadad3f4efae7b709960a46c6b1418919",
     "topology_contract": "58ba11f84a774c8b3daa916d2985f8ec81e04413aa050c9fff4785be3b246df0",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 233,
+    "actions": 241,
     "agents": 21,
     "aliases": 4,
     "decision_required": 2,
     "in_process_specialists": 7,
     "one_specialist_tools": 6,
-    "physical_routes": 155,
+    "physical_routes": 156,
     "semantic_routes": 17,
-    "table_families": 105
+    "table_families": 111
   }
 }

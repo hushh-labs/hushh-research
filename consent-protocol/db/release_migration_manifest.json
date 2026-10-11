@@ -270,12 +270,19 @@
     "296_circle_chat_reactions_events.sql",
     "297_document_commerce_readiness.sql",
     "298_stripe_mode_isolation.sql",
-    "299_vault_environment_enrollment.sql",
-    "300_consumer_scope_commerce.sql",
-    "301_one_shared_hosting_choice.sql",
-    "302_public_profile_bridge.sql",
-    "303_one_placement_reader_foundation.sql",
-    "304_one_legacy_shared_continuity.sql"
+    "299_hashcoin_wallet.sql",
+    "300_pkm_answer_requests.sql",
+    "301_pkm_answer_refunds_payouts.sql",
+    "302_wallet_temporary_card_access.sql",
+    "303_hashcoin_live_redemption.sql",
+    "304_connect_bank_payout_reconciliation.sql",
+    "305_pkm_answer_payment_recovery.sql",
+    "306_vault_environment_enrollment.sql",
+    "307_consumer_scope_commerce.sql",
+    "308_one_shared_hosting_choice.sql",
+    "309_public_profile_bridge.sql",
+    "310_one_placement_reader_foundation.sql",
+    "311_one_legacy_shared_continuity.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -458,7 +465,10 @@
       "129_ria_pick_legacy_retirement.sql",
       "142_source_library_scope_retirement.sql",
       "161_atomic_pkm_scope_exposure.sql",
-      "226_pkm_manifest_path_repair.sql"
+      "226_pkm_manifest_path_repair.sql",
+      "300_pkm_answer_requests.sql",
+      "301_pkm_answer_refunds_payouts.sql",
+      "305_pkm_answer_payment_recovery.sql"
     ],
     "developer": [
       "070_developer_registry.sql",
@@ -561,18 +571,25 @@
     "288_drive_request_feed_stream.sql": "rollback/288_drive_request_feed_stream.rollback.sql",
     "290_chat_push_delivery.sql": "rollback/290_chat_push_delivery.rollback.sql",
     "291_drive_request_owner_allowed.sql": "rollback/291_drive_request_owner_allowed.rollback.sql",
-    "299_vault_environment_enrollment.sql": "rollback/299_vault_environment_enrollment.rollback.sql",
-    "300_consumer_scope_commerce.sql": "rollback/300_consumer_scope_commerce.rollback.sql",
-    "301_one_shared_hosting_choice.sql": "rollback/301_one_shared_hosting_choice.rollback.sql",
-    "302_public_profile_bridge.sql": "rollback/302_public_profile_bridge.rollback.sql",
     "292_drive_request_owner_payouts.sql": "rollback/292_drive_request_owner_payouts.rollback.sql",
     "293_drive_request_owner_pricing.sql": "rollback/293_drive_request_owner_pricing.rollback.sql",
     "294_drive_request_bank_payout_events.sql": "rollback/294_drive_request_bank_payout_events.rollback.sql",
-    "303_one_placement_reader_foundation.sql": "rollback/303_one_placement_reader_foundation.rollback.sql",
-    "304_one_legacy_shared_continuity.sql": "rollback/304_one_legacy_shared_continuity.rollback.sql",
     "295_direct_message_attachments.sql": "rollback/295_direct_message_attachments.rollback.sql",
     "296_circle_chat_reactions_events.sql": "rollback/296_circle_chat_reactions_events.rollback.sql",
     "297_document_commerce_readiness.sql": "rollback/297_document_commerce_readiness.rollback.sql",
-    "298_stripe_mode_isolation.sql": "rollback/298_stripe_mode_isolation.rollback.sql"
+    "298_stripe_mode_isolation.sql": "rollback/298_stripe_mode_isolation.rollback.sql",
+    "299_hashcoin_wallet.sql": "rollback/299_hashcoin_wallet.rollback.sql",
+    "300_pkm_answer_requests.sql": "rollback/300_pkm_answer_requests.rollback.sql",
+    "301_pkm_answer_refunds_payouts.sql": "rollback/301_pkm_answer_refunds_payouts.rollback.sql",
+    "302_wallet_temporary_card_access.sql": "rollback/302_wallet_temporary_card_access.rollback.sql",
+    "303_hashcoin_live_redemption.sql": "rollback/303_hashcoin_live_redemption.rollback.sql",
+    "304_connect_bank_payout_reconciliation.sql": "rollback/304_connect_bank_payout_reconciliation.rollback.sql",
+    "305_pkm_answer_payment_recovery.sql": "rollback/305_pkm_answer_payment_recovery.rollback.sql",
+    "306_vault_environment_enrollment.sql": "rollback/306_vault_environment_enrollment.rollback.sql",
+    "307_consumer_scope_commerce.sql": "rollback/307_consumer_scope_commerce.rollback.sql",
+    "308_one_shared_hosting_choice.sql": "rollback/308_one_shared_hosting_choice.rollback.sql",
+    "309_public_profile_bridge.sql": "rollback/309_public_profile_bridge.rollback.sql",
+    "310_one_placement_reader_foundation.sql": "rollback/310_one_placement_reader_foundation.rollback.sql",
+    "311_one_legacy_shared_continuity.sql": "rollback/311_one_legacy_shared_continuity.rollback.sql"
   }
 }

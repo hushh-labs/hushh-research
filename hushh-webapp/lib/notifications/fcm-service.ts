@@ -25,6 +25,11 @@ import {
   resolveConsentNavigationTarget,
 } from "@/lib/consent/consent-sheet-route";
 import {
+  documentRequestSetupHref,
+  isDocumentRequestSetupStep,
+  type DocumentRequestSetupStep,
+} from "@/lib/consent/document-request-setup";
+import {
   documentShareNotificationCopy,
   documentShareNotificationRequestId,
   documentShareNotificationSelection,
@@ -74,6 +79,20 @@ function normalizedDocumentShareType(
 }
 
 /**
+ * The owner's unmet setup step on a document request push. Only this closed
+ * value, on this one type with an exact request UUID, can choose a setup
+ * screen; any other value is dropped and the tap keeps the review route.
+ */
+function documentShareNotificationSetup(
+  data: Record<string, unknown> | undefined,
+): DocumentRequestSetupStep | null {
+  if (normalizedDocumentShareType(data) !== "document_share_request") return null;
+  if (!documentShareNotificationRequestId(data)) return null;
+  const setup = data?.setup;
+  return isDocumentRequestSetupStep(setup) ? setup : null;
+}
+
+/**
  * A Drive-sharing transport payload is deliberately reduced before it crosses
  * the FCM boundary. The route is derived from the reviewed UUID alone; all
  * provider URLs and content fields are discarded.
@@ -92,6 +111,8 @@ function sanitizeDocumentShareNotificationData(
   if (!isDocumentShareNotificationType(data)) return safe;
   const requestId = documentShareNotificationRequestId(data);
   if (requestId) safe.request_id = requestId;
+  const setup = documentShareNotificationSetup(data);
+  if (setup) safe.setup = setup;
 
   // Retain only the addressed identity for the existing signed-in-user fence.
   // It is never rendered, logged here, or used to construct a URL.
@@ -145,6 +166,7 @@ function sanitizeDocumentShareNotificationDetail<T>(detail: T): T {
 /**
  * Builds the only Drive-sharing click target. This intentionally does not
  * inspect request_url, deep_link, url, file names, or any provider payload.
+ * Keep aligned with notificationTapTarget in public/firebase-messaging-sw.js.
  */
 export function documentShareNotificationTapTarget(
   data: Record<string, unknown> | undefined,
@@ -153,6 +175,9 @@ export function documentShareNotificationTapTarget(
   if ((type === "document_share_payment_ready" || type === "document_share_payment_confirmed" ||
       type === "document_share_payment_refunded") &&
       documentShareNotificationRequestId(data)) return ROUTES.ONE_FEED;
+  // An owner who must set something up first goes straight to that screen.
+  const setup = documentShareNotificationSetup(data);
+  if (setup) return documentRequestSetupHref(setup);
   const selection = documentShareNotificationSelection(data);
   if (!selection) return null;
   return buildConsentCenterHref("pending", { requestId: selection });

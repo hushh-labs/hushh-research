@@ -58,6 +58,8 @@
 
 .network {
   flex-shrink: 0;
+  width: 23cqw;
+  height: 10cqw;
   color: inherit;
   font-size: 4cqw;
   line-height: 1.5;

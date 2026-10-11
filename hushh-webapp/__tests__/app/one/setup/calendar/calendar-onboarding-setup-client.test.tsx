@@ -20,14 +20,12 @@ vi.mock("@/components/onboarding/setup/setup-capability-coordinator", () => ({
 }));
 
 vi.mock("@/components/calendar/calendar-agent-page", () => ({
-  CalendarAgentPage: ({ showOnboardingIllustration, onFinishSetup, onSkipSetup }: {
-    showOnboardingIllustration: boolean;
+  CalendarAgentPage: ({ onFinishSetup, onSkipSetup }: {
     onFinishSetup: () => void;
     onSkipSetup: () => void;
   }) => (
     <div>
       Calendar connection screen
-      {showOnboardingIllustration ? <div>Onboarding illustration enabled</div> : null}
       <button onClick={onFinishSetup}>Finish Calendar setup</button>
       <button onClick={onSkipSetup}>Skip Calendar setup</button>
     </div>
@@ -43,23 +41,16 @@ describe("CalendarOnboardingSetupClient", () => {
     mocks.isReady = true;
   });
 
-  it("opens the connection screen directly and retains setup settlement", () => {
+  it.each([true, false])("opens Calendar and retains settlement regardless of prior completion (initial=%s)", (isInitialSetup) => {
+    mocks.isInitialSetup = isInitialSetup;
     render(<CalendarOnboardingSetupClient />);
     expect(screen.getByText("Calendar connection screen")).toBeTruthy();
-    expect(screen.getByText("Onboarding illustration enabled")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Stay ahead of your schedule." })).toBeNull();
     expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Finish Calendar setup" }));
     fireEvent.click(screen.getByRole("button", { name: "Skip Calendar setup" }));
     expect(mocks.finish).toHaveBeenCalledOnce();
     expect(mocks.skip).toHaveBeenCalledOnce();
-  });
-
-  it("withholds the illustration after durable setup completion", () => {
-    mocks.isInitialSetup = false;
-    render(<CalendarOnboardingSetupClient />);
-    expect(screen.getByText("Calendar connection screen")).toBeTruthy();
-    expect(screen.queryByText("Onboarding illustration enabled")).toBeNull();
   });
 
   it("waits for setup readiness before opening Calendar", () => {

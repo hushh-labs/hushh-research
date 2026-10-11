@@ -1215,7 +1215,8 @@ class TestPropose:
         calls = []
 
         class Directory:
-            def search_directory(self, user_id, *, query, page, limit):
+            def search_directory(self, user_id, *, query, page, limit, name_only=False):
+                assert name_only is True
                 calls.append((user_id, query, page, limit))
                 return {"items": [], "hasMore": False}
 

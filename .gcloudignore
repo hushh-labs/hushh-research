@@ -103,3 +103,6 @@ assets/
 # GitHub Actions authentication files are never source or image inputs.
 gha-creds-*.json
 **/gha-creds-*.json
+
+# Cloud Build sources this preflight before deploying the backend.
+!deploy/drive/verify_hashcoin_config.sh

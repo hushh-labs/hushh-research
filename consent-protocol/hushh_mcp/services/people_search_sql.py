@@ -55,6 +55,55 @@ def directory_name_rank(name: str, query: str) -> int | None:
     return None
 
 
+def _directory_phone_query(query: str) -> str | None:
+    if not re.fullmatch(r"\+?[0-9\s().-]+", query):
+        return None
+    return re.sub(r"[^0-9]", "", query) or None
+
+
+def directory_contact_match_params(query: str, *, name_only: bool = False) -> dict[str, object]:
+    """Literal contact fragments for SQL; name matching keeps its existing tiers."""
+    query = query.strip().lower()
+    escaped = query.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+    digits = _directory_phone_query(query)
+    return {
+        "name_search": not query or bool(normalize_directory_name(query)),
+        "email_contains": (
+            f"%{escaped}%"
+            if not name_only and query and not any(char.isspace() for char in query)
+            else None
+        ),
+        # Match the entered digits anywhere so national numbers and partial
+        # numbers work without guessing a country or assuming a fixed length.
+        "phone_contains": f"%{digits}%" if not name_only and digits else None,
+    }
+
+
+def directory_search_rank(
+    name: str,
+    query: str,
+    *,
+    email: str | None = None,
+    phone_number: str | None = None,
+    phone_verified: bool = False,
+    name_only: bool = False,
+) -> int | None:
+    """Rank names first, then email/verified-phone fragments, before pagination."""
+    query = query.strip().lower()
+    if not query or normalize_directory_name(query):
+        rank = directory_name_rank(name, query)
+        if rank is not None:
+            return rank
+    if name_only:
+        return None
+    if query and not any(char.isspace() for char in query) and query in (email or "").lower():
+        return 4
+    digits = _directory_phone_query(query)
+    if phone_verified and digits and digits in re.sub(r"[^0-9]", "", phone_number or ""):
+        return 4
+    return None
+
+
 __all__ = [
     "people_query_match_params",
     "PEOPLE_MATCH_RANK_SQL",

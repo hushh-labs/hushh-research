@@ -37,7 +37,7 @@ vi.mock("@/lib/morphy-ux/ui/hushh-mark", () => ({ HushhMark: () => null }));
 vi.mock("@/lib/observability/client", () => ({ trackEvent: state.noop }));
 vi.mock("@/lib/observability/growth", () => ({ resolveGrowthEntrySurface: () => null, resolveGrowthJourneyForPath: () => null, trackGrowthFunnelStepCompleted: state.noop }));
 vi.mock("@/lib/agent/local-onboarding-actions", () => ({ useLocalOnboardingActionHandler: state.noop }));
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({ usePublishVoiceSurfaceMetadata: state.noop }));
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({ usePublishVoiceSurfaceMetadata: state.noop }));
 vi.mock("@/components/onboarding/OnboardingHeroBackground", () => ({ OnboardingHeroBackground: () => null }));
 vi.mock("@/components/app-ui/hushh-loader", () => ({ HushhLoader: () => null }));
 vi.mock("@/components/auth/session-verification-recovery", () => ({ SessionVerificationRecovery: () => null }));

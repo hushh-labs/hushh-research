@@ -92,6 +92,13 @@ def build_push_message(
     normalized_platform = str(platform or "").strip().lower()
     normalized_type = str(data.get("type") or "").strip().lower()
     is_chat = normalized_type in {"direct_message", "location_circle_message"}
+    is_chat_read = normalized_type in {"direct_message_read", "location_circle_chat_read"}
+    try:
+        chat_badge = (
+            max(0, min(9999, int(data["chat_badge_count"]))) if is_chat or is_chat_read else None
+        )
+    except (KeyError, ValueError, TypeError):
+        chat_badge = None
     expiry = int(data.get("chat_expires_at") or (int(time.time()) + 86400)) if is_chat else 0
     chat_ttl = max(0, min(86400, expiry - int(time.time())))
     is_sms_emergency = _is_one_location_sms_emergency(data)
@@ -149,6 +156,8 @@ def build_push_message(
         )
 
     android = None
+    if normalized_platform == "android" and is_chat_read:
+        android = messaging.AndroidConfig(priority="high")
     if normalized_platform == "android" and is_chat and data.get("recipient_key_id"):
         android = messaging.AndroidConfig(priority="high", ttl=timedelta(seconds=chat_ttl))
     if normalized_platform == "android" and show_alert:
@@ -190,7 +199,7 @@ def build_push_message(
                 aps=messaging.Aps(
                     alert=messaging.ApsAlert(title=title, body=body),
                     sound=(ONE_LOCATION_SMS_EMERGENCY_IOS_SOUND if is_sms_emergency else "default"),
-                    badge=None if is_chat else 1,
+                    badge=chat_badge if is_chat else 1,
                     mutable_content=True if is_chat else None,
                     category=(
                         ONE_LOCATION_SMS_EMERGENCY_CATEGORY
@@ -213,12 +222,13 @@ def build_push_message(
     elif normalized_platform == "ios":
         apns = messaging.APNSConfig(
             headers={
-                "apns-push-type": "background",
+                "apns-push-type": "alert" if chat_badge is not None else "background",
                 "apns-priority": "5",
             },
             payload=messaging.APNSPayload(
                 aps=messaging.Aps(
                     content_available=True,
+                    badge=chat_badge,
                     thread_id=notification_tag,
                 ),
                 **message_data,

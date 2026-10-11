@@ -16,7 +16,7 @@ import {
   subscribeToVoiceCard,
   type VoiceCardRequest,
   type VoiceDisambiguationCandidate,
-} from "@/lib/voice/voice-action-card";
+} from "@/lib/kai/actions/voice-action-card";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 
 /** The row treatment shared by both shapes: avatar, name, detail beneath. */

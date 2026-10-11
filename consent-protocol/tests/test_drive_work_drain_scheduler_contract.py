@@ -637,3 +637,81 @@ else:
     if worker_state == "cancel_during_deploy":
         assert result.returncode == 143
         assert "Drive worker candidate failed" in result.stderr
+
+
+def test_uat_sandbox_connect_does_not_change_live_checkout_binding():
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            "source deploy/drive/uat_stripe_bindings.sh && "
+            'printf "%s %s %s %s" "$STRIPE_UAT_KEY_SECRET" "$STRIPE_UAT_CONNECT_KEY_SECRET" '
+            '"$STRIPE_UAT_CONNECT_SECRET" "$STRIPE_UAT_CONNECT_TEST_WEBHOOK_SECRET"',
+        ],
+        cwd=ROOT,
+        env={**os.environ, "STRIPE_UAT_MODE": "live", "STRIPE_CONNECT_UAT_MODE": "test"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == (
+        "STRIPE_LIVE_SECRET_KEY STRIPE_SECRET_KEY "
+        "STRIPE_LIVE_CONNECT_WEBHOOK_SECRET STRIPE_CONNECT_WEBHOOK_SECRET"
+    )
+
+
+@pytest.mark.parametrize(
+    ("connect_mode", "payment_mode", "connect_key", "live_flag", "secret_state", "expected"),
+    [
+        ("test", "live", "STRIPE_SECRET_KEY", "false", "ENABLED", 0),
+        ("test", "live", "STRIPE_SECRET_KEY", "false", "MISSING", 1),
+        ("test", "live", "STRIPE_SECRET_KEY", "true", "ENABLED", 1),
+        ("live", "live", "STRIPE_LIVE_SECRET_KEY", "false", "ENABLED", 0),
+        ("live", "live", "STRIPE_LIVE_SECRET_KEY", "true", "ENABLED", 0),
+        ("live", "test", "STRIPE_LIVE_SECRET_KEY", "true", "ENABLED", 1),
+        ("live", "live", "STRIPE_SECRET_KEY", "true", "ENABLED", 1),
+        ("live", "live", "STRIPE_LIVE_SECRET_KEY", "true", "DISABLED", 1),
+    ],
+)
+def test_hashcoin_deploy_preflight_checks_isolated_secret_project(
+    connect_mode, payment_mode, connect_key, live_flag, secret_state, expected
+):
+    script = """
+set -euo pipefail
+gcloud() {
+  if [[ "$*" == "secrets describe "*" --project=hushh-pda-uat" ]]; then
+    [[ "$SECRET_STATE" != MISSING ]]
+    return
+  fi
+  if [[ "$*" == "secrets versions describe latest "*" --project=hushh-pda-uat --format=value(state)" ]]; then
+    [[ "$SECRET_STATE" != MISSING ]] || return 1
+    printf '%s\\n' "$SECRET_STATE"
+    return
+  fi
+  return 2
+}
+source deploy/drive/verify_hashcoin_config.sh hushh-pda-uat
+"""
+    result = subprocess.run(  # noqa: S603 - fixed repository-owned preflight script
+        ["bash", "-c", script],
+        cwd=ROOT,
+        env={
+            **os.environ,
+            "_DRIVE_REQUEST_HASHCOINS_ENABLED": "true",
+            "_DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED": live_flag,
+            "_STRIPE_MODE": payment_mode,
+            "_STRIPE_SECRET_KEY_SECRET": "STRIPE_LIVE_SECRET_KEY"
+            if payment_mode == "live"
+            else "STRIPE_SECRET_KEY",
+            "_STRIPE_CONNECT_MODE": connect_mode,
+            "_STRIPE_CONNECT_SECRET_KEY_SECRET": connect_key,
+            "_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET": "STRIPE_LIVE_CONNECT_WEBHOOK_SECRET",
+            "_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET": "STRIPE_CONNECT_WEBHOOK_SECRET",
+            "SECRET_STATE": secret_state,
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == expected, result.stderr

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { awaitProductFont, productFontStyle } from "./fixtures/product-font";
+import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
 
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
 import {
@@ -167,6 +167,189 @@ async function buildFixture({
 }
 
 type Box = { x: number; y: number; width: number; height: number };
+
+// Render the production modal as well as the geometry fixtures below. This
+// catches action reordering and chrome showing through native transparency,
+// neither of which a hand-authored footer fixture can detect.
+test.describe("Place-saving flow with persistent app chrome", () => {
+  let flowCss: string;
+  let flowScript: string;
+
+  test.beforeAll(async () => {
+    const root = process.cwd();
+    const { build } = await import("vite");
+    const { Scanner } = await import("@tailwindcss/oxide");
+    const scanner = new Scanner({});
+    const candidates = new Set<string>();
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "place-saving-flow-"));
+    await build({
+      configFile: false,
+      publicDir: false,
+      logLevel: "error",
+      plugins: [{
+        name: "place-saving-boundaries",
+        load(id) {
+          if (id === "\0fixture-platform") return `
+            export const isNative = () => window.placeFixture.native;
+            export const getPlatform = () => isNative() ? "ios" : "web";`;
+          if (id === "\0fixture-maps") return `export const GoogleMap = {
+            create: async () => ({
+              destroy: async () => {},
+              setOnCameraMoveStartedListener: async () => {},
+              setOnCameraIdleListener: async () => {}
+            })
+          };`;
+          return undefined;
+        },
+        transform(source, id) {
+          if (!id.includes("node_modules") && /\.[tj]sx?$/.test(id)) {
+            for (const candidate of scanner.scanFiles([{ content: source, extension: "tsx" }])) {
+              candidates.add(candidate);
+            }
+          }
+        },
+      }],
+      oxc: { jsx: { runtime: "automatic", development: false } },
+      resolve: { alias: [
+        { find: "@/lib/capacitor/platform", replacement: "\0fixture-platform" },
+        { find: "@capacitor/google-maps", replacement: "\0fixture-maps" },
+        { find: "@", replacement: root },
+      ] },
+      define: {
+        "process.env.NODE_ENV": JSON.stringify("production"),
+        "process.env.NEXT_PUBLIC_FIREBASE_API_KEY": JSON.stringify("fixture-api-key"),
+        "process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN": JSON.stringify("fixture.invalid"),
+        "process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID": JSON.stringify("fixture-project"),
+        "process.env.NEXT_PUBLIC_FIREBASE_APP_ID": JSON.stringify("1:123:web:fixture"),
+        "process.env.NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY": JSON.stringify("fixture-only"),
+        "process.env": "{}",
+      },
+      build: {
+        outDir,
+        emptyOutDir: false,
+        lib: {
+          entry: path.join(root, "e2e/fixtures/save-location-flow.tsx"),
+          name: "PlaceFixture",
+          formats: ["iife"],
+          fileName: () => "fixture.js",
+        },
+      },
+    });
+    flowScript = fs.readFileSync(path.join(outDir, "fixture.js"), "utf8");
+    const { compile } = await import("tailwindcss");
+    const compiler = await compile(
+      fs.readFileSync(path.join(root, "app/globals.css"), "utf8")
+        .replace(/^@source\s+[^;]+;\s*$/gm, ""),
+      {
+        base: path.join(root, "app"),
+        loadStylesheet: async (id, base) => {
+          const file = id === "tailwindcss"
+            ? path.join(root, "node_modules/tailwindcss/index.css")
+            : id === "tw-animate-css"
+              ? path.join(root, "node_modules/tw-animate-css/dist/tw-animate.css")
+              : path.resolve(base, id);
+          return { path: file, base: path.dirname(file), content: fs.readFileSync(file, "utf8") };
+        },
+      },
+    );
+    flowCss = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
+  });
+
+  const cases = [
+    { name: "small phone", width: 320, height: 568, native: true, onboarding: false, unified: false },
+    { name: "phone", width: 390, height: 844, native: true, onboarding: false, unified: false },
+    { name: "wide phone", width: 430, height: 932, native: false, onboarding: false, unified: false },
+    { name: "desktop", width: 1280, height: 800, native: false, onboarding: false, unified: false },
+    { name: "desktop dark", width: 1280, height: 800, native: false, onboarding: false, unified: false },
+    { name: "onboarding phone", width: 390, height: 844, native: true, onboarding: true, unified: false },
+    { name: "unified onboarding phone", width: 390, height: 844, native: true, onboarding: true, unified: true },
+    { name: "unified onboarding desktop", width: 1280, height: 800, native: false, onboarding: true, unified: true },
+  ];
+
+  for (const scenario of cases) {
+    test(`keeps actions ordered, unobscured and usable on ${scenario.name}`, async ({ page }, testInfo) => {
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await page.setViewportSize(scenario);
+      await page.setContent(`<html class="${scenario.name.includes("dark") ? "dark" : ""}"><head><style>${flowCss}</style></head><body><div id="root"></div></body></html>`);
+      await page.evaluate((flags) => { window.placeFixture = flags; }, scenario);
+      await page.addScriptTag({ content: flowScript });
+      const modal = page.getByTestId("save-location-modal");
+      await expect.poll(async () => errors.length ? errors : modal.count()).toBe(1);
+      await expect(modal).toBeVisible();
+      await expect(page.getByRole("button", { name: "Talk to One" })).toBeHidden();
+      await expect(page.locator("[data-app-bottom-nav]")).toBeHidden();
+      await awaitProductFont(page);
+      await page.evaluate(() => Promise.allSettled(document.getAnimations().map((animation) => animation.finished)));
+
+      if (!scenario.unified) {
+        const confirm = modal.getByRole("button", { name: /Confirm pin|Use captured point/ });
+        await expect(confirm).toBeEnabled();
+        const primary = await confirm.boundingBox();
+        const skip = await modal.getByRole("button", { name: "Skip for now" }).boundingBox();
+        expect(primary!.y + primary!.height).toBeLessThanOrEqual(skip!.y);
+        expect(skip!.y + skip!.height).toBeLessThanOrEqual(scenario.height);
+        const selectedSpot = await modal.locator('[data-location-picker-body] > [aria-live="polite"]').boundingBox();
+        expect(selectedSpot!.y + selectedSpot!.height).toBeLessThanOrEqual(primary!.y);
+        await modal.screenshot({ path: testInfo.outputPath("place-pin.png") });
+        await confirm.click();
+      }
+
+      const save = modal.getByRole("button", { name: scenario.unified ? "Save & continue" : "Save location" });
+      const skip = modal.getByRole("button", { name: scenario.unified ? "Skip saving this place" : "Skip for now" });
+      await expect(save).toBeEnabled();
+      await page.evaluate(() => Promise.allSettled(document.getAnimations().map((animation) => animation.finished)));
+      const primary = await save.boundingBox();
+      const secondary = await skip.boundingBox();
+      expect(primary!.y + primary!.height).toBeLessThanOrEqual(secondary!.y);
+      expect(secondary!.y + secondary!.height).toBeLessThanOrEqual(scenario.height);
+      expect(primary!.height).toBeGreaterThanOrEqual(44);
+      expect(secondary!.height).toBeGreaterThanOrEqual(44);
+      for (const action of [save, skip]) {
+        expect(await action.evaluate((node) => {
+          const box = node.getBoundingClientRect();
+          return node.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
+        })).toBe(true);
+      }
+      await modal.getByRole("button", { name: "Other", exact: true }).click();
+      await modal.getByLabel("Name it").fill("Gym");
+      await expect(save).toBeEnabled();
+      await modal.screenshot({ path: testInfo.outputPath("place-details.png") });
+      if (scenario.width < 640) {
+        await page.evaluate(() => {
+          document.documentElement.style.setProperty("--kb-height", "260px");
+          document.documentElement.classList.add("kb-open");
+        });
+        const lifted = await skip.boundingBox();
+        expect(lifted!.y + lifted!.height).toBeLessThanOrEqual(scenario.height - 260);
+      }
+      await save.click();
+      await expect(skip).toBeDisabled();
+      await page.evaluate(() => {
+        document.documentElement.style.setProperty("--kb-height", "0px");
+        document.documentElement.classList.remove("kb-open");
+        window.finishPlaceSave();
+      });
+      await expect(modal).toBeHidden();
+      if (scenario.onboarding) {
+        await expect(page.getByRole("button", { name: "Talk to One" })).toBeHidden();
+      } else {
+        await expect(page.getByRole("button", { name: "Talk to One" })).toBeVisible();
+        await expect(page.locator("[data-app-bottom-nav]")).toBeVisible();
+      }
+      await page.getByTestId("reopen-place-flow").click();
+      await expect(modal).toBeVisible();
+      await modal.getByRole("button", { name: scenario.unified ? "Skip saving this place" : "Skip for now" }).click();
+      await expect(modal).toBeHidden();
+      if (scenario.onboarding) {
+        await expect(page.locator("html")).toHaveAttribute("data-session-check-active", "");
+      } else {
+        await expect(page.locator("html")).not.toHaveAttribute("data-session-check-active");
+      }
+      expect(errors).toEqual([]);
+    });
+  }
+});
 
 async function boxOf(
   page: import("@playwright/test").Page,

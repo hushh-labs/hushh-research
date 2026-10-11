@@ -80,6 +80,9 @@ tests/services/test_drive_trusted_auto.py
 tests/services/test_drive_request_payment.py
 tests/test_drive_request_owner_payouts.py
 tests/test_stripe_connect_bank_payouts.py
+# Hashcoin liabilities and test-only redemption must run against real PostgreSQL.
+tests/test_hashcoin_wallet.py
+tests/test_hashcoin_redemption.py
 # Owner Allow for requests from outside the Trusted circle: migration 291 bounds
 # the owner price, replays without waiting behind live writers and refuses a
 # rollback that would strand an owner-priced payment. The Consent Center keeps
@@ -1107,9 +1110,19 @@ tests/test_pod_owner_feed.py
 
 tests/test_personal_agent_notification_checkpoint.py
 tests/test_pod_browser_azure_probe.py
+tests/services/test_chat_notification_state.py
+
+# Grouped Feed pagination/read authority and authenticated chat route boundaries.
+tests/services/test_feed_service.py
+tests/routes/test_feed_route.py
+tests/services/test_direct_messages_service.py
+tests/routes/test_direct_messages_route.py
 
 # Direct-message attachment history, replay and authorization on isolated PostgreSQL.
 tests/test_direct_message_feed_projection_postgres.py
+tests/services/test_wallet_card_access_service.py
+tests/routes/test_wallet_card_access_route.py
+tests/test_wallet_card_access_postgres.py
 
 # Scheduled mail by voice: migration 275 shape and rollback guard, the owner-local
 # send-time rules, and the schedule/list/cancel tools against the sealed ledger.
@@ -1143,7 +1156,19 @@ tests/test_pkm_packets_and_directory_claims.py
 tests/test_pkm_packet_orders.py
 tests/test_pkm_credits.py
 tests/test_pkm_payouts.py
+# Answer scope, encrypted delivery, payments and disabled-drain boundaries.
+# The PostgreSQL suites run in the existing serial database lane.
+tests/test_answer_scope_resolution.py
+tests/test_answer_scope_resolver.py
+tests/test_answer_composer.py
+tests/test_pkm_answer_payment.py
+tests/test_answer_work_drain.py
+tests/services/test_pkm_answer_requests_postgres.py
+tests/services/test_pkm_answer_races_postgres.py
 tests/test_one_career_routes.py
 
 # Historical public seed replay preserves refreshed SEC records and explicit curation.
 tests/services/test_marketplace_investor_discovery.py
+tests/services/test_pkm_answer_recovery_postgres.py
+tests/test_pkm_answer_config.py
+tests/test_pkm_answer_routes.py

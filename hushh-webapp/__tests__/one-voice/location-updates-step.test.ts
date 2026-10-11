@@ -21,7 +21,7 @@ import {
   type LocationUpdatesStepPorts,
   type LocationUpdatesStepResult,
 } from "@/lib/one-voice/location-updates-step";
-import type { NavigationJourney } from "@/lib/voice/navigation-journey";
+import type { NavigationJourney } from "@/lib/kai/actions/navigation-journey";
 
 // Alias independence: the gateway is the only lexical surface on this path,
 // and the step must keep working when every alias and keyword is gone. The
@@ -34,9 +34,9 @@ const gatewayMocks = vi.hoisted(() => ({
   getKaiActionByKaiCommand: vi.fn(),
 }));
 
-vi.mock("@/lib/voice/kai-action-gateway", async (importOriginal) => {
+vi.mock("@/lib/kai/actions/kai-action-gateway", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("@/lib/voice/kai-action-gateway")>();
+    await importOriginal<typeof import("@/lib/kai/actions/kai-action-gateway")>();
   const strip = <T extends { aliases: string[]; search_keywords: string[] }>(
     action: T,
   ): T =>
@@ -66,8 +66,8 @@ vi.mock("@/lib/voice/kai-action-gateway", async (importOriginal) => {
 import {
   getKaiActionById,
   listKaiActions,
-} from "@/lib/voice/kai-action-gateway";
-import { resolveNavigationJourney } from "@/lib/voice/navigation-journey";
+} from "@/lib/kai/actions/kai-action-gateway";
+import { resolveNavigationJourney } from "@/lib/kai/actions/navigation-journey";
 
 const USER = "owner-1";
 const LOCATION_SCREEN = "one_location";
@@ -1043,13 +1043,13 @@ describe("alias independence", () => {
     for (const specifier of specifiers) {
       expect(specifier).not.toMatch(/action-retrieval|retrieval|search|alias|synonym/i);
     }
-    // The only voice-gateway import is the journey TYPE; the lookup itself is
-    // a port supplied by the bridge.
-    expect(specifiers.filter((s) => s.startsWith("@/lib/voice/"))).toEqual([
-      "@/lib/voice/navigation-journey",
+    // The only action-gateway import is the journey TYPE; the lookup itself
+    // is a port supplied by the bridge.
+    expect(specifiers.filter((s) => s.startsWith("@/lib/kai/actions/"))).toEqual([
+      "@/lib/kai/actions/navigation-journey",
     ]);
     expect(source).toMatch(
-      /import type \{ NavigationJourney \} from "@\/lib\/voice\/navigation-journey"/,
+      /import type \{ NavigationJourney \} from "@\/lib\/kai\/actions\/navigation-journey"/,
     );
     expect(source).not.toContain("kai-action-gateway");
     expect(source).not.toMatch(/searchKaiActions|searchActions|aliases|search_keywords/);

@@ -1,7 +1,15 @@
 "use client";
 
 import { consentSummary } from "@/lib/feed/feed-consent-summary";
-import { documentRequestEntrySetup, documentRequestSetupHref, documentRequestSetupLabel } from "@/lib/consent/document-request-setup";
+import { isAnswerRequestEntry } from "@/lib/consent/answer-request-consent";
+import {
+  documentRequestEntrySetup,
+  documentRequestSetupHref,
+  documentRequestSetupLabel,
+  GOOGLE_DRIVE_CONNECTOR_ID,
+  isDocumentRequestSetupStep,
+  type DocumentRequestSetupStep,
+} from "@/lib/consent/document-request-setup";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -20,7 +28,10 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
-import { useFeedLiveRefresh, useFeedPendingConsentRefresh } from "@/lib/feed/use-feed-live-refresh";
+import {
+  useFeedLiveRefresh,
+  useFeedPendingConsentRefresh,
+} from "@/lib/feed/use-feed-live-refresh";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
   CACHE_KEYS,
@@ -54,7 +65,10 @@ import {
 } from "@/lib/consent/consent-events";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
-import { projectFeedDriveProgress, type FeedDriveProgress } from "@/lib/feed/drive-request-progress";
+import {
+  projectFeedDriveProgress,
+  type FeedDriveProgress,
+} from "@/lib/feed/drive-request-progress";
 import {
   describeFeedDrivePayment,
   projectFeedDrivePayments,
@@ -80,7 +94,10 @@ import {
   formatDocumentRequestPrice,
   isValidDocumentRequestPriceCents,
 } from "@/lib/consent/document-request-price";
-import { driveSharingSelectionId, isDriveSharingEntry } from "@/lib/consent/drive-query-consent";
+import {
+  driveSharingSelectionId,
+  isDriveSharingEntry,
+} from "@/lib/consent/drive-query-consent";
 import { resolveConsentRequesterLabel } from "@/lib/consent/consent-display";
 import { parseConsentInstant } from "@/lib/consent/consent-owner-copy";
 import {
@@ -102,6 +119,10 @@ import type {
 } from "@/lib/one-location/types";
 import { buildOneLocationNotificationHref } from "@/lib/one-location/notifications";
 import {
+  openProfilePane,
+  profileConnectorsLocation,
+} from "@/lib/navigation/profile-pane";
+import {
   ConnectionsService,
   type ConnectionRequest,
 } from "@/lib/services/connections-service";
@@ -116,7 +137,14 @@ import type { AgentUpdateStatus } from "@/lib/feed/agent-update-status";
  * uses for the same concept, never a coloured tile (hushh-icon-theme).
  */
 export type FeedIconTone =
-  "capability" | "accent" | "blue" | "purple" | "green" | "orange" | "red" | "gray";
+  | "capability"
+  | "accent"
+  | "blue"
+  | "purple"
+  | "green"
+  | "orange"
+  | "red"
+  | "gray";
 
 /** A registry glyph (`@/components/icons/agents`) or a legacy line icon. */
 export type FeedIcon = ComponentType<{ className?: string }>;
@@ -296,7 +324,10 @@ export function documentDecisionErrorCopy(code: string): string {
 
 /** The server owns whether an incoming Drive request needs the owner's help. */
 export function isConsentFeedActionable(entry: ConsentCenterEntry): boolean {
-  if (entry.kind === "connection_request" || entry.kind === "outgoing_request") {
+  if (
+    entry.kind === "connection_request" ||
+    entry.kind === "outgoing_request"
+  ) {
     return false;
   }
   if (!isDriveSharingEntry(entry)) return true;
@@ -553,9 +584,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
     null,
   );
   const [priceOpen, setPriceOpen] = useState(false);
-  const [priceTerms, setPriceTerms] = useState<DocumentPriceTerms | null>(
-    null,
-  );
+  const [priceTerms, setPriceTerms] = useState<DocumentPriceTerms | null>(null);
   const [priceBusy, setPriceBusy] = useState(false);
   const [priceError, setPriceError] = useState<string | null>(null);
   // State lags a render; the ref closes the double-submit window.
@@ -600,7 +629,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
       // cache on every route change; that is not a mutation and must not
       // force the consent summary and connections to refetch on each tab
       // switch (same filter as useConsentPendingSummaryCount).
-      const detail = (event as CustomEvent<Record<string, unknown>>).detail || {};
+      const detail =
+        (event as CustomEvent<Record<string, unknown>>).detail || {};
       const source = String(detail.source || "").trim();
       if (source === "cached_pending" || source === "queued_pending") return;
       setConsentTick((value) => value + 1);
@@ -655,7 +685,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
       if (!user?.uid || !idToken) throw new Error("Sign in to review consents");
       // A new pending count means a request arrived or left: the service's own
       // cached page predates it, so read past it.
-      const countChanged = listedPendingCountRef.current !== pendingConsentCount;
+      const countChanged =
+        listedPendingCountRef.current !== pendingConsentCount;
       listedPendingCountRef.current = pendingConsentCount;
       return ConsentCenterService.listEntries({
         idToken,
@@ -675,7 +706,14 @@ export function useFeedActionables(): UseFeedActionablesResult {
   const progressPageSize = 100;
   const receivedOverflowResource = useStaleResource({
     cacheKey: userId
-      ? CACHE_KEYS.CONSENT_CENTER_LIST(userId, "one:consents", "pending", "", 1, progressPageSize)
+      ? CACHE_KEYS.CONSENT_CENTER_LIST(
+          userId,
+          "one:consents",
+          "pending",
+          "",
+          1,
+          progressPageSize,
+        )
       : "feed_received_progress_guest",
     refreshKey: `one:consents:progress:${consentTick}:${pendingConsentCount ?? "?"}`,
     enabled: Boolean(userId),
@@ -683,8 +721,12 @@ export function useFeedActionables(): UseFeedActionablesResult {
       const idToken = await user?.getIdToken();
       if (!user?.uid || !idToken) throw new Error("Sign in to view requests");
       return ConsentCenterService.listEntries({
-        idToken, userId: user.uid, mode: "consents", surface: "pending",
-        page: 1, limit: progressPageSize,
+        idToken,
+        userId: user.uid,
+        mode: "consents",
+        surface: "pending",
+        page: 1,
+        limit: progressPageSize,
         force: consentTick > 0 || Boolean(options?.force),
       });
     },
@@ -693,7 +735,14 @@ export function useFeedActionables(): UseFeedActionablesResult {
   // this lane independently is necessary even when Needs you is empty.
   const sentProgressResource = useStaleResource({
     cacheKey: userId
-      ? CACHE_KEYS.CONSENT_CENTER_LIST(userId, "one:consents:sent", "pending", "", 1, progressPageSize)
+      ? CACHE_KEYS.CONSENT_CENTER_LIST(
+          userId,
+          "one:consents:sent",
+          "pending",
+          "",
+          1,
+          progressPageSize,
+        )
       : "feed_sent_progress_guest",
     refreshKey: `one:consents:sent:progress:${consentTick}`,
     enabled: Boolean(userId),
@@ -701,8 +750,13 @@ export function useFeedActionables(): UseFeedActionablesResult {
       const idToken = await user?.getIdToken();
       if (!user?.uid || !idToken) throw new Error("Sign in to view requests");
       return ConsentCenterService.listEntries({
-        idToken, userId: user.uid, mode: "consents", surface: "pending",
-        requestView: "sent", page: 1, limit: progressPageSize,
+        idToken,
+        userId: user.uid,
+        mode: "consents",
+        surface: "pending",
+        requestView: "sent",
+        page: 1,
+        limit: progressPageSize,
         force: consentTick > 0 || Boolean(options?.force),
       });
     },
@@ -712,7 +766,14 @@ export function useFeedActionables(): UseFeedActionablesResult {
   // search without changing that bucket or displaying unconfirmed file data.
   const activeProgressResource = useStaleResource({
     cacheKey: userId
-      ? CACHE_KEYS.CONSENT_CENTER_LIST(userId, "one:consents", "active", "", 1, progressPageSize)
+      ? CACHE_KEYS.CONSENT_CENTER_LIST(
+          userId,
+          "one:consents",
+          "active",
+          "",
+          1,
+          progressPageSize,
+        )
       : "feed_active_progress_guest",
     refreshKey: `one:consents:active:progress:${consentTick}`,
     enabled: Boolean(userId),
@@ -720,8 +781,12 @@ export function useFeedActionables(): UseFeedActionablesResult {
       const idToken = await user?.getIdToken();
       if (!user?.uid || !idToken) throw new Error("Sign in to view requests");
       return ConsentCenterService.listEntries({
-        idToken, userId: user.uid, mode: "consents", surface: "active",
-        page: 1, limit: progressPageSize,
+        idToken,
+        userId: user.uid,
+        mode: "consents",
+        surface: "active",
+        page: 1,
+        limit: progressPageSize,
         force: consentTick > 0 || Boolean(options?.force),
       });
     },
@@ -789,6 +854,24 @@ export function useFeedActionables(): UseFeedActionablesResult {
     [router],
   );
 
+  // Google Drive opens over this screen, as every Connectors entry does, so
+  // closing it returns here. Payouts and price are Profile pages of their own.
+  const openDocumentRequestSetup = useCallback(
+    (step: DocumentRequestSetupStep) => {
+      if (step === "drive") {
+        openProfilePane(
+          window.location.pathname,
+          window.location.search,
+          profileConnectorsLocation(GOOGLE_DRIVE_CONNECTOR_ID),
+          { returnsToOrigin: true },
+        );
+        return;
+      }
+      router.push(documentRequestSetupHref(step));
+    },
+    [router],
+  );
+
   // Pull stable slices out of the resource wrappers (which useStaleResource
   // returns fresh every render) so the memo below depends on the actual data
   // + the stable refresh callbacks, not the changing wrapper identity.
@@ -815,7 +898,10 @@ export function useFeedActionables(): UseFeedActionablesResult {
     (token: string): SharingSessionGuard => {
       const epoch = snapshotVaultSessionEpoch();
       return () => {
-        if (!isVaultSessionEpochCurrent(epoch) || getVaultOwnerToken() !== token) {
+        if (
+          !isVaultSessionEpochCurrent(epoch) ||
+          getVaultOwnerToken() !== token
+        ) {
           throw new DriveSharingError("session_changed");
         }
       };
@@ -865,7 +951,12 @@ export function useFeedActionables(): UseFeedActionablesResult {
       }
       settleDocumentRequest(entryId);
     },
-    [documentSessionGuard, getVaultOwnerToken, refreshDocumentRequests, settleDocumentRequest],
+    [
+      documentSessionGuard,
+      getVaultOwnerToken,
+      refreshDocumentRequests,
+      settleDocumentRequest,
+    ],
   );
 
   // The Feed row carries no request text. Allow therefore reads the owner's
@@ -894,7 +985,11 @@ export function useFeedActionables(): UseFeedActionablesResult {
         return;
       }
       if (load !== priceLoadRef.current) return;
-      if ((target.priceOnly ? review.priceOnlyAvailable : review.allowAvailable) !== true) {
+      if (
+        (target.priceOnly
+          ? review.priceOnlyAvailable
+          : review.allowAvailable) !== true
+      ) {
         priceLoadRef.current += 1;
         setPriceOpen(false);
         setPriceError(null);
@@ -967,7 +1062,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
       setPriceBusy(true);
       setPriceError(null);
       try {
-        const submit = terms.priceOnly ? DriveSharingService.setRequestPrice.bind(DriveSharingService)
+        const submit = terms.priceOnly
+          ? DriveSharingService.setRequestPrice.bind(DriveSharingService)
           : DriveSharingService.allow.bind(DriveSharingService);
         await submit(
           token,
@@ -990,9 +1086,11 @@ export function useFeedActionables(): UseFeedActionablesResult {
       setPriceOpen(false);
       settleDocumentRequest(target.entryId);
       toast.success(
-        terms.priceOnly ? `Price set at ${formatDocumentRequestPrice(price!)}.` : price === null
-          ? "Allowed. Files are shared as they're found."
-          : `Allowed at ${formatDocumentRequestPrice(price)}. Files are shared after payment.`,
+        terms.priceOnly
+          ? `Price set at ${formatDocumentRequestPrice(price!)}.`
+          : price === null
+            ? "Allowed. Files are shared as they're found."
+            : `Allowed at ${formatDocumentRequestPrice(price)}. Files are shared after payment.`,
       );
     },
     [
@@ -1034,7 +1132,14 @@ export function useFeedActionables(): UseFeedActionablesResult {
         setPriceError(null);
       },
     }),
-    [priceBusy, priceError, priceOpen, priceTarget, priceTerms, submitDocumentPrice],
+    [
+      priceBusy,
+      priceError,
+      priceOpen,
+      priceTarget,
+      priceTerms,
+      submitDocumentPrice,
+    ],
   );
 
   const receivedProgress = useMemo(() => {
@@ -1049,7 +1154,9 @@ export function useFeedActionables(): UseFeedActionablesResult {
     [sentProgressItems],
   );
   const paymentContexts = useFeedPaymentContext(
-    userId, vaultOwnerToken, sentPayments.map((payment) => payment.requestId),
+    userId,
+    vaultOwnerToken,
+    sentPayments.map((payment) => payment.requestId),
   );
   const hasLivePaymentDeadline = sentPayments.some(
     (payment) =>
@@ -1064,24 +1171,46 @@ export function useFeedActionables(): UseFeedActionablesResult {
   );
   const inProgress = useMemo(() => {
     const byRequest = new Map<string, FeedDriveProgress>();
-    for (const row of [...receivedProgress, ...sentProgress, ...activeProgress]) {
+    for (const row of [
+      ...receivedProgress,
+      ...sentProgress,
+      ...activeProgress,
+    ]) {
       byRequest.set(row.id, row);
     }
-    return [...byRequest.values()].sort((a, b) => (b.requestedAt ?? 0) - (a.requestedAt ?? 0));
+    return [...byRequest.values()].sort(
+      (a, b) => (b.requestedAt ?? 0) - (a.requestedAt ?? 0),
+    );
   }, [receivedProgress, sentProgress, activeProgress]);
   const progressOverflow = useMemo(() => {
     const links: Array<{ label: string; href: string }> = [];
     if (receivedOverflowResource.data?.has_more) {
-      links.push({ label: "View all received requests", href: buildConsentCenterHref("pending", { from: "/one/feed" }) });
+      links.push({
+        label: "View all received requests",
+        href: buildConsentCenterHref("pending", { from: "/one/feed" }),
+      });
     }
     if (sentProgressResource.data?.has_more) {
-      links.push({ label: "View all sent requests", href: buildConsentCenterHref("pending", { requestView: "sent", from: "/one/feed" }) });
+      links.push({
+        label: "View all sent requests",
+        href: buildConsentCenterHref("pending", {
+          requestView: "sent",
+          from: "/one/feed",
+        }),
+      });
     }
     if (activeProgressResource.data?.has_more) {
-      links.push({ label: "View all active requests", href: buildConsentCenterHref("active", { from: "/one/feed" }) });
+      links.push({
+        label: "View all active requests",
+        href: buildConsentCenterHref("active", { from: "/one/feed" }),
+      });
     }
     return links;
-  }, [receivedOverflowResource.data?.has_more, sentProgressResource.data?.has_more, activeProgressResource.data?.has_more]);
+  }, [
+    receivedOverflowResource.data?.has_more,
+    sentProgressResource.data?.has_more,
+    activeProgressResource.data?.has_more,
+  ]);
 
   // When a row genuinely has no arrival time, remember when it was first seen.
   //
@@ -1139,10 +1268,11 @@ export function useFeedActionables(): UseFeedActionablesResult {
   // list only loads while the summary counts something pending.
   useFeedPendingConsentRefresh(
     useCallback(
-      () => Promise.all([
-        consentSummaryRefresh({ force: true }),
-        consentListRefresh({ force: true }),
-      ]),
+      () =>
+        Promise.all([
+          consentSummaryRefresh({ force: true }),
+          consentListRefresh({ force: true }),
+        ]),
       [consentListRefresh, consentSummaryRefresh],
     ),
     Boolean(userId),
@@ -1152,11 +1282,15 @@ export function useFeedActionables(): UseFeedActionablesResult {
   // already doing automatic work earns a 10s status refresh; idle accounts do
   // not fetch three broad pages every 10s.
   useFeedPendingConsentRefresh(
-    useCallback(() => Promise.all([
-      receivedOverflowRefresh({ force: true }),
-      sentProgressRefresh({ force: true }),
-      activeProgressRefresh({ force: true }),
-    ]), [receivedOverflowRefresh, sentProgressRefresh, activeProgressRefresh]),
+    useCallback(
+      () =>
+        Promise.all([
+          receivedOverflowRefresh({ force: true }),
+          sentProgressRefresh({ force: true }),
+          activeProgressRefresh({ force: true }),
+        ]),
+      [receivedOverflowRefresh, sentProgressRefresh, activeProgressRefresh],
+    ),
     Boolean(userId) && (inProgress.length > 0 || sentPayments.length > 0),
   );
 
@@ -1198,36 +1332,65 @@ export function useFeedActionables(): UseFeedActionablesResult {
     // keep an obsolete CTA alive.
     const setupEntryIds = new Set<string>();
     const setupCandidates = new Map(
-      [...(receivedOverflowItems ?? []), ...(consentItems ?? [])].map((entry) => [entry.id, entry]),
+      [...(receivedOverflowItems ?? []), ...(consentItems ?? [])].map(
+        (entry) => [entry.id, entry],
+      ),
     );
     for (const entry of setupCandidates.values()) {
       if (entry.metadata?.direction !== "incoming") continue;
       const setup = documentRequestEntrySetup(entry);
-      if (!setup || setup === "price" && ownerDocumentDecision(entry)) continue;
+      if (!setup || (setup === "price" && ownerDocumentDecision(entry)))
+        continue;
       setupEntryIds.add(entry.id);
-      const label = resolveConsentRequesterLabel({ counterpartLabel: entry.counterpart_label });
-      const reviewHref = buildConsentCenterHref("pending", { requestId: entry.id, from: "/one/feed" });
-      items.push({
+      const row = {
         id: `consent:${entry.id}`,
         icon: ConsentAgentIcon,
         iconTone: "capability",
-        title: label,
-        description: documentRequestSetupLabel(setup, true),
-        href: reviewHref,
-        chevron: setup === "unavailable",
-        actions: setup === "unavailable" ? [] : [{
-          key: setup === "payouts" ? "setup-payouts" : "setup-price",
-          label: documentRequestSetupLabel(setup, true),
-          tone: "primary",
-          run: () => router.push(documentRequestSetupHref(setup)),
-        }],
-        sortAt: parseConsentInstant(entry.issued_at) ?? firstSeenAt(`consent:${entry.id}`),
+        title: resolveConsentRequesterLabel({
+          counterpartLabel: entry.counterpart_label,
+        }),
+        sortAt:
+          parseConsentInstant(entry.issued_at) ??
+          firstSeenAt(`consent:${entry.id}`),
         displayTimestamp: parseConsentInstant(entry.issued_at),
+      } as const;
+      if (!isDocumentRequestSetupStep(setup)) {
+        items.push({
+          ...row,
+          description: documentRequestSetupLabel(setup, true),
+          href: buildConsentCenterHref("pending", {
+            requestId: entry.id,
+            from: "/one/feed",
+          }),
+          chevron: true,
+          actions: [],
+        });
+        continue;
+      }
+      // The button names the step, so the row says only what waits on it. A
+      // row with an action is not a link: its tap takes the same step.
+      const openStep = () => openDocumentRequestSetup(setup);
+      items.push({
+        ...row,
+        description: "Requested a document",
+        onSelect: openStep,
+        actions: [
+          {
+            key: `setup-${setup}`,
+            label: documentRequestSetupLabel(setup, true),
+            tone: "primary",
+            run: openStep,
+          },
+        ],
       });
     }
 
     for (const payment of sentPayments) {
-      const displayPayment = describeFeedDrivePayment(payment, paymentClockNow, paymentContexts[payment.requestId]);
+      const displayPayment = describeFeedDrivePayment(
+        payment,
+        paymentClockNow,
+        paymentContexts[payment.requestId],
+      );
       const paymentIsNonActionable = displayPayment.status !== "ready";
       const paymentAction = paymentIsNonActionable
         ? []
@@ -1241,7 +1404,10 @@ export function useFeedActionables(): UseFeedActionablesResult {
                 try {
                   const idToken = await user?.getIdToken();
                   if (!idToken) throw new Error("Sign in to continue");
-                  const checkoutUrl = await DriveRequestPaymentService.checkout(idToken, payment.requestId);
+                  const checkoutUrl = await DriveRequestPaymentService.checkout(
+                    idToken,
+                    payment.requestId,
+                  );
                   window.location.assign(checkoutUrl);
                 } catch {
                   toast.error("Checkout couldn't open. Try again.");
@@ -1258,7 +1424,9 @@ export function useFeedActionables(): UseFeedActionablesResult {
         href: paymentIsNonActionable ? payment.href : undefined,
         chevron: paymentIsNonActionable,
         actions: paymentAction,
-        sortAt: payment.requestedAt ?? firstSeenAt(`drive-payment:${payment.requestId}`),
+        sortAt:
+          payment.requestedAt ??
+          firstSeenAt(`drive-payment:${payment.requestId}`),
         displayTimestamp: payment.requestedAt,
       });
     }
@@ -1280,7 +1448,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
         // put one request in "Needs you" twice (a chevron-only consent row and
         // the real one). The connections lane owns them: it carries the inline
         // Confirm/Decline and the scoped Review route.
-        if (!isConsentFeedActionable(entry) || setupEntryIds.has(entry.id)) continue;
+        if (!isConsentFeedActionable(entry) || setupEntryIds.has(entry.id))
+          continue;
         if (isOwnerConsentQueueEntry(entry)) {
           queueEntries.push(entry);
           continue;
@@ -1288,14 +1457,49 @@ export function useFeedActionables(): UseFeedActionablesResult {
         // A document request from outside the Trusted circle that the server
         // says the owner can answer now gets Deny and Allow inline. Anything
         // else (background access, waiting on payment) keeps its chevron row.
-        const documentDecision = ownerDocumentDecision(entry);
-        if (documentDecision && settledConsentKeys.has(entry.id)) continue;
         const requesterLabel = resolveConsentRequesterLabel({
           counterpartLabel: entry.counterpart_label,
           counterpartEmail: entry.counterpart_email,
           counterpartSecondaryLabel: entry.counterpart_secondary_label,
           counterpartId: entry.counterpart_id,
         });
+        if (isAnswerRequestEntry(entry)) {
+          const state = String(entry.metadata?.request_status || entry.status);
+          const owner = entry.metadata?.role === "owner";
+          const label = owner
+            ? state === "answering"
+              ? "Write answer"
+              : "Review question"
+            : "Review price and pay";
+          const href = buildConsentCenterHref("pending", {
+            requestId: entry.id,
+            from: "/one/feed",
+          });
+          items.push({
+            id: `consent:${entry.id}`,
+            icon: ConsentAgentIcon,
+            iconTone: "capability",
+            title: requesterLabel,
+            description: label,
+            href,
+            chevron: true,
+            actions: [
+              {
+                key: "review-answer",
+                label,
+                tone: "primary",
+                run: () => router.push(href),
+              },
+            ],
+            sortAt:
+              parseConsentInstant(entry.issued_at) ??
+              firstSeenAt(`consent:${entry.id}`),
+            displayTimestamp: parseConsentInstant(entry.issued_at),
+          });
+          continue;
+        }
+        const documentDecision = ownerDocumentDecision(entry);
+        if (documentDecision && settledConsentKeys.has(entry.id)) continue;
         const reviewHref = buildConsentCenterHref("pending", {
           requestId: driveSharingSelectionId(entry),
           from: "/one/feed",
@@ -1317,18 +1521,25 @@ export function useFeedActionables(): UseFeedActionablesResult {
           description: consentSummary(entry),
           href: reviewHref,
           // A row with inline actions is not a link; its tap opens the same review.
-          ...(documentDecision ? { onSelect: () => router.push(reviewHref) } : {}),
+          ...(documentDecision
+            ? { onSelect: () => router.push(reviewHref) }
+            : {}),
           chevron: !documentDecision,
           actions: documentDecision
             ? [
-                ...(!documentDecision.priceOnly ? [{
-                  key: "deny",
-                  label: "Deny",
-                  tone: "danger",
-                  disabled: !vaultOwnerToken,
-                  confirm: true,
-                  run: () => declineDocumentRequest(entryId, documentDecision),
-                } satisfies FeedActionButton] : []),
+                ...(!documentDecision.priceOnly
+                  ? [
+                      {
+                        key: "deny",
+                        label: "Deny",
+                        tone: "danger",
+                        disabled: !vaultOwnerToken,
+                        confirm: true,
+                        run: () =>
+                          declineDocumentRequest(entryId, documentDecision),
+                      } satisfies FeedActionButton,
+                    ]
+                  : []),
                 {
                   key: "allow",
                   label: documentDecision.priceOnly ? "Set price" : "Allow",
@@ -1649,7 +1860,9 @@ export function useFeedActionables(): UseFeedActionablesResult {
                           requestId: request.id,
                           reason: "inappropriate",
                         });
-                        toast.success("Reported. This person can't send you another request.");
+                        toast.success(
+                          "Reported. This person can't send you another request.",
+                        );
                         CacheSyncService.onConnectionCapabilityMutated(userId);
                         notifyFeedActionResolved();
                         await connectionsRefresh({ force: true });
@@ -1877,6 +2090,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
     circleMemberInvites,
     locationRefresh,
     openAnalysis,
+    openDocumentRequestSetup,
     pendingConsentCount,
     paymentClockNow,
     paymentContexts,
@@ -1904,8 +2118,15 @@ export function useFeedActionables(): UseFeedActionablesResult {
     actionables,
     inProgress,
     progressOverflow,
-    progressLoading: sentProgressResource.loading || activeProgressResource.loading || receivedOverflowResource.loading,
-    progressError: [sentProgressResource.error, activeProgressResource.error, receivedOverflowResource.error].some(Boolean)
+    progressLoading:
+      sentProgressResource.loading ||
+      activeProgressResource.loading ||
+      receivedOverflowResource.loading,
+    progressError: [
+      sentProgressResource.error,
+      activeProgressResource.error,
+      receivedOverflowResource.error,
+    ].some(Boolean)
       ? "Some request updates couldn't refresh."
       : null,
     count: actionables.length,

@@ -90,7 +90,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 import { deriveLocationVoiceActions } from "@/lib/voice/location-voice-actions";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 import { circleKindLabel } from "./location-circles";
 

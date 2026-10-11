@@ -14,6 +14,12 @@ from db.db_client import get_db
 from hushh_mcp.services.chat_push_delivery import deliver_chat_push, thumbnail
 
 logger = logging.getLogger(__name__)
+_wakeup: asyncio.Event | None = None
+
+
+def wake_circle_chat_push_worker() -> None:
+    if _wakeup is not None:
+        _wakeup.set()
 
 
 def _dispatch_one() -> bool:
@@ -135,7 +141,7 @@ def _dispatch_one() -> bool:
             user,
             event_id=f"location_circle_message:{message}",
             kind="location_circle_message",
-            tag=f"circle-chat:{message}",
+            tag=f"circle-chat:{circle}",
             link=f"/one/connect?tab=circles&action=circle-detail&circleId={circle}&circleChat=1",
             context=f"circle:{circle}:{target['client_message_id']}",
             data={
@@ -183,6 +189,8 @@ def dispatch_circle_chat_pushes() -> int:
 
 
 async def run_circle_chat_push_worker() -> None:
+    global _wakeup
+    _wakeup = asyncio.Event()
     ready = False
     idle_delay = 1
     # Leave a connection for foreground requests on small local pools. Leases
@@ -193,6 +201,8 @@ async def run_circle_chat_push_worker() -> None:
             counts = await asyncio.gather(
                 *(asyncio.to_thread(dispatch_circle_chat_pushes) for _ in range(concurrency))
             )
+            if any(count >= 20 for count in counts):
+                continue  # Drain committed bursts without a recovery-poll delay.
             delay = 1 if any(counts) else idle_delay
             idle_delay = 1 if any(counts) else min(5, idle_delay * 2)
             if not ready:
@@ -205,4 +215,8 @@ async def run_circle_chat_push_worker() -> None:
             logger.warning("circle_chat.push_sweep_failed error_type=%s", type(exc).__name__)
             delay = idle_delay
             idle_delay = min(5, idle_delay * 2)
-        await asyncio.sleep(delay)
+        try:
+            await asyncio.wait_for(_wakeup.wait(), timeout=delay)
+        except TimeoutError:
+            pass
+        _wakeup.clear()

@@ -111,6 +111,7 @@ class PkmConfirmationReceiptV2(BaseModel):
         # an imported statement). The connection is the authority; the receipt
         # never claims the owner reviewed this write.
         "owner_connected_source_sync",
+        "owner_source_projection",
     ] = "owner_confirmed"
     connected_source_provider: Literal["plaid", "statement_import"] | None = None
     auto_save_policy_version: Literal[1] | None = None
@@ -143,6 +144,19 @@ class PkmConfirmationReceiptV2(BaseModel):
                 raise ValueError("requested_workflow_cannot_include_auto_save_policy")
         elif self.workflow_authority is not None:
             raise ValueError("workflow_authority_requires_requested_workflow")
+        if self.authorization_mode == "owner_source_projection":
+            if self.sharing_impact_acknowledged or any(
+                value is not None
+                for value in (
+                    self.connected_source_provider,
+                    self.workflow_authority,
+                    self.auto_save_policy_version,
+                    self.auto_save_policy_enabled_at,
+                    self.product_default_effective_at,
+                )
+            ):
+                raise ValueError("source_projection_receipt_invalid")
+            return self
         if self.authorization_mode == "owner_connected_source_sync":
             if self.connected_source_provider is None:
                 raise ValueError("connected_source_sync_requires_provider")
@@ -287,6 +301,18 @@ class PkmMutationPlanV2(BaseModel):
                 or self.sharing_impact.enters_next_export_revision
             ):
                 raise ValueError("requested_workflow_requires_private_location_save")
+        if self.confirmation_receipt.authorization_mode == "owner_source_projection":
+            if (
+                domain != "one_living_sources"
+                or self.writer_id != "one_living_memory_source_projection"
+                or self.operation not in {"create", "merge", "update"}
+                or self.affected_grant_ids
+                or self.affected_export_ids
+                or self.sharing_impact.active_recipient_count
+                or self.sharing_impact.recipient_labels
+                or self.sharing_impact.enters_next_export_revision
+            ):
+                raise ValueError("source_projection_requires_private_inventory")
         if self.confirmation_receipt.authorization_mode == "owner_connected_source_sync":
             if domain != "financial" or self.operation == "delete":
                 raise ValueError("connected_source_sync_requires_financial_refresh")

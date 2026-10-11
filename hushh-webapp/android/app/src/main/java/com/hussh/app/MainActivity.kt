@@ -335,6 +335,7 @@ class MainActivity : BridgeActivity() {
      * exact generation it just rendered.
      */
     override fun onResume() {
+        HushhNotificationsPlugin.activityActive = true
         sessionPrivacyActivityResumed = true
         if (sessionPrivacyShielded) {
             showSessionPrivacyOverlay()
@@ -349,6 +350,7 @@ class MainActivity : BridgeActivity() {
      * Android never snapshots or reveals stale vault content while inactive.
      */
     override fun onPause() {
+        HushhNotificationsPlugin.activityActive = false
         val wasResumed = sessionPrivacyActivityResumed
         sessionPrivacyActivityResumed = false
         sessionPrivacyRecoveryRunnable?.let { nativeTestHandler.removeCallbacks(it) }

@@ -1,18 +1,25 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   query: "",
+  pathname: "/one/profile/payouts",
+  router: { replace: vi.fn() },
   token: "owner-token" as string | null,
   account: vi.fn(),
   onboard: vi.fn(),
   bankPayouts: vi.fn(),
   manage: vi.fn(),
   earnings: vi.fn(),
+  hashcoins: vi.fn(),
+  redeemTest: vi.fn(),
+  redeemLive: vi.fn(),
   epoch: 1,
 }));
 
 vi.mock("next/navigation", () => ({
+  usePathname: () => state.pathname,
+  useRouter: () => state.router,
   useSearchParams: () => new URLSearchParams(state.query),
 }));
 vi.mock("@/lib/vault/vault-context", () => ({
@@ -22,16 +29,29 @@ vi.mock("@/lib/vault/session-epoch", () => ({
   snapshotVaultSessionEpoch: () => state.epoch,
   isVaultSessionEpochCurrent: (epoch: number) => epoch === state.epoch,
 }));
-vi.mock("@/lib/services/document-payout-service", () => ({
-  DocumentPayoutService: { account: state.account, onboard: state.onboard, bankPayouts: state.bankPayouts, manage: state.manage, earnings: state.earnings },
+vi.mock("@/lib/services/document-payout-service", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/services/document-payout-service")>(),
+  DocumentPayoutService: { account: state.account, onboard: state.onboard, bankPayouts: state.bankPayouts, manage: state.manage, earnings: state.earnings, hashcoins: state.hashcoins, redeemTest: state.redeemTest, redeemLive: state.redeemLive },
 }));
 
-import { DocumentBankPayoutStatusCard, DocumentPayoutAccountCard } from "@/components/consent/document-payout-account";
+import { DocumentBankPayoutStatusCard, DocumentPayoutAccountCard, PAYOUT_FALLBACK_POLL_MS, usePayoutSnapshot } from "@/components/consent/document-payout-account";
+import { DocumentHashcoinPayouts } from "@/components/consent/document-hashcoins";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
+import { ApiError } from "@/lib/services/api-client";
+
+function PayoutPollHarness() {
+  usePayoutSnapshot(state.hashcoins);
+  usePayoutSnapshot(state.earnings);
+  usePayoutSnapshot(state.bankPayouts, { bankOnly: true });
+  return null;
+}
 
 describe("document payout account", () => {
   beforeEach(() => {
     state.query = "";
+    state.pathname = "/one/profile/payouts";
+    state.router.replace.mockReset();
+    window.sessionStorage.clear();
     state.epoch = 1;
     state.manage.mockReset().mockResolvedValue({ url: "https://example.invalid/unsafe" });
     state.earnings.mockReset().mockResolvedValue({ currency: "USD", transactions: [], nextCursor: null });
@@ -39,6 +59,222 @@ describe("document payout account", () => {
     state.account.mockReset().mockResolvedValue({ account: null });
     state.onboard.mockReset().mockResolvedValue({ url: "https://example.invalid/unsafe" });
     state.bankPayouts.mockReset().mockResolvedValue({ currency: "USD", payouts: [] });
+    state.hashcoins.mockReset().mockResolvedValue({
+      coinName: "Hussh Coins", coinsPerDollar: 100, currency: "USD", payoutMode: "test", testPayouts: true, liveRedemptionEnabled: false, maxRedeemCoins: 50000,
+      live: { balanceCoins: 911, reservedCoins: 0, availableCoins: 911, amountCents: 911, held: false },
+      sandbox: { balanceCoins: 911, reservedCoins: 0, availableCoins: 911, amountCents: 911, held: false }, latestRedemption: null,
+    });
+    state.redeemTest.mockReset();
+    state.redeemLive.mockReset();
+  });
+
+  it("recovers visible payout snapshots on a bounded poll, coalesces slow reads, and stops for hidden or changed owners", async () => {
+    vi.useFakeTimers();
+    let hidden = false;
+    const hiddenSpy = vi.spyOn(document, "hidden", "get").mockImplementation(() => hidden);
+    let finishSlowWallet!: (value: unknown) => void;
+    state.hashcoins.mockImplementationOnce(() => Promise.resolve({}))
+      .mockImplementationOnce(() => new Promise((resolve) => { finishSlowWallet = resolve; }))
+      .mockResolvedValue({});
+    try {
+      const view = render(<PayoutPollHarness />);
+      await act(async () => { await Promise.resolve(); });
+      for (const load of [state.hashcoins, state.earnings, state.bankPayouts]) {
+        expect(load).toHaveBeenCalledExactlyOnceWith("owner-token");
+      }
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(PAYOUT_FALLBACK_POLL_MS); });
+      expect(state.hashcoins).toHaveBeenCalledTimes(2);
+      await act(async () => { await vi.advanceTimersByTimeAsync(PAYOUT_FALLBACK_POLL_MS * 2); });
+      expect(state.hashcoins).toHaveBeenCalledTimes(2);
+      await act(async () => { finishSlowWallet({}); });
+      expect(state.hashcoins).toHaveBeenCalledTimes(3);
+
+      hidden = true;
+      const beforeHidden = [state.hashcoins.mock.calls.length, state.earnings.mock.calls.length, state.bankPayouts.mock.calls.length];
+      await act(async () => { await vi.advanceTimersByTimeAsync(PAYOUT_FALLBACK_POLL_MS * 2); });
+      expect([state.hashcoins.mock.calls.length, state.earnings.mock.calls.length, state.bankPayouts.mock.calls.length]).toEqual(beforeHidden);
+
+      hidden = false;
+      state.token = "second-owner";
+      state.epoch++;
+      view.rerender(<PayoutPollHarness />);
+      await act(async () => { await Promise.resolve(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(PAYOUT_FALLBACK_POLL_MS); });
+      for (const load of [state.hashcoins, state.earnings, state.bankPayouts]) {
+        expect(load.mock.calls.filter(([token]) => token === "second-owner")).toHaveLength(2);
+      }
+      view.unmount();
+      const afterUnmount = [state.hashcoins.mock.calls.length, state.earnings.mock.calls.length, state.bankPayouts.mock.calls.length];
+      await act(async () => { await vi.advanceTimersByTimeAsync(PAYOUT_FALLBACK_POLL_MS); });
+      expect([state.hashcoins.mock.calls.length, state.earnings.mock.calls.length, state.bankPayouts.mock.calls.length]).toEqual(afterUnmount);
+    } finally {
+      hiddenSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows real Hussh Coins above a distinct sandbox and never calls a test transfer a real deposit", async () => {
+    const redeemed = { id: "11111111-1111-4111-8111-111111111111", amountCoins: 911, status: "succeeded", stripeMode: "test" };
+    state.redeemTest.mockImplementationOnce(async () => {
+      state.hashcoins.mockResolvedValue({
+        payoutMode: "test", testPayouts: true,
+        live: { balanceCoins: 911, amountCents: 911, held: false },
+        sandbox: { balanceCoins: 0, reservedCoins: 0, availableCoins: 0, held: false }, latestRedemption: null,
+        redemptionHistory: [redeemed],
+      });
+      return redeemed;
+    });
+    render(<DocumentHashcoinPayouts />);
+    const live = await screen.findByRole("region", { name: "Hussh Coins" });
+    await waitFor(() => expect(live).toHaveTextContent("911 Hussh Coins"));
+    expect(live).toHaveTextContent("100 Hussh Coins = $1");
+    expect(live).toHaveTextContent("$9.11");
+    const sandbox = screen.getByRole("region", { name: "Payout sandbox" });
+    expect(sandbox).toHaveTextContent("Your real Hussh Coins stay unchanged");
+    fireEvent.click(within(sandbox).getByRole("button", { name: /Test redeem/ }));
+    expect(await within(sandbox).findByText("Test transfer completed")).toBeVisible();
+    expect(state.redeemTest).toHaveBeenCalledExactlyOnceWith("owner-token", 911, expect.any(String));
+    expect(live).toHaveTextContent("911 Hussh Coins");
+    await waitFor(() => expect(within(sandbox).getByRole("button", { name: "Test redeem $0.00" })).toBeDisabled());
+    expect(screen.queryByText(/bank payout paid/)).toBeNull();
+  });
+
+  it("keeps live bank setup plainly labeled and never offers test redemption in live mode", async () => {
+    state.hashcoins.mockResolvedValue({ payoutMode: "live", testPayouts: false,
+      live: { balanceCoins: 911, amountCents: 911, held: false },
+      sandbox: { availableCoins: 911, held: false }, latestRedemption: null });
+    let finishAccount!: (value: unknown) => void;
+    state.account.mockImplementationOnce(() => new Promise((resolve) => { finishAccount = resolve; }));
+    render(<DocumentHashcoinPayouts />);
+    const bankAction = await screen.findByRole("button", { name: "Link bank" });
+    expect(bankAction).toBeDisabled();
+    await act(async () => { finishAccount({ account: null, stripeMode: "live" }); });
+    await waitFor(() => expect(bankAction).toBeEnabled());
+    expect(screen.getByRole("region", { name: "Document payouts" })).toHaveTextContent("US payouts");
+    expect(screen.getByRole("region", { name: "Hussh Coins" })).toHaveTextContent("911 Hussh Coins");
+    expect(screen.queryByRole("region", { name: "Payout sandbox" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Test redeem|Check test redemption/ })).toBeNull();
+    expect(state.redeemTest).not.toHaveBeenCalled();
+    expect(state.redeemLive).not.toHaveBeenCalled();
+  });
+
+  it("redeems one eligible live earning to Stripe without claiming a bank deposit", async () => {
+    state.hashcoins.mockResolvedValue({
+      coinName: "Hussh Coins", coinsPerDollar: 100, currency: "USD", payoutMode: "live", testPayouts: false,
+      liveRedemptionEnabled: true, maxRedeemCoins: 50000,
+      live: { balanceCoins: 1822, reservedCoins: 0, availableCoins: 1822, amountCents: 1822, held: false, nextRedeemCoins: 911 },
+      sandbox: { balanceCoins: 911, reservedCoins: 0, availableCoins: 911, amountCents: 911, held: false },
+      latestRedemption: null, redemptionHistory: [],
+    });
+    state.account.mockResolvedValue({ stripeMode: "live", account: {
+      detailsSubmitted: true, transfersEnabled: true, payoutsEnabled: true,
+      ready: true, status: "ready", bankStatus: "linked", canManageBank: true,
+    } });
+    state.redeemLive.mockResolvedValue({ id: "11111111-1111-4111-8111-111111111111", amountCoins: 911, status: "succeeded", stripeMode: "live", reversalStatus: "none" });
+    render(<DocumentHashcoinPayouts />);
+    const cashOut = await screen.findByRole("region", { name: "Cash out Hussh Coins" });
+    expect(screen.getByRole("region", { name: "Hussh Coins" })).toHaveTextContent("1,822 Hussh Coins");
+    expect(cashOut).toHaveTextContent("911 Hussh Coins ready");
+    fireEvent.click(within(cashOut).getByRole("button", { name: "Redeem $9.11" }));
+    await waitFor(() => expect(state.redeemLive).toHaveBeenCalledExactlyOnceWith("owner-token", 911, expect.any(String)));
+    expect(await within(cashOut).findByText("Sent to Stripe. Bank deposit follows your payout settings.")).toBeVisible();
+    expect(state.redeemTest).not.toHaveBeenCalled();
+    expect(screen.queryByRole("region", { name: "Payout sandbox" })).toBeNull();
+  });
+
+  it("shows a refunded live transfer as reversed, not bank paid", async () => {
+    const reversed = { id: "11111111-1111-4111-8111-111111111111", amountCoins: 911,
+      status: "succeeded", stripeMode: "live", reversalStatus: "reversed" };
+    state.hashcoins.mockResolvedValue({ payoutMode: "live", testPayouts: false, liveRedemptionEnabled: true,
+      live: { balanceCoins: -911, reservedCoins: 0, availableCoins: 0, amountCents: -911, held: true, nextRedeemCoins: 0 },
+      sandbox: { balanceCoins: 0, reservedCoins: 0, availableCoins: 0, amountCents: 0, held: false },
+      latestRedemption: null, redemptionHistory: [reversed] });
+    render(<DocumentHashcoinPayouts />);
+    const cashOut = await screen.findByRole("region", { name: "Cash out Hussh Coins" });
+    expect(cashOut).toHaveTextContent("Transfer reversed");
+    expect(cashOut).not.toHaveTextContent("Sent to Stripe");
+    expect(within(cashOut).getByRole("button", { name: "Redeem $0.00" })).toBeDisabled();
+  });
+
+  it.each([
+    { payoutMode: undefined, testPayouts: true },
+    { payoutMode: "unknown", testPayouts: true },
+    { payoutMode: "test", testPayouts: false },
+    { payoutMode: "test", testPayouts: undefined },
+  ])("hides bank and redemption controls without confirmed sandbox or live mode: %j", async (mode) => {
+    state.hashcoins.mockResolvedValue({ ...mode,
+      live: { balanceCoins: 911, amountCents: 911, held: false },
+      sandbox: { availableCoins: 911, held: false }, latestRedemption: null });
+    render(<DocumentHashcoinPayouts />);
+    await waitFor(() => expect(screen.getByRole("region", { name: "Hussh Coins" })).toHaveTextContent("911 Hussh Coins"));
+    expect(screen.queryByRole("region", { name: "Payout sandbox" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Document payouts" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Test redeem|Check test redemption|Link bank/ })).toBeNull();
+    expect(state.account).not.toHaveBeenCalled();
+    expect(state.bankPayouts).not.toHaveBeenCalled();
+    expect(state.redeemTest).not.toHaveBeenCalled();
+  });
+
+  it("keeps bank and redemption controls closed during loading and after a failed mode refresh", async () => {
+    let finish!: (value: unknown) => void;
+    state.hashcoins.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    render(<DocumentHashcoinPayouts />);
+    expect(screen.queryByRole("region", { name: "Payout sandbox" })).toBeNull();
+    expect(state.account).not.toHaveBeenCalled();
+    await act(async () => { finish({ payoutMode: "test", testPayouts: true,
+      live: { balanceCoins: 911, amountCents: 911, held: false },
+      sandbox: { availableCoins: 911, held: false }, latestRedemption: null }); });
+    await waitFor(() => expect(screen.getByRole("button", { name: /Test redeem/ })).toBeEnabled());
+    state.hashcoins.mockRejectedValue(new Error("Unavailable"));
+    fireEvent(window, new CustomEvent(CONSENT_STATE_CHANGED_EVENT));
+    expect(await screen.findByText("Couldn't load Hussh Coins.")).toBeVisible();
+    expect(screen.queryByRole("region", { name: "Payout sandbox" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Document payouts" })).toBeNull();
+    expect(state.redeemTest).not.toHaveBeenCalled();
+  });
+
+  it("caps each test redemption and shows the amount before submitting", async () => {
+    state.hashcoins.mockResolvedValue({ payoutMode: "test", testPayouts: true, live: { balanceCoins: 70000, amountCents: 70000, held: false },
+      sandbox: { balanceCoins: 70000, availableCoins: 70000, held: false }, maxRedeemCoins: 50000, latestRedemption: null });
+    state.redeemTest.mockResolvedValue({ id: "11111111-1111-4111-8111-111111111111", amountCoins: 50000, status: "unknown", stripeMode: "test" });
+    render(<DocumentHashcoinPayouts />);
+    fireEvent.click(await screen.findByRole("button", { name: "Test redeem $500.00" }));
+    await waitFor(() => expect(state.redeemTest).toHaveBeenCalledExactlyOnceWith("owner-token", 50000, expect.any(String)));
+  });
+
+  it("recovers an unknown redemption with its original key after reopening, without reserving again", async () => {
+    const request = { id: "11111111-1111-4111-8111-111111111111", clientRequestId: "22222222-2222-4222-8222-222222222222", amountCoins: 911, status: "unknown", stripeMode: "test" };
+    state.hashcoins.mockResolvedValue({
+      payoutMode: "test", testPayouts: true,
+      live: { balanceCoins: 911, amountCents: 911, held: false },
+      sandbox: { balanceCoins: 911, reservedCoins: 911, availableCoins: 0, held: false }, latestRedemption: request,
+    });
+    let finish!: (value: unknown) => void;
+    state.redeemTest.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    render(<DocumentHashcoinPayouts />);
+    const button = await screen.findByRole("button", { name: "Check test redemption" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    await waitFor(() => expect(state.redeemTest).toHaveBeenCalledExactlyOnceWith("owner-token", 911, request.clientRequestId));
+    await act(async () => { finish(request); });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Check test redemption" })).toBeEnabled());
+    expect(screen.getByText("Checking test redemption. Your test balance is reserved.")).toBeVisible();
+  });
+
+  it("drops stale Hashcoin balances and redemption results when the owner changes", async () => {
+    let finish!: (value: unknown) => void;
+    state.redeemTest.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const view = render(<DocumentHashcoinPayouts />);
+    fireEvent.click(await screen.findByRole("button", { name: /Test redeem/ }));
+    await waitFor(() => expect(state.redeemTest).toHaveBeenCalledOnce());
+    state.token = "second-owner";
+    state.epoch++;
+    state.hashcoins.mockImplementationOnce(() => new Promise(() => {}));
+    view.rerender(<DocumentHashcoinPayouts />);
+    expect(screen.queryByText("911 Hussh Coins")).toBeNull();
+    await act(async () => { finish({ id: "11111111-1111-4111-8111-111111111111", amountCoins: 911, status: "succeeded", stripeMode: "test" }); });
+    expect(screen.queryByText("Sent to your test Stripe balance. No real money moved.")).toBeNull();
   });
 
   it("shows Connect readiness without claiming a bank deposit", async () => {
@@ -64,6 +300,62 @@ describe("document payout account", () => {
     expect(state.onboard).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Link bank" }));
     await waitFor(() => expect(state.onboard).toHaveBeenCalledTimes(2));
+  });
+
+  it("explains platform activation failures and retries secure bank setup", async () => {
+    const assign = vi.fn();
+    const realLocation = window.location;
+    Object.defineProperty(window, "location", { configurable: true, value: { assign } });
+    try {
+      state.onboard.mockRejectedValueOnce(new ApiError("Private provider details", 503, {
+        detail: { code: "PAYOUT_PLATFORM_SETUP_REQUIRED", message: "Private provider details" },
+      })).mockResolvedValueOnce({ url: "https://connect.stripe.com/setup/safe_link" });
+      render(<DocumentPayoutAccountCard compact />);
+      fireEvent.click(await screen.findByRole("button", { name: "Link bank" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("Bank setup is unavailable. Hushh needs to activate payouts.");
+      expect(screen.queryByText(/Private provider details/)).toBeNull();
+      expect(assign).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Link bank" }));
+      await waitFor(() => expect(assign).toHaveBeenCalledExactlyOnceWith("https://connect.stripe.com/setup/safe_link"));
+      expect(screen.queryByRole("alert")).toBeNull();
+    } finally { Object.defineProperty(window, "location", { configurable: true, value: realLocation }); }
+  });
+
+  it("retries an unknown account state without calling it an unlinked bank", async () => {
+    state.account.mockRejectedValueOnce(new ApiError("private", 503)).mockResolvedValueOnce({ account: null });
+    render(<DocumentPayoutAccountCard compact />);
+    const retry = await screen.findByRole("button", { name: "Retry bank check" });
+    expect(retry).toBeEnabled();
+    expect(screen.getByText("Bank status unavailable")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Link bank" })).toBeNull();
+    fireEvent.click(retry);
+    expect(await screen.findByRole("button", { name: "Link bank" })).toBeEnabled();
+    expect(state.account).toHaveBeenCalledTimes(2);
+    expect(state.onboard).not.toHaveBeenCalled();
+  });
+
+  it("keeps verified bank management available during refresh failure and accepts Stripe Express links", async () => {
+    const assign = vi.fn();
+    const realLocation = window.location;
+    Object.defineProperty(window, "location", { configurable: true, value: { assign } });
+    try {
+      state.account.mockResolvedValueOnce({ stripeMode: "live", account: {
+        detailsSubmitted: true, transfersEnabled: true, payoutsEnabled: true, ready: true, status: "ready",
+        canManageBank: true, bankStatus: "linked", bank: { name: "Example Bank", last4: "6789", status: "verified" },
+      } }).mockRejectedValueOnce(new ApiError("private", 503));
+      state.manage.mockResolvedValueOnce({ url: "https://stripe.com/express/acct_owner/login_token" });
+      render(<DocumentPayoutAccountCard />);
+      await screen.findByText("Bank linked");
+      act(() => window.dispatchEvent(new Event("focus")));
+      expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't check your bank. Try again.");
+      expect(screen.queryByText("Bank linked")).toBeNull();
+      const manage = screen.getByRole("button", { name: "Manage bank" });
+      expect(manage).toBeEnabled();
+      fireEvent.click(manage);
+      await waitFor(() => expect(assign).toHaveBeenCalledExactlyOnceWith("https://stripe.com/express/acct_owner/login_token"));
+      expect(state.manage).toHaveBeenCalledExactlyOnceWith("owner-token");
+      expect(state.onboard).not.toHaveBeenCalled();
+    } finally { Object.defineProperty(window, "location", { configurable: true, value: realLocation }); }
   });
 
   it("clears one owner's readiness while another owner account loads", async () => {
@@ -103,6 +395,71 @@ describe("document payout account", () => {
       await waitFor(() => expect(state.manage).toHaveBeenCalledExactlyOnceWith("owner-token"));
       expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't open bank setup");
     } finally { window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, events); }
+  });
+
+  describe("return to the screen that opened bank setup", () => {
+    const pending = { detailsSubmitted: true, transfersEnabled: false, payoutsEnabled: false, ready: false, status: "onboarding_required" };
+    const linked = { account: { ...pending, transfersEnabled: true, payoutsEnabled: true, ready: true, status: "ready" } };
+    const assign = vi.fn();
+    const realLocation = window.location;
+    const startSetup = async (query: string) => {
+      state.query = query;
+      const view = render(<DocumentPayoutAccountCard handleReturn showHistory={false} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Link bank" }));
+      await waitFor(() => expect(assign).toHaveBeenCalledOnce());
+      view.unmount();
+      assign.mockReset();
+      state.query = "documentPayouts=done";
+    };
+    // Lets the last read's effects run before asserting that nothing navigated.
+    const settle = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    beforeEach(() => {
+      state.onboard.mockResolvedValue({ url: "https://connect.stripe.com/setup/safe_link" });
+      Object.defineProperty(window, "location", { configurable: true, value: { assign } });
+    });
+    afterEach(() => {
+      vi.restoreAllMocks();
+      Object.defineProperty(window, "location", { configurable: true, value: realLocation });
+    });
+
+    it("goes back once the account first reads ready, and stays while setup is unfinished", async () => {
+      await startSetup("from=%2Fone%2Ffeed");
+      state.account.mockResolvedValueOnce({ account: pending }).mockResolvedValueOnce(linked);
+      render(<DocumentPayoutAccountCard handleReturn showHistory={false} />);
+      expect(await screen.findByRole("button", { name: "Finish setup" })).toBeEnabled();
+      await settle();
+      expect(state.router.replace).not.toHaveBeenCalled();
+      expect(window.sessionStorage.length).toBe(1);
+      act(() => window.dispatchEvent(new Event("focus")));
+      await waitFor(() => expect(state.router.replace).toHaveBeenCalledExactlyOnceWith("/one/feed"));
+      expect(window.sessionStorage.length).toBe(0);
+    });
+
+    it("stays on Payouts for an external or expired origin", async () => {
+      await startSetup("from=https%3A%2F%2Fevil.example%2Fone%2Ffeed");
+      expect(window.sessionStorage.length).toBe(0);
+      await startSetup("from=%2Fone%2Ffeed");
+      const anHourLater = Date.now() + 61 * 60 * 1000;
+      vi.spyOn(Date, "now").mockReturnValue(anHourLater);
+      state.account.mockResolvedValue(linked);
+      render(<DocumentPayoutAccountCard handleReturn showHistory={false} />);
+      expect(await screen.findByText("Bank linked")).toBeVisible();
+      await waitFor(() => expect(window.sessionStorage.length).toBe(0));
+      expect(state.router.replace).not.toHaveBeenCalled();
+    });
+
+    it("still opens bank setup when storage is blocked, then stays on Payouts", async () => {
+      for (const method of ["getItem", "setItem", "removeItem"] as const) {
+        vi.spyOn(Storage.prototype, method).mockImplementation(() => { throw new Error("storage blocked"); });
+      }
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      await startSetup("from=%2Fone%2Ffeed");
+      state.account.mockResolvedValue(linked);
+      render(<DocumentPayoutAccountCard handleReturn showHistory={false} />);
+      expect(await screen.findByText("Bank linked")).toBeVisible();
+      await settle();
+      expect(state.router.replace).not.toHaveBeenCalled();
+    });
   });
 
   it("drops an old owner's onboarding result after an account switch", async () => {

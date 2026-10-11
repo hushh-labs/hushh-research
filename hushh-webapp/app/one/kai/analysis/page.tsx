@@ -75,7 +75,7 @@ import { isLocalAnalysisPreviewRequest } from "@/components/kai/shared/local-mar
 import {
   usePublishVoiceSurfaceMetadata,
   useVoiceSurfaceControlTracking,
-} from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/voice-surface-metadata";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 
 const ANALYSIS_INTENT_FRESH_MS = 15_000;

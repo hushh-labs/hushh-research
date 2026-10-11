@@ -142,6 +142,10 @@ export function toInvestorVaultUnlockError(value: unknown): string {
     return "That recovery key did not match. Please try again.";
   }
 
+  if (lowered.includes("vault unlock method is not configured")) {
+    return "Passphrase unlock is not set up for this vault yet. Use your Vault Key or Recovery key below.";
+  }
+
   return toInvestorMessage("VAULT_UNLOCK_FAILED");
 }
 

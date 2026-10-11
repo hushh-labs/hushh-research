@@ -7,3 +7,4 @@ export function changeOwner(next: string) { uid = next; snapshot = { user: user(
 export function useAuth() { return useSyncExternalStore((listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; }, () => snapshot); }
 
 export const auth = { get currentUser() { return snapshot.user; } };
+export const app = { name: "direct-chat-fixture", options: {} };

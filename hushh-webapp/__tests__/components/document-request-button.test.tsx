@@ -337,6 +337,8 @@ describe("requesting exact files from a connection", () => {
       );
       expect(reconcile).toHaveBeenCalledOnce();
       expect(state.invalidate).toHaveBeenCalledWith("b");
+      expect(screen.getByText("Request sent.")).toHaveClass("text-center");
+      expect(screen.getByRole("button", { name: "Request more files" })).toHaveClass("h-[50px]");
       const link = screen.getByRole("link", { name: "View request" }).getAttribute("href");
       expect(link).toContain(encodeURIComponent(`document_share_request:${requestId}`));
       expect(link).toContain("requestView=sent");

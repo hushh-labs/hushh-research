@@ -1,4 +1,4 @@
-import { resolveSearchScreen, searchTargetMatchesCurrentRoute } from "@/lib/voice/search-route-context";
+import { resolveSearchScreen, searchTargetMatchesCurrentRoute } from "@/lib/search/search-route-context";
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -10,16 +10,19 @@ import {
 import {
   evaluateKaiActionAvailability,
   getKaiActionById,
+  listKaiActionsForSurface,
   searchKaiActions,
   searchKaiActionsSemantic,
-} from "@/lib/voice/kai-action-gateway";
+} from "@/lib/kai/actions/kai-action-gateway";
 import {
   clearActionUsage,
   recordActionUse,
-} from "@/lib/voice/action-usage-memory";
-import type { AppRuntimeState } from "@/lib/voice/voice-types";
+} from "@/lib/search/action-usage-memory";
+import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
 
 const mobile = vi.hoisted(() => ({ value: false }));
+// CRM suggestions are offered only in builds where that existing feature is enabled.
+vi.mock("@/lib/connected-systems/crm-product-availability", () => ({ isLocalCrmBuildEnabled: () => true }));
 
 vi.mock("@/hooks/use-mobile", () => ({
   useIsMobile: () => mobile.value,
@@ -36,8 +39,8 @@ vi.mock("@/lib/kai/ticker-universe-cache", () => ({
   searchTickerUniverseRemote: vi.fn(async () => []),
 }));
 
-vi.mock("@/lib/voice/kai-action-gateway", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/voice/kai-action-gateway")>()),
+vi.mock("@/lib/kai/actions/kai-action-gateway", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/kai/actions/kai-action-gateway")>()),
   searchKaiActionsSemantic: vi.fn(async () => []),
 }));
 
@@ -310,6 +313,18 @@ describe("contract-owned search route context", () => {
     expect(resolveSearchScreen("/one/location?view=people", "app")).toBe("one_location");
     expect(searchTargetMatchesCurrentRoute("/ria/picks", "/ria/picks?returnTo=%2Fone")).toBe(true);
   });
+  it.each([
+    ["/one/messages", "one_messages", "route.messages_connections"],
+    ["/one/wallet-card", "one_wallet_card", "route.wallet_profile_cards"],
+    ["/one/connected-systems/customer-crm", "connected_systems", "route.connected_system_list"],
+    ["/one/email", "email_agent", "route.mail_connections"],
+    ["/one/puppy", "puppy_one", "route.puppy_agents"],
+  ])("offers a working contextual route on current screen %s", (href, currentScreen, actionId) => {
+    expect(resolveSearchScreen(href, "app")).toBe(currentScreen);
+    const actions = listKaiActionsForSurface({ href, screen: currentScreen });
+    expect(actions.some(action => action.action_id === actionId && isOfferableInSearch(action))).toBe(true);
+  });
+
   it("recognizes RIA source and category independently, including authored defaults", () => {
     expect(searchTargetMatchesCurrentRoute("/ria/picks?source=my", "/ria/picks?source=my&category=avoid")).toBe(true);
     expect(searchTargetMatchesCurrentRoute("/ria/picks?category=avoid", "/ria/picks?source=my&category=avoid")).toBe(true);

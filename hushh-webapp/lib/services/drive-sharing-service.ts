@@ -128,6 +128,9 @@ export type OwnerDocumentPayoutStatus =
   | "unknown"
   | "manual_review"
   | "transferred"
+  | "hashcoins_credited"
+  | "hashcoins_held"
+  | "hashcoins_reversed"
   | "reversal_due"
   | "reversal_unknown"
   | "reversed"
@@ -167,10 +170,12 @@ function preparationError(value: unknown): SharingPreparationError | null {
     : null;
 }
 function parseRequestSetup(value: Record<string, unknown>): DocumentRequestSetup {
+  const ownerDriveReady = optionalFlag(value.ownerDriveReady);
   const ownerPriceRequired = optionalFlag(value.ownerPriceRequired);
   const ownerPayoutAccountReady = optionalFlag(value.ownerPayoutAccountReady);
   const paymentsReady = optionalFlag(value.paymentsReady);
   return {
+    ...(ownerDriveReady === undefined ? {} : { ownerDriveReady }),
     ...(ownerPriceRequired === undefined ? {} : { ownerPriceRequired }),
     ...(ownerPayoutAccountReady === undefined ? {} : { ownerPayoutAccountReady }),
     ...(paymentsReady === undefined ? {} : { paymentsReady }),
@@ -795,7 +800,7 @@ function optionalPrice(value: unknown): number | null | undefined {
 
 const OWNER_PAYOUT_STATUSES = new Set<OwnerDocumentPayoutStatus>([
   "awaiting_delivery", "awaiting_refund", "awaiting_fee", "awaiting_account",
-  "due", "dispatching", "unknown", "manual_review", "transferred",
+  "due", "dispatching", "unknown", "manual_review", "transferred", "hashcoins_credited", "hashcoins_held", "hashcoins_reversed",
   "reversal_due", "reversal_unknown", "reversed", "void",
 ]);
 

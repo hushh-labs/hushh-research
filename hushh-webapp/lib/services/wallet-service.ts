@@ -52,6 +52,12 @@ export interface WalletCardInput {
   issuingRegion?: string;
 }
 
+/** An acknowledged sent-copy receipt, not a revocable Wallet access grant. */
+export interface WalletCardShareReceipt {
+  messageId: string; conversationId: string; recipientPersonRef: string;
+  recipientName: string; sentAt: string;
+}
+
 /** Owner-only display projection. Never pass this to agent/chat summary callers. */
 export interface WalletCardPresentation {
   summary: WalletCardSummary;
@@ -171,6 +177,7 @@ export class WalletService {
       card: WalletCardInput;
       surface: PkmUserConfirmation["surface"];
       source: string;
+      reserveCardId?: () => Promise<string | null>;
     },
   ): Promise<{ cardId: string; summary: WalletCardSummary; cardholderName: string }> {
     if (!this.isEnabled()) {
@@ -180,7 +187,7 @@ export class WalletService {
     if (!validation.valid) {
       throw new Error(`CARD_VALIDATION_FAILED:${validation.errors.join(",")}`);
     }
-    const cardId = `card_${crypto.randomUUID()}`;
+    const cardId = await params.reserveCardId?.() || `card_${crypto.randomUUID()}`;
     const createdAt = new Date().toISOString();
     const summaryRecord = {
       nickname: params.card.nickname?.trim() ?? "",
@@ -254,6 +261,47 @@ export class WalletService {
         }
         next.summary = summary;
         return next;
+      },
+    });
+  }
+
+  static async listCardShareReceipts(params: VaultContextParams & { cardId: string }): Promise<WalletCardShareReceipt[]> {
+    const data = await this.loadDomain(params);
+    const secrets = isRecord(data?.secrets) ? data.secrets[params.cardId] : null;
+    const receipts = isRecord(secrets) && Array.isArray(secrets.share_receipts) ? secrets.share_receipts : [];
+    return receipts.filter((row): row is WalletCardShareReceipt => isRecord(row) &&
+      ["messageId", "conversationId", "recipientPersonRef", "recipientName", "sentAt"].every(key => typeof row[key] === "string"));
+  }
+
+  static async recordCardShareReceipt(params: VaultContextParams & { cardId: string; receipt: WalletCardShareReceipt; mayPublish?: () => boolean }): Promise<void> {
+    await PersonalKnowledgeModelService.storeWalletDomain({ ...params, scopePath: "secrets",
+      explanation: "The owner confirmed sending this card; record the acknowledged message receipt.",
+      confirmation: { confirmedByUser: true, surface: "web", source: "one_wallet_share_card" },
+      applyMutation: base => {
+        const next = isRecord(base) ? { ...base } : {};
+        const secrets = isRecord(next.secrets) ? { ...next.secrets } : {};
+        const saved = secrets[params.cardId];
+        if (!isRecord(saved)) throw new Error("Card no longer available.");
+        const receipts = Array.isArray(saved.share_receipts) ? saved.share_receipts : [];
+        secrets[params.cardId] = { ...saved, share_receipts: [...receipts.filter(row => !isRecord(row) || row.messageId !== params.receipt.messageId), params.receipt] };
+        return { ...next, secrets };
+      },
+    });
+  }
+
+  /** Refreshes sharing metadata for an existing owner-entered card without changing its details. */
+  static async prepareCardSharing(params: VaultContextParams & { cardId: string; isCurrent: () => boolean }): Promise<void> {
+    if (!params.isCurrent()) throw new Error("Wallet changed.");
+    await PersonalKnowledgeModelService.storeWalletDomain({
+      ...params,
+      scopePath: "summary",
+      explanation: "The owner requested sharing their saved payment card.",
+      confirmation: { confirmedByUser: true, surface: "web", source: "one_wallet_share_card" },
+      mayPublish: params.isCurrent,
+      applyMutation: (base) => {
+        if (!params.isCurrent() || !isRecord(base.summary) || !isRecord(base.summary[params.cardId]) ||
+            !isRecord(base.secrets) || !isRecord(base.secrets[params.cardId])) throw new Error("Card unavailable.");
+        return base;
       },
     });
   }

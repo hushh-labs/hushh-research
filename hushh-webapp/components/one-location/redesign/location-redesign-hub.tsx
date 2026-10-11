@@ -1769,6 +1769,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
               selectedCircleId || String(searchParams.get("circleId") || "")
             }
             currentUserId={vm.userId}
+            sessionScope={vm.onLoadNamedCircleOverview}
+            initialCircleSummary={vm.circles.find((circle) => circle.id === (selectedCircleId || String(searchParams.get("circleId") || "")))}
             busy={vm.busy === "namedCircle"}
             onBack={() =>
               editingSosContacts

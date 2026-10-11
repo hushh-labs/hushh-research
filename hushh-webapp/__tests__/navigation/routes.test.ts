@@ -58,6 +58,17 @@ describe("navigation routes", () => {
     expect(buildLegacyDocumentPayoutReturnRoute("/one/profile/my-data")).toBeNull();
   });
 
+  it("admits only the exact encrypted-file reader anonymously and without analytics", () => {
+    for (const route of ["/wallet/open", "/wallet/open/", "/wallet/open/index.html"]) {
+      expect(isPublicRoute(route)).toBe(true);
+      expect(isAnalyticsExemptRoute(route)).toBe(true);
+      expect(isOnboardingAdmissionExemptRoute(route)).toBe(true);
+    }
+    for (const route of ["/wallet", "/wallet/open/private", "/one/wallet"]) {
+      expect(isPublicRoute(route)).toBe(false);
+      expect(isAnalyticsExemptRoute(route)).toBe(false);
+    }
+  });
   it.each(["/circle/join?code=23456789ABCD", "/one/connect?tab=circles&action=join-circle&code=23456789ABCD", "/one/location/invite/public-token"])("preserves a bounded invite destination through vault/setup: %s", (destination) => {
     expect(normalizeInvitationReturnTo(destination)).toBe(destination);
     expect(resolveOneSetupReturnTo(destination)).toBe(destination);

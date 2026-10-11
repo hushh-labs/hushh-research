@@ -16,7 +16,7 @@ const session = { userId: "alice", circleId: "circle", vaultKey: "test-key", vau
 const message = { id: "m1", sequence: 1, senderUserId: "bob", senderName: "Bob", createdAt: "2026-10-02T10:00:00Z" };
 
 beforeEach(() => {
-  vi.clearAllMocks(); observations = [];
+  vi.resetAllMocks(); observations = [];
   vi.stubGlobal("IntersectionObserver", class {
     entry: Observation;
     constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) { this.entry = { callback, options }; observations.push(this.entry); }
@@ -40,6 +40,164 @@ function observe(inViewport: boolean) {
     for (const item of observations) item.callback([{ isIntersecting: item.options?.root ? true : inViewport, target: item.target } as IntersectionObserverEntry], {} as IntersectionObserver);
   });
 }
+
+async function attachPhoto() {
+  const bytes = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
+  const file = new File([bytes], "photo.png", { type: "image/png" });
+  Object.defineProperty(file, "arrayBuffer", { value: async () => bytes.buffer });
+  fireEvent.change(screen.getByLabelText("Attach photo, video, or document", { selector: "input" }), { target: { files: [file] } });
+  fireEvent.load(await screen.findByAltText("Image ready to send"));
+  return file;
+}
+
+it("shows the photo before preparation, retries identical ciphertext and reconciles a transcript confirmation before POST", async () => {
+  const allocate = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:local-photo");
+  const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  let prepare!: (value: unknown) => void;
+  let finishPost!: (value: unknown) => void;
+  api.prepare.mockImplementationOnce(() => new Promise((resolve) => { prepare = resolve; }));
+  api.send.mockRejectedValueOnce(new ApiError("Timed out", 504))
+    .mockImplementationOnce(() => new Promise((resolve) => { finishPost = resolve; }));
+  render(<CircleChat session={session} circleName="Family" initialOpen />);
+  await screen.findByText("Incoming private message");
+  await attachPhoto();
+  fireEvent.change(screen.getByRole("textbox", { name: "Message" }), { target: { value: "Our photo" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  expect(screen.getByText("Sending…")).toBeInTheDocument();
+  const photo = await screen.findByAltText("Image shared in circle");
+  expect(photo).toHaveAttribute("src", "blob:local-photo");
+  expect(api.send).not.toHaveBeenCalled();
+  expect(api.image).not.toHaveBeenCalled();
+  const id = api.prepare.mock.calls[0]![3].clientMessageId;
+  const sealed = { clientMessageId: id, ciphertext: "sealed" };
+  await act(async () => prepare(sealed));
+  await screen.findByText("Delivery unconfirmed");
+  fireEvent.click(screen.getByRole("button", { name: "Retry message" }));
+  await waitFor(() => expect(finishPost).toBeDefined());
+  expect(api.prepare).toHaveBeenCalledTimes(1);
+  expect(api.send.mock.calls[1]![1]).toBe(sealed);
+  observe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Open shared image" }));
+  await screen.findByRole("dialog", { name: "Shared image" });
+  api.read.mockClear();
+  const sent = { ...message, id: "sent-photo", clientMessageId: id, sequence: 2, senderUserId: "alice", hasImage: true };
+  api.open.mockImplementation(async (_session, row) => row.id === sent.id
+    ? { text: "Our photo", attachment: { kind: "photo", type: "image/png", name: "photo.png" } }
+    : { text: "Incoming private message", image: null });
+  api.messages.mockResolvedValue({ items: [sent], hasMore: false, receipts: [{ id: sent.id, recipientCount: 1, readCount: 1 }] });
+  act(() => window.dispatchEvent(new CustomEvent("hushh:circle-chat-changed", { detail: { userId: session.userId, circleId: session.circleId } })));
+  await screen.findByLabelText("Seen by everyone");
+  expect(screen.getAllByAltText("Image shared in circle")).toHaveLength(2); // Transcript and the still-open viewer.
+  expect(screen.getAllByAltText("Image shared in circle")[0]).toBe(photo);
+  expect(screen.getByRole("dialog", { name: "Shared image" })).toBeInTheDocument();
+  expect(screen.queryByText("Sending…")).not.toBeInTheDocument();
+  expect(api.read).not.toHaveBeenCalled();
+  await act(async () => finishPost(sent));
+  expect(screen.getByLabelText("Seen by everyone")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Close", exact: true }));
+  await waitFor(() => expect(api.read).toHaveBeenCalledWith(session, 2));
+  expect(api.image).not.toHaveBeenCalled();
+  act(() => appInteractionCoordinator.handleLifecycle("background"));
+  expect(screen.queryByAltText("Image shared in circle")).not.toBeInTheDocument();
+  expect(revoke).toHaveBeenCalledWith("blob:local-photo");
+  expect(allocate).toHaveBeenCalled();
+});
+
+it("removes a definitely rejected photo and ignores preparation completing after a session change", async () => {
+  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:local-photo");
+  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  api.prepare.mockImplementation(async (_session, _text, _file, preview) => ({ clientMessageId: preview.clientMessageId }));
+  api.send.mockRejectedValue(new ApiError("Invalid request", 422));
+  const view = render(<CircleChat session={session} circleName="Family" initialOpen />);
+  await screen.findByText("Incoming private message");
+  await attachPhoto();
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  await screen.findByText("Invalid request");
+  expect(screen.queryByAltText("Image shared in circle")).not.toBeInTheDocument();
+  expect(await screen.findByAltText("Image ready to send")).toBeInTheDocument();
+  let prepare!: (value: unknown) => void;
+  api.prepare.mockImplementationOnce(() => new Promise((resolve) => { prepare = resolve; }));
+  fireEvent.load(screen.getByAltText("Image ready to send"));
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  await waitFor(() => expect(prepare).toBeDefined());
+  view.rerender(<CircleChat session={{ ...session, vaultOwnerToken: "replacement-token" }} circleName="Family" initialOpen />);
+  await act(async () => prepare({ clientMessageId: "obsolete" }));
+  expect(api.send).toHaveBeenCalledTimes(1);
+  expect(screen.queryByAltText("Image shared in circle")).not.toBeInTheDocument();
+});
+
+it("renders an encrypted photo preview during download and releases offscreen originals without blanking the preview", async () => {
+  vi.spyOn(URL, "createObjectURL").mockReturnValueOnce("blob:thumbnail").mockReturnValue("blob:original");
+  const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  const thumbnail = { type: "image/jpeg", data: btoa(String.fromCharCode(255, 216, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0)) };
+  api.messages.mockResolvedValue({ items: [{ ...message, hasImage: true }], hasMore: false });
+  api.open.mockResolvedValue({ text: "", attachment: { kind: "photo", type: "image/png", name: "photo.png", thumbnail } });
+  let download!: (value: Blob) => void;
+  api.image.mockImplementationOnce(() => new Promise((resolve) => { download = resolve; }));
+  render(<CircleChat session={session} circleName="Family" initialOpen />);
+  expect(await screen.findByAltText("Image shared in circle")).toHaveAttribute("src", "blob:thumbnail");
+  observe(true);
+  await waitFor(() => expect(download).toBeDefined());
+  expect(screen.getByAltText("Image shared in circle")).toHaveAttribute("src", "blob:thumbnail");
+  await act(async () => download(new Blob(["original"], { type: "image/png" })));
+  expect(screen.getByAltText("Image shared in circle")).toHaveAttribute("src", "blob:original");
+  observe(false);
+  expect(screen.getByAltText("Image shared in circle")).toHaveAttribute("src", "blob:thumbnail");
+  expect(revoke).toHaveBeenCalledWith("blob:original");
+  expect(api.image).toHaveBeenCalledTimes(1);
+  act(() => appInteractionCoordinator.handleLifecycle("background"));
+  expect(revoke).toHaveBeenCalledWith("blob:original");
+  expect(revoke).toHaveBeenCalledWith("blob:thumbnail");
+});
+
+it("does not resurrect a confirmed photo when history eviction precedes a delayed POST failure", async () => {
+  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:photo");
+  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  api.prepare.mockImplementation(async (_session, _text, _file, preview) => ({ clientMessageId: preview.clientMessageId }));
+  let rejectPost!: (error: unknown) => void;
+  api.send.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectPost = reject; }));
+  render(<CircleChat session={session} circleName="Family" initialOpen />);
+  await screen.findByText("Incoming private message");
+  await attachPhoto();
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  await waitFor(() => expect(rejectPost).toBeDefined());
+  const sent = { ...message, id: "confirmed-photo", clientMessageId: api.prepare.mock.calls[0]![3].clientMessageId, sequence: 2, senderUserId: "alice", hasImage: true };
+  api.open.mockImplementation(async (_session, row) => row.id === sent.id
+    ? { text: "", attachment: { kind: "photo", type: "image/png", name: "photo.png" } }
+    : { text: `Message ${row.sequence}`, image: null });
+  api.messages.mockResolvedValueOnce({ items: [sent], hasMore: false });
+  const refresh = () => window.dispatchEvent(new CustomEvent("hushh:circle-chat-changed", { detail: { userId: session.userId, circleId: session.circleId } }));
+  act(refresh);
+  await waitFor(() => expect(screen.queryByText("Sending…")).not.toBeInTheDocument());
+  api.messages.mockImplementation(async (_session, page) => {
+    const after = page.after ?? 2;
+    return { items: Array.from({ length: Math.min(40, 310 - after) }, (_, i) => ({ ...message, id: `m${after + i + 1}`, sequence: after + i + 1 })), hasMore: after + 40 < 310 };
+  });
+  act(refresh);
+  await screen.findByText("Message 310", {}, { timeout: 3000 });
+  await act(async () => rejectPost(new ApiError("Timed out", 504)));
+  expect(screen.queryByText("Delivery unconfirmed")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Retry message" })).not.toBeInTheDocument();
+});
+
+it("revokes a downloaded image even when unmount wins the state commit", async () => {
+  const allocate = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:uncommitted");
+  const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  api.open.mockResolvedValue({ text: "", image: { type: "image/png", name: "photo.png" } });
+  let download!: (value: Blob) => void;
+  api.image.mockImplementationOnce(() => new Promise((resolve) => { download = resolve; }));
+  const view = render(<CircleChat session={session} circleName="Family" initialOpen />);
+  await screen.findByText("Loading image…");
+  observe(true);
+  await waitFor(() => expect(download).toBeDefined());
+  await act(async () => {
+    download(new Blob(["fixture"]));
+    await Promise.resolve(); await Promise.resolve();
+    expect(allocate).toHaveBeenCalled();
+    view.unmount();
+  });
+  expect(revoke).toHaveBeenCalledWith("blob:uncommitted");
+});
 
 it("keeps an uncertain retry unchanged across collapse and clears plaintext on access loss", async () => {
   const sealed = { clientMessageId: "same-message-uuid", ciphertext: "opaque" };

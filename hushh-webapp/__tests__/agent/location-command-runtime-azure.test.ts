@@ -16,7 +16,7 @@ vi.mock("@/lib/services/api-service", () => ({
     ownerPodRequest: mocks.ownerPodRequest,
   },
 }));
-vi.mock("@/lib/voice/kai-action-gateway", () => ({
+vi.mock("@/lib/kai/actions/kai-action-gateway", () => ({
   getKaiActionById: vi.fn(),
 }));
 vi.mock("@/lib/one-location/service", () => ({

@@ -89,13 +89,22 @@ async def test_idle_push_sweeps_back_off_reset_and_propagate_cancellation(monkey
 
     name = "dispatch_circle_chat_pushes" if module is circle else "dispatch_direct_message_pushes"
     monkeypatch.setattr(module, name, dispatch)
-    monkeypatch.setattr(module.asyncio, "sleep", sleep)
     if module is circle:
+
+        async def wait_for(waiter, timeout):
+            waiter.close()
+            await sleep(timeout)
+            raise TimeoutError
+
+        monkeypatch.setattr(module.asyncio, "wait_for", wait_for)
+        monkeypatch.setattr(circle, "_wakeup", None)
         monkeypatch.setattr(
             circle,
             "get_db",
             lambda: SimpleNamespace(engine=SimpleNamespace(pool=SimpleNamespace(size=lambda: 2))),
         )
+    else:
+        monkeypatch.setattr(module.asyncio, "sleep", sleep)
     worker = (
         module.run_circle_chat_push_worker
         if module is circle
@@ -106,3 +115,35 @@ async def test_idle_push_sweeps_back_off_reset_and_propagate_cancellation(monkey
     assert sleeps == [1, 2, 4, 5, 1, 1, 2, 4]
     assert len(threads) == len(sleeps)
     assert all(thread != owner_thread for thread in threads)
+
+
+@pytest.mark.asyncio
+async def test_circle_wakeup_drains_full_batches_before_waiting_again(monkeypatch):
+    wait_for = asyncio.wait_for
+    waiting = asyncio.Queue()
+    waits = []
+    dispatch = Mock(side_effect=[0, 20, 20, 0])
+
+    async def wait_for_wakeup(waiter, timeout):
+        waits.append((dispatch.call_count, timeout))
+        waiting.put_nowait(dispatch.call_count)
+        return await wait_for(waiter, timeout=60)
+
+    monkeypatch.setattr(circle.asyncio, "wait_for", wait_for_wakeup)
+    monkeypatch.setattr(circle, "_wakeup", None)
+    monkeypatch.setattr(circle, "dispatch_circle_chat_pushes", dispatch)
+    monkeypatch.setattr(
+        circle,
+        "get_db",
+        lambda: SimpleNamespace(engine=SimpleNamespace(pool=SimpleNamespace(size=lambda: 2))),
+    )
+    task = asyncio.create_task(circle.run_circle_chat_push_worker())
+    try:
+        assert await wait_for(waiting.get(), timeout=2) == 1
+        circle.wake_circle_chat_push_worker()
+        assert await wait_for(waiting.get(), timeout=2) == 4
+        assert waits == [(1, 1), (4, 2)]
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task

@@ -3,7 +3,7 @@
 import { LocationImmersiveMap } from "@/components/one-location/location-immersive-map";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { deriveLocationVoiceActions } from "@/lib/voice/location-voice-actions";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 // This route had no voice publisher at all -- app/one/location/page.tsx is
 // the only file under Location that ever called

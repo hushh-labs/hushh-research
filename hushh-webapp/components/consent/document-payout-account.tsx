@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { HelperText } from "@/components/app-ui/typography";
@@ -11,30 +11,62 @@ import { ProfileInnerReviewIcon } from "@/components/profile/profile-inner-icons
 import { ProfileSecondaryReceiptIcon } from "@/components/profile/profile-secondary-icons";
 import { Button } from "@/lib/morphy-ux/button";
 import { CONSENT_STATE_CHANGED_EVENT, dispatchConsentStateChanged } from "@/lib/consent/consent-events";
+import { resolveProfileRouteState } from "@/lib/navigation/profile-routes";
+import { normalizeInternalRouteHref } from "@/lib/navigation/routes";
+import { apiErrorCode } from "@/lib/services/api-client";
 import {
   DocumentPayoutService,
+  documentPayoutLinkUrl,
   type DocumentBankPayout,
   type DocumentEarning,
   type DocumentEarningsResponse,
 } from "@/lib/services/document-payout-service";
+import { getSessionItem, removeSessionItem, setSessionItem } from "@/lib/utils/session-storage";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { useVault } from "@/lib/vault/vault-context";
 
 const PAYOUT_READY_SOURCE = "document_payout_ready";
+// Stripe returns to a fixed Payouts URL, so the screen that sent the owner
+// here is kept for this tab. The session helpers guard every storage access.
+const PAYOUT_RETURN_KEY = "one_document_payout_return_v1";
+const PAYOUT_RETURN_TTL_MS = 60 * 60 * 1000;
+export const PAYOUT_FALLBACK_POLL_MS = 45_000;
+function rememberPayoutReturn(from: string | null): void {
+  if (from) setSessionItem(PAYOUT_RETURN_KEY, JSON.stringify({ from, at: Date.now() }));
+  else removeSessionItem(PAYOUT_RETURN_KEY);
+}
+function takePayoutReturn(): string | null {
+  const raw = getSessionItem(PAYOUT_RETURN_KEY);
+  removeSessionItem(PAYOUT_RETURN_KEY);
+  try {
+    const { from, at } = (JSON.parse(raw ?? "null") ?? {}) as { from?: unknown; at?: unknown };
+    const age = typeof at === "number" ? Date.now() - at : NaN;
+    return typeof from === "string" && age >= 0 && age < PAYOUT_RETURN_TTL_MS ? normalizeInternalRouteHref(from) : null;
+  } catch {
+    return null;
+  }
+}
 const money = (cents: number | null) => cents === null ? "Calculating" : new Intl.NumberFormat("en-US", {
   style: "currency", currency: "USD",
 }).format(cents / 100);
 const shortDate = (value: string) => new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+function payoutErrorCopy(error: unknown, fallback: string): string {
+  switch (apiErrorCode(error)) {
+    case "PAYOUT_PLATFORM_SETUP_REQUIRED": return "Bank setup is unavailable. Hushh needs to activate payouts.";
+    case "PAYOUT_ACCOUNT_DISABLED": return "Your payout account needs support.";
+    default: return fallback;
+  }
+}
 
 /** Coalesces live invalidations and fences every response to its vault session. */
-function usePayoutSnapshot<T>(load: (token: string) => Promise<T>, {
+export function usePayoutSnapshot<T>(load: (token: string) => Promise<T>, {
   active = true, refreshKey = "", bankOnly = false, refreshOnFeedChange = true, ignoreReadyEvent = false,
 }: { active?: boolean; refreshKey?: string; bankOnly?: boolean; refreshOnFeedChange?: boolean; ignoreReadyEvent?: boolean } = {}) {
   const { vaultOwnerToken } = useVault();
   const scope = useMemo(() => ({ token: vaultOwnerToken, active }), [vaultOwnerToken, active]);
   const liveScope = useRef<typeof scope | null>(null);
   const [snapshot, setSnapshot] = useState<{ scope: typeof scope; value: T } | null>(null);
-  const [error, setError] = useState<{ scope: typeof scope } | null>(null);
+  const [error, setError] = useState<{ scope: typeof scope; cause: unknown } | null>(null);
   const [retry, setRetry] = useState(0);
   useEffect(() => {
     liveScope.current = scope;
@@ -51,14 +83,19 @@ function usePayoutSnapshot<T>(load: (token: string) => Promise<T>, {
       try {
         const value = await load(vaultOwnerToken);
         if (current()) { setSnapshot({ scope, value }); setError(null); }
-      } catch {
-        if (current()) setError({ scope });
+      } catch (cause) {
+        if (current()) setError({ scope, cause });
       } finally {
         pending = false;
         if (queued && current()) { queued = false; void refresh(); }
       }
     };
     void refresh();
+    // SSE is the fast path. A bounded visible-page read repairs a missed
+    // notification while Payouts remains open, without polling in background.
+    const poll = window.setInterval(() => {
+      if (!document.hidden) void refresh();
+    }, PAYOUT_FALLBACK_POLL_MS);
     const onChange = (event: Event) => {
       const detail = (event as CustomEvent<{ source?: string; requestId?: string }>).detail;
       if ((ignoreReadyEvent && detail?.source === PAYOUT_READY_SOURCE) || (bankOnly && detail?.requestId)) return;
@@ -71,6 +108,7 @@ function usePayoutSnapshot<T>(load: (token: string) => Promise<T>, {
     return () => {
       cancelled = true;
       liveScope.current = null;
+      window.clearInterval(poll);
       window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, onChange);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onFocus);
@@ -78,17 +116,24 @@ function usePayoutSnapshot<T>(load: (token: string) => Promise<T>, {
   }, [active, vaultOwnerToken, scope, load, refreshKey, retry, bankOnly, refreshOnFeedChange, ignoreReadyEvent]);
   const data = snapshot?.scope === scope ? snapshot.value : null;
   return { data, failed: error?.scope === scope, loading: data === null && error?.scope !== scope,
+    error: error?.scope === scope ? error.cause : null,
     token: vaultOwnerToken, scope,
     isCurrent: () => liveScope.current === scope,
     retry: () => setRetry((value) => value + 1) };
 }
 
 /** One Connect account serves packet and document earnings; each keeps its ledger. */
-export function DocumentPayoutAccountCard({ active = true, compact = false, handleReturn = false, disabled = false }: {
-  active?: boolean; compact?: boolean; handleReturn?: boolean; disabled?: boolean;
+export function DocumentPayoutAccountCard({ active = true, compact = false, handleReturn = false, disabled = false, showHistory = true }: {
+  active?: boolean; compact?: boolean; handleReturn?: boolean; disabled?: boolean; showHistory?: boolean;
 }) {
+  const router = useRouter();
+  const pathname = usePathname() ?? "";
   const searchParams = useSearchParams();
   const returnState = handleReturn ? searchParams.get("documentPayouts") : null;
+  // Only the Payouts page's own `from` names where setup began; under the
+  // pane, the query belongs to the screen beneath it.
+  const origin = handleReturn && resolveProfileRouteState(pathname).panel === "payouts"
+    ? normalizeInternalRouteHref(searchParams.get("from")) : null;
   const resource = usePayoutSnapshot(DocumentPayoutService.account, {
     active, refreshKey: returnState ?? "", bankOnly: true, ignoreReadyEvent: true,
   });
@@ -111,6 +156,13 @@ export function DocumentPayoutAccountCard({ active = true, compact = false, hand
     announced.current = { scope, ready };
     if (ready && !wasReady) dispatchConsentStateChanged({ source: PAYOUT_READY_SOURCE });
   }, [data, scope, ready]);
+  // Back to where setup began once the account first reads ready; until then
+  // the owner stays here to see what is missing.
+  useEffect(() => {
+    if (returnState !== "done" || !ready) return;
+    const from = takePayoutReturn();
+    if (from) router.replace(from);
+  }, [returnState, ready, router]);
   const start = useCallback(async (manage = false) => {
     if (!token || !active || disabled || inFlight.current === scope) return;
     const epoch = snapshotVaultSessionEpoch();
@@ -121,18 +173,17 @@ export function DocumentPayoutAccountCard({ active = true, compact = false, hand
     try {
       const { url } = await (manage ? DocumentPayoutService.manage(token) : DocumentPayoutService.onboard(token));
       if (!current()) return;
-      // Service validates links; retain the navigation boundary for mocked/alternate adapters.
-      const destination = new URL(url);
-      if (destination.protocol !== "https:" || destination.hostname !== "connect.stripe.com" ||
-          destination.username || destination.password || destination.port) throw new Error("Invalid link");
-      window.location.assign(destination.href);
-    } catch {
-      if (current()) setActionError({ scope, text: "Couldn't open bank setup. Try again." });
+      const link = documentPayoutLinkUrl(url, manage ? "management" : "onboarding");
+      // Only onboarding returns here. A retry after that return keeps the first origin.
+      if (!manage && !returnState) rememberPayoutReturn(origin);
+      window.location.assign(link);
+    } catch (error) {
+      if (current()) setActionError({ scope, text: payoutErrorCopy(error, "Couldn't open bank setup. Try again.") });
     } finally {
       if (inFlight.current === scope) inFlight.current = null;
       if (current()) setBusyScope(null);
     }
-  }, [token, active, disabled, scope]);
+  }, [token, active, disabled, scope, returnState, origin]);
   useEffect(() => {
     if (!active || returnState !== "refresh" || !token || refreshed.current === scope) return;
     refreshed.current = scope;
@@ -141,12 +192,14 @@ export function DocumentPayoutAccountCard({ active = true, compact = false, hand
   if (!active || !token) return null;
   const busy = busyScope === scope;
   const canManage = Boolean(account?.detailsSubmitted && (account.canManageBank ?? ready));
+  const retryBankCheck = resource.failed && !canManage;
   const bankCheckUnavailable = account?.bankStatus === "unavailable";
   const label = canManage ? "Manage bank" : account ? "Finish setup" : "Link bank";
   const bankLabel = account?.bank
     ? [account.bank.name || "Bank", account.bank.last4 ? `•••• ${account.bank.last4}` : null].filter(Boolean).join(" ")
     : null;
-  const description = account?.bankStatus === "needs_attention" ? "Update your bank"
+  const description = resource.failed ? "Bank status unavailable"
+    : account?.bankStatus === "needs_attention" ? "Update your bank"
     : account?.bankStatus === "missing" ? "Bank needed"
     : bankCheckUnavailable ? "Bank check unavailable"
     : account?.status === "restricted" ? "Verification needed"
@@ -155,11 +208,11 @@ export function DocumentPayoutAccountCard({ active = true, compact = false, hand
     <section aria-label="Document payouts" className="space-y-4">
       <SettingsGroup title={compact ? undefined : "Bank account"} embedded={compact} density="compact">
         <SettingsRow icon={ProfileAccountBankIcon} iconTone="capability"
-          title={ready ? "Bank linked" : "Payout bank"} description={description}
-          ariaLabel={label} chevron disabled={busy || disabled || resource.failed || resource.loading}
-          onClick={() => void start(canManage)}
+          title={ready && !resource.failed ? "Bank linked" : "Payout bank"} description={description}
+          ariaLabel={retryBankCheck ? "Retry bank check" : label} chevron disabled={busy || disabled || resource.loading}
+          onClick={retryBankCheck ? resource.retry : () => void start(canManage)}
           trailing={<span className="profile-account-inline-action" role={resource.loading ? "status" : undefined}>
-            {resource.loading ? "Checking…" : busy ? "Opening…" : label}
+            {resource.loading ? "Checking…" : busy ? "Opening…" : retryBankCheck ? "Retry" : label}
           </span>} />
         {canManage && !ready && !bankCheckUnavailable && account?.bankStatus !== "missing" && account?.bankStatus !== "needs_attention" ? (
           <SettingsRow icon={ProfileInnerReviewIcon} iconTone="capability" title="Verify details"
@@ -169,17 +222,20 @@ export function DocumentPayoutAccountCard({ active = true, compact = false, hand
       </SettingsGroup>
       {bankCheckUnavailable && !resource.failed ? <Button type="button" size="sm" effect="fade" variant="none"
         disabled={busy || disabled} onClick={resource.retry}>Retry</Button> : null}
-      {canManage && !compact ? <HelperText className="profile-account-note">Change banks in Stripe. Replace your payout bank before removing it.</HelperText> : null}
-      {resource.failed ? <div><HelperText role="alert" className="profile-account-note">Couldn't check your bank. Try again.</HelperText>
-        <Button type="button" size="sm" effect="fade" variant="none" onClick={resource.retry}>Retry</Button></div> : null}
+      {canManage && !compact ? <HelperText className="profile-account-note">Manage banks in Stripe. Replace your payout bank before removing it.</HelperText> : null}
+      {resource.failed ? <div><HelperText role="alert" className="profile-account-note">{payoutErrorCopy(resource.error, "Couldn't check your bank. Try again.")}</HelperText>
+        {canManage ? <Button type="button" size="sm" effect="fade" variant="none" onClick={resource.retry}>Retry</Button> : null}</div> : null}
       {actionError?.scope === scope ? <HelperText role="alert" className="profile-account-note">{actionError.text}</HelperText> : null}
-      {!compact ? <DocumentEarningsHistory /> : null}
+      {!compact && showHistory ? <DocumentEarningsHistory /> : null}
     </section>
   );
 }
 
 function earningStatus(item: DocumentEarning, activeMode?: "test" | "live"): string {
   if (item.stripeMode === "legacy") return "Under review";
+  if (item.status === "hashcoins_credited") return "Hussh Coins credited";
+  if (item.status === "hashcoins_held") return "Hussh Coins under review";
+  if (item.status === "hashcoins_reversed") return "Hussh Coins reversed";
   if (item.stripeMode === "test" && activeMode === "live") return "No bank deposit";
   switch (item.status) {
     case "awaiting_delivery": return "Awaiting delivery";
@@ -195,7 +251,7 @@ function earningStatus(item: DocumentEarning, activeMode?: "test" | "live"): str
   }
 }
 
-function DocumentEarningsHistory() {
+export function DocumentEarningsHistory() {
   const resource = usePayoutSnapshot(DocumentPayoutService.earnings);
   const { data, token, scope } = resource;
   const [pages, setPages] = useState<{ base: DocumentEarningsResponse; value: DocumentEarningsResponse } | null>(null);
@@ -233,7 +289,7 @@ function DocumentEarningsHistory() {
               <SettingsRow icon={ProfileSecondaryReceiptIcon} iconTone="capability" title={item.description}
                 description={[item.stripeMode === "test" ? "Test payment" : item.stripeMode === "legacy" ? "Payment mode unconfirmed" : null,
                   earningStatus(item, history.stripeMode), shortDate(item.createdAt)].filter(Boolean).join(" · ")}
-                trailing={<span className="flex shrink-0 items-center gap-2 tabular-nums">{money(item.netAmountCents)}<ChevronDown aria-hidden="true" className="size-4 text-muted-foreground group-open:rotate-180" /></span>} />
+                trailing={<span className="flex shrink-0 items-center gap-2 tabular-nums">{item.status === "hashcoins_credited" && item.creditedCoins != null ? `${item.creditedCoins.toLocaleString()} coins` : money(item.netAmountCents)}<ChevronDown aria-hidden="true" className="size-4 text-muted-foreground group-open:rotate-180" /></span>} />
             </summary>
             <dl className="profile-account-details space-y-1 px-4 pb-3 text-sm">
               {([ ["Paid", item.grossAmountCents], ["Refund", item.refundAmountCents],
@@ -277,22 +333,24 @@ export function DocumentBankPayoutStatusCard({ compact = false, refreshOnFeedCha
 }) {
   const resource = usePayoutSnapshot(DocumentPayoutService.bankPayouts, { bankOnly: true, refreshOnFeedChange });
   const payouts = resource.data?.payouts;
+  const test = resource.data?.stripeMode === "test";
   const latest = payouts?.[0] ?? null;
   useEffect(() => { onVisibleChange?.(Boolean(latest)); }, [latest, onVisibleChange]);
   if (!resource.token || (compact && !latest)) return null;
   return (
     <section aria-label="Bank payout status" className={compact ? "rounded-xl border border-border/60 px-4 py-3" : "space-y-2"}>
       {compact ? <><p className="text-sm font-semibold">Bank payout</p>
-        <HelperText className="mt-1">{bankPayoutCopy(latest!)}</HelperText></> :
-        <SettingsGroup title="Bank deposits" density="compact">
+        <HelperText className="mt-1">{test ? "Test · " : ""}{bankPayoutCopy(latest!)}</HelperText></> :
+        <SettingsGroup title={test ? "Test bank deposits" : "Bank deposits"} density="compact">
           {payouts?.map((payout) => <SettingsRow key={payout.id} icon={ProfileAccountBankIcon} iconTone="capability"
-            title={bankPayoutCopy(payout)}
+            title={`${test ? "Test · " : ""}${bankPayoutCopy(payout)}`}
             description={payout.expectedArrivalAt && ["pending", "in_transit"].includes(payout.status)
               ? `Expected ${shortDate(payout.expectedArrivalAt)}` : undefined} />)}
           {resource.loading ? <HelperText role="status" className="p-4">Loading deposits…</HelperText> : null}
           {payouts?.length === 0 ? <HelperText className="p-4">No bank deposits yet.</HelperText> : null}
         </SettingsGroup>}
       {resource.failed ? <HelperText role="alert">Couldn't check bank payouts right now.</HelperText> : null}
+      {test ? <HelperText className="profile-account-note">Simulated deposits. No real money moves.</HelperText> : null}
       {latest ? <HelperText className="profile-account-note">Bank payouts may combine earnings from multiple requests.</HelperText> : null}
     </section>
   );

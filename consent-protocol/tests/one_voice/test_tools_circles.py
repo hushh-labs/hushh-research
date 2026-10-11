@@ -432,7 +432,15 @@ class FakeConnectionsService:
         rows = self.incoming if direction == "incoming" else self.outgoing
         return [dict(r) for r in rows]
 
-    def search_directory(self, user_id: str, *, query: str = "", page: int = 1, limit: int = 20):
+    def search_directory(
+        self,
+        user_id: str,
+        *,
+        query: str = "",
+        page: int = 1,
+        limit: int = 20,
+        name_only: bool = False,
+    ):
         return {"items": [], "page": page, "hasMore": False, "audience": "all"}
 
     def list_connections_page(

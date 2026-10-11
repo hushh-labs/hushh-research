@@ -178,13 +178,14 @@ class LocationCommandReadService:
 
     def _read(self, kind: str, query: str, reference: str, page: int, limit: int) -> Any:
         self._services()
-        if kind in {"connections", "directory"}:
-            operation = (
-                self._connections.list_connections_page
-                if kind == "connections"
-                else self._connections.search_directory
+        if kind == "connections":
+            return self._connections.list_connections_page(
+                self.user_id, query=query, page=page, limit=limit
             )
-            return operation(self.user_id, query=query, page=page, limit=limit)
+        if kind == "directory":
+            return self._connections.search_directory(
+                self.user_id, query=query, page=page, limit=limit, name_only=True
+            )
         if kind == "circles":
             values = self._circles.list_circles(user_id=self.user_id)
             # The owning legacy list is complete. Stable order and explicit

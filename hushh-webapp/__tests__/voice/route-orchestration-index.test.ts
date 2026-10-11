@@ -1,6 +1,6 @@
 import index from "@/contracts/kai/one-route-orchestration-index.v1.json";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
-import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
+import { deriveVoiceRouteScreen } from "@/lib/kai/actions/route-screen-derivation";
 import { describe, expect, it } from "vitest";
 
 describe("One route orchestration index", () => {

@@ -27,7 +27,7 @@ import {
 import { AuthService } from "@/lib/services/auth-service";
 import type { PersonalAgentStatus } from "@/lib/services/personal-agent-status";
 import * as AzureByoc from "@/lib/services/azure-byoc-contract";
-import type { AppRuntimeState } from "@/lib/voice/voice-types";
+import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
 import {
   toDurationBucket,
   trackApiRequestCompleted,

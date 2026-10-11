@@ -33,6 +33,85 @@ describe("aggregate bank payout status", () => {
 
 const requestId = "11111111-1111-4111-8111-111111111111";
 const nextId = "22222222-2222-4222-8222-222222222222";
+const wallet = () => ({
+  coinName: "Hussh Coins", coinsPerDollar: 100, currency: "USD", payoutMode: "test", testPayouts: true, liveRedemptionEnabled: false, maxRedeemCoins: 50000,
+  live: { balanceCoins: 911, reservedCoins: 0, availableCoins: 911, amountCents: 911, held: false },
+  sandbox: { balanceCoins: 911, reservedCoins: 911, availableCoins: 0, amountCents: 911, held: false },
+  latestRedemption: null, redemptionHistory: [],
+});
+
+describe("Hussh Coins financial boundary", () => {
+  beforeEach(() => apiJson.mockReset());
+
+  it("keeps real and test balances separate and accepts held debt without showing it as spendable", async () => {
+    apiJson.mockResolvedValueOnce(wallet());
+    expect(await DocumentPayoutService.hashcoins("vault")).toEqual(wallet());
+    const debt = { ...wallet(), live: { balanceCoins: -50, amountCents: -50, reservedCoins: 0, availableCoins: 0, held: true } };
+    apiJson.mockResolvedValueOnce(debt);
+    expect(await DocumentPayoutService.hashcoins("vault")).toEqual(debt);
+    for (const invalid of [
+      { ...wallet(), coinsPerDollar: 1 }, { ...wallet(), liveRedemptionEnabled: true }, { ...wallet(), payoutMode: "live" },
+      { ...wallet(), payoutMode: "unknown" }, { ...wallet(), testPayouts: undefined },
+      { ...wallet(), sandbox: { ...wallet().sandbox, availableCoins: 911 } },
+      { ...debt, live: { ...debt.live, held: false } },
+    ]) {
+      apiJson.mockResolvedValueOnce(invalid);
+      await expect(DocumentPayoutService.hashcoins("vault")).rejects.toThrow(/Invalid Hussh Coins/);
+    }
+  });
+
+  it("preserves authoritative live and disabled-sandbox modes without enabling cash redemption", async () => {
+    const live = { ...wallet(), payoutMode: "live", testPayouts: false };
+    apiJson.mockResolvedValueOnce(live);
+    expect(await DocumentPayoutService.hashcoins("vault")).toEqual(live);
+    const disabled = { ...wallet(), testPayouts: false };
+    apiJson.mockResolvedValueOnce(disabled);
+    expect(await DocumentPayoutService.hashcoins("vault")).toEqual(disabled);
+  });
+
+  it("forces test redemption, preserves the retry key, and rejects live transfer claims", async () => {
+    const result = { id: requestId, clientRequestId: nextId, amountCoins: 911, status: "unknown", stripeMode: "test" };
+    apiJson.mockResolvedValueOnce(result);
+    expect(await DocumentPayoutService.redeemTest("vault", 911, nextId)).toEqual(result);
+    expect(apiJson).toHaveBeenLastCalledWith("/api/one/payouts/hashcoins/redeem", expect.objectContaining({
+      method: "POST", headers: { Authorization: "Bearer vault", "Content-Type": "application/json" },
+      body: JSON.stringify({ amountCoins: 911, clientRequestId: nextId, mode: "test" }),
+    }));
+    apiJson.mockResolvedValueOnce({ ...result, stripeMode: "live" });
+    await expect(DocumentPayoutService.redeemTest("vault", 911, nextId)).rejects.toThrow("Invalid Hussh Coins redemption");
+    await expect(DocumentPayoutService.redeemTest("vault", 0.5, nextId)).rejects.toThrow("Invalid redemption");
+    await expect(DocumentPayoutService.redeemTest("", 911, nextId)).rejects.toThrow(/Unlock/);
+  });
+
+  it("accepts only an explicit live wallet source and mode-matched redemption", async () => {
+    const live = { ...wallet(), payoutMode: "live", testPayouts: false, liveRedemptionEnabled: true,
+      live: { ...wallet().live, nextRedeemCoins: 911 }, sandbox: { ...wallet().sandbox, reservedCoins: 0, availableCoins: 911 } };
+    apiJson.mockResolvedValueOnce(live);
+    expect(await DocumentPayoutService.hashcoins("vault")).toEqual(live);
+    for (const invalid of [
+      { ...live, live: { ...live.live, nextRedeemCoins: 912 } },
+      { ...live, live: { ...live.live, nextRedeemCoins: 0.5 } },
+      { ...live, live: { ...wallet().live } },
+      { ...live, redemptionHistory: [{ id: requestId, amountCoins: 911, status: "succeeded", stripeMode: "test" }] },
+    ]) {
+      apiJson.mockResolvedValueOnce(invalid);
+      await expect(DocumentPayoutService.hashcoins("vault")).rejects.toThrow(/Invalid Hussh Coins/);
+    }
+    const result = { id: requestId, clientRequestId: nextId, amountCoins: 911, status: "succeeded", stripeMode: "live", reversalStatus: "none" };
+    apiJson.mockResolvedValueOnce(result);
+    expect(await DocumentPayoutService.redeemLive("vault", 911, nextId)).toEqual(result);
+    expect(apiJson).toHaveBeenLastCalledWith("/api/one/payouts/hashcoins/redeem", expect.objectContaining({
+      body: JSON.stringify({ amountCoins: 911, clientRequestId: nextId, mode: "live" }),
+    }));
+    apiJson.mockResolvedValueOnce({ ...result, stripeMode: "test" });
+    await expect(DocumentPayoutService.redeemLive("vault", 911, nextId)).rejects.toThrow("Invalid Hussh Coins redemption");
+    apiJson.mockResolvedValueOnce({ ...result, reversalStatus: "reversed" });
+    expect((await DocumentPayoutService.redeemLive("vault", 911, nextId)).reversalStatus).toBe("reversed");
+    apiJson.mockResolvedValueOnce({ ...result, reversalStatus: undefined });
+    await expect(DocumentPayoutService.redeemLive("vault", 911, nextId)).rejects.toThrow("Invalid Hussh Coins redemption");
+  });
+});
+
 const earning = () => ({
   requestId, description: "Bank statements", status: "awaiting_fee",
   grossAmountCents: 1000, refundAmountCents: 500, platformFeeCents: 15,
@@ -48,15 +127,24 @@ describe("payout account and earnings boundary", () => {
     const account = { detailsSubmitted: true, transfersEnabled: true, payoutsEnabled: true, ready: true, status: "ready" };
     apiJson.mockResolvedValueOnce({ account: { ...account, stripeAccountId: "acct_private" } });
     expect(await DocumentPayoutService.account("vault")).toEqual({ account });
-    for (const url of ["https://evil.invalid", "http://connect.stripe.com", "https://private@connect.stripe.com", "https://connect.stripe.com:1234"]) {
+    for (const url of ["https://evil.invalid", "http://connect.stripe.com", "https://private@connect.stripe.com", "https://connect.stripe.com:1234",
+      "https://stripe.com.evil.invalid/express/acct_owner", "https://stripe.com/payments", "http://stripe.com/express/acct_owner",
+      "https://private@stripe.com/express/acct_owner", "https://stripe.com:1234/express/acct_owner",
+      "https://connect.stripe.com/setup/safe_link", "https://stripe.com/express/", "https://connect.stripe.com/express/", "not-a-url"]) {
       apiJson.mockResolvedValueOnce({ url });
       await expect(DocumentPayoutService.manage("vault")).rejects.toThrow("Invalid payout link");
     }
-    apiJson.mockResolvedValueOnce({ url: "https://connect.stripe.com/express/test", accountId: "acct_private" });
-    expect(await DocumentPayoutService.manage("vault")).toEqual({ url: "https://connect.stripe.com/express/test" });
+    for (const url of ["https://connect.stripe.com/express/test", "https://stripe.com/express/acct_owner/login_token"]) {
+      apiJson.mockResolvedValueOnce({ url, accountId: "acct_private" });
+      expect(await DocumentPayoutService.manage("vault")).toEqual({ url });
+    }
     expect(apiJson).toHaveBeenLastCalledWith("/api/one/payouts/account/manage", {
       method: "POST", headers: { Authorization: "Bearer vault" }, cache: "no-store",
     });
+    apiJson.mockResolvedValueOnce({ url: "https://connect.stripe.com/setup/safe_link" });
+    expect(await DocumentPayoutService.onboard("vault")).toEqual({ url: "https://connect.stripe.com/setup/safe_link" });
+    apiJson.mockResolvedValueOnce({ url: "https://stripe.com/express/acct_owner/login_token" });
+    await expect(DocumentPayoutService.onboard("vault")).rejects.toThrow("Invalid payout link");
   });
 
   it("keeps only masked bank details and rejects false readiness or full account numbers", async () => {

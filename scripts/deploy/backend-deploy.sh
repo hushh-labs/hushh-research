@@ -95,11 +95,15 @@ for _pair in "${_drive_secret_pairs[@]}"; do
     stripe_secret) _STRIPE_SECRET_KEY_SECRET="${_value}" ;;
     stripe_webhook) _STRIPE_WEBHOOK_SECRET_SECRET="${_value}" ;;
     stripe_connect) _STRIPE_CONNECT_WEBHOOK_SECRET_SECRET="${_value}" ;;
+    connect_secret) _STRIPE_CONNECT_SECRET_KEY_SECRET="${_value}" ;;
+    connect_test_webhook) _STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET="${_value}" ;;
+    answer_secret) _PKM_ANSWER_STRIPE_SECRET_KEY_SECRET="${_value}" ;;
+    answer_webhook) _PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET="${_value}" ;;
     *) echo "Drive secret settings carry an unknown key." >&2; exit 1 ;;
   esac
 done
-if [[ "${#_drive_secret_pairs[@]}" -ne 9 ]]; then
-  echo "Drive secret settings must contain nine keys." >&2; exit 1
+if [[ "${#_drive_secret_pairs[@]}" -ne 13 ]]; then
+  echo "Drive secret settings must contain thirteen keys." >&2; exit 1
 fi
 for _required in _GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET _GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET _GOOGLE_DRIVE_PICKER_API_KEY_SECRET _EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET _DRIVE_DOCUMENT_KEY_V1_SECRET _DRIVE_SHARING_KEY_V1_SECRET _STRIPE_SECRET_KEY_SECRET _STRIPE_WEBHOOK_SECRET_SECRET; do
   if ! declare -p "${_required}" >/dev/null 2>&1; then
@@ -121,14 +125,23 @@ for _pair in "${_drive_work_pairs[@]}"; do
     payments_enabled) _DRIVE_REQUEST_PAYMENTS_ENABLED="${_value}" ;;
     owner_payouts_enabled) _DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED="${_value}" ;;
     stripe_mode) _STRIPE_MODE="${_value}" ;;
+    connect_mode) _STRIPE_CONNECT_MODE="${_value}" ;;
+    hashcoins_enabled) _DRIVE_REQUEST_HASHCOINS_ENABLED="${_value}" ;;
+    hashcoins_live_enabled) _DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED="${_value}" ;;
+    answer_payments) _PKM_ANSWER_PAYMENTS_ENABLED="${_value}" ;;
+    answer_composer) _PKM_ANSWER_COMPOSER_ENABLED="${_value}" ;;
+    answer_live_provider_reviewed) _PKM_ANSWER_LIVE_PROVIDER_REVIEWED="${_value}" ;;
+    answer_stripe_mode) _PKM_ANSWER_STRIPE_MODE="${_value}" ;;
+    answer_drain_enabled) _ANSWER_WORK_DRAIN_ENABLED="${_value}" ;;
+    answer_drain_audience) _ANSWER_WORK_DRAIN_SCHEDULER_AUDIENCE="${_value}" ;;
     *) echo "Drive work-drain settings carry an unknown key." >&2; exit 1 ;;
   esac
 done
-if [[ "${#_drive_work_pairs[@]}" -ne 7 ]] ||
+if [[ "${#_drive_work_pairs[@]}" -ne 16 ]] ||
   [[ "${_DRIVE_WORK_DRAIN_ENABLED:-}" != "true" && "${_DRIVE_WORK_DRAIN_ENABLED:-}" != "false" ]] ||
   [[ "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED:-}" != "true" && "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED:-}" != "false" ]] ||
   [[ "${_DRIVE_REQUEST_PAYMENTS_ENABLED:-}" != "true" && "${_DRIVE_REQUEST_PAYMENTS_ENABLED:-}" != "false" ]]; then
-  echo "Drive work-drain settings require seven keys and explicit rollout booleans." >&2; exit 1
+  echo "Drive work-drain settings require sixteen keys and explicit rollout booleans." >&2; exit 1
 fi
 if [[ -n "${_STRIPE_MODE}" && "${_STRIPE_MODE}" != "test" && "${_STRIPE_MODE}" != "live" ]]; then
   echo "Stripe mode must be test or live." >&2; exit 1
@@ -145,6 +158,20 @@ if [[ "${_DRIVE_WORK_DRAIN_ENABLED}" == "true" ]]; then
     fi
   done
 fi
+# Every added control must be declared; recovery credentials stay bound even when
+# new financial admission is disabled.
+for _required in _STRIPE_CONNECT_SECRET_KEY_SECRET _STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET _PKM_ANSWER_STRIPE_SECRET_KEY_SECRET _PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET _STRIPE_CONNECT_MODE _DRIVE_REQUEST_HASHCOINS_ENABLED _DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED _PKM_ANSWER_PAYMENTS_ENABLED _PKM_ANSWER_COMPOSER_ENABLED _PKM_ANSWER_LIVE_PROVIDER_REVIEWED _PKM_ANSWER_STRIPE_MODE _ANSWER_WORK_DRAIN_ENABLED _ANSWER_WORK_DRAIN_SCHEDULER_AUDIENCE; do
+  declare -p "${_required}" >/dev/null 2>&1 || { echo "Missing payment settings key." >&2; exit 1; }
+done
+for _required in _DRIVE_REQUEST_HASHCOINS_ENABLED _DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED _PKM_ANSWER_PAYMENTS_ENABLED _PKM_ANSWER_COMPOSER_ENABLED _PKM_ANSWER_LIVE_PROVIDER_REVIEWED _ANSWER_WORK_DRAIN_ENABLED; do
+  if [[ "${!_required}" != "true" && "${!_required}" != "false" ]]; then
+    echo "Payment settings require explicit rollout booleans." >&2; exit 1
+  fi
+done
+if [[ "${_PKM_ANSWER_STRIPE_MODE}" != "test" && "${_PKM_ANSWER_STRIPE_MODE}" != "live" ]]; then
+  echo "Answer Stripe mode must be test or live." >&2; exit 1
+fi
+source deploy/drive/verify_hashcoin_config.sh "$PROJECT_ID"
 # The account-deletion cleanup scheduler identity travels as one packed Cloud
 # Build entry (the step is at Cloud Build's 100-entry env cap). Both keys must be
 # present, even when empty, so a typo cannot silently drop the OIDC audience.
@@ -233,6 +260,10 @@ if [[ "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED}" == "true" ]]; then
 fi
 source "$(dirname "${BASH_SOURCE[0]}")/scope-commerce-secrets.sh"
 append_payment_provider_secrets
+append_optional_secret "${_STRIPE_CONNECT_SECRET_KEY_SECRET}" "STRIPE_CONNECT_SECRET_KEY"
+append_optional_secret "${_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET}" "STRIPE_CONNECT_TEST_WEBHOOK_SECRET"
+append_optional_secret "${_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET}" "PKM_ANSWER_STRIPE_SECRET_KEY"
+append_optional_secret "${_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET}" "PKM_ANSWER_STRIPE_WEBHOOK_SECRET"
 append_optional_secret "${_OPENAI_API_KEY_SECRET}" "OPENAI_API_KEY"
 append_optional_secret "${_GOOGLE_MAPS_API_KEY_SECRET}" "GOOGLE_MAPS_API_KEY"
 # Literal secret names, not substitutions -- these two are named identically in
@@ -388,6 +419,15 @@ append_optional_env "ONE_EMAIL_DELEGATED_USER" "${_ONE_EMAIL_DELEGATED_USER}"
 append_optional_env "DRIVE_WORK_DRAIN_ENABLED" "${_DRIVE_WORK_DRAIN_ENABLED}"
 append_optional_env "DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED" "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED}"
 append_optional_env "STRIPE_MODE" "${_STRIPE_MODE}"
+append_optional_env "STRIPE_CONNECT_MODE" "${_STRIPE_CONNECT_MODE}"
+append_optional_env "DRIVE_REQUEST_HASHCOINS_ENABLED" "${_DRIVE_REQUEST_HASHCOINS_ENABLED}"
+append_optional_env "DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED" "${_DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED}"
+append_optional_env "PKM_ANSWER_PAYMENTS_ENABLED" "${_PKM_ANSWER_PAYMENTS_ENABLED}"
+append_optional_env "PKM_ANSWER_COMPOSER_ENABLED" "${_PKM_ANSWER_COMPOSER_ENABLED}"
+append_optional_env "PKM_ANSWER_LIVE_PROVIDER_REVIEWED" "${_PKM_ANSWER_LIVE_PROVIDER_REVIEWED}"
+append_optional_env "PKM_ANSWER_STRIPE_MODE" "${_PKM_ANSWER_STRIPE_MODE}"
+append_optional_env "ANSWER_WORK_DRAIN_ENABLED" "${_ANSWER_WORK_DRAIN_ENABLED}"
+append_optional_env "ANSWER_WORK_DRAIN_SCHEDULER_AUDIENCE" "${_ANSWER_WORK_DRAIN_SCHEDULER_AUDIENCE}"
 append_optional_env "DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID" "${_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID}"
 append_optional_env "DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL" "${_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL}"
 append_optional_env "DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE" "${_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE}"

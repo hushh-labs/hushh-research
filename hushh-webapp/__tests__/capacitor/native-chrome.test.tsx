@@ -61,7 +61,7 @@ vi.mock("@/lib/capacitor/session-privacy", () => ({ nativeDocumentId: () => brid
     privacy.callbacks.add(callback);
     return { remove: async () => { privacy.callbacks.delete(callback); } };
   } }));
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({ useVoiceSurfaceMetadata: () => null, getVoiceSurfaceMetadata: () => null }));
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({ useVoiceSurfaceMetadata: () => null, getVoiceSurfaceMetadata: () => null }));
 const projection = { kind: "back" as const, label: "Go back", enabled: true,
   appearance: "light" as const, accentHex: "#112233", foregroundHex: "#223344",
   frame: { x: 2, y: 60, width: 44, height: 44 }, viewport: { width: 390, height: 844 } };

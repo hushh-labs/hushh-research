@@ -155,6 +155,16 @@ def test_stripe_secret_bindings_survive_payment_rollout_switch_off() -> None:
     assert backend["env"]["STRIPE_UAT_MODE"] == mode_variable
     assert worker["env"]["STRIPE_UAT_MODE"] == mode_variable
     assert "source deploy/drive/uat_stripe_bindings.sh" in backend["run"]
+    assert backend["env"]["DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED"] == (
+        "${{ vars.DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED || 'false' }}"
+    )
+    assert (
+        "_DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED=${DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED}"
+        in backend["run"]
+    )
+    assert worker["env"]["DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED"] == (
+        "${{ vars.DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED || 'false' }}"
+    )
     for runtime_name, selector_name in (
         ("STRIPE_SECRET_KEY", "STRIPE_UAT_KEY_SECRET"),
         ("STRIPE_WEBHOOK_SECRET", "STRIPE_UAT_WEBHOOK_SECRET"),
@@ -166,6 +176,7 @@ def test_stripe_secret_bindings_survive_payment_rollout_switch_off() -> None:
     assert "source deploy/drive/uat_stripe_bindings.sh" in worker_script
     assert "STRIPE_SECRET_KEY=${STRIPE_UAT_KEY_SECRET}:latest" in worker_script
     assert "STRIPE_WEBHOOK_SECRET=${STRIPE_UAT_WEBHOOK_SECRET}:latest" in worker_script
+    assert "STRIPE_CONNECT_WEBHOOK_SECRET=${STRIPE_UAT_CONNECT_SECRET}:latest" in worker_script
     selector = str(REPO_ROOT / "deploy/drive/uat_stripe_bindings.sh")
     # Selecting mode never depends on either new-order rollout switch: existing
     # money must retain its exact provider family even when enrollment stops.
@@ -605,7 +616,18 @@ def test_hosted_backend_bounds_database_connection_fanout(tmp_path: Path) -> Non
         "candidate"
     ]
     assert prod_candidate["workers_per_instance"] == gunicorn_workers
-    assert prod_total * 3 <= budget["admission_limit"] - budget["administrative_reserve"]
+    prod_policy = budget["environments"]["production"]["connection_policy"]
+    assert prod_policy == {
+        "database_max_connections": 400,
+        "admission_limit": 300,
+        "administrative_reserve": 30,
+    }
+    # Serving + retained rollback + candidate, optional worker and overlapping
+    # readiness jobs all fit without inheriting UAT's larger database ceiling.
+    assert (
+        prod_total * 3 + 6 + 16 + prod_policy["administrative_reserve"]
+        <= prod_policy["admission_limit"]
+    )
 
     for workflow in (uat_workflow, production_workflow):
         assert 'BACKEND_REVISION_RETENTION: "2"' in workflow

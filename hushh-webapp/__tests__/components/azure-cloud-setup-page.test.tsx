@@ -21,7 +21,7 @@ vi.mock("@/lib/utils/browser-navigation", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/utils/browser-navigation")>()),
   assignWindowLocation: mocks.assign,
 }));
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
   usePublishVoiceSurfaceMetadata: () => undefined,
 }));
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({

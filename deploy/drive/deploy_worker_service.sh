@@ -33,6 +33,19 @@ if [[ ! "${IMAGE_REFERENCE}" =~ ^gcr\.io/hushh-pda-uat/consent-protocol@sha256:[
   exit 1
 fi
 
+# Reject unsafe live credentials before scheduler capture, rollback setup, or
+# any candidate revision is created.
+source deploy/drive/uat_stripe_bindings.sh
+_STRIPE_MODE="${STRIPE_UAT_MODE}"
+_STRIPE_CONNECT_MODE="${STRIPE_CONNECT_UAT_MODE}"
+_STRIPE_SECRET_KEY_SECRET="${STRIPE_UAT_KEY_SECRET}"
+_STRIPE_CONNECT_SECRET_KEY_SECRET="${STRIPE_UAT_CONNECT_KEY_SECRET}"
+_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET="${STRIPE_UAT_CONNECT_SECRET}"
+_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET="${STRIPE_UAT_CONNECT_TEST_WEBHOOK_SECRET}"
+_DRIVE_REQUEST_HASHCOINS_ENABLED="${DRIVE_REQUEST_HASHCOINS_UAT_ENABLED:-false}"
+_DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED="${DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED}"
+source deploy/drive/verify_hashcoin_config.sh "${PROJECT_ID}"
+
 # An existing service needs a known rollback revision before deploying an
 # unserved candidate. Cloud Run does not accept --no-traffic on first creation;
 # that first revision is private and the scheduler still points at the API.
@@ -149,7 +162,6 @@ trap 'exit 143' TERM
 
 payment_secret_bindings=""
 stripe_secret_ready=true
-source deploy/drive/uat_stripe_bindings.sh
 for payment_secret in "${STRIPE_UAT_KEY_SECRET}" "${STRIPE_UAT_WEBHOOK_SECRET}" APP_FRONTEND_ORIGIN; do
   if ! gcloud secrets describe "${payment_secret}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
     stripe_secret_ready=false
@@ -163,6 +175,29 @@ if [[ ( "${DRIVE_REQUEST_PAYMENTS_UAT_ENABLED:-false}" == "true" \
 fi
 if [[ "${stripe_secret_ready}" == true ]]; then
   payment_secret_bindings=",STRIPE_SECRET_KEY=${STRIPE_UAT_KEY_SECRET}:latest,STRIPE_WEBHOOK_SECRET=${STRIPE_UAT_WEBHOOK_SECRET}:latest,APP_FRONTEND_ORIGIN=APP_FRONTEND_ORIGIN:latest"
+fi
+connect_key_ready=false
+connect_webhook_ready=false
+test_webhook_ready=false
+if gcloud secrets describe "${STRIPE_UAT_CONNECT_KEY_SECRET}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+  connect_key_ready=true
+fi
+if gcloud secrets describe "${STRIPE_UAT_CONNECT_SECRET}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+  connect_webhook_ready=true
+fi
+if gcloud secrets describe "${STRIPE_UAT_CONNECT_TEST_WEBHOOK_SECRET}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+  test_webhook_ready=true
+fi
+# Keep recovery credentials after new enrollment is disabled: an accepted or
+# uncertain redemption remains an obligation until provider reconciliation.
+if [[ "${connect_key_ready}" == true ]]; then
+  payment_secret_bindings="${payment_secret_bindings},STRIPE_CONNECT_SECRET_KEY=${STRIPE_UAT_CONNECT_KEY_SECRET}:latest"
+fi
+if [[ "${connect_webhook_ready}" == true ]]; then
+  payment_secret_bindings="${payment_secret_bindings},STRIPE_CONNECT_WEBHOOK_SECRET=${STRIPE_UAT_CONNECT_SECRET}:latest"
+fi
+if [[ "${test_webhook_ready}" == true ]]; then
+  payment_secret_bindings="${payment_secret_bindings},STRIPE_CONNECT_TEST_WEBHOOK_SECRET=${STRIPE_UAT_CONNECT_TEST_WEBHOOK_SECRET}:latest"
 fi
 
 gcloud --quiet run deploy "${SERVICE}" \
@@ -180,7 +215,7 @@ gcloud --quiet run deploy "${SERVICE}" \
   --args=server_drive_worker:app,-w,1,-k,uvicorn.workers.UvicornWorker,--timeout,220,--worker-tmp-dir,/tmp,-b,0.0.0.0:8080 \
   --depends-on=clamav \
   --startup-probe=httpGet.port=8080,httpGet.path=/ready,periodSeconds=10,timeoutSeconds=5,failureThreshold=24 \
-  --set-env-vars="^|^ENVIRONMENT=uat|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GENAI_GOOGLE_CLOUD_PROJECT=${GENAI_PROJECT_ID}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|HUSSH_GEMINI_TEXT_MODEL=gemini-3.6-flash|STRIPE_MODE=${STRIPE_UAT_MODE}|DRIVE_WORKER_MODE=true|DRIVE_WORK_DRAIN_ENABLED=true|DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED=${DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED:-false}|DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=${PROJECT_ID}|DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=${SCHEDULER_ID}|DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${SCHEDULER_AUDIENCE}|DB_POOL_MIN_SIZE=0|DB_POOL_MAX_SIZE=2|DB_SQLALCHEMY_POOL_SIZE=1|DB_SQLALCHEMY_MAX_OVERFLOW=0" \
+  --set-env-vars="^|^ENVIRONMENT=uat|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GENAI_GOOGLE_CLOUD_PROJECT=${GENAI_PROJECT_ID}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|HUSSH_GEMINI_TEXT_MODEL=gemini-3.6-flash|STRIPE_MODE=${STRIPE_UAT_MODE}|DRIVE_WORKER_MODE=true|DRIVE_WORK_DRAIN_ENABLED=true|DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED=${DRIVE_REQUEST_OWNER_PAYOUTS_UAT_ENABLED:-false}|DRIVE_REQUEST_HASHCOINS_ENABLED=${DRIVE_REQUEST_HASHCOINS_UAT_ENABLED:-false}|DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED=${DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED}|STRIPE_CONNECT_MODE=${STRIPE_CONNECT_UAT_MODE}|DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=${PROJECT_ID}|DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=${SCHEDULER_ID}|DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${SCHEDULER_AUDIENCE}|DB_POOL_MIN_SIZE=0|DB_POOL_MAX_SIZE=2|DB_SQLALCHEMY_POOL_SIZE=1|DB_SQLALCHEMY_MAX_OVERFLOW=0" \
   --set-secrets="BACKEND_RUNTIME_CONFIG_JSON=BACKEND_RUNTIME_CONFIG_JSON:latest,DB_USER=DB_USER:latest,DB_PASSWORD=DB_PASSWORD:latest,APP_SIGNING_KEY=APP_SIGNING_KEY:latest,VAULT_DATA_KEY=VAULT_DATA_KEY:latest,GOOGLE_DRIVE_OAUTH_CLIENT_ID=GOOGLE_DRIVE_OAUTH_CLIENT_ID:latest,GOOGLE_DRIVE_OAUTH_CLIENT_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET:latest,EXTERNAL_CONNECTOR_CREDENTIAL_KEY=EXTERNAL_CONNECTOR_CREDENTIAL_KEY:latest,DRIVE_DOCUMENT_KEY_V1=DRIVE_DOCUMENT_KEY_V1:latest,DRIVE_SHARING_KEY_V1=DRIVE_SHARING_KEY_V1:latest,FIREBASE_ADMIN_CREDENTIALS_JSON=FIREBASE_ADMIN_CREDENTIALS_JSON:latest${payment_secret_bindings}" \
   --container=clamav \
   --image="${CLAMAV_IMAGE}" --cpu=2 --memory=4Gi \

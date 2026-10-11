@@ -100,7 +100,7 @@ vi.mock("@/lib/onboarding/one-capabilities", async (importOriginal) => ({
   getOneSetupCapability: () => null,
 }));
 
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
   usePublishVoiceSurfaceMetadata: () => undefined,
 }));
 

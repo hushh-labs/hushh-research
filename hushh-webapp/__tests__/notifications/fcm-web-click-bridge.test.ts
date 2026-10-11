@@ -28,11 +28,35 @@ vi.mock("@/lib/feed/feed-events", () => ({
   dispatchFeedStateChanged: mocks.dispatchFeedStateChanged,
 }));
 
+import { documentRequestSetupHref } from "@/lib/consent/document-request-setup";
 import {
   buildNotificationTapTarget,
   FCM_MESSAGE_EVENT,
   prepareFCMListeners,
 } from "@/lib/notifications/fcm-service";
+
+const REQUEST_ID = "11111111-1111-4111-8111-111111111111";
+const REVIEW_ROUTE =
+  "/one/consent?tab=pending&requestId=document_share_request%3A11111111-1111-4111-8111-111111111111";
+
+/** The payload a consumer receives after the transport boundary reduced it. */
+async function bridgedPushData(data: Record<string, unknown>) {
+  await prepareFCMListeners();
+  let received: Record<string, unknown> | undefined;
+  const capture = (event: Event) => {
+    received = (event as CustomEvent<{ data: Record<string, unknown> }>).detail.data;
+  };
+  window.addEventListener(FCM_MESSAGE_EVENT, capture);
+  try {
+    mocks.serviceWorkerMessageListener?.({
+      data: { type: "hushh:fcm_push_received", data },
+      source: { postMessage: vi.fn() },
+    } as unknown as MessageEvent);
+  } finally {
+    window.removeEventListener(FCM_MESSAGE_EVENT, capture);
+  }
+  return received;
+}
 
 describe("web system-notification click bridge", () => {
   beforeEach(() => {
@@ -70,6 +94,31 @@ describe("web system-notification click bridge", () => {
     ).toBe(
       "/one/consent?tab=pending&requestId=document_share_request%3A11111111-1111-4111-8111-111111111111",
     );
+  });
+
+  it.each(["drive", "payouts", "price"] as const)(
+    "keeps a %s setup step through the transport boundary and opens its screen",
+    async (setup) => {
+      const data = await bridgedPushData({
+        type: "document_share_request",
+        request_id: REQUEST_ID,
+        setup,
+        file_name: "bank-statement.pdf",
+      });
+      expect(data).toEqual({ type: "document_share_request", request_id: REQUEST_ID, setup });
+      // Native taps route the reduced payload through this same builder.
+      expect(buildNotificationTapTarget(data)).toBe(documentRequestSetupHref(setup));
+    },
+  );
+
+  it.each([
+    { type: "document_share_request", setup: "https://evil.example" },
+    { type: "document_share_request", setup: "drive?x=1" },
+    { type: "document_share_review_ready", setup: "drive" },
+  ])("drops setup $setup on $type and keeps the review route", async (fields) => {
+    const raw = { ...fields, request_id: REQUEST_ID };
+    expect(await bridgedPushData(raw)).toEqual({ type: fields.type, request_id: REQUEST_ID });
+    expect(buildNotificationTapTarget(raw)).toBe(REVIEW_ROUTE);
   });
 
   it("opens a Drive question's card for a question push", () => {

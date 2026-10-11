@@ -67,6 +67,7 @@ def _record_new_owner_payout(
     owner_user_id: str,
     amount_cents: int,
     quoted_request: bool = False,
+    settlement_method: str = "stripe_transfer",
 ) -> None:
     """Enroll only new orders, atomically with their immutable payment price."""
     from hushh_mcp.services.drive_request_owner_payout_service import (
@@ -78,23 +79,26 @@ def _record_new_owner_payout(
         if quoted_request:
             if not payout_enabled():
                 raise DriveSharingError("payout_unavailable")
-            account = (
-                connection.execute(
-                    text(
-                        "SELECT account_ready FROM stripe_owner_payout_accounts WHERE user_id=:owner AND stripe_mode=:stripe_mode"
-                    ),
-                    {"owner": owner_user_id, "stripe_mode": configured_stripe_mode()},
+            account = None
+            if settlement_method != "hashcoins":
+                account = (
+                    connection.execute(
+                        text(
+                            "SELECT account_ready FROM stripe_owner_payout_accounts WHERE user_id=:owner AND stripe_mode=:stripe_mode"
+                        ),
+                        {"owner": owner_user_id, "stripe_mode": configured_stripe_mode()},
+                    )
+                    .mappings()
+                    .first()
                 )
-                .mappings()
-                .first()
-            )
-            if account is None or account["account_ready"] is not True:
-                raise DriveSharingError("owner_payout_required")
+                if account is None or account["account_ready"] is not True:
+                    raise DriveSharingError("owner_payout_required")
         DriveRequestOwnerPayoutService.record_order(
             connection,
             request_id=request_id,
             owner_user_id=owner_user_id,
             amount_cents=amount_cents,
+            settlement_method=settlement_method,
         )
 
 
@@ -267,8 +271,8 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
         amount_cents = _order_amount_cents(request, private)
         inserted = connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-              (request_id,user_id,requester_user_id,amount_cents,stripe_mode)
-              VALUES (:request,:owner,:requester,:amount,:stripe_mode)
+              (request_id,user_id,requester_user_id,amount_cents,stripe_mode,settlement_method)
+              VALUES (:request,:owner,:requester,:amount,:stripe_mode,:settlement_method)
               ON CONFLICT (request_id) DO NOTHING"""),
             {
                 "request": request["request_id"],
@@ -276,6 +280,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 "requester": request["recipient_user_id"],
                 "amount": amount_cents,
                 "stripe_mode": configured_stripe_mode(),
+                "settlement_method": request.get("settlement_method", "stripe_transfer"),
             },
         )
         if inserted.rowcount == 1:
@@ -285,6 +290,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 owner_user_id=request["user_id"],
                 amount_cents=amount_cents,
                 quoted_request=request.get("quoted_amount_cents") is not None,
+                settlement_method=request.get("settlement_method", "stripe_transfer"),
             )
         order = (
             connection.execute(
@@ -397,8 +403,8 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
         amount_cents = _order_amount_cents(request, private)
         inserted = connection.execute(
             text("""INSERT INTO drive_request_payment_orders
-              (request_id,user_id,requester_user_id,amount_cents,stripe_mode)
-              VALUES (:request,:owner,:requester,:amount,:stripe_mode)
+              (request_id,user_id,requester_user_id,amount_cents,stripe_mode,settlement_method)
+              VALUES (:request,:owner,:requester,:amount,:stripe_mode,:settlement_method)
               ON CONFLICT (request_id) DO NOTHING"""),
             {
                 "request": request["request_id"],
@@ -406,6 +412,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 "requester": request["recipient_user_id"],
                 "amount": amount_cents,
                 "stripe_mode": configured_stripe_mode(),
+                "settlement_method": request.get("settlement_method", "stripe_transfer"),
             },
         )
         if inserted.rowcount == 1:
@@ -415,6 +422,7 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 owner_user_id=user_id,
                 amount_cents=amount_cents,
                 quoted_request=request.get("quoted_amount_cents") is not None,
+                settlement_method=request.get("settlement_method", "stripe_transfer"),
             )
         order = self._row(
             connection,
@@ -560,6 +568,9 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 # Internal preflight only; get_payment strips these before
                 # the requester API response. The owner is not disclosed.
                 "_payout_enrolled": payout_enrolled,
+                "_payout_settlement_method": order.get("settlement_method", "stripe_transfer")
+                if order
+                else request.get("settlement_method", "stripe_transfer"),
                 "_payout_owner_user_id": request["user_id"] if payout_enrolled else None,
                 **setup,
             }

@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
 import { getOneSetupCapability } from "@/lib/onboarding/one-capabilities";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import styles from "./one-setup-hub.module.css";
 
 /**

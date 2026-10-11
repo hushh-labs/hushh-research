@@ -959,7 +959,10 @@ export function VaultFlow({
     setIsUnlocking(true);
     try {
       setError(null);
-      const vaultData = await VaultService.getVaultState(user.uid);
+      // An unlock decision must never run against a cached, possibly stale
+      // wrapper: force a fresh read so a passphrase change elsewhere cannot
+      // make a correct current passphrase look wrong.
+      const vaultData = await VaultService.getVaultState(user.uid, { forceFresh: true });
       const decryptedKey = await VaultService.unlockWithMethod({
         state: vaultData,
         method: "passphrase",
@@ -1241,7 +1244,9 @@ export function VaultFlow({
     setIsUnlocking(true);
     try {
       setError(null);
-      const vaultData = await VaultService.getVaultState(user.uid);
+      // Same freshness requirement as the passphrase path: a stale cached
+      // wrapper must never be why a correct recovery key looks wrong.
+      const vaultData = await VaultService.getVaultState(user.uid, { forceFresh: true });
       const decryptedKey = await VaultService.unlockVaultWithRecoveryKey(
         recoveryKeyInput,
         vaultData.recoveryEncryptedVaultKey,

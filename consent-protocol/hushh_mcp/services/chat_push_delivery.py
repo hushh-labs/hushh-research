@@ -142,6 +142,15 @@ def deliver_chat_push(
     configured, _ = ensure_firebase_admin()
     if not configured:
         return False
+    from hushh_mcp.services.chat_notification_state import chat_notification_counts
+
+    thread = (
+        f"circle:{data.get('circle_id', '')}"
+        if kind == "location_circle_message"
+        else f"direct:{data.get('conversation_id', '')}"
+    )
+    counts = chat_notification_counts(user, thread, db=db)
+    data = {**data, **counts}
     from firebase_admin import messaging
 
     from api.utils.fcm_messages import build_push_message
@@ -278,9 +287,13 @@ def deliver_chat_push(
                     platform=row["platform"],
                     data=payload,
                     title="New message" if kind == "direct_message" else "Circle chat",
-                    body="You have a new message"
-                    if kind == "direct_message"
-                    else "You have a new circle message",
+                    body=(
+                        f"{counts['chat_unread_count']} unread messages"
+                        if int(counts.get("chat_unread_count", "0")) > 1
+                        else "You have a new message"
+                        if kind == "direct_message"
+                        else "You have a new circle message"
+                    ),
                     request_url=link,
                     notification_tag=tag,
                     show_alert=True,

@@ -24,11 +24,30 @@ export type DocumentBankPayout = {
   expectedArrivalAt: string | null;
   failureCode: string | null;
 };
-export type DocumentBankPayoutsResponse = { currency: "USD"; payouts: DocumentBankPayout[] };
+export type DocumentBankPayoutsResponse = { currency: "USD"; payouts: DocumentBankPayout[]; stripeMode?: "test" | "live" };
+
+export type HashcoinBalance = {
+  balanceCoins: number; reservedCoins: number; availableCoins: number; amountCents: number; held: boolean;
+  nextRedeemCoins?: number;
+};
+export type HashcoinRedemption = {
+  id: string; clientRequestId?: string; amountCoins: number;
+  status: "pending" | "succeeded" | "failed" | "unknown"; stripeMode: "test" | "live";
+  reversalStatus?: "none" | "due" | "unknown" | "reversed" | "manual_review";
+  createdAt?: string;
+};
+export type HashcoinWallet = {
+  coinName: "Hussh Coins"; coinsPerDollar: 100; currency: "USD";
+  live: HashcoinBalance; sandbox: HashcoinBalance;
+  payoutMode: "test" | "live"; testPayouts: boolean; liveRedemptionEnabled: boolean;
+  maxRedeemCoins: number;
+  latestRedemption: HashcoinRedemption | null;
+  redemptionHistory: HashcoinRedemption[];
+};
 
 const EARNING_STATUSES = ["awaiting_delivery", "awaiting_refund", "awaiting_fee", "awaiting_account",
   "due", "dispatching", "unknown", "manual_review", "transferred", "reversal_due",
-  "reversal_unknown", "reversed", "void"] as const;
+  "reversal_unknown", "reversed", "void", "hashcoins_credited", "hashcoins_held", "hashcoins_reversed"] as const;
 export type DocumentEarning = {
   requestId: string;
   description: string;
@@ -44,6 +63,9 @@ export type DocumentEarning = {
   transferredAt: string | null;
   expectedFiles: number | null;
   confirmedFiles: number | null;
+  settlementMethod?: "stripe_transfer" | "hashcoins";
+  creditedCoins?: number | null;
+  creditedAt?: string | null;
 };
 export type DocumentEarningsResponse = { currency: "USD"; transactions: DocumentEarning[]; nextCursor: string | null; stripeMode?: "test" | "live" };
 
@@ -69,16 +91,92 @@ function authHeaders(vaultOwnerToken: string) {
   if (!vaultOwnerToken) throw new Error("Unlock your vault to view payouts");
   return { Authorization: `Bearer ${vaultOwnerToken}` };
 }
-function connectLink(value: unknown): { url: string } {
-  const body = object(value);
-  if (typeof body.url !== "string") throw new Error("Invalid payout link");
-  const url = new URL(body.url);
-  if (url.protocol !== "https:" || url.hostname !== "connect.stripe.com" ||
-      url.username || url.password || url.port) throw new Error("Invalid payout link");
-  return { url: url.href };
+/** Stripe owns onboarding and bank edits; validate again at the navigation boundary. */
+export function documentPayoutLinkUrl(value: unknown, purpose: "onboarding" | "management"): string {
+  if (typeof value !== "string") throw new Error("Invalid payout link");
+  let url: URL;
+  try { url = new URL(value); } catch { throw new Error("Invalid payout link"); }
+  const allowed = purpose === "management"
+    ? ["stripe.com", "connect.stripe.com"].includes(url.hostname) && /^\/express\/.+/.test(url.pathname)
+    : url.hostname === "connect.stripe.com";
+  if (url.protocol !== "https:" || !allowed || url.username || url.password || url.port) {
+    throw new Error("Invalid payout link");
+  }
+  return url.href;
+}
+function connectLink(value: unknown, purpose: "onboarding" | "management"): { url: string } {
+  return { url: documentPayoutLinkUrl(object(value).url, purpose) };
+}
+
+function coinBalance(value: unknown): HashcoinBalance {
+  const row = object(value);
+  if (!["reservedCoins", "availableCoins"].every((key) => integer(row[key])) ||
+      !Number.isSafeInteger(row.balanceCoins) || !Number.isSafeInteger(row.amountCents) ||
+      typeof row.held !== "boolean" || row.amountCents !== row.balanceCoins || (Number(row.balanceCoins) < 0 && row.held !== true) ||
+      row.availableCoins !== (row.held ? 0 : Math.max(Number(row.balanceCoins) - Number(row.reservedCoins), 0)) ||
+      (row.nextRedeemCoins !== undefined && (!integer(row.nextRedeemCoins) || row.nextRedeemCoins > 50000 || row.nextRedeemCoins > row.availableCoins))) {
+    throw new Error("Invalid Hussh Coins balance");
+  }
+  return { balanceCoins: row.balanceCoins as number, reservedCoins: row.reservedCoins as number,
+    availableCoins: row.availableCoins as number, amountCents: row.amountCents as number, held: row.held,
+    ...(row.nextRedeemCoins !== undefined ? { nextRedeemCoins: row.nextRedeemCoins as number } : {}) };
+}
+
+function redemption(value: unknown, expectedMode?: "test" | "live"): HashcoinRedemption {
+  const row = object(value);
+  if (typeof row.id !== "string" || !DOCUMENT_REQUEST_UUID.test(row.id) ||
+      !integer(row.amountCoins) || row.amountCoins < 1 || row.amountCoins > 50000 ||
+      !["test", "live"].includes(String(row.stripeMode)) || (expectedMode && row.stripeMode !== expectedMode) ||
+      (row.stripeMode === "live" && !["none", "due", "unknown", "reversed", "manual_review"].includes(String(row.reversalStatus))) ||
+      (row.stripeMode === "test" && row.reversalStatus !== undefined) ||
+      !["pending", "succeeded", "failed", "unknown"].includes(String(row.status)) ||
+      (row.createdAt !== undefined && !date(row.createdAt)) ||
+      (row.clientRequestId !== undefined && (typeof row.clientRequestId !== "string" || !DOCUMENT_REQUEST_UUID.test(row.clientRequestId)))) {
+    throw new Error("Invalid Hussh Coins redemption");
+  }
+  return { id: row.id, amountCoins: row.amountCoins, status: row.status as HashcoinRedemption["status"],
+    stripeMode: row.stripeMode as HashcoinRedemption["stripeMode"], ...(row.clientRequestId ? { clientRequestId: row.clientRequestId as string } : {}),
+    ...(row.reversalStatus !== undefined ? { reversalStatus: row.reversalStatus as HashcoinRedemption["reversalStatus"] } : {}),
+    ...(row.createdAt ? { createdAt: row.createdAt as string } : {}) };
 }
 
 export class DocumentPayoutService {
+  static async hashcoins(vaultOwnerToken: string): Promise<HashcoinWallet> {
+    const body = object(await apiJson<unknown>("/api/one/payouts/hashcoins", {
+      headers: authHeaders(vaultOwnerToken), cache: "no-store",
+    }));
+    if (body.coinName !== "Hussh Coins" || body.coinsPerDollar !== 100 || body.currency !== "USD" ||
+        !["test", "live"].includes(String(body.payoutMode)) || typeof body.testPayouts !== "boolean" ||
+        (body.payoutMode === "live" && body.testPayouts) ||
+        typeof body.liveRedemptionEnabled !== "boolean" ||
+        (body.liveRedemptionEnabled && (body.payoutMode !== "live" || body.testPayouts || !integer(object(body.live).nextRedeemCoins))) ||
+        (body.maxRedeemCoins !== undefined && (!integer(body.maxRedeemCoins) || body.maxRedeemCoins < 1 || body.maxRedeemCoins > 50000)) ||
+        (body.redemptionHistory !== undefined && (!Array.isArray(body.redemptionHistory) || body.redemptionHistory.length > 10))) throw new Error("Invalid Hussh Coins wallet");
+    return { coinName: "Hussh Coins", coinsPerDollar: 100, currency: "USD", live: coinBalance(body.live),
+      sandbox: coinBalance(body.sandbox), payoutMode: body.payoutMode as "test" | "live", testPayouts: body.testPayouts,
+      liveRedemptionEnabled: body.liveRedemptionEnabled as boolean,
+      maxRedeemCoins: body.maxRedeemCoins as number ?? 50000,
+      redemptionHistory: ((body.redemptionHistory as unknown[]) ?? []).map((row) => redemption(row, body.payoutMode as "test" | "live")),
+      latestRedemption: body.latestRedemption == null ? null : redemption(body.latestRedemption, body.payoutMode as "test" | "live") };
+  }
+
+  static async redeem(vaultOwnerToken: string, amountCoins: number, clientRequestId: string, mode: "test" | "live"): Promise<HashcoinRedemption> {
+    if (!integer(amountCoins) || amountCoins < 1 || amountCoins > 50000 ||
+        !DOCUMENT_REQUEST_UUID.test(clientRequestId) || !["test", "live"].includes(mode)) throw new Error("Invalid redemption");
+    return redemption(await apiJson<unknown>("/api/one/payouts/hashcoins/redeem", {
+      method: "POST", headers: { ...authHeaders(vaultOwnerToken), "Content-Type": "application/json" },
+      body: JSON.stringify({ amountCoins, clientRequestId, mode }), cache: "no-store",
+    }), mode);
+  }
+
+  static async redeemTest(vaultOwnerToken: string, amountCoins: number, clientRequestId: string): Promise<HashcoinRedemption> {
+    return this.redeem(vaultOwnerToken, amountCoins, clientRequestId, "test");
+  }
+
+  static async redeemLive(vaultOwnerToken: string, amountCoins: number, clientRequestId: string): Promise<HashcoinRedemption> {
+    return this.redeem(vaultOwnerToken, amountCoins, clientRequestId, "live");
+  }
+
   static async account(vaultOwnerToken: string): Promise<DocumentPayoutAccountResponse> {
     const body = object(await apiJson<unknown>("/api/one/payouts/account", {
       headers: authHeaders(vaultOwnerToken), cache: "no-store",
@@ -123,13 +221,13 @@ export class DocumentPayoutService {
   static async onboard(vaultOwnerToken: string): Promise<{ url: string }> {
     return connectLink(await apiJson<unknown>("/api/one/payouts/account/onboard", {
       method: "POST", headers: authHeaders(vaultOwnerToken), cache: "no-store",
-    }));
+    }), "onboarding");
   }
 
   static async manage(vaultOwnerToken: string): Promise<{ url: string }> {
     return connectLink(await apiJson<unknown>("/api/one/payouts/account/manage", {
       method: "POST", headers: authHeaders(vaultOwnerToken), cache: "no-store",
-    }));
+    }), "management");
   }
 
   static async earnings(vaultOwnerToken: string, cursor?: string): Promise<DocumentEarningsResponse> {
@@ -150,6 +248,9 @@ export class DocumentPayoutService {
           !EARNING_STATUSES.includes(item.status as DocumentEarning["status"]) || !integer(item.grossAmountCents) ||
           !["refundAmountCents", "platformFeeCents", "processingFeeCents", "netAmountCents", "reversedAmountCents", "expectedFiles", "confirmedFiles"].every((key) => nullableInteger(item[key])) ||
           !date(item.createdAt) || !(item.transferredAt === null || date(item.transferredAt)) ||
+          (item.settlementMethod !== undefined && !["stripe_transfer", "hashcoins"].includes(String(item.settlementMethod))) ||
+          (item.creditedCoins !== undefined && !nullableInteger(item.creditedCoins)) ||
+          (item.creditedAt !== undefined && item.creditedAt !== null && !date(item.creditedAt)) ||
           (typeof item.expectedFiles === "number" && typeof item.confirmedFiles === "number" && item.confirmedFiles > item.expectedFiles)) {
         throw new Error("Invalid earnings response");
       }
@@ -164,6 +265,9 @@ export class DocumentPayoutService {
         reversedAmountCents: item.reversedAmountCents as number | null,
         createdAt: item.createdAt, transferredAt: item.transferredAt as string | null,
         expectedFiles: item.expectedFiles as number | null, confirmedFiles: item.confirmedFiles as number | null,
+        ...(item.settlementMethod !== undefined ? { settlementMethod: item.settlementMethod as DocumentEarning["settlementMethod"] } : {}),
+        ...(item.creditedCoins !== undefined ? { creditedCoins: item.creditedCoins as number | null } : {}),
+        ...(item.creditedAt !== undefined ? { creditedAt: item.creditedAt as string | null } : {}),
       };
     });
     if (new Set(transactions.map((item) => item.requestId)).size !== transactions.length) throw new Error("Invalid earnings response");
@@ -188,6 +292,6 @@ export class DocumentPayoutService {
       return { id: item.id, amountCents: item.amountCents, status: item.status as DocumentBankPayout["status"],
         expectedArrivalAt: item.expectedArrivalAt as string | null, failureCode: item.failureCode as string | null };
     });
-    return { currency: "USD", payouts };
+    return { ...stripeMode(body), currency: "USD", payouts };
   }
 }

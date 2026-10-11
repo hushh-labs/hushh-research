@@ -55,7 +55,7 @@ import {
 } from "@/lib/navigation/routes";
 import { ApiService } from "@/lib/services/api-service";
 import { AzureByocError } from "@/lib/services/azure-byoc-contract";
-import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
+import { deriveVoiceRouteScreen } from "@/lib/kai/actions/route-screen-derivation";
 
 const SIGN_IN = "https://login.microsoftonline.com/tenant/oauth2/v2.0/authorize?state=s";
 const complete = vi.mocked(ApiService.completeAzureByocAuthorize);

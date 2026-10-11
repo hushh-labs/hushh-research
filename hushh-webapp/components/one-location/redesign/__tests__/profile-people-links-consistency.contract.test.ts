@@ -118,7 +118,7 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     ]) {
       expect(source).toMatch(
         new RegExp(
-          `icon=\\{isPanePresentation \\? ${paneIcon} : ${routeIcon}\\}\\s+iconTone="capability"`,
+          `icon=\\{\\s*isPanePresentation\\s*\\?\\s*${paneIcon}\\s*:\\s*${routeIcon}\\s*\\}\\s+iconTone="capability"`,
         ),
       );
     }

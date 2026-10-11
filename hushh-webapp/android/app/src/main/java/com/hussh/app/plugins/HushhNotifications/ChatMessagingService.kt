@@ -30,14 +30,23 @@ class ChatMessagingService : FirebaseMessagingService() {
     override fun onNewToken(token: String) { FirebaseMessagingPlugin.onNewToken(token) }
     override fun onMessageReceived(message: RemoteMessage) {
         FirebaseMessagingPlugin.onMessageReceived(message)
-        val data = message.data
+        val data = message.data.toMutableMap()
+        if (data["recipient_key_id"] == null) data["user_id"]?.let { user -> ChatPreviewKeys.legacyKey(this, user)?.let { data["recipient_key_id"] = it } }
+        if (data["recipient_key_id"] == null) data["chat_owner"]?.let { owner -> ChatPreviewKeys.legacyHashKey(this, owner)?.let { data["recipient_key_id"] = it } }
         val kind = data["type"]
+        if (kind == "direct_message_read" || kind == "location_circle_chat_read") {
+            val key = data["recipient_key_id"] ?: return
+            val thread = data["conversation_id"] ?: data["circle_id"] ?: return
+            clearRead(this, thread, key, data["chat_sequence"]?.toLongOrNull(), data["chat_read_before"]?.toLongOrNull(), data["chat_read_message_id"])
+            return
+        }
         if (kind != "direct_message" && kind != "location_circle_message") return
         if (!ChatPreviewKeys.active(this)) return
         data["recipient_key_id"]?.let { if (!ChatPreviewKeys.matches(this, it)) return }
         val info = ActivityManager.RunningAppProcessInfo()
         ActivityManager.getMyMemoryState(info)
-        if (info.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND) return
+        val activeTag = if (kind == "location_circle_message") "circle-chat:${data["circle_id"]}" else "direct-chat:${data["conversation_id"]}"
+        if (info.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND && HushhNotificationsPlugin.activityActive && HushhNotificationsPlugin.activeChatKey == data["recipient_key_id"] && HushhNotificationsPlugin.activeChatTag == activeTag) return
         if ((data["chat_expires_at"]?.toLongOrNull() ?: 0) < System.currentTimeMillis() / 1000) return
         val event = data["message_id"] ?: return
         if (event.length > 160 || ChatPreviewKeys.seen(this, event)) return
@@ -46,7 +55,8 @@ class ChatMessagingService : FirebaseMessagingService() {
         val trusted = identity ?: if (kind == "direct_message") preview else null
         val sender = trusted?.optString("sender")?.let { truncate(it, 80) }?.ifBlank { null } ?: "New message"
         val group = trusted?.optString("group")?.let { truncate(it, 80) }?.ifBlank { null }
-        val body = preview?.optString("text")?.let { truncate(it, 160) }?.ifBlank { "Photo" } ?: "You have a new message"
+        val count = data["chat_unread_count"]?.toIntOrNull()?.coerceIn(0, 9999) ?: 1
+        val body = preview?.optString("text")?.let { truncate(it, 160) }?.ifBlank { "Photo" } ?: if (count > 1) "$count unread messages" else "You have a new message"
         val avatar = avatar(trusted?.optString("avatar"), sender)
         val conversation = data["conversation_id"] ?: data["circle_id"] ?: event
         val person = Person.Builder().setName(sender).setKey(trusted?.optString("senderRef")?.ifBlank { null } ?: sender).setIcon(IconCompat.createWithBitmap(avatar)).build()
@@ -68,6 +78,7 @@ class ChatMessagingService : FirebaseMessagingService() {
             .setLargeIcon(avatar).setContentTitle(group ?: sender).setContentText(body).setStyle(style)
             .setContentIntent(tap).setAutoCancel(true).setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH).setGroup("chat:$conversation")
+            .setNumber(count)
             .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
             .addExtras(Bundle().apply {
                 putString("chat_thread", conversation); putString("chat_key", data["recipient_key_id"])
@@ -79,6 +90,9 @@ class ChatMessagingService : FirebaseMessagingService() {
                 .setContentTitle("New message").setContentText("Open Hussh to read your message").build()).build()
         try {
             ChatPreviewKeys.withKey(this, data["recipient_key_id"] ?: return) {
+                if (ChatPreviewKeys.seen(this, event)) return@withKey
+                val boundary = (data["chat_sequence"] ?: data["chat_sent_at"])?.toDoubleOrNull() ?: return@withKey
+                if (!ChatDeliveryState.alert(this, data["recipient_key_id"]!!, conversation, boundary, event)) return@withKey
                 // NotificationManager queues posts/cancels; build from this snapshot
                 // plus the current message instead of assuming a post is visible yet.
                 val previous = manager.activeNotifications.filter { it.notification.group == "chat:$conversation" && it.notification.extras.getString("chat_key") == data["recipient_key_id"] && it.tag != "chat-summary:$conversation" && it.tag != event }
@@ -86,7 +100,7 @@ class ChatMessagingService : FirebaseMessagingService() {
                 for (item in previous.sortedBy { it.postTime }.takeLast(4)) inbox.addLine(item.notification.extras.getCharSequence(android.app.Notification.EXTRA_TEXT))
                 inbox.addLine(if (group == null) body else "$sender: $body")
                 val summary = NotificationCompat.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_stat_message).setLargeIcon(avatar)
-                    .setContentTitle(group ?: sender).setContentText("${previous.size + 1} new messages").setContentIntent(tap).setAutoCancel(true)
+                    .setContentTitle(group ?: sender).setContentText("${maxOf(count, previous.size + 1)} new messages").setNumber(count).setContentIntent(tap).setAutoCancel(true)
                     .setStyle(inbox).setGroup("chat:$conversation").setGroupSummary(true).setSilent(true).setOnlyAlertOnce(true)
                     .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN).setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
                     .setPublicVersion(NotificationCompat.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_stat_message)
@@ -121,6 +135,7 @@ class ChatMessagingService : FirebaseMessagingService() {
         const val CHANNEL = "hussh_chat_messages_v1"
         fun clearRead(context: Context, thread: String, key: String, sequence: Long?, before: Long?, messageId: String?) {
             ChatPreviewKeys.withKey(context, key) {
+                ChatDeliveryState.read(context, key, thread, (sequence ?: before ?: 0).toDouble(), messageId)
                 val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                 val children = manager.activeNotifications.filter {
                     it.tag != "chat-summary:$thread" && it.notification.extras.getString("chat_thread") == thread && it.notification.extras.getString("chat_key") == key
@@ -139,7 +154,7 @@ class ChatMessagingService : FirebaseMessagingService() {
                     val latest = remaining.last().notification
                     val style = NotificationCompat.InboxStyle()
                     for (item in remaining.takeLast(5)) style.addLine(item.notification.extras.getCharSequence(android.app.Notification.EXTRA_TEXT))
-                    val summary = NotificationCompat.Builder(context, latest).setStyle(style).setContentText("${remaining.size} new messages")
+                    val summary = NotificationCompat.Builder(context, latest).setStyle(style).setContentText("${remaining.size} new messages").setNumber(remaining.size)
                         .setGroupSummary(true).setSilent(true).setOnlyAlertOnce(true).setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN).build()
                     manager.notify("chat-summary:$thread", 1, summary)
                 }

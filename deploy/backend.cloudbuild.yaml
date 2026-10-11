@@ -283,6 +283,54 @@ steps:
             exit 1
           fi
         fi
+        if [[ "${_PKM_ANSWER_PAYMENTS_ENABLED}" == "true" || "${_ANSWER_WORK_DRAIN_ENABLED}" == "true" ]]; then
+          for answer_secret in "${_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET}" "${_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET}"; do
+            if [[ -z "${answer_secret}" ]] || ! gcloud secrets describe "${answer_secret}" --project="$PROJECT_ID" >/dev/null 2>&1; then
+              echo "Answer payments require their own Stripe secret bindings." >&2
+              exit 1
+            fi
+          done
+          if [[ "${_PKM_ANSWER_PAYMENTS_ENABLED}" == "true" && "${_PKM_ANSWER_COMPOSER_ENABLED}" != "true" ]]; then
+            echo "Paid answers require the reviewed composer flag." >&2
+            exit 1
+          fi
+        fi
+        if [[ "${_PKM_ANSWER_PAYMENTS_ENABLED}" == "true" && "${_PKM_ANSWER_STRIPE_MODE}" == "live" && "${_PKM_ANSWER_LIVE_PROVIDER_REVIEWED}" != "true" ]]; then
+          echo "Live answers require verified provider retention and owner disclosure before admission." >&2
+          exit 1
+        fi
+        require_non_negative_int() {
+          local name="$1"
+          local value="$2"
+          if ! [[ "${value}" =~ ^[0-9]+$ ]]; then
+            echo "${name} must be non-negative." >&2
+            exit 1
+          fi
+        }
+        require_positive_int() {
+          local name="$1"
+          local value="$2"
+          require_non_negative_int "${name}" "${value}"
+          if [[ "${value}" -lt 1 ]]; then
+            echo "${name} must be positive." >&2
+            exit 1
+          fi
+        }
+        require_non_negative_int "_DB_POOL_MIN_SIZE" "${_DB_POOL_MIN_SIZE}"
+        require_positive_int "_DB_POOL_MAX_SIZE" "${_DB_POOL_MAX_SIZE}"
+        require_positive_int "_DB_SQLALCHEMY_POOL_SIZE" "${_DB_SQLALCHEMY_POOL_SIZE}"
+        require_non_negative_int "_DB_SQLALCHEMY_MAX_OVERFLOW" "${_DB_SQLALCHEMY_MAX_OVERFLOW}"
+        require_non_negative_int "_CLOUD_RUN_MIN_INSTANCES" "${_CLOUD_RUN_MIN_INSTANCES}"
+        require_positive_int "_CLOUD_RUN_MAX_INSTANCES" "${_CLOUD_RUN_MAX_INSTANCES}"
+        if [[ "${_DB_POOL_MAX_SIZE}" -lt "${_DB_POOL_MIN_SIZE}" ]]; then
+          echo "_DB_POOL_MAX_SIZE must be at least _DB_POOL_MIN_SIZE." >&2
+          exit 1
+        fi
+        if [[ "${_CLOUD_RUN_MAX_INSTANCES}" -lt "${_CLOUD_RUN_MIN_INSTANCES}" ]]; then
+          echo "_CLOUD_RUN_MAX_INSTANCES must be at least _CLOUD_RUN_MIN_INSTANCES." >&2
+          exit 1
+        fi
+
     id: "verify-runtime-iam"
     waitFor: ["-"]
 
@@ -452,9 +500,9 @@ steps:
       - "_CLOUD_RUN_CAPACITY=max=${_CLOUD_RUN_MAX_INSTANCES},min=${_CLOUD_RUN_MIN_INSTANCES},no_traffic=${_CLOUD_RUN_NO_TRAFFIC},cpu=${_CLOUD_RUN_CPU},concurrency=${_CLOUD_RUN_CONCURRENCY}"
       - "_DB_POOL_SETTINGS=acquire_timeout=${_DB_POOL_ACQUIRE_TIMEOUT_SECONDS},max=${_DB_POOL_MAX_SIZE},min=${_DB_POOL_MIN_SIZE},sa_max_overflow=${_DB_SQLALCHEMY_MAX_OVERFLOW},sa_pool_size=${_DB_SQLALCHEMY_POOL_SIZE}"
       - "_MODEL_SETTINGS=puppy_relay_url=${_PUPPY_INFERENCE_RELAY_URL},puppy_model=${_PUPPY_INFERENCE_MODEL},puppy_timeout=${_PUPPY_INFERENCE_TIMEOUT_SECONDS},gemini_text=${_HUSSH_GEMINI_TEXT_MODEL},voice_enabled=${_ONE_VOICE_LIVE_ENABLED},calendar_narration=${_ONE_VOICE_CALENDAR_NARRATION_ENABLED},voice_model=${_VERTEX_LIVE_MODEL_ID},voice_location=${_VERTEX_LIVE_LOCATION}"
-      - "_DRIVE_SECRET_SETTINGS=oauth_id=${_GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET},oauth_secret=${_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET},picker_key=${_GOOGLE_DRIVE_PICKER_API_KEY_SECRET},connector_key=${_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET},document_key=${_DRIVE_DOCUMENT_KEY_V1_SECRET},sharing_key=${_DRIVE_SHARING_KEY_V1_SECRET},stripe_secret=${_STRIPE_SECRET_KEY_SECRET},stripe_webhook=${_STRIPE_WEBHOOK_SECRET_SECRET},stripe_connect=${_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET}"
+      - "_DRIVE_SECRET_SETTINGS=oauth_id=${_GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET},oauth_secret=${_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET},picker_key=${_GOOGLE_DRIVE_PICKER_API_KEY_SECRET},connector_key=${_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET},document_key=${_DRIVE_DOCUMENT_KEY_V1_SECRET},sharing_key=${_DRIVE_SHARING_KEY_V1_SECRET},stripe_secret=${_STRIPE_SECRET_KEY_SECRET},stripe_webhook=${_STRIPE_WEBHOOK_SECRET_SECRET},stripe_connect=${_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET},connect_secret=${_STRIPE_CONNECT_SECRET_KEY_SECRET},connect_test_webhook=${_STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET},answer_secret=${_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET},answer_webhook=${_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET}"
       - "_CURATED_CONNECTOR_SECRETS=${_CURATED_CONNECTOR_SECRETS}"
-      - "_DRIVE_WORK_DRAIN_SETTINGS=enabled=${_DRIVE_WORK_DRAIN_ENABLED},project=${_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID},service_account=${_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL},audience=${_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE},payments_enabled=${_DRIVE_REQUEST_PAYMENTS_ENABLED},owner_payouts_enabled=${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED},stripe_mode=${_STRIPE_MODE}"
+      - "_DRIVE_WORK_DRAIN_SETTINGS=enabled=${_DRIVE_WORK_DRAIN_ENABLED},project=${_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID},service_account=${_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL},audience=${_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE},payments_enabled=${_DRIVE_REQUEST_PAYMENTS_ENABLED},owner_payouts_enabled=${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED},stripe_mode=${_STRIPE_MODE},connect_mode=${_STRIPE_CONNECT_MODE},hashcoins_enabled=${_DRIVE_REQUEST_HASHCOINS_ENABLED},hashcoins_live_enabled=${_DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED},answer_payments=${_PKM_ANSWER_PAYMENTS_ENABLED},answer_composer=${_PKM_ANSWER_COMPOSER_ENABLED},answer_live_provider_reviewed=${_PKM_ANSWER_LIVE_PROVIDER_REVIEWED},answer_stripe_mode=${_PKM_ANSWER_STRIPE_MODE},answer_drain_enabled=${_ANSWER_WORK_DRAIN_ENABLED},answer_drain_audience=${_ANSWER_WORK_DRAIN_SCHEDULER_AUDIENCE}"
       - "_ACCOUNT_DELETION_CLEANUP_SETTINGS=audience=${_ACCOUNT_DELETION_CLEANUP_AUDIENCE},service_account=${_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL}"
       - "_APP_FRONTEND_ORIGIN_SECRET=${_APP_FRONTEND_ORIGIN_SECRET}"
       - "_APP_REVIEW_MODE=${_APP_REVIEW_MODE}"
@@ -610,7 +658,20 @@ substitutions:
   _EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET: ""
   _DRIVE_DOCUMENT_KEY_V1_SECRET: ""
   _DRIVE_SHARING_KEY_V1_SECRET: ""
+  _PKM_ANSWER_PAYMENTS_ENABLED: "false"
+  _PKM_ANSWER_COMPOSER_ENABLED: "false"
+  _PKM_ANSWER_LIVE_PROVIDER_REVIEWED: "false"
+  _PKM_ANSWER_STRIPE_MODE: "test"
+  _PKM_ANSWER_STRIPE_SECRET_KEY_SECRET: ""
+  _PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET: ""
+  _ANSWER_WORK_DRAIN_ENABLED: "false"
+  _ANSWER_WORK_DRAIN_AUDIENCE: ""
   _STRIPE_MODE: ""
+  _STRIPE_CONNECT_MODE: ""
+  _DRIVE_REQUEST_HASHCOINS_ENABLED: "false"
+  _DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED: "false"
+  _STRIPE_CONNECT_SECRET_KEY_SECRET: ""
+  _STRIPE_CONNECT_TEST_WEBHOOK_SECRET_SECRET: ""
   _STRIPE_SECRET_KEY_SECRET: ""
   _STRIPE_WEBHOOK_SECRET_SECRET: ""
   _STRIPE_CONNECT_WEBHOOK_SECRET_SECRET: ""

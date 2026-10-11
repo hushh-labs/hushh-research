@@ -17,3 +17,14 @@ case "${STRIPE_UAT_MODE}" in
     exit 1
     ;;
 esac
+
+# Document redemption has an independent mode; Checkout/refunds retain
+# STRIPE_UAT_MODE. The separate live rollout flag defaults off.
+STRIPE_CONNECT_UAT_MODE="${STRIPE_CONNECT_UAT_MODE:-${STRIPE_UAT_MODE}}"
+case "${STRIPE_CONNECT_UAT_MODE}" in
+  test) STRIPE_UAT_CONNECT_KEY_SECRET=STRIPE_SECRET_KEY ;;
+  live) STRIPE_UAT_CONNECT_KEY_SECRET=STRIPE_LIVE_SECRET_KEY ;;
+  *) echo "STRIPE_CONNECT_UAT_MODE must be test or live" >&2; exit 1 ;;
+esac
+STRIPE_UAT_CONNECT_TEST_WEBHOOK_SECRET=STRIPE_CONNECT_WEBHOOK_SECRET
+DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED="${DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED:-false}"

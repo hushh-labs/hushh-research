@@ -39,6 +39,7 @@ LEGACY_ACCOUNTS = "pkm_owner_payout_accounts"
 ONBOARDING_RETURN_PATHS = {
     "marketplace": "/one/marketplace",
     "documents": "/one/profile/payouts",
+    "answers": "/one/profile/payouts",
 }
 
 
@@ -146,16 +147,17 @@ def _legacy_account_absent(exc: Exception, *, account_id: str, mode: str) -> boo
     """Only an explicit provider absence/mode verdict permits fresh onboarding."""
     if getattr(exc, "code", None) == "resource_missing":
         return True
-    # Stripe currently returns APIError/400 without a code for test Connect
-    # accounts read using live credentials. Match the provider's exact verdict
-    # about this account; generic 400/auth/network failures remain unavailable.
+    # Stripe sends api_error/400 without a code for test accounts read with live
+    # credentials. Its SDK decodes HTTP 400 as InvalidRequestError, independent
+    # of the JSON error type. Match the exact account-specific verdict; generic
+    # 400/auth/network failures must never authorize a replacement account.
     import stripe
 
     body = getattr(exc, "json_body", None)
     error = body.get("error") if isinstance(body, dict) else None
     return bool(
         mode == "live"
-        and isinstance(exc, stripe.APIError)
+        and isinstance(exc, (stripe.InvalidRequestError, stripe.APIError))
         and getattr(exc, "http_status", None) == 400
         and isinstance(error, dict)
         and error.get("type") == "api_error"
@@ -167,25 +169,84 @@ def _legacy_account_absent(exc: Exception, *, account_id: str, mode: str) -> boo
     )
 
 
+def _platform_setup_required(exc: Exception) -> bool:
+    import stripe
+
+    body = getattr(exc, "json_body", None)
+    error = body.get("error") if isinstance(body, dict) else None
+    return bool(
+        isinstance(exc, stripe.InvalidRequestError)
+        and getattr(exc, "http_status", None) == 400
+        and isinstance(error, dict)
+        and error.get("type") == "invalid_request_error"
+        and isinstance(error.get("message"), str)
+        and error["message"].startswith(
+            "You must complete your platform profile to use Connect and create live connected "
+            "accounts."
+        )
+    )
+
+
+def _log_provider_error(operation: str, exc: Exception) -> None:
+    """Retain diagnosable provider references without logging financial details."""
+    code = getattr(exc, "code", None)
+    request_id = getattr(exc, "request_id", None)
+    logger.warning(
+        "pkm_payout.%s_failed type=%s code=%s request_id=%s",
+        operation,
+        type(exc).__name__,
+        code if isinstance(code, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", code) else "none",
+        request_id
+        if isinstance(request_id, str) and re.fullmatch(r"req_[A-Za-z0-9_]{1,100}", request_id)
+        else "none",
+    )
+
+
 async def resume_document_owner_setup(db: Any, user_id: str) -> None:
     """A committed readiness change wakes durable requests; the worker also retries."""
     try:
         from hushh_mcp.services.drive_sharing_store import DriveSharingStore
-        from hushh_mcp.services.drive_work_wake import wake_drive_work
+        from hushh_mcp.services.drive_work_wake import wake_drive_work_stages
 
         await DriveSharingStore(db=db).resume_owner_setup(user_id=user_id)
-        await wake_drive_work("suggestions")
-        await wake_drive_work("sharing")
+        await wake_drive_work_stages("suggestions", "sharing")
     except Exception as exc:
         logger.warning("document_payout.resume_deferred type=%s", type(exc).__name__)
 
 
 class PkmPayoutService:
-    def __init__(self, *, stripe_api: Any = None) -> None:
+    def __init__(
+        self,
+        *,
+        stripe_api: Any = None,
+        mode: str | None = None,
+        api_key: str | None = None,
+        resume_documents: bool = True,
+    ) -> None:
         import stripe
 
+        self._resume_documents = resume_documents
         self._db = None
         self.stripe_api = stripe_api or stripe
+        self._explicit_account_mode = mode
+        if self.account_mode not in {"test", "live"}:
+            raise ValueError("invalid payout account mode")
+        if api_key is not None and (
+            not api_key.startswith(f"sk_{self.account_mode}_") or len(api_key) < 24
+        ):
+            raise ValueError("payout account key mode mismatch")
+        self._account_api_key = api_key
+
+    @property
+    def account_mode(self) -> str:
+        return self._explicit_account_mode or configured_stripe_mode()
+
+    def _account_key(self) -> str:
+        if self._account_api_key is not None:
+            return self._account_api_key
+        if self.account_mode != configured_stripe_mode():
+            raise PacketOrderError("PAYOUT_UNAVAILABLE", "Bank setup is unavailable.")
+        return _stripe_config()[0]
 
     @property
     def db(self):
@@ -198,7 +259,7 @@ class PkmPayoutService:
         return getattr(result, "data", None) or []
 
     async def _account(self, user_id: str) -> dict[str, Any] | None:
-        mode = configured_stripe_mode()
+        mode = self.account_mode
         rows = await self._rows(
             self.db.table(ACCOUNTS)
             .select("*")
@@ -216,7 +277,7 @@ class PkmPayoutService:
         )
         if not legacy:
             return None
-        key, _, _ = _stripe_config()
+        key = self._account_key()
         try:
             remote = _stripe_dict(
                 await asyncio.to_thread(
@@ -226,6 +287,7 @@ class PkmPayoutService:
         except Exception as exc:
             if _legacy_account_absent(exc, account_id=legacy[0]["stripe_account_id"], mode=mode):
                 return None
+            _log_provider_error("legacy_account_retrieve", exc)
             raise PacketOrderError(
                 "PAYOUT_UNAVAILABLE", "Could not verify payout setup. Please retry."
             ) from None
@@ -262,10 +324,13 @@ class PkmPayoutService:
     # --- owner -------------------------------------------------------------
 
     async def onboarding_link(
-        self, *, user_id: str, surface: Literal["marketplace", "documents"] = "marketplace"
+        self,
+        *,
+        user_id: str,
+        surface: Literal["marketplace", "documents", "answers"] = "marketplace",
     ) -> dict[str, Any]:
         """Create (once) the owner's Express account and a fresh onboarding link."""
-        key, _, _ = _stripe_config()
+        key = self._account_key()
         origin = _app_origin()
         return_path = ONBOARDING_RETURN_PATHS[surface]
         account = await self._account(user_id)
@@ -275,7 +340,7 @@ class PkmPayoutService:
                     await asyncio.to_thread(
                         self.stripe_api.Account.create,
                         api_key=key,
-                        idempotency_key=f"pkm-payout-account:{stripe_environment()}:{configured_stripe_mode()}:{user_id}",
+                        idempotency_key=f"pkm-payout-account:{stripe_environment()}:{self.account_mode}:{user_id}",
                         type="express",
                         country="US",
                         capabilities={"transfers": {"requested": True}},
@@ -286,7 +351,12 @@ class PkmPayoutService:
                     )
                 )
             except Exception as exc:
-                logger.warning("pkm_payout.account_create_failed type=%s", type(exc).__name__)
+                _log_provider_error("account_create", exc)
+                if _platform_setup_required(exc):
+                    raise PacketOrderError(
+                        "PAYOUT_PLATFORM_SETUP_REQUIRED",
+                        "Bank setup is unavailable. Hushh needs to activate payouts.",
+                    ) from None
                 raise PacketOrderError(
                     "PAYOUT_UNAVAILABLE", "Could not start payout setup. Please retry."
                 ) from None
@@ -301,7 +371,7 @@ class PkmPayoutService:
                         {
                             "user_id": user_id,
                             "stripe_account_id": account_id,
-                            "stripe_mode": configured_stripe_mode(),
+                            "stripe_mode": self.account_mode,
                         }
                     )
                 )
@@ -324,7 +394,9 @@ class PkmPayoutService:
                 "PAYOUT_ACCOUNT_DISABLED",
                 "This payout account needs support before setup can continue.",
             )
-        query_key = "documentPayouts" if surface == "documents" else "payouts"
+        query_key = {"documents": "documentPayouts", "answers": "answerPayouts"}.get(
+            surface, "payouts"
+        )
         try:
             link = _stripe_dict(
                 await asyncio.to_thread(
@@ -337,7 +409,7 @@ class PkmPayoutService:
                 )
             )
         except Exception as exc:
-            logger.warning("pkm_payout.account_link_failed type=%s", type(exc).__name__)
+            _log_provider_error("account_link", exc)
             raise PacketOrderError(
                 "PAYOUT_UNAVAILABLE", "Could not start payout setup. Please retry."
             ) from None
@@ -353,7 +425,7 @@ class PkmPayoutService:
                 await asyncio.to_thread(self.stripe_api.Account.retrieve, account_id, api_key=key)
             )
         except Exception as exc:
-            logger.warning("pkm_payout.account_retrieve_failed type=%s", type(exc).__name__)
+            _log_provider_error("account_retrieve", exc)
             raise PacketOrderError(
                 "PAYOUT_UNAVAILABLE", "Could not verify payout setup. Please retry."
             ) from None
@@ -367,7 +439,7 @@ class PkmPayoutService:
         account = await self._account(user_id)
         if account is None:
             return None
-        key, _, _ = _stripe_config()
+        key = self._account_key()
         remote = await self._retrieve_account(account["stripe_account_id"], key=key)
         readiness = _account_readiness(remote)
         patch = {
@@ -380,9 +452,9 @@ class PkmPayoutService:
             self.db.table(ACCOUNTS)
             .update(patch)
             .eq("user_id", user_id)
-            .eq("stripe_mode", configured_stripe_mode())
+            .eq("stripe_mode", self.account_mode)
         )
-        if account.get("account_ready") is not readiness["ready"]:
+        if self._resume_documents and account.get("account_ready") is not readiness["ready"]:
             await resume_document_owner_setup(self.db, user_id)
         return {**account, **patch, "readiness": readiness}
 
@@ -393,7 +465,7 @@ class PkmPayoutService:
             raise PacketOrderError("PAYOUT_ACCOUNT_REQUIRED", "Link a bank first.")
         if not account["readiness"]["canManageBank"]:
             raise PacketOrderError("PAYOUT_ACCOUNT_DISABLED", "This payout account needs support.")
-        key, _, _ = _stripe_config()
+        key = self._account_key()
         try:
             link = _stripe_dict(
                 await asyncio.to_thread(
@@ -405,14 +477,16 @@ class PkmPayoutService:
             parsed = urlsplit(link.get("url") or "")
             if (
                 parsed.scheme != "https"
-                or parsed.hostname != "connect.stripe.com"
+                or parsed.hostname not in {"connect.stripe.com", "stripe.com"}
+                or not parsed.path.startswith("/express/")
+                or not parsed.path.removeprefix("/express/")
                 or parsed.username
                 or parsed.password
                 or parsed.port
             ):
                 raise ValueError("unexpected payout dashboard")
         except Exception as exc:
-            logger.warning("pkm_payout.dashboard_failed type=%s", type(exc).__name__)
+            _log_provider_error("dashboard", exc)
             raise PacketOrderError(
                 "PAYOUT_UNAVAILABLE", "Couldn't open bank settings. Try again."
             ) from None
@@ -423,7 +497,7 @@ class PkmPayoutService:
         account = await self.refresh_account(user_id)
         return {
             "account": account["readiness"] if account is not None else None,
-            "stripeMode": configured_stripe_mode(),
+            "stripeMode": self.account_mode,
         }
 
     async def _earning_orders(
@@ -508,6 +582,8 @@ class PkmPayoutService:
         return marked
 
     async def transfer_due(self, *, max_orders: int = 20) -> int:
+        if self.account_mode != configured_stripe_mode():
+            raise PacketOrderError("PAYOUT_UNAVAILABLE", "Payout mode does not match earnings.")
         due = await self._earning_orders(state="due", limit=max_orders)
         if not due:
             return 0

@@ -1,0 +1,48 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "puppy_one",
+  "surface_title": "Puppy",
+  "defaults": {
+    "reachability": {
+      "routes": [
+        "/one/puppy"
+      ],
+      "screens": [
+        "puppy_one"
+      ],
+      "hidden_navigable": true,
+      "navigation_prerequisites": ["Signed-in user; destination retains its existing access checks."]
+    },
+    "guard_ids": [
+      "auth_signed_in"
+    ],
+    "speaker_persona": "one"
+  },
+  "actions": [
+    {
+      "action_id": "route.puppy_agents",
+      "label": "Back to Agents",
+      "meaning": "Navigates from Puppy to agents.",
+      "aliases": [
+        "back to agents"
+      ],
+      "search_keywords": [
+        "puppy",
+        "back to agents"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "guard_ids": [
+        "auth_signed_in"
+      ]
+    }
+  ],
+  "search": {}
+}

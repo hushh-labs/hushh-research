@@ -29,7 +29,7 @@ import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-se
 import type { OneRuntimeSetupChoice } from "@/lib/services/pre-vault-user-state-service";
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
 import { useVault } from "@/lib/vault/vault-context";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 type GeminiRuntimeConfigurationPageProps = {
   setupMode?: boolean;

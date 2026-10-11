@@ -9,7 +9,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConsentCenterPage } from "@/components/consent/consent-center-page";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
 const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
@@ -186,7 +186,7 @@ vi.mock("@/lib/consent", () => ({
   }),
 }));
 
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({
+vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
   usePublishVoiceSurfaceMetadata: vi.fn(),
   useVoiceSurfaceControlTracking: () => ({
     activeControlId: null,
@@ -735,6 +735,10 @@ describe("ConsentCenterPage requestId deep links", () => {
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     await waitFor(() => expect(mocks.replace).toHaveBeenCalled());
     expect(await screen.findByRole("button", { name: "Sent documents" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("consent-request-direction")).toHaveAttribute(
+      "data-request-direction",
+      "sent",
+    );
     expect(mocks.replace.mock.lastCall?.[0]).toContain("requestView=sent");
     expect(mocks.replace.mock.lastCall?.[0]).not.toContain("requestId=");
     fireEvent.click(screen.getByRole("button", { name: "Received" }));

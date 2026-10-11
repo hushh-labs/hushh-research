@@ -8,6 +8,8 @@ from .advisors import router as advisors_router
 from .agent_chat import router as agent_chat_router
 from .agent_feedback import router as agent_feedback_router
 from .agent_prompt import router as agent_prompt_router
+from .answer_requests import router as answer_requests_router
+from .answer_work_drain import router as answer_work_drain_router
 from .business_suggestions import router as business_suggestions_router
 from .byoc_azure import router as byoc_azure_router
 from .calendar import router as calendar_router
@@ -62,6 +64,7 @@ from .runtime_providers import router as runtime_providers_router
 from .runtime_standby import router as runtime_standby_router
 from .scheduled_mail_drain import router as scheduled_mail_drain_router
 from .voice import router as voice_router
+from .wallet_card_access import router as wallet_card_access_router
 from .webauthn import router as webauthn_router
 
 router = APIRouter()
@@ -73,6 +76,7 @@ router.include_router(agent_chat_router)
 router.include_router(agent_prompt_router)
 router.include_router(connections_router)
 router.include_router(messages_router)
+router.include_router(wallet_card_access_router)
 router.include_router(calendar_router)
 router.include_router(circle_chat_router)
 router.include_router(drive_actions_router)
@@ -101,6 +105,8 @@ router.include_router(marketplace_requests_router)
 router.include_router(pkm_packets_router)
 router.include_router(directory_claims_router)
 router.include_router(packet_orders_router)
+router.include_router(answer_requests_router)
+router.include_router(answer_work_drain_router)
 router.include_router(credits_router)
 router.include_router(payouts_router)
 router.include_router(career_router)

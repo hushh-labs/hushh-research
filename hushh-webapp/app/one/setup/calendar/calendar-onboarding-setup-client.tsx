@@ -28,7 +28,6 @@ export function CalendarOnboardingSetupClient() {
   return (
     <CalendarAgentPage
       journeyVariant="onboarding"
-      showOnboardingIllustration={coordinator.isInitialSetup}
       onConnectionStateChange={setConnected}
       onFinishSetup={() => void coordinator.finish()}
       finishingSetup={coordinator.isSettling}

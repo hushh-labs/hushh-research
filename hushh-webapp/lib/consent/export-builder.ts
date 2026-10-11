@@ -2,7 +2,10 @@
 
 import { projectDomainDataForScope } from "@/lib/personal-knowledge-model/manifest";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
-import { isPrivatePkmExportScope } from "@/lib/consent/pkm-scope-policy";
+import {
+  isPrivatePkmExportScope,
+  excludePrivatePkmDomains,
+} from "@/lib/consent/pkm-scope-policy";
 import { isInternalManifestPath } from "@/lib/pkm/internal-path-keys";
 import type { PkmScopeRegistryEntry } from "@/lib/personal-knowledge-model/manifest";
 
@@ -10,15 +13,18 @@ const PKM_READ = "pkm.read";
 const ATTR_SCOPE_REGEX = /^attr\.([a-zA-Z0-9_]+)(?:\.(.+))?$/;
 
 export class ConsentExportNoDataError extends Error {
-  constructor(message: string, readonly diagnostics?: {
-    stage: "scope_projection";
-    approvedPathCount: number;
-    exactTopLevelMatches: number;
-    normalizedTopLevelMatches: number;
-    domainWrapped: boolean;
-    firstMissingPathDepth: number | null;
-    selectedLeafKind: string;
-  }) {
+  constructor(
+    message: string,
+    readonly diagnostics?: {
+      stage: "scope_projection";
+      approvedPathCount: number;
+      exactTopLevelMatches: number;
+      normalizedTopLevelMatches: number;
+      domainWrapped: boolean;
+      firstMissingPathDepth: number | null;
+      selectedLeafKind: string;
+    },
+  ) {
     super(message);
     this.name = "ConsentExportNoDataError";
   }
@@ -75,14 +81,22 @@ function resolveApprovedPaths(
       path.length > 0 &&
       allowedLeafPaths.has(path) &&
       !isInternalManifestPath(path) &&
-      !(manifest?.scope_registry || []).some(entry => {
+      !(manifest?.scope_registry || []).some((entry) => {
         const projection = entry.summary_projection || {};
-        const roots = typeof projection.top_level_scope_path === "string"
-          ? [projection.top_level_scope_path]
-          : entry.segment_ids || [];
-        const covers = roots.some(root => path === root || path.startsWith(`${root}.`));
-        return covers && (entry.exposure_enabled === false || entry.visibility_posture === "private" ||
-          projection.consumer_visible === false || projection.internal_only === true);
+        const roots =
+          typeof projection.top_level_scope_path === "string"
+            ? [projection.top_level_scope_path]
+            : entry.segment_ids || [];
+        const covers = roots.some(
+          (root) => path === root || path.startsWith(`${root}.`),
+        );
+        return (
+          covers &&
+          (entry.exposure_enabled === false ||
+            entry.visibility_posture === "private" ||
+            projection.consumer_visible === false ||
+            projection.internal_only === true)
+        );
       }),
   );
   if (!parsed.path) return externalizablePaths;
@@ -166,11 +180,13 @@ export async function buildConsentExportForScope(params: {
     );
   }
   if (params.scope === PKM_READ) {
-    const fullBlob = await PersonalKnowledgeModelService.loadFullBlob({
-      userId: params.userId,
-      vaultKey: params.vaultKey,
-      vaultOwnerToken: params.vaultOwnerToken,
-    });
+    const fullBlob = excludePrivatePkmDomains(
+      await PersonalKnowledgeModelService.loadFullBlob({
+        userId: params.userId,
+        vaultKey: params.vaultKey,
+        vaultOwnerToken: params.vaultOwnerToken,
+      }),
+    );
     const encryptedRoot = await PersonalKnowledgeModelService.getEncryptedData(
       params.userId,
       params.vaultOwnerToken,
@@ -318,27 +334,42 @@ export async function buildConsentExportForScope(params: {
   }
 
   if (!hasShareableValue(payload)) {
-    const topLevels = new Set(approvedPaths.map(path => path.split(".")[0]));
+    const topLevels = new Set(approvedPaths.map((path) => path.split(".")[0]));
     const storedKeys = Object.keys(domainData || {});
     let selected: unknown = domainData;
     let firstMissingPathDepth: number | null = null;
     for (const [depth, key] of (approvedPaths[0] || "").split(".").entries()) {
-      if (!selected || typeof selected !== "object" || !Object.hasOwn(selected, key)) {
+      if (
+        !selected ||
+        typeof selected !== "object" ||
+        !Object.hasOwn(selected, key)
+      ) {
         firstMissingPathDepth = depth;
         selected = undefined;
         break;
       }
       selected = (selected as Record<string, unknown>)[key];
     }
-    throw new ConsentExportNoDataError("No shareable information was found for the selected fields.", {
-      stage: "scope_projection",
-      approvedPathCount: approvedPaths.length,
-      exactTopLevelMatches: storedKeys.filter(key => topLevels.has(key)).length,
-      normalizedTopLevelMatches: storedKeys.filter(key => topLevels.has(normalizeSegmentCandidate(key) || "")).length,
-      domainWrapped: Object.hasOwn(domainData || {}, parsedScope.domain),
-      firstMissingPathDepth,
-      selectedLeafKind: selected === null ? "null" : Array.isArray(selected) ? "array" : typeof selected,
-    });
+    throw new ConsentExportNoDataError(
+      "No shareable information was found for the selected fields.",
+      {
+        stage: "scope_projection",
+        approvedPathCount: approvedPaths.length,
+        exactTopLevelMatches: storedKeys.filter((key) => topLevels.has(key))
+          .length,
+        normalizedTopLevelMatches: storedKeys.filter((key) =>
+          topLevels.has(normalizeSegmentCandidate(key) || ""),
+        ).length,
+        domainWrapped: Object.hasOwn(domainData || {}, parsedScope.domain),
+        firstMissingPathDepth,
+        selectedLeafKind:
+          selected === null
+            ? "null"
+            : Array.isArray(selected)
+              ? "array"
+              : typeof selected,
+      },
+    );
   }
   return {
     payload,

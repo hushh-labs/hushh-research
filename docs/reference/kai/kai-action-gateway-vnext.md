@@ -101,7 +101,7 @@ credentials, or durable intent across screens.
 
 ## Runtime Consumers
 
-- Frontend validation and search: [kai-action-gateway.ts](../../../hushh-webapp/lib/voice/kai-action-gateway.ts)
+- Frontend validation and search: [kai-action-gateway.ts](../../../hushh-webapp/lib/kai/actions/kai-action-gateway.ts)
 - Shared client execution: [agent-action-runtime.ts](../../../hushh-webapp/lib/agent/agent-action-runtime.ts)
 - Backend generated-gateway loader: [action_gateway.py](../../../consent-protocol/hushh_mcp/services/action_gateway.py)
 - One policy tools: [action_tools.py](../../../consent-protocol/hushh_mcp/one_adk/action_tools.py)

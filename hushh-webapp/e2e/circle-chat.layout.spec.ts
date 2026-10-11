@@ -14,6 +14,7 @@ test.beforeAll(async () => {
   const { Scanner } = await import("@tailwindcss/oxide");
   const scanner = new Scanner({});
   const candidates = new Set<string>();
+  let moduleCss = "";
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "circle-chat-layout-"));
   try {
     await build({ configFile: false, logLevel: "error", oxc: { jsx: { runtime: "automatic", development: false } },
@@ -21,6 +22,9 @@ test.beforeAll(async () => {
         if (!id.includes("node_modules") && /\.[tj]sx?$/.test(id)) for (const candidate of scanner.scanFiles([{ content: source, extension: "tsx" }])) candidates.add(candidate);
       } }],
       resolve: { alias: [
+        ...["@/hooks/use-auth", "@/lib/vault/vault-context", "@/lib/one-location/service"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/circle-chat-boundary.ts") })),
+        { find: "next/navigation", replacement: path.join(root, "e2e/fixtures/direct-chat-navigation.tsx") },
+        { find: "@/components/consent/notification-provider", replacement: path.join(root, "e2e/fixtures/circle-chat-notification-boundary.ts") },
         { find: "@/lib/services/circle-chat-service", replacement: path.join(root, "e2e/fixtures/circle-chat-boundary.ts") },
         { find: "@/lib/services/api-service", replacement: path.join(root, "e2e/fixtures/circle-chat-http-boundary.ts") },
         { find: "@/lib/cache/cache-sync-service", replacement: path.join(root, "e2e/fixtures/circle-chat-cache-boundary.ts") },
@@ -30,6 +34,7 @@ test.beforeAll(async () => {
       build: { outDir, emptyOutDir: false, lib: { entry: path.join(root, "e2e/fixtures/circle-chat.tsx"), name: "Fixture", formats: ["iife"], fileName: () => "fixture.js" } },
     });
     script = fs.readFileSync(path.join(outDir, "fixture.js"), "utf8");
+    moduleCss = fs.readdirSync(outDir).filter(file => file.endsWith(".css")).map(file => fs.readFileSync(path.join(outDir, file), "utf8")).join("\n");
   } finally { fs.rmSync(outDir, { recursive: true, force: true }); }
   const { compile } = await import("tailwindcss");
   const compiler = await compile(fs.readFileSync(path.join(root, "app/globals.css"), "utf8").replace(/^@source\s+[^;]+;\s*$/gm, ""), {
@@ -38,7 +43,7 @@ test.beforeAll(async () => {
       return { path: file, base: path.dirname(file), content: fs.readFileSync(file, "utf8") };
     },
   });
-  css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
+  css = stripAppFontFaces(compiler.build([...candidates])) + moduleCss + productFontStyle();
 });
 async function mount(page: Page, dark = false, workspace = false) {
   await page.route("http://localhost/fixture-person-*.webp", (route) => {
@@ -51,6 +56,45 @@ async function mount(page: Page, dark = false, workspace = false) {
   await awaitProductFont(page);
   await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
   await page.bringToFront();
+}
+
+for (const width of [320, 1440]) {
+  for (const dark of [false, true]) {
+    test(`Circle Messages uses the shared dock without a second field surface at ${width}px ${dark ? "dark" : "light"}`, async ({ page }) => {
+      page.on("pageerror", error => console.error("Circle lane runtime", error.message));
+      await page.setViewportSize({ width, height: 844 });
+      await page.route("http://localhost/circle-lane-fixture*", route => route.fulfill({ contentType: "text/html", body: `<!doctype html><html class="${dark ? "dark" : ""}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>` }));
+      await page.goto("http://localhost/circle-lane-fixture?lane=1");
+      await page.addScriptTag({ content: script });
+      await awaitProductFont(page);
+      const editor = page.getByRole("textbox", { name: "Message" });
+      await expect(editor).toBeVisible();
+      const header = page.getByRole("heading", { name: "Weekend friends" });
+      await expect(header).toBeVisible();
+      const identityGap = await header.evaluate(el => {
+        const identity = el.parentElement!.parentElement!;
+        const avatar = identity.firstElementChild!.getBoundingClientRect();
+        return el.getBoundingClientRect().left - avatar.right;
+      });
+      expect(identityGap).toBeGreaterThanOrEqual(0);
+      expect(identityGap).toBeLessThanOrEqual(16);
+      await editor.fill("Hello circle");
+      await expect(page.getByRole("button", { name: "Send message", exact: true })).toBeEnabled();
+      const geometry = await editor.evaluate(el => {
+        const field = el.closest('[data-slot="input-group"]')!;
+        const composer = el.closest('[data-circle-chat-composer]')!;
+        return { width: document.documentElement.scrollWidth, viewport: innerWidth,
+          fieldBorder: getComputedStyle(field).borderTopWidth,
+          composerShadow: getComputedStyle(composer).boxShadow,
+          editorHeight: el.getBoundingClientRect().height };
+      });
+      expect(geometry.width).toBeLessThanOrEqual(geometry.viewport + 1);
+      expect(geometry.fieldBorder).toBe("0px");
+      expect(geometry.composerShadow).toBe("none");
+      expect(geometry.editorHeight).toBeGreaterThanOrEqual(44);
+      await page.screenshot({ path: test.info().outputPath(`circle-lane-${width}-${dark ? "dark" : "light"}.png`) });
+    });
+  }
 }
 
 for (const width of [320, 393, 430, 768, 1440]) {
@@ -163,9 +207,37 @@ for (const width of [320, 393, 1440]) {
   });
 }
 
+test("shows a sent photo immediately through slow preparation and upload without downloading it again", async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 852 });
+  await mount(page, false, true);
+  await expect(page.getByRole("button", { name: "Open shared image" })).toBeVisible();
+  await page.evaluate(() => Object.assign((window as any).chatFixture, { prepareDelayMs: 1500, sendDelayMs: 1500 }));
+  await page.locator('input[type="file"]').setInputFiles({ name: "meetup.webp", mimeType: "image/webp", buffer: fs.readFileSync(path.join(process.cwd(), "public/one-location/onboarding/orbit-office.webp")) });
+  await expect(page.getByRole("img", { name: "Image ready to send" })).toBeVisible();
+  const started = Date.now();
+  await page.getByRole("button", { name: "Send message" }).click();
+  const pending = page.locator('[data-chat-message]').filter({ has: page.getByText("Sending…", { exact: true }) });
+  await expect(pending.getByRole("img", { name: "Image shared in circle" })).toBeVisible({ timeout: 1000 });
+  expect(Date.now() - started).toBeLessThan(1500);
+  const source = await pending.getByRole("img").getAttribute("src");
+  expect(source).toMatch(/^blob:/);
+  const ready = await page.evaluate(() => (window as any).chatFixture.sends.length);
+  expect(ready).toBe(0);
+  await pending.getByRole("button", { name: "Open shared image" }).click();
+  await expect(page.getByRole("dialog", { name: "Shared image" })).toBeVisible();
+  await expect(page.getByText("Sending…", { exact: true })).toHaveCount(0, { timeout: 6000 });
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  const sentId = await page.locator('[data-chat-message]').last().getAttribute("data-chat-message");
+  expect(await page.evaluate(() => (window as any).chatFixture.imageMessageIds)).not.toContain(sentId);
+  expect(await page.getByRole("img", { name: "Image shared in circle" }).last().getAttribute("src")).toBe(source);
+});
+
 test("incoming messages preserve reading position and your reply returns to the latest message", async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 844 }); await mount(page);
   const list = page.getByLabel("Circle messages", { exact: true });
+  // The initial history load pins the transcript on a frame. Wait until its
+  // readable-bottom receipt confirms that setup before simulating a scroll.
+  await expect.poll(() => page.evaluate(() => (window as any).chatFixture.read.includes(45))).toBe(true);
   await list.evaluate((node) => { node.scrollTop = 0; });
   await expect(page.getByRole("button", { name: "Go to latest messages" })).toBeVisible();
   const jump = await page.getByRole("button", { name: "Go to latest messages" }).boundingBox();

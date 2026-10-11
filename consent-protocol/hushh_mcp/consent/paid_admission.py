@@ -262,6 +262,7 @@ async def active_external_grants(
                         "time_remaining_ms": ((expires_at - now_ms) if expires_at else 0),
                         "request_id": row.get("request_id"),
                         "token_id": token_id,
+                        "source_record_id": row.get("id"),
                         "metadata": service._parse_metadata(row.get("metadata")) or None,
                     }
                 )

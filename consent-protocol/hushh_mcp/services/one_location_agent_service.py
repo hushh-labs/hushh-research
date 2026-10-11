@@ -58,7 +58,11 @@ from hushh_mcp.services.one_location_share_lifecycle import (
     _is_until_stopped_share,
     _share_duration_change_direction,
 )
-from hushh_mcp.services.people_search_sql import directory_name_rank, people_query_match_params
+from hushh_mcp.services.people_search_sql import (
+    directory_contact_match_params,
+    directory_search_rank,
+    people_query_match_params,
+)
 from hushh_mcp.services.push_tokens_service import PUSH_TOKENS_FOR_USER_SQL, remove_stale_push_token
 from hushh_mcp.services.requester_identity import (
     OPAQUE_LABEL_MIN_LENGTH,
@@ -1163,6 +1167,7 @@ class OneLocationAgentService:
         tasks: list[tuple[str, str, dict[str, Any]]],
         *,
         max_workers: int = 8,
+        require_complete: bool = False,
     ) -> dict[str, list[dict[str, Any]]]:
         """Run several independent, read-only SQL queries concurrently.
 
@@ -1190,6 +1195,20 @@ class OneLocationAgentService:
         """
         if not tasks:
             return {}
+        if require_complete:
+            # Source inventory uses one complete, repeatable-read snapshot.
+            # A missing section must never become an authoritative deletion.
+            with get_db_connection() as connection:
+                connection.execute(
+                    text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+                )
+                return {
+                    name: [
+                        dict(row)
+                        for row in connection.execute(text(query), params).mappings().all()
+                    ]
+                    for name, query, params in tasks
+                }
         # ``execute_raw`` checks a connection out of SQLAlchemy's shared
         # QueuePool for every task.  The local runtime deliberately has a
         # two-connection pool, so the historical fixed fan-out of eight made
@@ -4500,7 +4519,7 @@ class OneLocationAgentService:
             )
             SELECT page_rows.user_id, page_rows.display_name, page_rows.email,
                    page_rows.phone_number, page_rows.phone_verified,
-                   page_rows.photo_url, page_rows.is_ria,
+                   page_rows.photo_url, page_rows.is_ria, profile.public_person_ref,
                    recipient_key.key_id, recipient_key.public_key_jwk,
                    recipient_key.algorithm,
                    recipient_key.created_at AS key_created_at,
@@ -4518,6 +4537,7 @@ class OneLocationAgentService:
                    ) END AS connected_from_contacts
             FROM total
             LEFT JOIN page_rows ON TRUE
+            LEFT JOIN actor_profiles profile ON profile.user_id = page_rows.user_id
             LEFT JOIN LATERAL (
               SELECT key.key_id, key.public_key_jwk, key.algorithm, key.created_at
               FROM one_location_recipient_keys key
@@ -4592,6 +4612,7 @@ class OneLocationAgentService:
         candidate_user_id: str | None = None,
         candidate_user_ids: list[str] | None = None,
         audience: str = "all",
+        name_only: bool = False,
     ) -> dict[str, Any]:
         """Search existing Connect profiles before pagination.
 
@@ -4600,6 +4621,9 @@ class OneLocationAgentService:
         only those who do not, and ``"all"`` (the default, and what every
         pre-existing caller gets) keeps both. It is applied HERE, in the same
         statement, for the same reason the matching is -- see below.
+
+        Contact fragments follow the existing name tiers. ``name_only`` keeps
+        voice/chat person resolution independent of email and phone matches.
 
         A named, active profile with a current enabled auth account is eligible
         when EITHER its active ``vault_keys`` row has ``environment_enrolled_at``
@@ -4666,17 +4690,19 @@ class OneLocationAgentService:
         # literal could only ever return nothing. Once folded it is a space, so
         # it reaches LIKE as a space and cannot act as a wildcard either.
         raw_query = (query or "").strip().lower()
-        exact_email = raw_query if "@" in raw_query and " " not in raw_query else None
-        phone_digits = "".join(char for char in raw_query if char.isdigit())
-        exact_phone = (
-            phone_digits
-            if not exact_email
-            and 10 <= len(phone_digits) <= 15
-            and all(char.isdigit() or char in "+-(). " for char in raw_query)
-            else None
-        )
-        identifier_search = bool(exact_email or exact_phone)
+        contact_params = directory_contact_match_params(raw_query, name_only=name_only)
         needle = " ".join(raw_query.translate(_DIRECTORY_SEPARATOR_FOLD).split())
+
+        def match_rank(row: dict[str, Any]) -> int | None:
+            return directory_search_rank(
+                str(row.get("display_name") or ""),
+                raw_query,
+                email=row.get("email"),
+                phone_number=row.get("phone_number"),
+                phone_verified=bool(row.get("phone_verified")),
+                name_only=name_only,
+            )
+
         target = (candidate_user_id or "").strip() or None
         targets = (
             None
@@ -4866,12 +4892,12 @@ class OneLocationAgentService:
             ) k ON TRUE
             WHERE (
               (:missing_names_only = TRUE AND a.display_name = '')
-              OR (:missing_names_only = FALSE AND a.display_name <> '' AND :identifier_search = TRUE AND (
-                (:exact_email IS NOT NULL AND LOWER(BTRIM(a.email)) = :exact_email)
-                OR (:exact_phone IS NOT NULL AND a.phone_verified = TRUE
-                    AND REGEXP_REPLACE(a.phone_number, '[^0-9]', '', 'g') = :exact_phone)
+              OR (:missing_names_only = FALSE AND a.display_name <> '' AND (
+                LOWER(BTRIM(a.email)) LIKE :email_contains ESCAPE '!'
+                OR (a.phone_verified = TRUE
+                    AND REGEXP_REPLACE(a.phone_number, '[^0-9]', '', 'g') LIKE :phone_contains)
               ))
-              OR (:missing_names_only = FALSE AND a.display_name <> '' AND :identifier_search = FALSE AND (
+              OR (:missing_names_only = FALSE AND a.display_name <> '' AND :name_search = TRUE AND (
                 :query = ''
                 OR {_DIRECTORY_SEPARATOR_SQL} = :exact_name
                 OR {_DIRECTORY_SEPARATOR_SQL} LIKE :name_prefix ESCAPE '!'
@@ -4892,7 +4918,7 @@ class OneLocationAgentService:
               )
             ORDER BY
               CASE
-                WHEN :identifier_search = TRUE THEN 0
+                WHEN :name_search = FALSE THEN 4
                 WHEN :query = '' THEN 0
                 WHEN {_DIRECTORY_SEPARATOR_SQL} = :exact_name THEN 0
                 WHEN {_DIRECTORY_SEPARATOR_SQL} LIKE :name_prefix ESCAPE '!' THEN 1
@@ -4913,9 +4939,7 @@ class OneLocationAgentService:
             "opaque_label_min_length": OPAQUE_LABEL_MIN_LENGTH,
             "missing_names_only": False,
             "query": needle,
-            "identifier_search": identifier_search,
-            "exact_email": exact_email,
-            "exact_phone": exact_phone,
+            **contact_params,
             "exact_name": needle,
             "name_prefix": name_prefix_pattern,
             "word_prefix": word_prefix_pattern,
@@ -4939,7 +4963,7 @@ class OneLocationAgentService:
         # than treating missing cache information as a missing person.
         fallback_rows: list[dict[str, Any]] = []
         fallback_params = {**params, "missing_names_only": True}
-        while not identifier_search:
+        while True:
             check_deadline()
             rows = self._execute_many(directory_sql, fallback_params)
             if not rows:
@@ -4951,14 +4975,14 @@ class OneLocationAgentService:
             for row in rows:
                 uid = str(row.get("user_id") or "")
                 profile = profiles.get(uid)
-                if profile and directory_name_rank(profile["display_name"], needle) is not None:
-                    fallback_rows.append(
-                        {
-                            **row,
-                            "display_name": profile["display_name"],
-                            "photo_url": row.get("photo_url") or profile["photo_url"],
-                        }
-                    )
+                if profile:
+                    recovered = {
+                        **row,
+                        "display_name": profile["display_name"],
+                        "photo_url": row.get("photo_url") or profile["photo_url"],
+                    }
+                    if match_rank(recovered) is not None:
+                        fallback_rows.append(recovered)
             if len(rows) < 100:
                 break
             fallback_params["offset"] = int(fallback_params["offset"]) + len(rows)
@@ -4981,11 +5005,7 @@ class OneLocationAgentService:
                     uid in active_user_ids
                     and uid not in seen_user_ids
                     and label_from_identity_row(row, allow_email_handle=False)
-                    and (
-                        identifier_search
-                        or directory_name_rank(str(row.get("display_name") or ""), needle)
-                        is not None
-                    )
+                    and match_rank(row) is not None
                 ):
                     seen_user_ids.add(uid)
                     eligible_rows.append(row)
@@ -4997,9 +5017,7 @@ class OneLocationAgentService:
         eligible_rows = list(eligible_by_id.values())
         eligible_rows.sort(
             key=lambda row: (
-                0
-                if identifier_search
-                else cast(int, directory_name_rank(str(row["display_name"]), needle)),
+                cast(int, match_rank(row)),
                 str(row["display_name"]).strip().lower(),
                 str(row["user_id"]),
             )
@@ -8933,7 +8951,9 @@ class OneLocationAgentService:
         )
         return invite
 
-    def list_state(self, *, user_id: str, read_only: bool = False) -> dict[str, Any]:
+    def list_state(
+        self, *, user_id: str, read_only: bool = False, require_complete: bool = False
+    ) -> dict[str, Any]:
         # Resilience: one failing auxiliary section (e.g. schema drift on a
         # rarely-used table) must NOT 500 the whole endpoint. A 500 here cascades
         # into the consent-center contributor (which then returns empty buckets)
@@ -8952,9 +8972,12 @@ class OneLocationAgentService:
         # belong to the bounded retention maintenance path, not an app foreground or
         # resume read. An explicit "false" stays a temporary rollback valve for the
         # hub page path where the scheduler is not yet installed.
-        read_only_state = read_only or str(
-            os.getenv("ONE_LOCATION_READ_ONLY_STATE_ENABLED") or "true"
-        ).strip().lower() in {"1", "true", "yes", "on"}
+        read_only_state = (
+            read_only
+            or require_complete
+            or str(os.getenv("ONE_LOCATION_READ_ONLY_STATE_ENABLED") or "true").strip().lower()
+            in {"1", "true", "yes", "on"}
+        )
         if not read_only_state:
             try:
                 self._expire_stale_requests(user_id)
@@ -8975,6 +8998,8 @@ class OneLocationAgentService:
         try:
             recipients = self.list_verified_recipients(owner_user_id=user_id)
         except Exception as exc:  # noqa: BLE001
+            if require_complete:
+                raise
             logger.warning(
                 "one_location.list_state.recipients_failed user=%s error=%s",
                 user_id,
@@ -8990,6 +9015,8 @@ class OneLocationAgentService:
             circle_service = OneLocationCircleService()
             named_circles = circle_service.list_circles(user_id=user_id)
         except Exception as exc:  # noqa: BLE001 - additive schema rollout
+            if require_complete:
+                raise
             logger.warning(
                 "one_location.list_state.named_circles_failed user=%s error=%s",
                 redact_log_field("user_id", user_id),
@@ -9003,8 +9030,11 @@ class OneLocationAgentService:
                 user_id=user_id,
                 direction="incoming",
                 expire_stale=not read_only_state,
+                **({"require_complete": True} if require_complete else {}),
             )
         except Exception as exc:  # noqa: BLE001 - additive schema rollout
+            if require_complete:
+                raise
             logger.warning(
                 "one_location.list_state.circle_member_invites_failed user=%s error=%s",
                 redact_log_field("user_id", user_id),
@@ -9039,9 +9069,9 @@ class OneLocationAgentService:
                     LEFT JOIN actor_identity_cache r ON r.user_id = g.recipient_user_id
                     WHERE g.owner_user_id = :user_id
                     ORDER BY g.created_at DESC
-                    LIMIT 50
+                    LIMIT :source_limit
                     """,
-                    {"user_id": user_id},
+                    {"user_id": user_id, "source_limit": None if require_complete else 50},
                 ),
                 (
                     "received_grants",
@@ -9056,9 +9086,9 @@ class OneLocationAgentService:
                     LEFT JOIN actor_identity_cache o ON o.user_id = g.owner_user_id
                     WHERE g.recipient_user_id = :user_id
                     ORDER BY g.created_at DESC
-                    LIMIT 50
+                    LIMIT :source_limit
                     """,
-                    {"user_id": user_id},
+                    {"user_id": user_id, "source_limit": None if require_complete else 50},
                 ),
                 (
                     "requests",
@@ -9095,9 +9125,9 @@ class OneLocationAgentService:
                     LEFT JOIN one_location_share_grants extended ON extended.id = req.extends_grant_id
                     WHERE req.owner_user_id = :user_id OR req.requester_user_id = :user_id
                     ORDER BY req.requested_at DESC
-                    LIMIT 50
+                    LIMIT :source_limit
                     """,
-                    {"user_id": user_id},
+                    {"user_id": user_id, "source_limit": None if require_complete else 50},
                 ),
                 (
                     "referrals",
@@ -9108,9 +9138,9 @@ class OneLocationAgentService:
                        OR referring_user_id = :user_id
                        OR referred_user_id = :user_id
                     ORDER BY created_at DESC
-                    LIMIT 50
+                    LIMIT :source_limit
                     """,
-                    {"user_id": user_id},
+                    {"user_id": user_id, "source_limit": None if require_complete else 50},
                 ),
                 (
                     "public_invites",
@@ -9119,9 +9149,9 @@ class OneLocationAgentService:
                     FROM one_location_public_invites
                     WHERE owner_user_id = :user_id
                     ORDER BY created_at DESC
-                    LIMIT 20
+                    LIMIT :source_limit
                     """,
-                    {"user_id": user_id},
+                    {"user_id": user_id, "source_limit": None if require_complete else 20},
                 ),
                 (
                     "circle_invites",
@@ -9131,9 +9161,9 @@ class OneLocationAgentService:
                     WHERE owner_user_id = :user_id
                        OR claimed_by_user_id = :user_id
                     ORDER BY created_at DESC
-                    LIMIT 20
+                    LIMIT :source_limit
                     """,
-                    {"user_id": user_id},
+                    {"user_id": user_id, "source_limit": None if require_complete else 20},
                 ),
                 (
                     "network_connections",
@@ -9143,9 +9173,9 @@ class OneLocationAgentService:
                     WHERE status = 'active'
                       AND owner_user_id = :user_id
                     ORDER BY created_at DESC
-                    LIMIT 50
+                    LIMIT :source_limit
                     """,
-                    {"user_id": user_id},
+                    {"user_id": user_id, "source_limit": None if require_complete else 50},
                 ),
                 (
                     "sms_contacts",
@@ -9246,9 +9276,9 @@ class OneLocationAgentService:
                     WHERE submission.owner_user_id = :user_id
                        OR submission.matched_user_id = :user_id
                     ORDER BY submission.submitted_at DESC
-                    LIMIT 50
+                    LIMIT :source_limit
                     """,
-                    {"user_id": user_id},
+                    {"user_id": user_id, "source_limit": None if require_complete else 50},
                 ),
                 (
                     "my_recipient_key",
@@ -9263,7 +9293,8 @@ class OneLocationAgentService:
                     """,
                     {"user_id": user_id},
                 ),
-            ]
+            ],
+            **({"require_complete": True} if require_complete else {}),
         )
         owner_grants = _sections["owner_grants"]
         received_grants = _sections["received_grants"]

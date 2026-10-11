@@ -1,5 +1,7 @@
 "use client";
 
+import { LivingMemoryDocument } from "@/components/profile/living-memory-document";
+
 import { useDocumentFeedStream } from "@/lib/feed/use-document-feed-stream";
 import {
   Suspense,
@@ -103,7 +105,8 @@ import {
   PkmDomainDetailPanel,
 } from "@/components/profile/pkm-data-manager";
 import { SharedWithYouGroup } from "@/components/profile/shared-with-you-group";
-import { DocumentBankPayoutStatusCard, DocumentPayoutAccountCard } from "@/components/consent/document-payout-account";
+import { AnswerPayoutAccount } from "@/components/consent/answer-payout-account";
+import { DocumentHashcoinPayouts } from "@/components/consent/document-hashcoins";
 import { DocumentRequestPricingCard } from "@/components/consent/document-request-pricing-card";
 import { SecretsListGroup } from "@/components/secrets/secrets-list-group";
 import {
@@ -157,8 +160,8 @@ import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
-import { VOICE_CONFIRM_DATA_KEY } from "@/lib/voice/voice-action-card";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { VOICE_CONFIRM_DATA_KEY } from "@/lib/kai/actions/voice-action-card";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { currentPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
@@ -174,7 +177,11 @@ import {
   revokeVaultBanksBeforeErasure,
 } from "@/lib/flows/delete-account";
 import { buildLoginRouteWithAuthSessionNotice } from "@/lib/auth/session-invalidation";
-import { normalizeInvitationReturnTo, ROUTES } from "@/lib/navigation/routes";
+import {
+  normalizeInternalRouteHref,
+  normalizeInvitationReturnTo,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { WALLET_CARD_COPY } from "@/components/wallet-card/wallet-card-copy";
 import { isWalletCardEntryEnabled } from "@/components/wallet-card/wallet-card-entry";
 import {
@@ -266,7 +273,7 @@ import {
 import {
   usePublishVoiceSurfaceMetadata,
   useVoiceSurfaceControlTracking,
-} from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/voice-surface-metadata";
 import {
   PersonalKnowledgeModelService,
   type PersonalKnowledgeModelMetadata,
@@ -510,7 +517,6 @@ function describePasskeyWrapper(wrapper: VaultWrapper): string {
   return formatPasskeyLabel(wrapper);
 }
 
-
 function profileRouteRequiresUnlockedVault(
   panel: ProfilePanel | null,
   detail: ProfileDetail | null,
@@ -728,8 +734,8 @@ function ProfilePageContent({
     () =>
       isPanePresentation
         ? null
-        : buildLegacyDocumentPayoutReturnRoute(pathname, searchParams) ??
-          buildCanonicalProfileRouteFromLegacyQuery(pathname, searchParams),
+        : (buildLegacyDocumentPayoutReturnRoute(pathname, searchParams) ??
+          buildCanonicalProfileRouteFromLegacyQuery(pathname, searchParams)),
     [isPanePresentation, pathname, searchParams],
   );
   const profileRouteState = useMemo(
@@ -761,9 +767,13 @@ function ProfilePageContent({
   const supportRouteKind = supportComposeKind ?? supportQueryKind;
   const sendingSupportMessage = supportComposerState.status === "sending";
   const supportPresentation = SUPPORT_INTENT_PRESENTATION[supportKind];
-  useDocumentFeedStream(activePanel === "payouts" && !authLoading ? user : null);
+  useDocumentFeedStream(
+    activePanel === "payouts" && !authLoading ? user : null,
+  );
 
-  const effectiveReplyEmail = user?.emailVerified ? user.email?.trim() || "" : "";
+  const effectiveReplyEmail = user?.emailVerified
+    ? user.email?.trim() || ""
+    : "";
   const supportReplyLine = effectiveReplyEmail
     ? `Replies go to ${effectiveReplyEmail}`
     : "Verify an account email to receive a reply.";
@@ -1835,7 +1845,13 @@ function ProfilePageContent({
   function openVaultBackedPanel(
     panel: Extract<
       ProfilePanel,
-      "my-data" | "payouts" | "request-pricing" | "connected-systems" | "connectors" | "gmail" | "security"
+      | "my-data"
+      | "payouts"
+      | "request-pricing"
+      | "connected-systems"
+      | "connectors"
+      | "gmail"
+      | "security"
     >,
     detail: ProfileDetail | null = null,
   ) {
@@ -1908,12 +1924,16 @@ function ProfilePageContent({
       setSupportMessage("");
       return { kind: "accepted" };
     } catch (error) {
-      console.error("[ProfilePage] Support delivery failed:", error instanceof SupportDeliveryUncertainError ? "uncertain" : "failed");
+      console.error(
+        "[ProfilePage] Support delivery failed:",
+        error instanceof SupportDeliveryUncertainError ? "uncertain" : "failed",
+      );
       setSupportComposerState({
         status: "error",
-        message: error instanceof SupportDeliveryUncertainError
-          ? "We couldn't confirm delivery. Please wait before trying again."
-          : "We couldn't send your message. Try again.",
+        message:
+          error instanceof SupportDeliveryUncertainError
+            ? "We couldn't confirm delivery. Please wait before trying again."
+            : "We couldn't send your message. Try again.",
       });
       return { kind: "failed" };
     }
@@ -2220,7 +2240,8 @@ function ProfilePageContent({
       {
         id: "profile_payouts",
         label: "Payouts",
-        purpose: "opens payout setup, linked bank details, and transaction history.",
+        purpose:
+          "opens payout setup, linked bank details, and transaction history.",
         actionId: "route.profile_payouts",
         role: "card",
         voiceAliases: ["payouts", "link my bank", "document earnings"],
@@ -2385,17 +2406,17 @@ function ProfilePageContent({
               ? "Payouts"
               : activePanel === "request-pricing"
                 ? "Request pricing"
-            : activePanel === "my-data"
-              ? "Memory"
-              : activePanel === "connected-systems"
-                ? "Connected Systems"
-                : activePanel === "preferences"
-                  ? PROFILE_LABELS.preferences
-                  : activePanel === "security"
-                    ? PROFILE_LABELS.security
-                    : activePanel === "gmail"
-                      ? "Mail receipts"
-                      : PROFILE_LABELS.support,
+                : activePanel === "my-data"
+                  ? "Memory"
+                  : activePanel === "connected-systems"
+                    ? "Connected Systems"
+                    : activePanel === "preferences"
+                      ? PROFILE_LABELS.preferences
+                      : activePanel === "security"
+                        ? PROFILE_LABELS.security
+                        : activePanel === "gmail"
+                          ? "Mail receipts"
+                          : PROFILE_LABELS.support,
           ...(activeDetail ? [activeDetail] : []),
         ]
       : [
@@ -2419,29 +2440,29 @@ function ProfilePageContent({
       activePanel === "payouts" || activePanel === "request-pricing"
         ? []
         : activePanel === "gmail"
-        ? [
-            gmailPresentation.isConnected
-              ? "Sync Mail receipts"
-              : gmailPresentation.state === "needs_reauthentication"
-                ? "Reconnect Mail"
-                : "Connect Mail",
-            "Open receipts",
-            ...(gmailPresentation.isConnected ? ["Disconnect Mail"] : []),
-          ]
-        : activePanel === "support"
           ? [
-              "Choose Problem",
-              "Choose Help",
-              "Choose Feedback",
-              "Send support message",
+              gmailPresentation.isConnected
+                ? "Sync Mail receipts"
+                : gmailPresentation.state === "needs_reauthentication"
+                  ? "Reconnect Mail"
+                  : "Connect Mail",
+              "Open receipts",
+              ...(gmailPresentation.isConnected ? ["Disconnect Mail"] : []),
             ]
-          : activePanel === "connected-systems"
+          : activePanel === "support"
             ? [
-                "Load Salesforce CRM schema",
-                "Read Salesforce CRM record",
-                "Propose Salesforce CRM create",
-                "Propose Salesforce CRM update",
+                "Choose Problem",
+                "Choose Help",
+                "Choose Feedback",
+                "Send support message",
               ]
+            : activePanel === "connected-systems"
+              ? [
+                  "Load Salesforce CRM schema",
+                  "Read Salesforce CRM record",
+                  "Propose Salesforce CRM create",
+                  "Propose Salesforce CRM update",
+                ]
             : activePanel === "account"
               ? [phoneNumber ? "Change phone number" : "Add phone number"]
               : activePanel === "preferences" ||
@@ -2464,9 +2485,12 @@ function ProfilePageContent({
 
     return {
       surfaceDefinition: {
-        screenId: activePanel === "request-pricing"
-          ? "profile_request_pricing"
-          : activePanel ? `profile_${activePanel}` : "profile_home",
+        screenId:
+          activePanel === "request-pricing"
+            ? "profile_request_pricing"
+            : activePanel
+              ? `profile_${activePanel}`
+              : "profile_home",
         title: activePanel
           ? activePanel === "account"
             ? PROFILE_LABELS.account
@@ -2776,7 +2800,11 @@ function ProfilePageContent({
     // Stripe returns to Payouts with a short callback marker. Keep that route
     // while the owner unlocks so an expired Connect link can be refreshed.
     const documentPayoutReturn = searchParams.get("documentPayouts");
-    if (activePanel && documentPayoutReturn !== "refresh" && documentPayoutReturn !== "done") {
+    if (
+      activePanel &&
+      documentPayoutReturn !== "refresh" &&
+      documentPayoutReturn !== "done"
+    ) {
       setPendingProfileTarget({
         panel: activePanel,
         detail: activeDetail ?? null,
@@ -3323,7 +3351,14 @@ function ProfilePageContent({
   };
 
   const myDataContent = (
-    <div className={cn("space-y-4 sm:space-y-5", isPanePresentation && "profile-account-content", isPanePresentation && accountStyles.paneAccountContent, isPanePresentation && accountStyles.managedContent)}>
+    <div
+      className={cn(
+        "space-y-4 sm:space-y-5",
+        isPanePresentation && "profile-account-content",
+        isPanePresentation && accountStyles.paneAccountContent,
+        isPanePresentation && accountStyles.managedContent,
+      )}
+    >
       <PkmDataManagerPanel
         signedIn={Boolean(user)}
         loading={profileManagerLoading}
@@ -3356,7 +3391,9 @@ function ProfilePageContent({
           )
         }
       />
-      {isVaultUnlocked ? <SharedWithYouGroup vaultOwnerToken={vaultOwnerToken} /> : null}
+      {isVaultUnlocked ? (
+        <SharedWithYouGroup vaultOwnerToken={vaultOwnerToken} />
+      ) : null}
       {isVaultUnlocked ? <SecretsListGroup onUnlock={() => undefined} /> : null}
     </div>
   );
@@ -3391,7 +3428,11 @@ function ProfilePageContent({
 
       <SettingsGroup>
         <SettingsRow
-          icon={isPanePresentation ? ProfileSecondaryLocationIcon : LocationAgentIcon}
+          icon={
+            isPanePresentation
+              ? ProfileSecondaryLocationIcon
+              : LocationAgentIcon
+          }
           iconTone="capability"
           title="Location sharing"
           description="Manage live location."
@@ -3411,7 +3452,9 @@ function ProfilePageContent({
           onClick={() => router.push(ROUTES.CONSENTS)}
         />
         <SettingsRow
-          icon={isPanePresentation ? ProfileInnerPeopleIcon : DiscoverableRowIcon}
+          icon={
+            isPanePresentation ? ProfileInnerPeopleIcon : DiscoverableRowIcon
+          }
           iconTone="capability"
           title="Find and connect me by phone number"
           description={contactDiscoverableStatusText}
@@ -3429,7 +3472,11 @@ function ProfilePageContent({
           }
         />
         <SettingsRow
-          icon={isPanePresentation ? ProfileSecondaryVisibilityIcon : MarketplaceAgentIcon}
+          icon={
+            isPanePresentation
+              ? ProfileSecondaryVisibilityIcon
+              : MarketplaceAgentIcon
+          }
           iconTone="capability"
           title="Marketplace visibility"
           description={marketplaceStatusText}
@@ -3459,10 +3506,17 @@ function ProfilePageContent({
   };
 
   const accountContent = (
-    <div className={cn("profile-account-content", isPanePresentation && accountStyles.paneAccountContent)}>
+    <div
+      className={cn(
+        "profile-account-content",
+        isPanePresentation && accountStyles.paneAccountContent,
+      )}
+    >
       <SettingsGroup title="Identity">
         <SettingsRow
-          icon={isPanePresentation ? ProfileAccountNameIcon : AccountProfileIcon}
+          icon={
+            isPanePresentation ? ProfileAccountNameIcon : AccountProfileIcon
+          }
           iconTone="capability"
           title="Display name"
           description={user.displayName || "Not available"}
@@ -3475,7 +3529,10 @@ function ProfilePageContent({
         />
         {editingDisplayName ? (
           <div
-            className={cn("px-4 pb-3", isPanePresentation && accountStyles.paneEditor)}
+            className={cn(
+              "px-4 pb-3",
+              isPanePresentation && accountStyles.paneEditor,
+            )}
             data-testid="profile-account-display-name-editor"
           >
             <DisplayNameEditor
@@ -3509,17 +3566,21 @@ function ProfilePageContent({
         <SettingsRow
           icon={isPanePresentation ? ProfileAccountProviderIcon : undefined}
           iconTone="capability"
-          leading={isPanePresentation ? undefined : (
-            <span className="profile-account-provider-icon inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
-              <ProviderIcon providerId={provider.id} email={user.email} />
-            </span>
-          )}
+          leading={
+            isPanePresentation ? undefined : (
+              <span className="profile-account-provider-icon inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
+                <ProviderIcon providerId={provider.id} email={user.email} />
+              </span>
+            )
+          }
           title="Sign-in provider"
           description={provider.name}
         />
         {walletCardEntryEnabled ? (
           <SettingsRow
-            icon={isPanePresentation ? ProfileAccountWalletIcon : WalletAgentIcon}
+            icon={
+              isPanePresentation ? ProfileAccountWalletIcon : WalletAgentIcon
+            }
             iconTone="capability"
             className="profile-account-service-row"
             title={WALLET_CARD_COPY.profileEntry.title}
@@ -3563,7 +3624,10 @@ function ProfilePageContent({
           accent={appAccent}
           onAccentChange={writeAccent}
           onGeminiClick={() =>
-            updateProfileView({ panel: "preferences", detail: "gemini" }, "push")
+            updateProfileView(
+              { panel: "preferences", detail: "gemini" },
+              "push",
+            )
           }
           onVoiceClick={() =>
             updateProfileView({ panel: "preferences", detail: "voice" }, "push")
@@ -3611,7 +3675,11 @@ function ProfilePageContent({
     <div className="space-y-4">
       <SettingsGroup>
         <SettingsRow
-          icon={isPanePresentation ? ProfilePaneSecurityIcon : FingerprintProfileIcon}
+          icon={
+            isPanePresentation
+              ? ProfilePaneSecurityIcon
+              : FingerprintProfileIcon
+          }
           iconTone="capability"
           title="Vault methods"
           description="Passphrase, passkey, and unlock method."
@@ -3625,7 +3693,12 @@ function ProfilePageContent({
   );
 
   const supportContent = (
-    <div className={cn("mx-auto flex w-full max-w-[580px] flex-col px-0", auxiliaryTabStyles.support)}>
+    <div
+      className={cn(
+        "mx-auto flex w-full max-w-[580px] flex-col px-0",
+        auxiliaryTabStyles.support,
+      )}
+    >
       {supportComposerState.status === "sent" ? (
         <section
           aria-labelledby="support-success-heading"
@@ -3754,7 +3827,8 @@ function ProfilePageContent({
             {supportReplyLine}
           </p>
           <p className="mt-1 text-[13px] leading-[18px] text-muted-foreground">
-            Your message goes to One support, with an internal copy to our support lead. No automatic receipt is sent.
+            Your message goes to One support, with an internal copy to our
+            support lead. No automatic receipt is sent.
           </p>
 
           {supportComposerState.status === "error" ? (
@@ -3875,7 +3949,9 @@ function ProfilePageContent({
           <>
             {!vaultAccess.canMutateSecureData ? (
               <SettingsRow
-                icon={isPanePresentation ? ProfilePaneSecurityIcon : VaultRowIcon}
+                icon={
+                  isPanePresentation ? ProfilePaneSecurityIcon : VaultRowIcon
+                }
                 iconTone="capability"
                 title="Unlock vault"
                 description="Change methods or passphrase."
@@ -4072,7 +4148,10 @@ function ProfilePageContent({
               onCompleted={handleAccountPhoneCompleted}
               onCancel={popProfileStack}
               confirmLabel="Save phone number"
-              className={cn("gap-5", isPanePresentation && accountStyles.phoneDetail)}
+              className={cn(
+                "gap-5",
+                isPanePresentation && accountStyles.phoneDetail,
+              )}
               helperText={
                 phoneNumber
                   ? "Enter the new phone number."
@@ -4089,19 +4168,46 @@ function ProfilePageContent({
       key: "panel:payouts",
       title: "Payouts",
       content: (
-        <div className={cn("space-y-4", isPanePresentation && "profile-account-content", isPanePresentation && accountStyles.paneAccountContent, isPanePresentation && accountStyles.managedContent)}>
-          <DocumentPayoutAccountCard handleReturn />
-          <DocumentBankPayoutStatusCard refreshOnFeedChange />
+        <div
+          className={cn(
+            "space-y-4",
+            isPanePresentation && "profile-account-content",
+            isPanePresentation && accountStyles.paneAccountContent,
+            isPanePresentation && accountStyles.managedContent,
+          )}
+        >
+          <DocumentHashcoinPayouts />
+          <AnswerPayoutAccount />
         </div>
       ),
     });
   } else if (!routeBlockedByVault && activePanel === "request-pricing") {
+    // Opened from another screen (Feed's "Set price"), a save returns there.
+    // Without a safe origin, and in the pane, the card confirms inline.
+    const pricingReturnTo = isPanePresentation
+      ? null
+      : normalizeInternalRouteHref(searchParams.get("from"));
     profileStackEntries.push({
       key: "panel:request-pricing",
       title: "Request pricing",
       content: (
-        <div className={cn(isPanePresentation && "profile-account-content", isPanePresentation && accountStyles.paneAccountContent, isPanePresentation && accountStyles.managedContent)}>
-          <DocumentRequestPricingCard />
+        <div
+          className={cn(
+            isPanePresentation && "profile-account-content",
+            isPanePresentation && accountStyles.paneAccountContent,
+            isPanePresentation && accountStyles.managedContent,
+          )}
+        >
+          <DocumentRequestPricingCard
+            onSaved={
+              pricingReturnTo
+                ? () => {
+                    toast.success("Price saved");
+                    router.replace(pricingReturnTo);
+                  }
+                : undefined
+            }
+          />
         </div>
       ),
     });
@@ -4110,7 +4216,12 @@ function ProfilePageContent({
       key: "panel:my-data",
       title: "Memory",
       description: "Saved details and sharing.",
-      content: myDataContent,
+      content: (
+        <div className="space-y-4">
+          <LivingMemoryDocument />
+          {myDataContent}
+        </div>
+      ),
     });
     if (selectedDomain) {
       profileStackEntries.push({
@@ -4306,7 +4417,9 @@ function ProfilePageContent({
         content: (
           <SettingsGroup title={PROFILE_LABELS.accountAccess}>
             <SettingsRow
-              icon={isPanePresentation ? ProfilePaneSignOutIcon : SignOutProfileIcon}
+              icon={
+                isPanePresentation ? ProfilePaneSignOutIcon : SignOutProfileIcon
+              }
               iconTone="capability"
               title="Sign out"
               description="Sign out on this device."
@@ -4419,7 +4532,11 @@ function ProfilePageContent({
                 }
               />
               <SettingsRow
-                icon={isPanePresentation ? ProfilePaneAccountIcon : AccountProfileIcon}
+                icon={
+                  isPanePresentation
+                    ? ProfilePaneAccountIcon
+                    : AccountProfileIcon
+                }
                 iconTone="capability"
                 title={PROFILE_LABELS.account}
                 chevron
@@ -4448,7 +4565,9 @@ function ProfilePageContent({
                 onClick={() => openVaultBackedPanel("request-pricing")}
               />
               <SettingsRow
-                icon={isPanePresentation ? ProfilePaneWalletIcon : MemoryAgentIcon}
+                icon={
+                  isPanePresentation ? ProfilePaneWalletIcon : MemoryAgentIcon
+                }
                 iconTone="capability"
                 title="Memory"
                 chevron
@@ -4459,14 +4578,22 @@ function ProfilePageContent({
                 onClick={() => openVaultBackedPanel("my-data")}
               />
               <SettingsRow
-                icon={isPanePresentation ? ProfilePaneAppearanceIcon : PreferencesProfileIcon}
+                icon={
+                  isPanePresentation
+                    ? ProfilePaneAppearanceIcon
+                    : PreferencesProfileIcon
+                }
                 iconTone="capability"
                 title={PROFILE_LABELS.preferences}
                 chevron
                 onClick={openPreferencesPanel}
               />
               <SettingsRow
-                icon={isPanePresentation ? ProfilePaneSecurityIcon : SecurityProfileIcon}
+                icon={
+                  isPanePresentation
+                    ? ProfilePaneSecurityIcon
+                    : SecurityProfileIcon
+                }
                 iconTone="capability"
                 title={PROFILE_LABELS.security}
                 chevron
@@ -4477,7 +4604,11 @@ function ProfilePageContent({
                 onClick={openSecurityPanel}
               />
               <SettingsRow
-                icon={isPanePresentation ? ProfilePaneDevicesIcon : DevicesProfileIcon}
+                icon={
+                  isPanePresentation
+                    ? ProfilePaneDevicesIcon
+                    : DevicesProfileIcon
+                }
                 iconTone="capability"
                 title="Trusted devices"
                 chevron
@@ -4486,14 +4617,22 @@ function ProfilePageContent({
                 }
               />
               <SettingsRow
-                icon={isPanePresentation ? ProfilePaneConnectorsIcon : ConnectedSystemsAgentIcon}
+                icon={
+                  isPanePresentation
+                    ? ProfilePaneConnectorsIcon
+                    : ConnectedSystemsAgentIcon
+                }
                 iconTone="capability"
                 title="Connectors"
                 chevron
                 onClick={() => openVaultBackedPanel("connectors")}
               />
               <SettingsRow
-                icon={isPanePresentation ? ProfilePaneInviteIcon : InviteFriendsProfileIcon}
+                icon={
+                  isPanePresentation
+                    ? ProfilePaneInviteIcon
+                    : InviteFriendsProfileIcon
+                }
                 iconTone="capability"
                 title={PROFILE_LABELS.referrals}
                 chevron
@@ -4504,7 +4643,9 @@ function ProfilePageContent({
                 onClick={() => router.push(ROUTES.ONE_REFERRALS)}
               />
               <SettingsRow
-                icon={isPanePresentation ? ProfilePaneHelpIcon : SupportProfileIcon}
+                icon={
+                  isPanePresentation ? ProfilePaneHelpIcon : SupportProfileIcon
+                }
                 iconTone="capability"
                 title={PROFILE_LABELS.support}
                 chevron
@@ -4539,7 +4680,11 @@ function ProfilePageContent({
 
             <SettingsGroup title={PROFILE_LABELS.accountAccess} separatorInset>
               <SettingsRow
-                icon={isPanePresentation ? ProfilePaneSignOutIcon : SignOutProfileIcon}
+                icon={
+                  isPanePresentation
+                    ? ProfilePaneSignOutIcon
+                    : SignOutProfileIcon
+                }
                 iconTone="capability"
                 title="Sign out"
                 tone="destructive"
@@ -4566,7 +4711,9 @@ function ProfilePageContent({
       className={cn(
         "relative isolate",
         isPanePresentation ? "profile-pane-page" : "pb-3",
-        isPanePresentation && activePanel !== null && "profile-pane-page--inner",
+        isPanePresentation &&
+          activePanel !== null &&
+          "profile-pane-page--inner",
       )}
       nativeTest={
         isPanePresentation
@@ -4772,8 +4919,14 @@ function ProfilePageContent({
 
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent
-          className={cn("w-[calc(100%-1rem)] sm:max-w-lg", isPanePresentation && accountStyles.accountDialog, isPanePresentation && accountStyles.dangerDialog)}
-          overlayClassName={isPanePresentation ? accountStyles.accountDialogOverlay : undefined}
+          className={cn(
+            "w-[calc(100%-1rem)] sm:max-w-lg",
+            isPanePresentation && accountStyles.accountDialog,
+            isPanePresentation && accountStyles.dangerDialog,
+          )}
+          overlayClassName={
+            isPanePresentation ? accountStyles.accountDialogOverlay : undefined
+          }
         >
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2 text-[color:var(--app-destructive)]">
@@ -4808,8 +4961,13 @@ function ProfilePageContent({
 
       <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
         <AlertDialogContent
-          className={cn("w-[calc(100%-1rem)] sm:max-w-lg", isPanePresentation && accountStyles.accountDialog)}
-          overlayClassName={isPanePresentation ? accountStyles.accountDialogOverlay : undefined}
+          className={cn(
+            "w-[calc(100%-1rem)] sm:max-w-lg",
+            isPanePresentation && accountStyles.accountDialog,
+          )}
+          overlayClassName={
+            isPanePresentation ? accountStyles.accountDialogOverlay : undefined
+          }
         >
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">

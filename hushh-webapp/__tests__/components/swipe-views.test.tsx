@@ -11,7 +11,7 @@ import {
   clampSwipePosition,
   measureFillViewportMinHeight,
 } from "@/lib/morphy-ux/ui/swipe-views";
-import { requestTopShellTabSelection, useTopShellTabSwipeState } from "@/lib/navigation/top-shell-tab-swipe-progress";
+import { requestTopShellTabSelection, useTopShellTabSwipeState, setTopShellTabSwipeState, topShellTabSwipePositionVariable } from "@/lib/navigation/top-shell-tab-swipe-progress";
 
 const embla = vi.hoisted(() => ({
   selectedIndex: 0,
@@ -694,6 +694,21 @@ describe("SwipeViews", () => {
       emitWidth(785);
       expect(embla.reInit).toHaveBeenCalled();
       expect(embla.scrollTo).toHaveBeenCalledWith(0, true);
+    });
+
+    it("realigns the indicator when geometry repair jumps without a scroll event", () => {
+      let target = 0;
+      vi.spyOn(embla.rootNode!, "getBoundingClientRect").mockReturnValue({ width: 800 } as DOMRect);
+      embla.engine = {
+        containerRect: { width: 800 }, scrollSnaps: [0, -800],
+        target: { get: () => target },
+      } as ReturnType<EmblaCarouselType["internalEngine"]>;
+      renderPager();
+      setTopShellTabSwipeState("resize", 1, true);
+      target = -800;
+      emitWidth(800);
+      expect(embla.scrollTo).toHaveBeenCalledWith(0, true);
+      expect(document.documentElement.style.getPropertyValue(topShellTabSwipePositionVariable("resize"))).toBe("0");
     });
 
     it("disconnects the observer on unmount", () => {

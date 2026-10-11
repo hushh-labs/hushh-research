@@ -72,6 +72,10 @@
       "file": "app/api/consent/center/list/route.ts"
     },
     {
+      "template": "/api/consent/center/source-fence",
+      "file": "app/api/consent/center/source-fence/route.ts"
+    },
+    {
       "template": "/api/consent/center/summary",
       "file": "app/api/consent/center/summary/route.ts"
     },
@@ -2712,7 +2716,7 @@
         "voice_playbook": {
           "playbook_id": "route.one.connected.systems.systemid",
           "purpose": "Help the person understand and use the connected systems screen through its generated controls.",
-          "screen": "app",
+          "screen": "connected_systems",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -2740,8 +2744,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/connected-systems/[systemId]/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.connected_system_list"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -2856,7 +2862,7 @@
         "voice_playbook": {
           "playbook_id": "route.one.email",
           "purpose": "Explain Gmail connection and hand the owner to One for approval-gated email drafting.",
-          "screen": "app",
+          "screen": "email_agent",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -2898,8 +2904,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/email/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.mail_connections"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -4723,7 +4731,7 @@
         "voice_playbook": {
           "playbook_id": "route.one.messages",
           "purpose": "Read and send private messages with accepted connections and circles you belong to.",
-          "screen": "app",
+          "screen": "one_messages",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -4764,8 +4772,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/messages/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.messages_connections"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -5117,6 +5127,8 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.payouts.redeem",
+        "profile.payouts.test_redeem",
         "profile.reset_account",
         "profile.set_contact_discoverable",
         "profile.sign_out",
@@ -7689,7 +7701,7 @@
         "voice_playbook": {
           "playbook_id": "route.one.puppy",
           "purpose": "Let the owner talk to Puppy One, the agent running on their own machine, and see which local model answered.",
-          "screen": "app",
+          "screen": "puppy_one",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -7721,8 +7733,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/puppy/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.puppy_agents"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -7743,7 +7757,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.referrals",
-          "purpose": "Welcome the person to referrals with a replayable, device/account-scoped introduction, then help them read their referral link, points, ranking, and reward progress through the dashboard's own controls. Continuing or skipping the introduction never grants setup completion or referral credit.",
+          "purpose": "Open the referral dashboard directly so the person can read their referral link, coins, ranking, and reward progress. How it works shows the coins and rules; Back returns to the previous dashboard section. Viewing the dashboard never grants setup completion or referral credit.",
           "screen": "one_referrals",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -8932,7 +8946,7 @@
         "voice_playbook": {
           "playbook_id": "route.one.wallet.card",
           "purpose": "Help the owner review, update, pause, rotate or remove what their Wallet profile shares.",
-          "screen": "app",
+          "screen": "one_wallet_card",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -8973,8 +8987,10 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/wallet-card/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.wallet_profile_cards"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -9054,6 +9070,7 @@
         "people.profile.connect",
         "people.profile.manage_consent",
         "people.profile.remove_connection",
+        "people.profile.request_scope",
         "people.profile.review_information_request",
         "route.person_profile"
       ],
@@ -10466,6 +10483,59 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/wallet/open",
+      "page_file": "app/wallet/open/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": "Anonymous encrypted-file reader outside the signed-in shell; all card decryption stays on the recipient device.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.wallet.encrypted_file.open",
+          "purpose": "Let the recipient choose an encrypted card file and decrypt it locally without an account or upload.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain that the file and its password are required without asking for their contents.",
+            "cancelled": "Respect cancellation and keep decrypted card information hidden.",
+            "failed": "Offer a local retry without claiming the card opened.",
+            "timeout": "Keep the card hidden and offer one safe retry.",
+            "callback_error": "Keep private values out of recovery messages.",
+            "route_mismatch": "Use only the verified encrypted-file reader route."
+          },
+          "completion_boundary": "The card is open only after authenticated decryption completes locally for the current file and password. No recipient delivery is inferred.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Never ask for, interpret, log or transmit the chosen file, password or decrypted card."
+        }
+      },
+      "native": {
+        "route": "/wallet/open",
+        "classification": "excluded-web-only",
+        "reason": "Anonymous browser reader for externally shared encrypted files; no app installation or signed-in native route is required."
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/welcome",
       "page_file": "app/welcome/page.tsx",
       "physical_page_exists": true,
@@ -10519,5 +10589,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "e0cb356a6493378c29ab78d4421a14c9fdac841c998e275712a21ef95dbfa53a"
+  "content_sha256": "ce41a147e5e2fbdf6c024c64d54064ded8e89bda093b9d76ac535dbd80e58531"
 }

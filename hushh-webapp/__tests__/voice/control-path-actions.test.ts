@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 
 /**
  * #6122: location.find_contacts and ria.clients.switch_to_nearby are wired

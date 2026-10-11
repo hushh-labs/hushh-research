@@ -6,7 +6,7 @@ import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { RecipientPayloadKeyUnavailableError } from "@/lib/one-location/encryption";
 import type { OneLocationMyRecipientKey } from "@/lib/one-location/types";
 import { sealNotificationPreview, type NotificationDevice } from "@/lib/notifications/chat-preview";
-import { openChatContent, openChatImage, sealChatMessage, type ChatMemberKey, type ChatMessage, type SealedChatMessage } from "@/lib/circle-chat/crypto";
+import { openChatContent, openChatImage, sealChatMessage, type ChatImageThumbnail, type ChatMemberKey, type ChatMessage, type SealedChatMessage } from "@/lib/circle-chat/crypto";
 
 export type CircleChatState = { members: ChatMemberKey[]; rosterVersion: string; unreadCount: number; latestSequence: number; muted: boolean; notificationDevices?: NotificationDevice[] };
 export type CircleChatReceipt = { id: string; recipientCount: number | null; readCount: number };
@@ -62,9 +62,9 @@ export const CircleChatService = {
       ...(senders.has(message.senderUserId) ? { senderPhotoUrl: senders.get(message.senderUserId)!.photoUrl } : {}),
     })) };
   },
-  async prepare(session: CircleChatSession, text: string, file: File | null): Promise<SealedChatMessage> {
+  async prepare(session: CircleChatSession, text: string, file: File | null, imagePreview?: { clientMessageId: string; thumbnail?: ChatImageThumbnail }): Promise<SealedChatMessage> {
     const state = await CircleChatService.state(session);
-    const sealed = await sealChatMessage({ ...session, text, file, members: state.members, rosterVersion: state.rosterVersion });
+    const sealed = await sealChatMessage({ ...session, ...imagePreview, text, file, members: state.members, rosterVersion: state.rosterVersion });
     const preview = { sender: "", text: Array.from(text.trim()).slice(0, 160).join("") || "Photo" };
     const entries = await Promise.all((state.notificationDevices ?? []).map(async device => {
       try { return [device.keyId, await sealNotificationPreview(device, `circle:${session.circleId}:${sealed.clientMessageId}`, preview)] as const; }
@@ -91,10 +91,10 @@ export const CircleChatService = {
   async read(session: CircleChatSession, sequence: number): Promise<void> {
     const { activeNotificationKeyId } = await import("@/lib/notifications/preview-keys");
     const keyId = activeNotificationKeyId(session.userId);
-    await apiJson(`${root(session)}/read`, { ...options(session), method: "POST", body: JSON.stringify({ sequence }) });
+    const read = await apiJson<{ chatBadgeCount?: number; chatBadgeVersion?: number }>(`${root(session)}/read`, { ...options(session), method: "POST", body: JSON.stringify({ sequence }) });
     if (keyId) {
       const { ChatSystemNotifications } = await import("@/lib/notifications/chat-system-notifications");
-      await ChatSystemNotifications.clearRead({ threadId: session.circleId, keyId, sequence });
+      await ChatSystemNotifications.clearRead({ threadId: session.circleId, keyId, sequence, badgeCount: read?.chatBadgeCount, badgeVersion: read?.chatBadgeVersion });
     }
     CircleChatService.refreshFeedRead(session.userId);
   },

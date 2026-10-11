@@ -140,15 +140,15 @@ describe("OneDashboardPage", () => {
       financeSetupFromOne,
     );
     const rosterOrder = [
-      "finance",
-      "wallet",
       "location",
-      "ria",
       "gmail",
       "calendar",
+      "finance",
+      "ria",
+      "wallet",
+      "consent",
       "pkm",
       "files",
-      "consent",
       "messages",
     ] as const;
     const grid = screen.getByTestId("one-agents-grid");

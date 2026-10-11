@@ -165,7 +165,7 @@ Semantic colour comes from the `--destructive` token, never a literal hex.
 
 ## Adding a variant
 
-1. Add the payload shape to `hushh-webapp/lib/voice/voice-action-card.ts` with a
+1. Add the payload shape to `hushh-webapp/lib/kai/actions/voice-action-card.ts` with a
    parser that validates it and returns `null` rather than rendering something
    half-formed.
 2. Render it in `voice-action-card.tsx`. Reuse `SubjectRow`; do not invent a

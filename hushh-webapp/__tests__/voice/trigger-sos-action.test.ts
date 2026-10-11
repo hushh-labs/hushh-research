@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
-import { resolveNavigationJourney } from "@/lib/voice/navigation-journey";
+import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
+import { resolveNavigationJourney } from "@/lib/kai/actions/navigation-journey";
 
 /**
  * Sending an SOS alert over voice.

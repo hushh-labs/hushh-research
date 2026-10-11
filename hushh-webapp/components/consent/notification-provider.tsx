@@ -1,5 +1,7 @@
 "use client";
 import { activeNotificationKeyId } from "@/lib/notifications/preview-keys";
+import { chatAlertIsVisible } from "@/lib/notifications/chat-alert-visibility";
+import { ChatSystemNotifications } from "@/lib/notifications/chat-system-notifications";
 import { dispatchCircleChatChanged } from "@/lib/circle-chat/events";
 
 /**
@@ -1229,13 +1231,29 @@ export function ConsentNotificationProvider({
     const refresh = () => {
       if (!disposed) setFcmInitGeneration((value) => value + 1);
     };
-    void import("@capacitor/app").then(async ({ App }) => {
-      const listener = await App.addListener("appStateChange", ({ isActive }) => { if (isActive) refresh(); });
-      if (disposed) await listener.remove(); else handle = listener;
-    }).catch(() => { /* The web visibility bridge remains available. */ });
-    const visible = () => { if (document.visibilityState === "visible") refresh(); };
+    void import("@capacitor/app")
+      .then(async ({ App }) => {
+        const listener = await App.addListener(
+          "appStateChange",
+          ({ isActive }) => {
+            if (isActive) refresh();
+          },
+        );
+        if (disposed) await listener.remove();
+        else handle = listener;
+      })
+      .catch(() => {
+        /* The web visibility bridge remains available. */
+      });
+    const visible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
     document.addEventListener("visibilitychange", visible);
-    return () => { disposed = true; void handle?.remove(); document.removeEventListener("visibilitychange", visible); };
+    return () => {
+      disposed = true;
+      void handle?.remove();
+      document.removeEventListener("visibilitychange", visible);
+    };
   }, [user]);
 
   useEffect(() => {
@@ -1326,6 +1344,7 @@ export function ConsentNotificationProvider({
               const preservesDomainType =
                 preservesConnectionType ||
                 payload.type === "information_request_updated" ||
+                payload.type === "answer_request_changed" ||
                 String(payload.type || "").startsWith("location_");
               const type = preservesDomainType
                 ? payload.type
@@ -1662,6 +1681,28 @@ export function ConsentNotificationProvider({
         return;
       }
 
+      if (msgType === "answer_request_changed") {
+        if (
+          !user?.uid ||
+          !data.user_id ||
+          data.user_id !== user.uid ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+            data.request_id || "",
+          )
+        )
+          return;
+        detail.accepted = true;
+        CacheSyncService.onConsentMutated(user.uid);
+        dispatchConsentStateChanged({
+          userId: user.uid,
+          source: "answer_request_changed",
+          requestId: `answer_request:${data.request_id}`,
+          messageId: data.event_id,
+        });
+        dispatchFeedStateChanged("arrived");
+        return;
+      }
+
       // Drive-sharing notifications are an intentionally closed, opaque
       // vocabulary. A new `document_share_*` producer cannot make the client
       // refresh consent state or select a review until it is explicitly
@@ -1683,10 +1724,58 @@ export function ConsentNotificationProvider({
       // A reviewed Drive-sharing push stays unacknowledged on purpose: the
       // web worker then shows the normal system notification (with its sound)
       // even while One is open. The Consent Center still refreshes below.
-      if (["direct_message", "location_circle_message"].includes(msgType ?? "")) {
-        if (!user?.uid || data.recipient_key_id && data.recipient_key_id !== activeNotificationKeyId(user?.uid) || data.user_id && data.user_id !== user.uid) return;
+      if (
+        ["direct_message", "location_circle_message"].includes(msgType ?? "")
+      ) {
+        if (
+          !user?.uid ||
+          (data.recipient_key_id &&
+            data.recipient_key_id !== activeNotificationKeyId(user?.uid)) ||
+          (data.user_id && data.user_id !== user.uid)
+        )
+          return;
       }
-      if (user?.uid && !documentShareRequestId) detail.accepted = true;
+      if (user?.uid && !documentShareRequestId)
+        detail.accepted = [
+          "direct_message",
+          "location_circle_message",
+        ].includes(msgType ?? "")
+          ? chatAlertIsVisible(data)
+          : true;
+
+      if (
+        ["direct_message_read", "location_circle_chat_read"].includes(
+          msgType ?? "",
+        ) &&
+        user?.uid
+      ) {
+        const keyId = activeNotificationKeyId(user.uid);
+        if (keyId && data.recipient_key_id === keyId)
+          void ChatSystemNotifications.clearRead({
+            threadId: String(data.circle_id || data.conversation_id || ""),
+            keyId,
+            ...(data.chat_sequence
+              ? { sequence: Number(data.chat_sequence) }
+              : {}),
+            ...(data.chat_read_before
+              ? { before: Number(data.chat_read_before) }
+              : {}),
+            ...(data.chat_read_message_id
+              ? { messageId: String(data.chat_read_message_id) }
+              : {}),
+            ...(data.chat_badge_count !== undefined
+              ? { badgeCount: Number(data.chat_badge_count) }
+              : {}),
+            ...(data.chat_badge_version !== undefined
+              ? { badgeVersion: Number(data.chat_badge_version) }
+              : {}),
+          });
+        CacheSyncService.onFeedExternalReadChanged(user.uid);
+        if (msgType === "direct_message_read") {
+          dispatchFeedStateChanged("action");
+          return;
+        }
+      }
 
       // Suppress only identifiable replays. A bare grant/request id is the
       // notification's subject, not a delivery identity, and reusing it here
@@ -1721,21 +1810,40 @@ export function ConsentNotificationProvider({
       // Preference changes are silent sync doorbells for the owner's other
       // sessions. They are not Feed activity and carry no preference value;
       // mounted consumers repair from their authenticated resources.
-      if ((msgType === "location_circle_message" || msgType === "location_circle_chat_read" || msgType === "location_circle_chat_receipts") && user?.uid) {
+      if (
+        (msgType === "location_circle_message" ||
+          msgType === "location_circle_chat_read" ||
+          msgType === "location_circle_chat_receipts") &&
+        user?.uid
+      ) {
         const circleId = String(data.circle_id || "").trim();
-        const forOwner = data.user_id === user.uid || (typeof data.recipient_key_id === "string" && data.recipient_key_id === activeNotificationKeyId(user?.uid));
+        const forOwner =
+          data.user_id === user.uid ||
+          (typeof data.recipient_key_id === "string" &&
+            data.recipient_key_id === activeNotificationKeyId(user?.uid));
         if (forOwner && /^[0-9a-f-]{36}$/i.test(circleId)) {
           dispatchCircleChatChanged(user.uid, circleId);
-          if (msgType === "location_circle_chat_read") CacheSyncService.onFeedExternalReadChanged(user.uid);
-          if (msgType !== "location_circle_chat_receipts") dispatchFeedStateChanged(msgType === "location_circle_chat_read" ? "action" : "arrived");
+          if (msgType === "location_circle_chat_read")
+            CacheSyncService.onFeedExternalReadChanged(user.uid);
+          if (msgType !== "location_circle_chat_receipts")
+            dispatchFeedStateChanged(
+              msgType === "location_circle_chat_read" ? "action" : "arrived",
+            );
         }
         return;
       }
-      if (msgType === "location_circle_photo_updated" && user?.uid && data.user_id === user.uid) {
+      if (
+        msgType === "location_circle_photo_updated" &&
+        user?.uid &&
+        data.user_id === user.uid
+      ) {
         const circleId = String(data.circle_id || "").trim();
-        if (/^[0-9a-f-]{36}$/i.test(circleId)) CacheSyncService.onOneLocationStateMutated(user.uid, ["circles"], {
-          notificationType: msgType, circleId, eventId: String(data.message_id || "").trim() || undefined,
-        });
+        if (/^[0-9a-f-]{36}$/i.test(circleId))
+          CacheSyncService.onOneLocationStateMutated(user.uid, ["circles"], {
+            notificationType: msgType,
+            circleId,
+            eventId: String(data.message_id || "").trim() || undefined,
+          });
         return;
       }
       if (msgType === "location_settings_changed" && user?.uid) {

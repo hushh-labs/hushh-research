@@ -273,7 +273,9 @@ describe("exact-file document review", () => {
     expect(changed).toHaveBeenCalledOnce();
     expect(state.approve).toHaveBeenCalledOnce();
     expect(screen.queryByRole("button", { name: "Share files" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Refresh status" }));
+    const refresh = screen.getByRole("button", { name: "Refresh status" });
+    expect(refresh.querySelector("svg")).toHaveClass("size-4");
+    fireEvent.click(refresh);
     await waitFor(() => expect(state.status).toHaveBeenCalledTimes(3));
     expect(state.approve).toHaveBeenCalledOnce();
   });
@@ -881,6 +883,24 @@ describe("exact-file document review", () => {
       expect(state.startRequestSearch).not.toHaveBeenCalled();
     });
 
+    it.each([
+      ["a request it would otherwise search for", () => partial({ ownerDriveReady: false })],
+      ["the owner's decision", () => decision({ ownerDriveReady: false, ownerPayoutAccountReady: false })],
+    ])("asks for Google Drive before %s, never saying it is finding files", async (_, drive) => {
+      state.status.mockResolvedValue(pending());
+      state.review.mockResolvedValue(drive());
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      expect(await screen.findByRole("link", { name: "Connect Google Drive" })).toHaveAttribute(
+        "href", "/one?profile_pane=1&profile_panel=connectors&profile_detail=connector%3Agoogle_drive",
+      );
+      expect(screen.queryByText(/Finding files/)).toBeNull();
+      expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
+      expect(screen.queryByRole("link", { name: "Link payouts" })).toBeNull();
+      expect(state.prepare).not.toHaveBeenCalled();
+      expect(state.prepareStream).not.toHaveBeenCalled();
+      expect(state.startRequestSearch).not.toHaveBeenCalled();
+    });
+
     it("shows Set price for a paused trusted request without starting a search", async () => {
       state.status.mockResolvedValue(pending());
       state.review.mockResolvedValue(decision({
@@ -940,6 +960,8 @@ describe("exact-file document review", () => {
       expect(screen.getByText("“Statements”")).toBeVisible();
       expect(screen.getByText("2026-01-01 – 2026-06-30")).toBeVisible();
       expect(screen.getByRole("button", { name: "Deny (tap again to confirm)" })).toBeEnabled();
+      expect(allow).toHaveClass("bg-[color:var(--app-success-deep)]", "text-white");
+      expect(screen.getByRole("button", { name: "Deny (tap again to confirm)" })).toHaveClass("h-[50px]");
       expect(screen.queryByRole("button", { name: /Share files|Decline/ })).toBeNull();
       expect(state.startRequestSearch).not.toHaveBeenCalled();
       expect(state.prepareStream).not.toHaveBeenCalled();

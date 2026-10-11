@@ -27,7 +27,7 @@ function expiryLabel(value: ConsentCenterEntry["expires_at"]): string {
 
 type SharingState = { owner: string; requests: ConsentCenterEntry[]; grants: ConsentCenterEntry[]; incompleteRequests?: boolean; error: boolean };
 
-export function WalletSharing({ profile, cardDetails = false }: { profile?: WalletDemoProfile | null; cardDetails?: boolean } = {}) {
+export function WalletSharing({ cardDetails = false, profile, active = true }: { cardDetails?: boolean; profile?: WalletDemoProfile | null; active?: boolean } = {}) {
   const { user } = useAuth();
   const { vaultKey } = useVault();
   const actions = useConsentActions({ userId: user?.uid });
@@ -40,7 +40,7 @@ export function WalletSharing({ profile, cardDetails = false }: { profile?: Wall
   const [state, setState] = useState<SharingState | null>(null);
   // The workspace owns the current-owner read and its generation fences.
   // Sharing consumes that projection, never a second protected profile loader.
-  const demoProfile = vaultKey && profile
+  const demoProfile = vaultKey && profile?.ownerId === user?.uid
     ? profile
     : { displayName: user?.displayName?.trim() || null, shareUrl: null };
   const [revision, setRevision] = useState(0);
@@ -52,7 +52,7 @@ export function WalletSharing({ profile, cardDetails = false }: { profile?: Wall
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
-    setState(null);
+    // Keep this owner's confirmed rows in place while refreshing in the background.
     setSelection(null);
     setConfirmRevoke(false);
     const deadline = window.setTimeout(() => {
@@ -68,6 +68,10 @@ export function WalletSharing({ profile, cardDetails = false }: { profile?: Wall
     });
     return () => { cancelled = true; window.clearTimeout(deadline); };
   }, [user, revision]);
+
+  useEffect(() => {
+    if (!active) { setSelection(null); setConfirmRevoke(false); }
+  }, [active]);
 
   useEffect(() => {
     const refresh = () => setRevision((value) => value + 1);
@@ -145,7 +149,7 @@ export function WalletSharing({ profile, cardDetails = false }: { profile?: Wall
     </section>
   );
 
-  return <div className={`${styles.content} motion-step-enter mx-auto w-full max-w-[820px] space-y-6 py-4`} data-testid="wallet-sharing-content">
+  return <div className={`${styles.content} mx-auto w-full max-w-[820px] space-y-6 py-4`} data-testid="wallet-sharing-content">
     {cardDetails ? <p className="text-xs text-muted-foreground">These recipients have Wallet-wide access, including this card.</p> : <section className={styles.hero}>
       <h2 className="ui-text-section-title">Your cards.<br />Your control.</h2>
       <p>You choose who can access your Wallet information.</p>
@@ -153,7 +157,7 @@ export function WalletSharing({ profile, cardDetails = false }: { profile?: Wall
         <WalletDemoCardFace summary={WALLET_DEMO_CARDS[0]!} profile={demoProfile} />
       </figure>
     </section>}
-    {!current ? <p role="status" className="text-sm text-muted-foreground">Loading shared access…</p> : current.error ? <div role="alert" className="space-y-3 rounded-2xl border border-border p-5"><p className="text-sm">Couldn&apos;t load shared access.</p><Button variant="secondary" size="compact" onClick={() => setRevision(value => value + 1)}>Try again</Button></div> : renderGroup("Shared with", current.grants, true)}
+    {!current ? <p role="status" className="text-sm text-muted-foreground">Loading shared access…</p> : current.error ? <div role="alert" className="space-y-3 rounded-2xl border border-border p-5"><p className="text-sm">Couldn&apos;t load shared access.</p><Button variant="secondary" size="compact" onClick={() => setRevision(value => value + 1)}>Try again</Button></div> : renderGroup(cardDetails ? "Wallet access" : "Shared with", current.grants, true)}
     <Dialog modal open={Boolean(selection && current && !current.error)} onOpenChange={value => { if (!value && !busy) setSelection(null); }}>
       <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-[420px]" onCloseAutoFocus={event => { event.preventDefault(); reviewTrigger.current?.focus({ preventScroll: true }); }}>
         <DialogHeader><DialogTitle>{selection?.active ? "Manage access" : "Review request"}</DialogTitle><DialogDescription>{selection?.active ? "See what is shared and stay in control." : "Check every detail before sharing."}</DialogDescription></DialogHeader>

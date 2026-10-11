@@ -412,14 +412,14 @@ describe("private sharing transport", () => {
   });
 
   it("accepts typed setup prerequisites without defaulting historical requests into setup", async () => {
-    const setup = { ownerPayoutAccountReady: false, ownerPriceRequired: true, paymentsReady: true };
+    const setup = { ownerDriveReady: false, ownerPayoutAccountReady: false, ownerPriceRequired: true, paymentsReady: true };
     fetcher.mockResolvedValueOnce(reply({ ...notStartedReview(), ...setup, preparationError: "owner_payout_required" }));
     expect(await DriveSharingService.review("vault", requestId, guard)).toMatchObject(setup);
     fetcher.mockResolvedValueOnce(reply({ requestId, status: "pending", revision: 0, direction: "outgoing", ...setup }));
     expect(await DriveSharingService.status("vault", requestId, guard)).toMatchObject(setup);
     fetcher.mockResolvedValueOnce(reply(notStartedReview()));
     expect((await DriveSharingService.review("vault", requestId, guard)).ownerPriceRequired).toBeUndefined();
-    for (const bad of [{ ownerPriceRequired: "true" }, { ownerPayoutAccountReady: null }, { paymentsReady: 1 }]) {
+    for (const bad of [{ ownerDriveReady: "false" }, { ownerPriceRequired: "true" }, { ownerPayoutAccountReady: null }, { paymentsReady: 1 }]) {
       fetcher.mockResolvedValueOnce(reply({ ...notStartedReview(), ...bad }));
       await expect(DriveSharingService.review("vault", requestId, guard)).rejects.toMatchObject({ code: "invalid_response" });
     }

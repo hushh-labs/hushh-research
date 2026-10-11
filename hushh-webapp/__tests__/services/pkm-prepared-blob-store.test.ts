@@ -1308,7 +1308,7 @@ describe("PersonalKnowledgeModelService wallet commits", () => {
   const firstId = "card_123e4567-e89b-12d3-a456-426614174000";
   const nextId = "card_123e4567-e89b-12d3-a456-426614174001";
   const metadata = { brand: "visa", last4: "1111", expiry_month: 5, expiry_year: 2031, issuing_region: "" };
-  const nextCard = { pan: "4111111111111111", cvv: "123", pin: "", cardholder_name: "Synthetic Owner" };
+  const nextCard = { pan: "4111111111111111", cvv: "123", pin: "", cardholder_name: "Synthetic Owner", share_receipts: [{ messageId: "message", recipientName: "Private Recipient", recipientPersonRef: "private-person" }] };
   const applyMutation = (base: Record<string, unknown>) => ({
     ...base,
     summary: { ...(base.summary as Record<string, unknown>), [nextId]: metadata },
@@ -1346,10 +1346,19 @@ describe("PersonalKnowledgeModelService wallet commits", () => {
     expect(payload.mutationPlan?.source_revision).toBe(0);
     expect(payload.domainData).toEqual({ summary: { [nextId]: metadata }, secrets: { [nextId]: nextCard } });
     const plaintext = JSON.stringify([payload.summary, payload.manifest, payload.structureDecision]);
-    for (const privateValue of [nextCard.pan, nextCard.cardholder_name, '"cvv"', '"pin"']) {
+    for (const privateValue of [nextCard.pan, nextCard.cardholder_name, "Private Recipient", "private-person", '"cvv"', '"pin"', '"share_receipts"']) {
       expect(plaintext).not.toContain(privateValue);
     }
     expect(encryptDataMock).toHaveBeenCalledWith(expect.objectContaining({ plaintext: JSON.stringify(payload.domainData) }));
+  });
+
+  it("does not dispatch a wallet receipt after its effect session changes while encrypting", async () => {
+    mockWalletRead().mockResolvedValue(null);
+    let current = true;
+    encryptDataMock.mockImplementation(async () => { current = false; return { ciphertext: "synthetic", iv: "synthetic", tag: "synthetic" }; });
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData");
+    await expect(PersonalKnowledgeModelService.storeWalletDomain({ ...context, applyMutation, mayPublish: () => current })).rejects.toMatchObject({ name: "AbortError" });
+    expect(store).not.toHaveBeenCalled();
   });
 
   it("does not replace an unreadable wallet with an empty collection", async () => {

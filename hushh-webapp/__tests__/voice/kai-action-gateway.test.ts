@@ -7,8 +7,8 @@ import {
   getKaiActionsForControlId,
   KAI_ACTION_GATEWAY,
   searchKaiActions,
-} from "@/lib/voice/kai-action-gateway";
-import type { AppRuntimeState } from "@/lib/voice/voice-types";
+} from "@/lib/kai/actions/kai-action-gateway";
+import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
 
 function makeRuntimeState(
   overrides: Partial<AppRuntimeState> = {},

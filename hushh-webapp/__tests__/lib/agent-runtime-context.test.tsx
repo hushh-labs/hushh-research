@@ -10,7 +10,7 @@ import {
 import {
   clearVoiceSurfaceMetadata,
   publishVoiceSurfaceMetadata,
-} from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/voice-surface-metadata";
 import {
   registerMountedLocalActionHandler,
   unregisterMountedLocalActionHandler,

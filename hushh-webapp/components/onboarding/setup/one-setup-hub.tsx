@@ -48,7 +48,7 @@ import {
   type OneCapabilityIcon,
   type OneCapabilityTone,
 } from "@/lib/onboarding/one-capabilities";
-import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { useCapabilitySetupStates } from "@/lib/onboarding/use-capability-setup-states";
 import { groupSetupCapabilities } from "@/lib/onboarding/setup-capability-order";

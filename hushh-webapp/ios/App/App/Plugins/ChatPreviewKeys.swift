@@ -65,6 +65,11 @@ enum ChatPreviewKeys {
     }
     static func clearDelivered(keyId: String?) {
         guard let keyId = keyId else { return }
+        if var identity = try? frontierQuery(keyId) {
+            _ = SecItemDelete(identity as CFDictionary)
+            identity[kSecAttrService as String] = "hussh.chat.badge.v1"
+            _ = SecItemDelete(identity as CFDictionary)
+        }
         let center = UNUserNotificationCenter.current()
         center.getDeliveredNotifications { notifications in
             let ids = notifications.filter { ($0.request.content.userInfo["recipient_key_id"] as? String) == keyId }.map { $0.request.identifier }
@@ -75,6 +80,85 @@ enum ChatPreviewKeys {
     static func matches(keyId: String) -> Bool {
         lock.lock(); defer { lock.unlock() }
         return (try? load())?["keyId"] == keyId
+    }
+    private static func resolvedKey(_ info: [AnyHashable: Any], record: [String: String]) -> String? {
+        if let key = info["recipient_key_id"] as? String { return key == record["keyId"] ? key : nil }
+        if let user = info["user_id"] as? String,
+           encode(Data(SHA256.hash(data: Data(user.utf8)))) == record["owner"] { return record["keyId"] }
+        if let hash = info["chat_owner"] as? String, let owner = record["owner"], let bytes = try? decode(owner),
+           bytes.map({ String(format: "%02x", $0) }).joined() == hash { return record["keyId"] }
+        return nil
+    }
+    static func recipientKey(_ info: [AnyHashable: Any]) -> String? {
+        lock.lock(); defer { lock.unlock() }
+        guard let record = try? load() else { return nil }
+        return resolvedKey(info, record: record)
+    }
+    /// Versions order asynchronous badge cleanup against newer incoming alerts.
+    static func applyBadge(keyId: String, version: Double?, action: () -> Void) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard (try? load())?["keyId"] == keyId else { return false }
+        if let version = version, version.isFinite, version > 0 {
+            guard var identity = try? frontierQuery(keyId) else { return false }
+            identity[kSecAttrService as String] = "hussh.chat.badge.v1"
+            var lookup = identity; lookup[kSecReturnData as String] = true
+            var result: CFTypeRef?
+            _ = SecItemCopyMatching(lookup as CFDictionary, &result)
+            let previous = (result as? Data).flatMap { String(data: $0, encoding: .utf8) }.flatMap(Double.init) ?? 0
+            if version < previous { return false }
+            let attributes: [String: Any] = [kSecValueData as String: Data(String(version).utf8), kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
+            if SecItemUpdate(identity as CFDictionary, attributes as CFDictionary) == errSecItemNotFound {
+                _ = SecItemAdd(identity.merging(attributes) { _, new in new } as CFDictionary, nil)
+            }
+        }
+        action()
+        return true
+    }
+    private struct Frontier: Codable {
+        var sequence: Double = 0
+        var before: Double = 0
+        var messages: [String] = []
+    }
+    private static func frontierQuery(_ key: String) throws -> [String: Any] {
+        var item = try query()
+        item[kSecAttrService as String] = "hussh.chat.read.v1"
+        item[kSecAttrAccount as String] = key
+        return item
+    }
+    private static func frontiers(_ key: String) -> [String: Frontier] {
+        guard var item = try? frontierQuery(key) else { return [:] }
+        item[kSecReturnData as String] = true
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(item as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data else { return [:] }
+        return (try? JSONDecoder().decode([String: Frontier].self, from: data)) ?? [:]
+    }
+    static func recordRead(keyId: String, thread: String, sequence: Double?, before: Double?, messageId: String?) {
+        lock.lock(); defer { lock.unlock() }
+        guard (try? load())?["keyId"] == keyId, let identity = try? frontierQuery(keyId) else { return }
+        let threadKey = encode(Data(SHA256.hash(data: Data(thread.utf8))))
+        var ledger = frontiers(keyId)
+        var frontier = ledger[threadKey] ?? Frontier()
+        if let sequence = sequence, sequence.isFinite { frontier.sequence = max(frontier.sequence, sequence) }
+        if let before = before, before.isFinite { frontier.before = max(frontier.before, before) }
+        if let message = messageId, !frontier.messages.contains(message) { frontier.messages = Array((frontier.messages + [message]).suffix(200)) }
+        ledger[threadKey] = frontier
+        guard let data = try? JSONEncoder().encode(ledger) else { return }
+        let attributes: [String: Any] = [kSecValueData as String: data, kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
+        if SecItemUpdate(identity as CFDictionary, attributes as CFDictionary) == errSecItemNotFound {
+            _ = SecItemAdd(identity.merging(attributes) { _, new in new } as CFDictionary, nil)
+        }
+    }
+    static func isRead(_ info: [AnyHashable: Any]) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard let record = try? load(), let key = resolvedKey(info, record: record),
+              let thread = (info["circle_id"] as? String) ?? (info["conversation_id"] as? String) else { return false }
+        let threadKey = encode(Data(SHA256.hash(data: Data(thread.utf8))))
+        guard let frontier = frontiers(key)[threadKey] else { return false }
+        if let message = info["message_id"] as? String, frontier.messages.contains(message) { return true }
+        if let sequence = info["chat_sequence"] as? String, let number = Double(sequence) { return number > 0 && number <= frontier.sequence }
+        if let time = info["chat_sent_at"] as? String, let number = Double(time) { return number > 0 && number <= frontier.before }
+        return false
     }
     static func open(sealed: String, context: String) -> [String: String]? {
         lock.lock(); defer { lock.unlock() }

@@ -14,7 +14,7 @@ import type { AppContextFrame, OsPermission } from "@/lib/one-voice/protocol";
 import {
   getVoiceSurfaceMetadata,
   type VoiceSurfaceMetadata,
-} from "@/lib/voice/voice-surface-metadata";
+} from "@/lib/kai/actions/voice-surface-metadata";
 
 /**
  * A screen that learns the device permission first-hand (the Location
