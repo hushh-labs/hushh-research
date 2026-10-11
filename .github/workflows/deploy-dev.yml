@@ -293,11 +293,47 @@ jobs:
             --github-output "$GITHUB_OUTPUT" \
             --json
 
+      - name: Resolve dev verification plan
+        id: verification-plan
+        if: env.DEV_TARGET != 'scope-commerce-sandbox'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/resolve-uat-verification-plan.py \
+            --target-sha "${{ steps.resolve-sha.outputs.sha }}" \
+            --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
+            --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
+            --deploy-backend "${{ steps.scope.outputs.deploy_backend }}" \
+            --deploy-frontend "${{ steps.scope.outputs.deploy_frontend }}" \
+            --run-live-model-checks false \
+            --github-output "$GITHUB_OUTPUT" \
+            --json-output /tmp/dev-verification-plan.json
+
+      - name: Install selected owner-verification dependencies
+        if: steps.verification-plan.outputs.requires_web_dependencies == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: hushh-webapp/package-lock.json
+
+      - name: Prepare selected owner-verification dependencies
+        if: steps.verification-plan.outputs.requires_web_dependencies == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --prefix hushh-webapp
+          if [[ "${{ steps.verification-plan.outputs.run_reviewer_byok }}" == "true" ]]; then
+            (cd hushh-webapp && npx playwright install --with-deps chromium)
+          fi
+
       - name: Validate candidate build capabilities
         shell: bash
         env:
           BUILD_POD_IMAGE: ${{ inputs.build_pod_image && 'true' || 'false' }}
           DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}
+          RUN_PKM_GATE: ${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}
+          RUN_REVIEWER_BYOK: ${{ steps.verification-plan.outputs.run_reviewer_byok }}
         run: |
           set -euo pipefail
           "${{ env.PROTOCOL_PYTHON }}" - <<'PYBUILD'
@@ -306,6 +342,16 @@ jobs:
           import sys
           from pathlib import Path
           import yaml
+          required_files = []
+          if os.environ.get("RUN_PKM_GATE") == "true":
+              required_files.append("scripts/ci/run-release-pkm-gate.sh")
+          if os.environ.get("RUN_REVIEWER_BYOK") == "true":
+              required_files.extend((
+                  ".codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs",
+                  ".codex/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs",
+              ))
+          if any(not Path(filename).is_file() for filename in required_files):
+              raise SystemExit("Candidate lacks selected preservation or owner-verification support")
           interfaces = [
               (["bash", "scripts/ci/verify-dev-candidate.sh", "--help"],
                ("<image-reference>", "<probe-path>")),
@@ -471,7 +517,7 @@ jobs:
           echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
 
       - name: Install Cloud SQL Auth Proxy
-        if: steps.scope.outputs.deploy_backend == 'true'
+        if: steps.scope.outputs.deploy_backend == 'true' || steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -575,6 +621,21 @@ jobs:
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/db_migration_release_guard.py \
             --contract-file "$CONTRACT_FILE" \
             --report-path /tmp/dev-db-migration-guard-predeploy.json
+
+      - name: Install PostgreSQL client for selected preservation
+        if: steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
+        shell: bash
+        run: |
+          if ! command -v psql >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+
+      - name: Verify selected PKM preservation before deployment
+        id: verify-pkm-preservation
+        if: steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
+        shell: bash
+        run: bash scripts/ci/run-release-pkm-gate.sh dev
 
       - name: Deploy backend using Cloud Build
         id: deploy-backend
@@ -1074,6 +1135,19 @@ jobs:
             --web-env hushh-webapp/.env.local \
             --report-path /tmp/dev-release-verify-attempt-2.json
 
+      - name: Verify selected reviewer BYOK navigation and cold re-unlock
+        id: verify-reviewer-byok
+        if: steps.verification-plan.outputs.run_reviewer_byok == 'true' && (steps.verify-dev-1.outcome == 'success' || steps.verify-dev-2.outcome == 'success')
+        continue-on-error: true
+        shell: bash
+        env:
+          REVIEWER_APP_ORIGIN: ${{ env.APP_FRONTEND_ORIGIN }}
+          REVIEWER_APP_ROUTES: /,/one/kai?tab=portfolio,/one/pkm
+          REVIEWER_SECRET_PROJECT: ${{ env.GCP_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs
+
       - name: Classify dev release outcome
         if: always()
         id: classify-dev-release
@@ -1088,6 +1162,8 @@ jobs:
           DB_OUTCOME: ${{ steps.postdeploy-db-gate.outcome }}
           SEMANTIC_ATTEMPT_1: ${{ steps.verify-dev-1.outcome }}
           SEMANTIC_ATTEMPT_2: ${{ steps.verify-dev-2.outcome }}
+          REVIEWER_BYOK_REQUIRED: ${{ steps.verification-plan.outputs.run_reviewer_byok }}
+          REVIEWER_BYOK_OUTCOME: ${{ steps.verify-reviewer-byok.outcome }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -1210,6 +1286,14 @@ jobs:
               append_unique(blocking, ["db_contract_drift"])
               backend_failure = True
 
+          reviewer_required = os.environ.get("REVIEWER_BYOK_REQUIRED") == "true"
+          reviewer_outcome = os.environ.get("REVIEWER_BYOK_OUTCOME", "")
+          reviewer_success = not reviewer_required or reviewer_outcome == "success"
+          if reviewer_required and not reviewer_success:
+              append_unique(blocking, ["reviewer_byok_unverified"])
+              backend_failure = os.environ.get("DEPLOY_BACKEND") == "true"
+              frontend_failure = os.environ.get("DEPLOY_FRONTEND") == "true"
+
           # An isolated preview attestation failure covers both candidate lanes.
           # An empty generic report must never turn a failed probe healthy.
           if os.environ.get("DEV_TARGET") == "scope-commerce-sandbox" and (not parity_success or not semantic_success):
@@ -1251,6 +1335,11 @@ jobs:
                   "failures": sorted(semantic_failures),
                   "blocking_failures": sorted(blocking_semantic_failures),
                   "advisory_failures": advisory_semantic_failures,
+              },
+              "reviewer_byok": {
+                  "required": reviewer_required,
+                  "outcome": reviewer_outcome,
+                  "success": reviewer_success,
               },
               "db_contract": {
                   "outcome": db_outcome,
@@ -1417,6 +1506,14 @@ jobs:
                   "frontend_revision": "${{ steps.final-state.outputs.frontend_revision }}",
                   "frontend_url": "${{ steps.final-state.outputs.frontend_url }}",
               },
+              "verification_plan": {
+                  "reason": "${{ steps.verification-plan.outputs.reason }}",
+                  "not_applicable": "${{ env.DEV_TARGET == 'scope-commerce-sandbox' }}",
+                  "pkm_preservation_required": "${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}",
+                  "pkm_preservation_outcome": "${{ steps.verify-pkm-preservation.outcome }}",
+                  "reviewer_byok_required": "${{ steps.verification-plan.outputs.run_reviewer_byok }}",
+                  "reviewer_byok_outcome": "${{ steps.verify-reviewer-byok.outcome }}",
+              },
               "verification": {
                   "parity_attempt_1": "${{ steps.verify-parity-1.outcome }}",
                   "parity_attempt_2": "${{ steps.verify-parity-2.outcome }}",
@@ -1495,6 +1592,7 @@ jobs:
             /tmp/dev-release-verify-attempt-2.json
             /tmp/dev-release-classification.json
             /tmp/dev-release-status.json
+            /tmp/dev-verification-plan.json
 
       - name: Deployment summary
         if: always()
@@ -1517,6 +1615,9 @@ jobs:
             echo ""
             echo "- SHA: \`${{ steps.resolve-sha.outputs.sha }}\`"
             echo "- Requested scope: \`${{ github.event.inputs.scope }}\`"
+            echo "- Verification plan: \`${{ steps.verification-plan.outputs.reason || 'isolated_preview' }}\`"
+            echo "- PKM preservation: \`${{ steps.verify-pkm-preservation.outcome || 'not_selected' }}\`"
+            echo "- Reviewer BYOK: \`${{ steps.verify-reviewer-byok.outcome || 'not_selected' }}\`"
             echo "- Scope: \`${{ steps.scope.outputs.scope }}\`"
             echo "- Scope reason: \`${{ steps.scope.outputs.reason }}\`"
             echo "- Backend deployed SHA before run: \`${{ steps.predeploy-state.outputs.backend_sha || 'unknown' }}\`"
