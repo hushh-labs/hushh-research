@@ -18,8 +18,8 @@ case "${STRIPE_UAT_MODE}" in
     ;;
 esac
 
-# Document redemption has independent credentials; Checkout/refunds retain
-# STRIPE_UAT_MODE. Sandbox never consumes a live payment source.
+# Document redemption has an independent mode; Checkout/refunds retain
+# STRIPE_UAT_MODE. The separate live rollout flag defaults off.
 STRIPE_CONNECT_UAT_MODE="${STRIPE_CONNECT_UAT_MODE:-${STRIPE_UAT_MODE}}"
 case "${STRIPE_CONNECT_UAT_MODE}" in
   test) STRIPE_UAT_CONNECT_KEY_SECRET=STRIPE_SECRET_KEY ;;
@@ -27,3 +27,4 @@ case "${STRIPE_CONNECT_UAT_MODE}" in
   *) echo "STRIPE_CONNECT_UAT_MODE must be test or live" >&2; exit 1 ;;
 esac
 STRIPE_UAT_CONNECT_TEST_WEBHOOK_SECRET=STRIPE_CONNECT_WEBHOOK_SECRET
+DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED="${DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED:-false}"

@@ -114,9 +114,11 @@ vi.mock("@/lib/utils/session-storage", () => ({
 import {
   VaultAuthSessionNotReadyError,
   VaultService,
+  type VaultState,
 } from "@/lib/services/vault-service";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { apiJson } from "@/lib/services/api-client";
+import { unlockVaultWithPassphrase } from "@/lib/vault/passphrase-key";
 
 describe("VaultService owner renewal transport", () => {
   it("threads prior evidence to the native plugin", async () => {
@@ -469,6 +471,34 @@ describe("VaultService.checkVault (web) — session-restore / 401 handling", () 
     }
   });
 
+  it("serves a warm cache normally, but a forced read bypasses it and the proxy cache", async () => {
+    publishValidatedAuthSessionOwner("fresh-read-user");
+    mockGetIdToken.mockResolvedValue("fresh-token");
+    const vaultState = {
+      vaultKeyHash: "hash",
+      primaryMethod: "passphrase" as const,
+      recoveryEncryptedVaultKey: "recovery",
+      recoverySalt: "salt",
+      recoveryIv: "iv",
+      wrappers: [wrapper],
+    };
+    fetchMock.mockResolvedValue(jsonResponse(200, vaultState));
+
+    await VaultService.getVaultState("fresh-read-user");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Served from the warm client cache: no second network call.
+    await VaultService.getVaultState("fresh-read-user");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // An unlock attempt forces a fresh read, bypassing both the client cache
+    // and (via `fresh=1`) the `/api/vault/get` proxy's own cache.
+    await VaultService.getVaultState("fresh-read-user", { forceFresh: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const freshUrl = String(fetchMock.mock.calls[1]?.[0] ?? "");
+    expect(freshUrl).toContain("fresh=1");
+  });
+
   it.each([
     ["checkVault", mockHasVault, "/db/vault/check"],
     ["getVaultState", mockGetVault, "/db/vault/get"],
@@ -506,4 +536,64 @@ describe("VaultService.checkVault (web) — session-restore / 401 handling", () 
       }
     },
   );
+});
+
+describe("VaultService.unlockWithMethod", () => {
+  const unlockVaultWithPassphraseMock = vi.mocked(unlockVaultWithPassphrase);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const stateWithoutPassphrase: VaultState = {
+    vaultKeyHash: "hash",
+    primaryMethod: "generated_default_native_passkey_prf",
+    primaryWrapperId: "cred-1",
+    recoveryEncryptedVaultKey: "recovery",
+    recoverySalt: "salt",
+    recoveryIv: "iv",
+    wrappers: [
+      {
+        method: "generated_default_native_passkey_prf",
+        wrapperId: "cred-1",
+        encryptedVaultKey: "e1",
+        salt: "s1",
+        iv: "i1",
+      },
+    ],
+  };
+
+  it("throws a distinct, named error when no wrapper exists for the method, instead of a silent null", async () => {
+    // Previously this collapsed to the same `null` a failed decrypt returns,
+    // so the UI told the owner "that passphrase did not match" even though
+    // no passphrase wrapper existed to test it against.
+    await expect(
+      VaultService.unlockWithMethod({
+        state: stateWithoutPassphrase,
+        method: "passphrase",
+        secretMaterial: "whatever-the-owner-typed",
+      }),
+    ).rejects.toThrow(/not configured/i);
+    expect(unlockVaultWithPassphraseMock).not.toHaveBeenCalled();
+  });
+
+  it("still returns null for a genuine decrypt failure against an existing wrapper", async () => {
+    unlockVaultWithPassphraseMock.mockResolvedValue("");
+    const stateWithPassphrase: VaultState = {
+      ...stateWithoutPassphrase,
+      wrappers: [
+        ...stateWithoutPassphrase.wrappers,
+        { method: "passphrase", wrapperId: "default", encryptedVaultKey: "e2", salt: "s2", iv: "i2" },
+      ],
+    };
+
+    const result = await VaultService.unlockWithMethod({
+      state: stateWithPassphrase,
+      method: "passphrase",
+      secretMaterial: "wrong-passphrase",
+    });
+
+    expect(result).toBeNull();
+    expect(unlockVaultWithPassphraseMock).toHaveBeenCalledTimes(1);
+  });
 });

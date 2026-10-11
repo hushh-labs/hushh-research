@@ -11,7 +11,32 @@ import pytest
 
 from hushh_mcp.services.drive_permission_worker import DrivePermissionWorker
 from hushh_mcp.services.drive_share_notification_worker import DriveShareNotificationWorker
-from hushh_mcp.services.drive_work_drain import DriveWorkDrain
+from hushh_mcp.services.drive_work_drain import DriveWorkDrain, _safe_outcomes
+
+
+def test_hashcoin_recovery_counts_remain_bounded_and_visible():
+    assert _safe_outcomes(
+        "owner_payouts",
+        {
+            "outcomes": {
+                "refund_reversed": 1,
+                "refund_unknown": 2,
+                "completed_checked": 1,
+                "bank_accounts_checked": 1,
+                "bank_payouts_changed": 2,
+                "bank_provider_deferred": 3,
+                "secret": "transfer_id",
+                "succeeded": 501,
+            }
+        },
+    ) == {
+        "refund_reversed": 1,
+        "refund_unknown": 2,
+        "completed_checked": 1,
+        "bank_accounts_checked": 1,
+        "bank_payouts_changed": 2,
+        "bank_provider_deferred": 3,
+    }
 
 
 def _worker(result):

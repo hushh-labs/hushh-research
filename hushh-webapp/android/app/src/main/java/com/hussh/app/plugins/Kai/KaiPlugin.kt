@@ -128,17 +128,70 @@ class KaiPlugin : Plugin() {
         }
     }
 
+    private fun containsExactString(target: String, value: Any?, depth: Int, remainingNodes: IntArray): Boolean {
+        if (depth > 6 || remainingNodes[0] <= 0) return false
+        remainingNodes[0] -= 1
+
+        if (value is String) return value == target
+        when (value) {
+            is JSONObject -> {
+                val keys = value.keys()
+                var entries = 0
+                while (keys.hasNext() && entries < 32) {
+                    val key = keys.next()
+                    if (containsExactString(target, value.opt(key), depth + 1, remainingNodes)) return true
+                    entries += 1
+                }
+            }
+            is JSONArray -> {
+                val limit = minOf(value.length(), 32)
+                for (index in 0 until limit) {
+                    if (containsExactString(target, value.opt(index), depth + 1, remainingNodes)) return true
+                }
+            }
+        }
+        return false
+    }
+
+    // Response text fragments that mean the vault-owner token itself is invalid,
+    // mirroring the web classifier (`classifyVaultOwnerAuthFailure`).
+    private val vaultOwnerInvalidTextMarkers = listOf(
+        "token has been revoked",
+        "invalid token",
+        "token validation failed",
+    )
+
+    private fun carriesVaultOwnerInvalidTextMarker(payload: Any?, rawBody: String): Boolean {
+        val reason = (payload as? JSONObject)?.let { obj ->
+            obj.optString("error").takeIf { it.isNotEmpty() && obj.opt("error") is String }
+                ?: obj.optString("detail").takeIf { it.isNotEmpty() && obj.opt("detail") is String }
+                ?: obj.optString("details").takeIf { it.isNotEmpty() && obj.opt("details") is String }
+        }
+        val text = (reason ?: rawBody).lowercase()
+        return vaultOwnerInvalidTextMarkers.any { text.contains(it) }
+    }
+
     private fun streamBridgeErrorCode(statusCode: Int, body: String): String {
+        var payload: Any? = null
         if (body.isNotBlank() && body.toByteArray(Charsets.UTF_8).size <= MAX_STREAM_ERROR_BODY_BYTES) {
             try {
-                val payload = JSONTokener(body).nextValue()
+                payload = JSONTokener(body).nextValue()
                 val code = streamLifecycleCode(payload, 0, intArrayOf(64))
                 if (code != null && STREAM_LIFECYCLE_STATUSES[code] == statusCode) return code
             } catch (_: Exception) {
                 // Malformed or non-JSON error bodies never become machine codes.
             }
         }
-        if (statusCode == 401 || statusCode == 403) return "AUTH_VAULT_OWNER_INVALID"
+        if (statusCode == 401 || statusCode == 403) {
+            // A bare 401/403 can also be an ordinary feature/permission refusal
+            // after a valid owner check (e.g. a disabled connector). Only an
+            // explicit invalid-owner code or message should clear Vault custody.
+            if (payload != null && containsExactString("AUTH_VAULT_OWNER_INVALID", payload, 0, intArrayOf(64))) {
+                return "AUTH_VAULT_OWNER_INVALID"
+            }
+            if (carriesVaultOwnerInvalidTextMarker(payload, body)) return "AUTH_VAULT_OWNER_INVALID"
+            return "HUSHH_HTTP_$statusCode"
+        }
         return "HUSHH_HTTP_$statusCode"
     }
 

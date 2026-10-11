@@ -5988,7 +5988,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.referrals",
-      "purpose": "Welcome the person to referrals with a replayable, device/account-scoped introduction, then help them read their referral link, points, ranking, and reward progress through the dashboard's own controls. Continuing or skipping the introduction never grants setup completion or referral credit.",
+      "purpose": "Open the referral dashboard directly so the person can read their referral link, coins, ranking, and reward progress. How it works shows the coins and rules; Back returns to the previous dashboard section. Viewing the dashboard never grants setup completion or referral credit.",
       "screen": "one_referrals",
       "entryCue": "",
       "proactivity": "ambient",

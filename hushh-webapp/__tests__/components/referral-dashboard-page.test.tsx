@@ -55,6 +55,7 @@ vi.mock("@/lib/services/referral-service", () => ({
   },
 }));
 
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { ReferralDashboardPage, formatCountdown } from "@/components/referrals/referral-dashboard-page";
 
 const SUMMARY = {
@@ -124,7 +125,9 @@ describe("ReferralDashboardPage", () => {
   it("shows rules independently of a pending summary and navigates back to One", async () => {
     mocks.getSummary.mockReturnValue(neverResolves());
     render(<ReferralDashboardPage />);
-    expect(await screen.findByText("100 points")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "How it works" }));
+    expect(await screen.findByText("100 coins")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Back to referrals" }));
     expect(screen.getByText("Loading your referrals…")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back to One home" }));
     expect(mocks.push).toHaveBeenCalledWith("/one");
@@ -134,9 +137,20 @@ describe("ReferralDashboardPage", () => {
     mocks.getPolicy.mockResolvedValue({ version: 3, points: { qualified_referral_points: 123, flash_window_total_points: 246 }, streak_rules: { run_length_days: 3, bonus_points: 17 }, challenge_duration_days: 7, weekly_prizes_enabled: false });
     render(<ReferralDashboardPage />);
     await screen.findByText("Weekly challenge ends in");
-    expect(await screen.findByText("123 points")).toBeInTheDocument();
-    expect(screen.getByText("+17 points")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "How referrals work" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "How it works" }));
+    expect(screen.queryByRole("button", { name: "View welcome screen" })).not.toBeInTheDocument();
+    expect(await screen.findByText("123 coins")).toBeInTheDocument();
+    expect(screen.getByText("+17 coins")).toBeInTheDocument();
     expect(screen.getByText("246 total")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Back to referrals" }));
+    expect(screen.queryByRole("region", { name: "How referrals work" })).not.toBeInTheDocument();
+    expect(screen.getByText("Weekly challenge ends in")).toBeInTheDocument();
+    expect(mocks.push).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "How it works" }));
+    act(() => { expect(unwindBackLayer("/one/referrals")).toBe(true); });
+    expect(screen.queryByRole("region", { name: "How referrals work" })).not.toBeInTheDocument();
+    expect(unwindBackLayer("/one/referrals")).toBe(false);
   });
 
   it.each([
@@ -209,70 +223,14 @@ describe("ReferralDashboardPage", () => {
     vi.useRealTimers();
   });
 
-  it.each(["Go to my dashboard", "Skip intro"])("remembers the welcome after %s and allows replay", async (action) => {
+  it("opens the dashboard directly without reading or writing welcome preferences", async () => {
     mocks.hasSeenReferralIntroduction.mockResolvedValue(false);
-    const { container } = render(<div data-app-scroll-root="true"><ReferralDashboardPage /></div>);
-    const scrollRoot = container.firstElementChild as HTMLElement;
-    expect(await screen.findByRole("heading", { name: "Life’s better together." })).toBeInTheDocument();
-    expect(mocks.getSummary).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: action }));
+    render(<ReferralDashboardPage />);
     expect(await screen.findByText("2,450")).toBeInTheDocument();
-    expect(screen.getByRole("main", { name: "Referral dashboard" })).toHaveFocus();
-    expect(mocks.markReferralIntroductionSeen).toHaveBeenCalledExactlyOnceWith("user-a");
-    scrollRoot.scrollTop = 1000;
-    fireEvent.click(screen.getByRole("button", { name: "View welcome screen" }));
-    expect(scrollRoot.scrollTop).toBe(0);
-    expect(screen.getByRole("heading", { name: "Life’s better together." })).toHaveFocus();
-    expect(mocks.markReferralIntroductionSeen).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("button", { name: "Back to One home" }));
-    expect(mocks.push).toHaveBeenCalledWith("/one");
-  });
-
-  it("does not dismiss another account’s welcome with a stale preference read", async () => {
-    let resolvePreviousOwner!: (seen: boolean) => void;
-    mocks.hasSeenReferralIntroduction
-      .mockImplementationOnce(() => new Promise<boolean>((resolve) => { resolvePreviousOwner = resolve; }))
-      .mockResolvedValue(false);
-    const view = render(<ReferralDashboardPage />);
-    currentUser = { uid: "user-b", getIdToken: mocks.getIdToken };
-    view.rerender(<ReferralDashboardPage />);
-    expect(await screen.findByRole("heading", { name: "Life’s better together." })).toBeInTheDocument();
-    await act(async () => { resolvePreviousOwner(true); });
-    expect(screen.getByRole("button", { name: "Go to my dashboard" })).toBeInTheDocument();
-    expect(mocks.getSummary).not.toHaveBeenCalled();
-  });
-
-  it("does not let a previous account’s delayed save complete the active account’s welcome", async () => {
-    const finishSave = new Map<string, () => void>();
-    mocks.hasSeenReferralIntroduction.mockResolvedValue(false);
-    mocks.markReferralIntroductionSeen.mockImplementation((uid: string) => new Promise<void>((resolve) => { finishSave.set(uid, resolve); }));
-    const view = render(<ReferralDashboardPage />);
-    fireEvent.click(await screen.findByRole("button", { name: "Go to my dashboard" }));
-    currentUser = { uid: "user-b", getIdToken: mocks.getIdToken };
-    view.rerender(<ReferralDashboardPage />);
-    fireEvent.click(await screen.findByRole("button", { name: "Go to my dashboard" }));
-    await act(async () => { finishSave.get("user-a")!(); });
-    expect(screen.getByRole("button", { name: "Opening your dashboard…" })).toBeDisabled();
-    expect(mocks.getSummary).not.toHaveBeenCalled();
-    await act(async () => { finishSave.get("user-b")!(); });
-    expect(await screen.findByText("2,450")).toBeInTheDocument();
-  });
-
-  it("keeps a replay open when an old save resolves after leaving and returning to the same account", async () => {
-    let finishOldSave!: () => void;
-    mocks.hasSeenReferralIntroduction.mockResolvedValueOnce(false).mockResolvedValueOnce(false).mockResolvedValue(true);
-    mocks.markReferralIntroductionSeen.mockImplementationOnce(() => new Promise<void>((resolve) => { finishOldSave = resolve; }));
-    const view = render(<ReferralDashboardPage />);
-    fireEvent.click(await screen.findByRole("button", { name: "Go to my dashboard" }));
-    currentUser = { uid: "user-b", getIdToken: mocks.getIdToken };
-    view.rerender(<ReferralDashboardPage />);
-    await screen.findByRole("button", { name: "Go to my dashboard" });
-    currentUser = { uid: "user-a", getIdToken: mocks.getIdToken };
-    view.rerender(<ReferralDashboardPage />);
-    fireEvent.click(await screen.findByRole("button", { name: "View welcome screen" }));
-    await act(async () => { finishOldSave(); });
-    expect(screen.getByRole("button", { name: "Go to my dashboard" })).toBeEnabled();
-    expect(screen.queryByRole("tab", { name: "You" })).toBeNull();
+    expect(screen.queryByText("Your agents. Yours to own.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "View welcome screen" })).not.toBeInTheDocument();
+    expect(mocks.hasSeenReferralIntroduction).not.toHaveBeenCalled();
+    expect(mocks.markReferralIntroductionSeen).not.toHaveBeenCalled();
   });
 
   it("advances the day segments at midnight and reloads the backend at weekly rollover", async () => {
@@ -344,8 +302,7 @@ describe("ReferralDashboardPage", () => {
 
     const clockHeadline = await screen.findByText("Weekly challenge ends in");
     const clockCard = clockHeadline.closest("div") as HTMLElement;
-    expect(clockCard.style.background).toContain("#1c1c1e");
-    expect(clockCard.style.background).toContain("#242426");
+    expect(clockCard.style.background).toBe("rgb(23, 35, 51)");
 
     const copyButton = screen.getByRole("button", { name: "Copy invite link" });
     expect(copyButton.style.background).toBe("var(--app-accent)");
@@ -353,7 +310,7 @@ describe("ReferralDashboardPage", () => {
     // account accent cannot recolour the approved referral design.
     const css = readFileSync(path.join(process.cwd(), "app/globals.css"), "utf8");
     const routeStyle = document.createElement("style");
-    routeStyle.textContent = css.match(/\.referral-dashboard(?:\s*,\s*\[data-referral-introduction="true"\])?\s*\{[^}]*\}/)?.[0] ?? "";
+    routeStyle.textContent = css.match(/^\.referral-dashboard(?:\s*,\s*\[data-referral-introduction="true"\])?\s*\{[^}]*\}/m)?.[0] ?? "";
     document.head.appendChild(routeStyle);
     try {
       const dashboard = copyButton.closest(".referral-dashboard")!;
@@ -368,7 +325,7 @@ describe("ReferralDashboardPage", () => {
 
     expect(await screen.findByText("6")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "6 day streak" })).toBeInTheDocument();
-    expect(screen.getByText("9-day bonus target")).toBeInTheDocument();
+    expect(screen.queryByText("9-day bonus target")).not.toBeInTheDocument();
     expect(screen.queryByText(/best run is/)).toBeNull();
   });
 
