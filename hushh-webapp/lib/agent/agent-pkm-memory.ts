@@ -29,7 +29,7 @@ import { humanizeMemorySegment } from "@/lib/pkm/humanize-segment";
 import { toPlainMemoryText, toPlainMemoryValue } from "@/lib/pkm/memory-plain-text";
 import { pkmScopeBreadcrumb } from "@/lib/pkm/pkm-memory-level";
 import { classifyMergeOutcome, type PkmMergeOutcome } from "@/lib/pkm/pkm-supersede-merge";
-import { assertBusinessMemoryTarget, type BusinessMemoryOrigin } from "@/lib/pkm/business-memory-origin";
+import { assertBusinessMemoryTarget, assertProfileReviewTargetPath, touchesBusinessRecord, type BusinessMemoryOrigin } from "@/lib/pkm/business-memory-origin";
 
 export type AgentPkmDomainChoice = {
   domain_key: string;
@@ -425,8 +425,11 @@ export async function addToPKM(params: {
   idempotencyScopes?: readonly (string | undefined)[];
   businessOrigin?: BusinessMemoryOrigin;
 }): Promise<AgentPkmSaveResult> {
+  if (params.source === "profile_research_review") params.cards.forEach(assertProfileReviewTargetPath);
   if (params.source === "business_profile_review" && !params.businessOrigin)
     throw new Error("Business identity is required for this review.");
+  if (params.source === "profile_research_review" && params.cards.some(card => touchesBusinessRecord(card)) && !params.businessOrigin)
+    throw new Error("An existing business identity is required for these company details.");
   // Writes to a single domain must stay ordered: each write reads and merges
   // the result of the preceding one. Independent domains have no such
   // dependency, so a small bounded fan-out keeps large imports responsive
@@ -600,8 +603,12 @@ export async function addToPKM(params: {
           params.idempotencyScopes?.[index] ??
           (params.idempotencyScope ? `${params.idempotencyScope}:${cardId}` : undefined),
         build: async (context) => {
+          if (params.source === "profile_research_review") assertProfileReviewTargetPath(card);
+          if (params.source === "profile_research_review" &&
+            touchesBusinessRecord(card, context.currentDomainData) && !params.businessOrigin)
+            throw new Error("The saved business needs a fresh identity review. Nothing was changed.");
           if (params.businessOrigin) {
-            if (automatic || params.source !== "business_profile_review")
+            if (automatic || !["business_profile_review", "profile_research_review"].includes(params.source || ""))
               throw new Error("Business information requires its explicit review writer.");
             assertBusinessMemoryTarget(context.currentDomainData, card, params.businessOrigin);
           }

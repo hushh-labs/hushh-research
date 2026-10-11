@@ -2,6 +2,42 @@ import type { AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
 
 export type BusinessMemoryOrigin = { businessUid: string };
 
+/** The canonical writer targets the entity, never a suffix beneath it. */
+export function assertProfileReviewTargetPath(card: AgentPkmPreviewCard): void {
+  const path = String(card.merge_decision?.target_entity_path || "");
+  if (!path) return;
+  const segments = path.split(".");
+  const entityAt = segments.indexOf("entities");
+  if (segments.some(key => !key || ["__proto__", "prototype", "constructor"].includes(key)) ||
+    entityAt < 0 || entityAt !== segments.length - 2 ||
+    segments.lastIndexOf("entities") !== entityAt)
+    throw new Error("The proposed destination needs a fresh review.");
+}
+
+/** Existing business provenance requires a pinned origin; new public facts do not assert ownership. */
+export function touchesBusinessRecord(card: AgentPkmPreviewCard, current?: Record<string, unknown>): boolean {
+  const walk = (value: unknown): boolean => !!value && typeof value === "object" &&
+    Object.entries(value).some(([key, child]) => key === "_business_origin" || walk(child));
+  const path = String(card.merge_decision?.target_entity_path || "").split(".").filter(Boolean);
+  if (walk(card.candidate_payload)) return true;
+  if (!current) return false;
+  let target: unknown = current;
+  for (const key of path) target = target && typeof target === "object" &&
+    Object.prototype.hasOwnProperty.call(target, key) ? (target as Record<string, unknown>)[key] : null;
+  if (path.length && walk(target)) return true;
+  // A create without an explicit merge path may reuse the incoming entity's
+  // path. Protect that existing destination too, including retargeted scopes.
+  if (!path.length) {
+    try {
+      target = current;
+      for (const key of businessMemoryEntity(card).path) target = target && typeof target === "object" &&
+        Object.prototype.hasOwnProperty.call(target, key) ? (target as Record<string, unknown>)[key] : null;
+      return walk(target);
+    } catch { return false; }
+  }
+  return false;
+}
+
 /** Find identities in the current domain on every conflict-aware rebuild. */
 function businessIdentityPaths(current: Record<string, unknown>, businessUid: string): string[] {
   const matches: string[] = [];

@@ -38,6 +38,9 @@ class SpecialistAdkTurn:
     state: dict[str, Any]
     llm_calls: int
     elapsed_ms: int
+    # ADK task agents finish through event.output rather than final text. Keep
+    # this separate so existing chat callers retain their text-only contract.
+    structured_output: Any = None
 
 
 class SpecialistAdkCallLimitError(RuntimeError):
@@ -195,15 +198,11 @@ async def run_specialist_adk_turn(
                 ),
             )
     budget = _CallBudget(max_llm_calls)
-    # ADK 2.9 requires an LlmAgent used as the Runner root to be in chat mode;
-    # task mode remains valid for delegated child semantics. Normalize only the
-    # invocation-local root so authored manifests keep their declared mode.
-    if getattr(agent, "mode", None) == "task":
-        agent = agent.model_copy(update={"mode": "chat"})
     runner = Runner(
         app=App(name=app_name, root_agent=agent, plugins=[budget]), session_service=store
     )
     final_text = ""
+    structured_output: Any = None
     reported_failure = False
 
     async def snapshot():
@@ -215,6 +214,7 @@ async def run_specialist_adk_turn(
             state=copy.deepcopy(current.state if current is not None else session.state),
             llm_calls=budget.calls,
             elapsed_ms=round((time.perf_counter() - started) * 1000),
+            structured_output=copy.deepcopy(structured_output),
         )
 
     with HushhContext(
@@ -242,6 +242,8 @@ async def run_specialist_adk_turn(
                     # ADK emits an error event before raising the original cause.
                     # Drain to that cause rather than replacing it prematurely.
                     reported_failure = True
+                if event.author == agent.name and event.output is not None:
+                    structured_output = copy.deepcopy(event.output)
                 if event.author == agent.name and event.is_final_response() and event.content:
                     text = "".join(
                         part.text

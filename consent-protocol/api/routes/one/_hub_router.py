@@ -56,6 +56,7 @@ from .pod_relay import router as pod_relay_router
 from .pod_specialist import router as pod_specialist_router
 from .pod_wake import router as pod_wake_router
 from .profile_discovery import router as profile_discovery_router
+from .profile_research import router as profile_research_router
 from .puppy_relay import router as puppy_relay_router
 from .referrals import router as referrals_router
 from .retired_voice import router as retired_voice_router
@@ -90,6 +91,7 @@ router.include_router(gmail_information_requests_router)
 router.include_router(google_router)
 router.include_router(feed_router)
 router.include_router(first_connect_insights_router)
+router.include_router(profile_research_router)
 router.include_router(models_router)
 router.include_router(agent_feedback_router)
 router.include_router(business_suggestions_router)

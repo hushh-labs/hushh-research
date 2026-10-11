@@ -1,11 +1,26 @@
 import { describe, expect, it } from "vitest";
 import type { AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
-import { assertBusinessMemoryTarget } from "@/lib/pkm/business-memory-origin";
+import { assertBusinessMemoryTarget, assertProfileReviewTargetPath, touchesBusinessRecord } from "@/lib/pkm/business-memory-origin";
 const card: AgentPkmPreviewCard = { card_id: "test", source_text: "Synthetic business", target_entity_scope: "businesses",
   target_entity_id: "chosen", candidate_payload: { businesses: { entities: { chosen: { _business_origin: { business_uid: "business-A" } } } } },
   merge_decision: { target_entity_path: "businesses.entities.chosen", merge_mode: "extend_entity" } };
 const current = (uid: string) => ({ businesses: { entities: { chosen: { _business_origin: { business_uid: uid }, summary: "Synthetic" } } } });
 describe("one owner with independent businesses", () => {
+  it("rejects suffixes the writer would truncate, duplicate entity roots, and prototype paths", () => {
+    for (const path of ["career.summary", "profile.entities.known.details", "entities.one.entities.two", "profile.__proto__.name"])
+      expect(() => assertProfileReviewTargetPath({ ...card, merge_decision: { target_entity_path: path } })).toThrow("destination");
+    expect(() => assertProfileReviewTargetPath(card)).not.toThrow();
+  });
+  it("recognizes stored business origin at the actual target across scopes and on an implicit create", () => {
+    const data = { profile: { entities: { known: { _business_origin: { business_uid: "business-A" } } } } };
+    const incoming = { ...card, target_entity_scope: "notes", candidate_payload: { notes: { entities: { known: { summary: "A change" } } } },
+      merge_decision: { merge_mode: "extend_entity", target_entity_path: "profile.entities.known" } };
+    expect(touchesBusinessRecord(incoming)).toBe(false);
+    expect(touchesBusinessRecord(incoming, data)).toBe(true);
+    expect(touchesBusinessRecord({ ...incoming, merge_decision: { merge_mode: "extend_entity", target_entity_path: "profile.entities.other" } }, data)).toBe(false);
+    expect(touchesBusinessRecord({ ...incoming, candidate_payload: { profile: { entities: { known: { summary: "A change" } } } },
+      merge_decision: { merge_mode: "create_entity", target_entity_path: "" } }, data)).toBe(true);
+  });
   it("uses the model payload identity for a new business but never invents an update target", () => {
     const created = { ...card, target_entity_id: undefined, merge_decision: {
       merge_mode: "create_entity", target_entity_id: "", target_entity_path: "",

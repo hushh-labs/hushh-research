@@ -2240,3 +2240,39 @@ control deliberately changed a checkpoint without changing row counts and failed
 the preservation assertion. The isolated cluster was retired; canonical SQL and
 its checksum remained unchanged. This proves the tested preservation contract,
 not shared Dev writer admission, a live cutover or canonical baseline.
+
+### Main synchronization and current evidence — 2026-10-11 UTC
+
+The infrastructure branch integrated main `1ee136eb` and then the newer
+`5d756e38` source through normal merges on the same branch. No history rewrite,
+new delivery branch, migration baseline or database receipt relabeling is part
+of this synchronization. Main 299–305 keep their identities; unchanged branch
+SQL is registered as 306–311. The exact prior manifest, six SQL bodies and
+rollbacks remain under `db/legacy/scope-commerce-infrastructure-f0517d5f/`.
+
+Consent integration preserves both tolerant read-only UI reads and strict
+complete source inventory. Either mode reads existing identities without
+bootstrapping them; only strict results claim source completeness. Paid-grant
+lineage retains its stable source record, and PKM retry fingerprints exclude
+generated clocks and randomized Wallet ciphertext while binding stable sources.
+The combined Account/Memory UI, native owner fences and main Wallet/answer
+features retain their owning contracts. Main payment configuration is ported
+through the existing packed Cloud Build settings without exceeding its limit.
+
+The newer main profile-research feature stays default-off. Its shared, owner-bound
+research is ephemeral, but selected-owner private processing is not implemented.
+Research can disclose account identifiers to managed Gemini/Search before review;
+save confirmation establishes write authority, not prior processing authority.
+The owning product-agent/backend and vault governance workflows must qualify
+private execution before enabling it for private owners. Synchronization does
+not claim private profile-research support. ADK task roots retain their native
+structured output under the pinned runtime; ordinary chat callers remain chat.
+
+Fresh Dev readback at 05:24Z confirms HTTPS is healthy and both application
+surfaces serve `455c86fe`. It supersedes the earlier DNS interruption evidence.
+Paid/provider/live admission remains disabled. Dev still has 59 parked migration
+receipts and no canonical baseline. Funding, purchases, journals, withdrawals,
+provider work and seller records remain empty: source tests do not establish
+reviewer funding, scope delivery, bank payout or authenticated Stripe MCP reads.
+A synchronized source candidate still requires the unchanged core/CI gates and
+governed deployment before deployed acceptance.

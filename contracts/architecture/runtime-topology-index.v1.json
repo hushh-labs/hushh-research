@@ -6692,14 +6692,14 @@
   "source_sha256": {
     "a2a_scope_map": "eec9a448fd685fcc615e4e7c5e87274b2f8f7d591111575b7d21394ce57edeb3",
     "action_gateway": "cb6115a6cdb1d7c18d00433809a524fa796d3b656640d7d6ba4d62c6f30d9466",
-    "agent_registry": "15ed750679261f9ab839362e12c811640de7cc8473ce3cc57896667227780443",
+    "agent_registry": "3706c3679620ae731832d406e4b410c77330478fa58292c0fbb5a5d8e07a01b6",
     "cache_manifest": "2f4ccfba59c856698838753971f14d3aa12e0dced3f8834cfe33ad8f98f75656",
     "data_plane": "ac17616db674813d1773d0d61f41b5db1902f6eb5ab967d07cae7081f666c1a9",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "5fb9a81824a10aeaa2034f90a2642fb6d19acf1caab29a28e482447493b40b2a",
-    "route_index": "ebd2978f46782a16903e581c22f0e45cc49c00939e98d3253698c1c2dd32246e",
-    "route_layout": "b576aee042b1fa3060db485e0acdb03dbdc050f71e05e28bd2570364a74e2826",
-    "surface_map": "5f5cac77a147a7ed7da6860dfae0062eadad3f4efae7b709960a46c6b1418919",
+    "route_index": "aefc23dc5e44935116f169b876b1382a3e71b08ccfcc9bfac950d53fb45ab474",
+    "route_layout": "84f80fc3caf652866b15678b025f7dfd91fe61653302073c15c4aa3d0dcd0a4a",
+    "surface_map": "8f6cd17de0d0bf26e58d65e261d380c655accbc225f8af5a47fc59251e4b46b3",
     "topology_contract": "58ba11f84a774c8b3daa916d2985f8ec81e04413aa050c9fff4785be3b246df0",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },

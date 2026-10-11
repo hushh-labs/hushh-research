@@ -117,6 +117,7 @@ import { isBareReviewReply } from "@/lib/agent/mcp-review-typed-reply";
 import { serverNow } from "@/lib/agent/server-clock";
 import { FirstConnectInsightsCard } from "@/components/agent/first-connect-insights-card";
 import { BusinessProfileSuggestion } from "@/components/agent/business-profile-suggestion";
+import { ProfileResearchCard } from "@/components/agent/profile-research-card";
 import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
 import {
   AgentConnectionsDrawer,
@@ -8266,6 +8267,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   }, [businessSuggestionEnabled, user?.uid, conversationId, vaultKey, vaultOwnerToken, businessAnchorCandidate]);
   const renderBusinessTurn = () => businessTurnAnchor && businessTurnAnchor.ownerId === user?.uid &&
     businessTurnAnchor.conversationId === conversationId ? (
+      <>
+      <ProfileResearchCard
+        ownerId={user?.uid ?? null} vaultKey={vaultKey ?? null} vaultOwnerToken={vaultOwnerToken ?? null}
+        enabled={businessSuggestionEnabled} pathname={pathname}
+        renderMessage={card => <AgentBubble message={{ id: "profile-research", role: "assistant", text: "Let’s review your public profile.",
+          timestamp: "", status: "done", ephemeral: true }} businessProfileCard={card} />}
+      />
       <BusinessProfileSuggestion
         ownerId={user?.uid ?? null} vaultKey={vaultKey ?? null}
         vaultOwnerToken={vaultOwnerToken ?? null} tokenExpiresAt={tokenExpiresAt ?? null}
@@ -8277,6 +8285,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           message={{ id: `business-suggestion:${id}`, role: "assistant", text,
             timestamp: "", status: "done", ephemeral: true }} businessProfileCard={card} />}
       />
+      </>
     ) : null;
   const renderChatOnboarding = (slot: Parameters<typeof ChatOnboardingTurns>[0]["slot"]) => (
     <ChatOnboardingTurns

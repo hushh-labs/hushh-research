@@ -1135,6 +1135,8 @@ tests/services/test_scheduled_mail_drain.py
 tests/test_scheduled_mail_drain_routes.py
 tests/test_scheduled_mail_scheduler_contract.py
 tests/test_business_suggestions.py
+tests/test_one_profile_research.py
+tests/test_hushh_adk_turn.py
 tests/test_business_runtime_reliability.py
 tests/test_consent_listener_asyncio.py
 tests/services/test_consent_db_refresh_jobs.py
