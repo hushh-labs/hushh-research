@@ -2450,6 +2450,15 @@ configuration step; source execution reproduces the origin refusal, while the
 complete provider step log remains unverified. Requalify this correction before
 the next governed release.
 
+The combined `7e30e828c8` core run passed frontend verification and recorded
+17,827 backend passes and 144 skips, with one privacy-inventory failure: incoming
+`POST /api/one/business/suggestion/complete` lacked classification. Source review
+and independent backend review verify owner-token admission, receipt identifiers
+only, owner-bound committed-event checks, and a completion boolean response. The
+route is now classified `AUTHORITY`; no plaintext route or guard is changed.
+All 84 nearest hub-privacy and business-suggestion cases pass. The complete
+canonical core must pass on the corrected candidate before push and deployment.
+
 Primary private Azure setup, normally encrypted synthetic scope fixtures, both
 reviewer Connect/Checkout journeys, accepted quotes, real-time delivery and
 refund/payout receipts, and One's authenticated MCP reads remain acceptance work.
