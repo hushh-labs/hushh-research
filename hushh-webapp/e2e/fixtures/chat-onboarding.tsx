@@ -2,6 +2,7 @@ import { useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import { CHAT_USER_BUBBLE_CLASSNAME } from "../../components/agent/chat-message-styles";
+import { MagicIntelligenceOffer } from "../../components/agent/magic-intelligence-offer";
 import {
   AgentFollowUpSuggestions,
   AgentSuggestionList,
@@ -48,6 +49,7 @@ const EXPLANATION: ChatOnboardingTurn = {
 
 function Harness() {
   const [tipOpen, setTipOpen] = useState(true);
+  const [magicOpen, setMagicOpen] = useState(false);
   const controller: ChatOnboardingController = {
     resolved: false,
     turns: [...TURNS, EXPLANATION],
@@ -65,6 +67,12 @@ function Harness() {
   return (
     <main className="min-h-dvh bg-background px-4 pt-5 text-foreground sm:px-6 lg:px-8">
       <div data-testid="transcript" className="mx-auto flex w-full max-w-4xl flex-col gap-6">
+        <div className="max-w-[90%]">
+          <MagicIntelligenceOffer profile="offered" businessAvailable={false} expanded={magicOpen}
+            onReview={() => setMagicOpen(true)} onBack={() => setMagicOpen(false)}>
+            <p>Reviewed details appear here.</p>
+          </MagicIntelligenceOffer>
+        </div>
         <AgentSuggestionList
           suggestions={["What's on my calendar this week?", "Which emails need a reply?", "Who has access to my information?"]}
           layout="starter-grid"

@@ -168,12 +168,87 @@ afterEach(() => {
 });
 
 describe("onboarding profile draft and owner confirmation", () => {
-  it.each(["disabled", "unavailable", "pending"])(
+  it("discards late discoveries and collapses details when the Magic owner changes", async () => {
+    const pending: Array<{ path: string; resolve: (value: Response) => void }> =
+      [];
+    mocks.apiFetch.mockImplementation(
+      (path: string) =>
+        new Promise<Response>((resolve) => {
+          pending.push({ path, resolve });
+        }),
+    );
+    const root = render(
+      <OneBackgroundCards
+        {...props}
+        tokenExpiresAt={Date.now() + 60_000}
+        renderMessage={(_id, _text, card) => card}
+      />,
+    );
+    await waitFor(() => expect(mocks.apiFetch).toHaveBeenCalledTimes(2));
+    const oldRequests = pending.slice();
+    publishValidatedAuthSessionOwner("other");
+    root.rerender(
+      <OneBackgroundCards
+        {...props}
+        ownerId="other"
+        vaultOwnerToken="other-token"
+        tokenExpiresAt={Date.now() + 60_000}
+        renderMessage={(_id, _text, card) => card}
+      />,
+    );
+    await act(async () => {
+      for (const request of oldRequests)
+        request.resolve(
+          respond(
+            request.path === "/api/one/profile-research"
+              ? offer()
+              : {
+                  contract_version: "b2b-profile-suggestion.v2",
+                  scope: "b2b",
+                  status: "suggestion_available",
+                  pkm_written: false,
+                  candidates: [
+                    {
+                      business_uid: `urn:hushh:business:directory:business:${"a".repeat(64)}`,
+                      synthetic: false,
+                      source_identity: {
+                        source: "directory",
+                        source_key: "old-owner-business",
+                        vertical: "business",
+                      },
+                      match_evidence: [
+                        {
+                          kind: "verified_email_domain",
+                          domain: "example.test",
+                        },
+                      ],
+                      draft: {
+                        name: "Old owner business",
+                        website: "https://example.test",
+                      },
+                      ownership_verified: false,
+                      claim_created: false,
+                      verification_required: ["business_authority"],
+                    },
+                  ],
+                },
+          ),
+        );
+    });
+    expect(screen.queryByText("Alex Example")).toBeNull();
+    expect(screen.queryByText("Old owner business")).toBeNull();
+    expect(screen.getByTestId("magic-intelligence-card")).not.toBeVisible();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.addToPKM).not.toHaveBeenCalled();
+  });
+  it.each(["disabled", "unavailable", "rejected", "pending"])(
     "researches and saves personal-only Magic Intelligence when Business Intelligence is %s",
     async (businessStatus) => {
       mocks.apiFetch.mockImplementation((path: string) => {
         if (path === "/api/one/business/suggestion") {
           if (businessStatus === "pending") return new Promise(() => {});
+          if (businessStatus === "rejected")
+            return Promise.reject(new Error("Business lookup failed"));
           return Promise.resolve(
             respond({
               contract_version: "b2b-profile-suggestion.v2",
@@ -199,8 +274,23 @@ describe("onboarding profile draft and owner confirmation", () => {
           )}
         />,
       );
-      await screen.findByText("Alex Example");
+      await screen.findByRole("button", {
+        name: "Review details",
+        exact: true,
+      });
+      expect(
+        screen.getByText(
+          "One found more information about you. Review it before saving to Memory.",
+        ),
+      ).toBeVisible();
       expect(screen.getByText("Magic Intelligence")).toBeVisible();
+      expect(screen.queryByText("Alex Example")).toBeNull();
+      expect(screen.queryByText("A public professional profile.")).toBeNull();
+      expect(screen.queryByTestId("profile-research-card")).toBeNull();
+      fireEvent.click(
+        screen.getByRole("button", { name: "Review details", exact: true }),
+      );
+      await screen.findByText("Alex Example");
       expect(mocks.apiFetch.mock.calls.map(([path]) => path)).toEqual(
         expect.arrayContaining([
           "/api/one/business/suggestion",
@@ -210,15 +300,13 @@ describe("onboarding profile draft and owner confirmation", () => {
       expect(mocks.prepare).not.toHaveBeenCalled();
       expect(mocks.addToPKM).not.toHaveBeenCalled();
 
-      fireEvent.click(
-        screen.getByRole("button", { name: "Review and save" }),
-      );
+      fireEvent.click(screen.getByRole("button", { name: "Review and save" }));
       await screen.findByTestId("agent-pkm-review-save");
       expect(mocks.addToPKM).not.toHaveBeenCalled();
-      fireEvent.click(
-        screen.getByRole("button", { name: "Confirm and save" }),
+      fireEvent.click(screen.getByRole("button", { name: "Confirm and save" }));
+      await waitFor(() =>
+        expect(screen.getByTestId("magic-intelligence-card")).not.toBeVisible(),
       );
-      await screen.findByText("Your Magic Intelligence details are saved.");
       expect(mocks.prepare).toHaveBeenCalledTimes(1);
       expect(mocks.addToPKM).toHaveBeenCalledTimes(1);
       expect(mocks.addToPKM.mock.calls[0][0]).toMatchObject({
@@ -226,11 +314,96 @@ describe("onboarding profile draft and owner confirmation", () => {
         confirmation: { confirmedByUser: true, surface: "chat" },
       });
       expect(mocks.addToPKM.mock.calls[0][0].businessOrigin).toBeUndefined();
-      expect(mocks.addToPKM.mock.calls[0][0].cards[0].candidate_payload).toEqual({
+      expect(
+        mocks.addToPKM.mock.calls[0][0].cards[0].candidate_payload,
+      ).toEqual({
         career: { entities: { alex: { summary: FACT } } },
       });
     },
   );
+
+  it("Back unwinds personal review before collapsing Magic, and reopening retains the research without new preparation", async () => {
+    mocks.apiFetch.mockImplementation((path: string) =>
+      Promise.resolve(
+        respond(
+          path === "/api/one/profile-research"
+            ? offer()
+            : {
+                contract_version: "b2b-profile-suggestion.v2",
+                scope: "b2b",
+                status: "no_match",
+                candidates: [],
+                pkm_written: false,
+              },
+        ),
+      ),
+    );
+    render(
+      <OneBackgroundCards
+        {...props}
+        tokenExpiresAt={Date.now() + 60_000}
+        renderMessage={(_id, _text, card) => card}
+      />,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Review details",
+        exact: true,
+      }),
+    );
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Review and save" }));
+    await screen.findByRole("button", { name: "Confirm and save" });
+    act(() => {
+      expect(unwindBackLayer("/")).toBe(true);
+    });
+    expect(
+      screen.queryByRole("button", { name: "Confirm and save" }),
+    ).toBeNull();
+    expect(screen.getByText("Alex Example")).toBeVisible();
+    act(() => {
+      expect(unwindBackLayer("/")).toBe(true);
+    });
+    expect(screen.queryByText("Alex Example")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review details", exact: true }),
+    );
+    expect(screen.getByText("Alex Example")).toBeVisible();
+    expect(
+      mocks.apiFetch.mock.calls.filter(
+        ([path]) => path === "/api/one/profile-research",
+      ),
+    ).toHaveLength(1);
+    expect(mocks.prepare).toHaveBeenCalledTimes(1);
+    expect(mocks.addToPKM).not.toHaveBeenCalled();
+  });
+
+  it("does not include optional business facts in a personal review unless selected", async () => {
+    const result = offer();
+    result.report.sections.push({
+      kind: "business",
+      facts: [
+        {
+          statement: "I founded Example.",
+          confidence: "supported",
+          sources: [{ title: "Company", url: "https://example.test/company" }],
+        },
+      ],
+    });
+    mocks.apiFetch.mockResolvedValue(respond(result));
+    render(<ProfileResearchCard {...props} />);
+    await screen.findByText("Alex Example");
+    fireEvent.click(screen.getByRole("button", { name: /Business/ }));
+    expect(
+      screen.getByRole("checkbox", { name: "Keep I founded Example." }),
+    ).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Review and save" }));
+    await screen.findByRole("button", { name: "Confirm and save" });
+    expect(mocks.prepare.mock.calls[0][0].message).not.toContain(
+      "I founded Example.",
+    );
+    expect(mocks.addToPKM).not.toHaveBeenCalled();
+  });
 
   it.each(["no_match", "unavailable"])(
     "never prepares or saves %s; failed research can retry and empty research can be skipped",
