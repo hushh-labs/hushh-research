@@ -45,6 +45,7 @@ import {
   PROFILE_SECTION_LABELS,
   ProfileResearchService,
   type ProfileResearchResult,
+  type ProfileReport,
 } from "@/lib/services/profile-research-service";
 
 type Props = {
@@ -53,8 +54,14 @@ type Props = {
   vaultOwnerToken: string | null;
   enabled: boolean;
   pathname: string;
-  renderMessage?: (card: ReactNode) => ReactNode;
+  renderMessage?: (card: ReactNode, businessFacts?: ReactNode) => ReactNode;
+  embedded?: boolean;
+  present?: boolean;
+  onAvailabilityChange?: (availability: ProfileResearchAvailability) => void;
+  onBusinessAvailabilityChange?: (available: boolean) => void;
 };
+export type ProfileResearchAvailability =
+  "hidden" | "loading" | "offered" | "empty" | "failed";
 type Phase =
   | "loading"
   | "draft"
@@ -73,6 +80,10 @@ export function ProfileResearchCard({
   enabled,
   pathname,
   renderMessage,
+  embedded = false,
+  present = true,
+  onAvailabilityChange,
+  onBusinessAvailabilityChange,
 }: Props) {
   const pending = useOneConversationSession(
     (state) => state.pendingProfileResearch,
@@ -126,7 +137,7 @@ export function ProfileResearchCard({
   }, [busy, editing, review]);
   useBackLayer(
     pathname,
-    visible && (editing || review || busy) ? 2 : 0,
+    present && visible && (editing || review || busy) ? (embedded ? 3 : 2) : 0,
     cancelReview,
   );
 
@@ -182,7 +193,8 @@ export function ProfileResearchCard({
                 next.report.match_status === "matched"
                   ? next.report.sections.flatMap((section) =>
                       section.facts.flatMap((fact, index) =>
-                        fact.confidence === "supported"
+                        fact.confidence === "supported" &&
+                        section.kind !== "business"
                           ? [`${section.kind}:${index}`]
                           : [],
                       ),
@@ -301,8 +313,38 @@ export function ProfileResearchCard({
       }
     });
 
-  if (!visible || phase === "skipped" || (!hasOffer && phase === "draft"))
-    return null;
+  const availability: ProfileResearchAvailability =
+    !visible ||
+    phase === "skipped" ||
+    phase === "saved" ||
+    (!hasOffer && phase === "draft")
+      ? "hidden"
+      : phase === "loading"
+        ? "loading"
+        : phase === "failed"
+          ? "failed"
+          : result?.status === "offered" &&
+              result.report.match_status === "no_match"
+            ? "empty"
+            : "offered";
+  useEffect(() => {
+    onAvailabilityChange?.(availability);
+  }, [onAvailabilityChange, availability]);
+  const businessAvailable =
+    availability === "offered" &&
+    result?.status === "offered" &&
+    result.report.sections.some((section) => section.kind === "business");
+  useEffect(() => {
+    onBusinessAvailabilityChange?.(businessAvailable);
+  }, [onBusinessAvailabilityChange, businessAvailable]);
+  if (
+    !present ||
+    !visible ||
+    phase === "skipped" ||
+    (embedded && phase === "saved") ||
+    (!hasOffer && phase === "draft")
+  )
+    return renderMessage ? renderMessage(null, null) : null;
   const report = result?.status === "offered" ? result.report : null;
   const dismiss = () => {
     if (!busy) {
@@ -312,16 +354,82 @@ export function ProfileResearchCard({
       consume(ownerId!);
     }
   };
-  const card = (
-    <Card
-      preset="compact"
-      data-testid="profile-research-card"
-      className="min-w-0"
-    >
-      <CardHeader className="p-4 pb-2">
-        <CardTitle className="text-base">
-          Magic Intelligence
-        </CardTitle>
+  const renderSection = (section: ProfileReport["sections"][number]) => (
+    <AccordionItem key={section.kind} value={section.kind}>
+      <AccordionTrigger>
+        {embedded && section.kind === "business"
+          ? "Public sources"
+          : PROFILE_SECTION_LABELS[section.kind]}{" "}
+        · {section.facts.length}
+      </AccordionTrigger>
+      <AccordionContent className="space-y-4">
+        {section.facts.map((fact, index) => {
+          const id = `${section.kind}:${index}`;
+          return (
+            <div key={id} className="space-y-2">
+              <label className="flex items-start gap-3">
+                <Checkbox
+                  checked={selected.has(id)}
+                  disabled={busy || !!review}
+                  aria-label={`Keep ${fact.statement}`}
+                  onCheckedChange={(checked) =>
+                    setSelected((current) => {
+                      const next = new Set(current);
+                      if (checked === true) next.add(id);
+                      else next.delete(id);
+                      return next;
+                    })
+                  }
+                />
+                <span className="min-w-0 text-sm leading-6">
+                  {edits[id] ?? fact.statement}
+                </span>
+              </label>
+              {editing && (
+                <Textarea
+                  aria-label={`Edit ${fact.statement}`}
+                  maxLength={600}
+                  value={edits[id] ?? fact.statement}
+                  onChange={(event) =>
+                    setEdits((current) => ({
+                      ...current,
+                      [id]: event.target.value,
+                    }))
+                  }
+                />
+              )}
+              {fact.confidence !== "supported" && (
+                <HelperText>
+                  {fact.confidence === "conflicting"
+                    ? "Sources disagree"
+                    : "Uncertain match"}
+                </HelperText>
+              )}
+              <div className="flex flex-wrap gap-x-3 gap-y-1 pl-7">
+                {fact.sources.map((source) => (
+                  <a
+                    key={source.url}
+                    href={source.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="break-all text-xs text-muted-foreground underline underline-offset-4"
+                  >
+                    {source.title}
+                  </a>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </AccordionContent>
+    </AccordionItem>
+  );
+  const content = (
+    <>
+      <CardHeader className={embedded ? "p-0 pb-2" : "p-4 pb-2"}>
+        {!embedded && (
+          <CardTitle className="text-base">Magic Intelligence</CardTitle>
+        )}
         {report?.name && <HelperText>{report.name}</HelperText>}
         <HelperText>
           {phase === "loading"
@@ -340,77 +448,14 @@ export function ProfileResearchCard({
           </HelperText>
         )}
       </CardHeader>
-      <CardContent className="space-y-3 p-4 pt-2">
+      <CardContent
+        className={embedded ? "space-y-3 p-0" : "space-y-3 p-4 pt-2"}
+      >
         {report && phase !== "saved" && (
           <Accordion type="multiple">
-            {report.sections.map((section) => (
-              <AccordionItem key={section.kind} value={section.kind}>
-                <AccordionTrigger>
-                  {PROFILE_SECTION_LABELS[section.kind]} ·{" "}
-                  {section.facts.length}
-                </AccordionTrigger>
-                <AccordionContent className="space-y-4">
-                  {section.facts.map((fact, index) => {
-                    const id = `${section.kind}:${index}`;
-                    return (
-                      <div key={id} className="space-y-2">
-                        <label className="flex items-start gap-3">
-                          <Checkbox
-                            checked={selected.has(id)}
-                            disabled={busy || !!review}
-                            aria-label={`Keep ${fact.statement}`}
-                            onCheckedChange={(checked) =>
-                              setSelected((current) => {
-                                const next = new Set(current);
-                                if (checked === true) next.add(id);
-                                else next.delete(id);
-                                return next;
-                              })
-                            }
-                          />
-                          <span className="min-w-0 text-sm leading-6">
-                            {edits[id] ?? fact.statement}
-                          </span>
-                        </label>
-                        {editing && (
-                          <Textarea
-                            aria-label={`Edit ${fact.statement}`}
-                            maxLength={600}
-                            value={edits[id] ?? fact.statement}
-                            onChange={(event) =>
-                              setEdits((current) => ({
-                                ...current,
-                                [id]: event.target.value,
-                              }))
-                            }
-                          />
-                        )}
-                        {fact.confidence !== "supported" && (
-                          <HelperText>
-                            {fact.confidence === "conflicting"
-                              ? "Sources disagree"
-                              : "Uncertain match"}
-                          </HelperText>
-                        )}
-                        <div className="flex flex-wrap gap-x-3 gap-y-1 pl-7">
-                          {fact.sources.map((source) => (
-                            <a
-                              key={source.url}
-                              href={source.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="break-all text-xs text-muted-foreground underline underline-offset-4"
-                            >
-                              {source.title}
-                            </a>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </AccordionContent>
-              </AccordionItem>
-            ))}
+            {report.sections
+              .filter((section) => !embedded || section.kind !== "business")
+              .map(renderSection)}
           </Accordion>
         )}
         {result?.status === "offered" &&
@@ -497,7 +542,32 @@ export function ProfileResearchCard({
           </AlertDialogContent>
         </AlertDialog>
       </CardContent>
+    </>
+  );
+  const card = embedded ? (
+    <section
+      aria-label="Public profile details"
+      data-testid="profile-research-card"
+      className="min-w-0"
+    >
+      {content}
+    </section>
+  ) : (
+    <Card
+      preset="compact"
+      data-testid="profile-research-card"
+      className="min-w-0"
+    >
+      {content}
     </Card>
   );
-  return renderMessage ? renderMessage(card) : card;
+  const businessFacts =
+    embedded && report && phase !== "saved" ? (
+      <Accordion type="multiple">
+        {report.sections
+          .filter((section) => section.kind === "business")
+          .map(renderSection)}
+      </Accordion>
+    ) : null;
+  return renderMessage ? renderMessage(card, businessFacts) : card;
 }
