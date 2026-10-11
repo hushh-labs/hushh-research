@@ -1,4 +1,4 @@
-"""Owner-bound, read-only B2B suggestion fixture; no claim or save operation."""
+"""Owner-bound, read-only public business suggestions; no claim or save operation."""
 
 from ipaddress import ip_address
 

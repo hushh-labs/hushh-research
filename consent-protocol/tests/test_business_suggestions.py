@@ -455,6 +455,22 @@ def test_real_projection_preserves_branches_and_refuses_false_match_evidence():
         row["synthetic"] is False and row["ownership_verified"] is False
         for row in result["candidates"]
     )
+    for marker in ("synthetic", "is_test_profile"):
+        rows[0][marker] = True
+        with pytest.raises(DirectoryUnavailable):
+            project_directory_response(payload, **args)
+        del rows[0][marker]
+    rows[0].update(
+        vertical="business",
+        canonical_table="businesses",
+        native_identity={"source": "official_public_directory", "source_key": "one"},
+    )
+    assert len(project_directory_response(payload, **args)["candidates"]) == 2
+    for source in ("uat_fixture", "uat_test"):
+        rows[0]["native_identity"] = {"source": source, "source_key": "team-demo-v1"}
+        with pytest.raises(DirectoryUnavailable):
+            project_directory_response(payload, **args)
+    rows[0].update(vertical="hotel", canonical_table="hotels", native_identity={"id": "1"})
     payload["truncated"] = True
     assert project_directory_response(payload, **args)["coverage_incomplete"] is True
     rows[0]["draft"]["website"] = "https://unrelated.test"

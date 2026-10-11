@@ -5,6 +5,7 @@ import { pkmPlanIdForIdempotencyScope } from "@/lib/personal-knowledge-model/mut
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { SecureResourceCacheService } from "@/lib/services/secure-resource-cache-service";
 import type { BusinessSuggestion } from "@/lib/services/business-suggestion-service";
+import { isDemoBusinessSource } from "@/lib/services/business-directory-source";
 import { withPkmSaveJobLock } from "@/lib/pkm/pkm-save-job";
 import { businessMemoryEntity } from "@/lib/pkm/business-memory-origin";
 
@@ -87,6 +88,7 @@ export async function loadBusinessReview(ownerId: string, vaultKey: string, busi
 
 /** Legacy jobs have no listing snapshot and must never authorize new writes. */
 export function assertBusinessReviewFresh(job: BusinessReviewJob, candidate: BusinessCandidate) {
+  assertDirectoryCandidate(candidate);
   if (!job.candidate || !job.candidateSnapshot || job.businessUid !== candidate.businessUid ||
     job.candidateSnapshot !== businessCandidateSnapshot(job.candidate) ||
     job.candidateSnapshot !== businessCandidateSnapshot(candidate))
@@ -118,6 +120,7 @@ export async function decideBusinessReview(input: {
 }
 
 export function businessDraftMessage(candidate: BusinessCandidate, name: string, website: string) {
+  assertDirectoryCandidate(candidate);
   if (!name.trim() || name.length > 160 || website.length > 512) throw new Error("Check the business details.");
   const url = website.trim() ? new URL(website) : null;
   if (url && (!["https:", "http:"].includes(url.protocol) || url.username || url.password)) throw new Error("Use an HTTP or HTTPS website without credentials.");
@@ -131,43 +134,19 @@ export function businessDraftMessage(candidate: BusinessCandidate, name: string,
   return message;
 }
 
-/**
- * Build a local card only for explicitly synthetic unit-test fixtures. Live
- * directory records never use this shortcut and remain model-backed.
- */
-export function buildSyntheticBusinessPreview(candidate: BusinessCandidate, name: string, website: string): AgentPkmPreviewCard[] {
-  // This helper is retained for isolated synthetic test fixtures only. Live
-  // directory candidates—including operator-seeded UAT rows—always use the
-  // model-backed preparation path in the chat component.
-  if (!candidate.synthetic || candidate.sourceIdentity.source !== "uat_fixture" || Object.keys(candidate.draft).length < 3) return [];
-  const entityId = `hushh_fixture_${candidate.sourceIdentity.sourceKey.replace(/[^a-z0-9]+/gi, "_").toLowerCase()}`.slice(0, 80);
-  const entity = Object.fromEntries(Object.entries({
-    ...candidate.draft, name: name.trim(), website: website.trim(),
-  }).filter(([, value]) => typeof value === "string" && value.trim())) as Record<string, string>;
-  return [{
-    card_id: `business_profile:${entityId}`,
-    source_text: businessDraftMessage(candidate, name, website),
-    write_mode: "confirm_first",
-    requires_confirmation: true,
-    confirmation_reason: "Business details are public or synthetic UAT data and require your explicit review.",
-    target_domain: "professional",
-    target_entity_scope: "businesses",
-    target_entity_id: entityId,
-    candidate_payload: { businesses: { entities: { [entityId]: entity } } },
-    structure_decision: { target_domain: "professional" },
-    merge_decision: { merge_mode: "create_entity", target_entity_path: `businesses.entities.${entityId}` },
-    confidence: 1,
-  }];
+/** A demo checkpoint can reconcile an old receipt, but never prepare a new write. */
+function assertDirectoryCandidate(candidate: BusinessCandidate) {
+  const directory = candidate.synthetic === false && candidate.sourceIdentity.source === "directory" &&
+    !isDemoBusinessSource(candidate.sourceIdentity.sourceKey) &&
+    !!candidate.sourceIdentity.sourceKey && /^urn:hushh:business:directory:(hotel|healthcare|ria|insurance|business):[a-f0-9]{64}$/.test(candidate.businessUid) &&
+    candidate.businessUid.includes(`:directory:${candidate.sourceIdentity.vertical}:`);
+  if (!directory)
+    throw new Error("The business suggestion changed. Review it again.");
 }
 
 /** Keep immutable origin on the agent-selected entity, never invent its destination. */
 export function attachBusinessOrigin(card: AgentPkmPreviewCard, candidate: BusinessCandidate): AgentPkmPreviewCard {
-  const fixture = candidate.synthetic === true && candidate.sourceIdentity.source === "uat_fixture";
-  const directory = candidate.synthetic === false && candidate.sourceIdentity.source === "directory" &&
-    !!candidate.sourceIdentity.sourceKey && /^urn:hushh:business:directory:(hotel|healthcare|ria|insurance|business):[a-f0-9]{64}$/.test(candidate.businessUid) &&
-    candidate.businessUid.includes(`:directory:${candidate.sourceIdentity.vertical}:`);
-  if (!fixture && !directory)
-    throw new Error("The business suggestion changed. Review it again.");
+  assertDirectoryCandidate(candidate);
   const copy = structuredClone(card);
   const entity = businessMemoryEntity(copy);
   if (!["create_entity", "extend_entity", "correct_entity"].includes(

@@ -11,13 +11,13 @@ vi.mock("@/lib/services/secure-resource-cache-service", () => ({ SecureResourceC
 vi.mock("@/lib/agent/connector-memory-review", () => ({ saveConnectorMemoryReview: mocks.save }));
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({ PersonalKnowledgeModelService: { lookupMutationCommits: mocks.lookup } }));
 vi.mock("@/lib/pkm/pkm-save-job", () => ({ withPkmSaveJobLock: async (_id: string, task: () => unknown) => task() }));
-import { assertBusinessReviewFresh, attachBusinessOrigin, businessDraftMessage, createBusinessReviewJob, decideBusinessReview, loadBusinessReview, saveBusinessReview } from "@/lib/agent/business-profile-review";
+import { businessCandidateSnapshot, assertBusinessReviewFresh, attachBusinessOrigin, businessDraftMessage, createBusinessReviewJob, decideBusinessReview, loadBusinessReview, saveBusinessReview } from "@/lib/agent/business-profile-review";
 import { businessReviewFields, businessReviewItems, selectBusinessReviewFields } from "@/lib/agent/business-profile-fields";
 import { validBusinessProfilePreview } from "@/lib/agent/business-profile-contract";
 
-export const candidate: BusinessCandidate = { businessUid: "urn:hushh:business:uat:hushh.ai:v1", synthetic: true,
-  sourceIdentity: { source: "uat_fixture", sourceKey: "hushh.ai:v1" }, matchEvidence: [{ kind: "verified_email_domain", domain: "hushh.ai" }],
-  draft: { name: "Hushh — UAT Test Business", website: "https://hushh.ai" }, ownershipVerified: false,
+export const candidate: BusinessCandidate = { businessUid: `urn:hushh:business:directory:business:${"a".repeat(64)}`, synthetic: false,
+  sourceIdentity: { source: "directory", sourceKey: '{"id":"1"}', vertical: "business" }, matchEvidence: [{ kind: "verified_email_domain", domain: "example.test" }],
+  draft: { name: "Example Business", website: "https://example.test" }, ownershipVerified: false,
   claimCreated: false, verificationRequired: ["business_authority"] };
 const card = (id = "one"): AgentPkmPreviewCard => ({ card_id: id, source_text: `Test detail ${id}`, write_mode: "confirm_first",
   target_domain: "professional", target_entity_scope: "businesses", target_entity_id: `mem_${id}`,
@@ -31,11 +31,34 @@ beforeEach(() => {
   mocks.lookup.mockResolvedValue([{ exists: false, dataVersion: null }]);
   mocks.save.mockResolvedValue({ saved: 1, failed: 0, results: [{ success: true, result: { dataVersion: 1 } }] });
 });
-const args = (cards = [card()]) => ({ job: createBusinessReviewJob("owner", candidate, "Reviewed synthetic details", cards),
+const args = (cards = [card()]) => ({ job: createBusinessReviewJob("owner", candidate, "Reviewed public details", cards),
   vaultKey: "test-key", vaultOwnerToken: "test-token", assertCurrent: vi.fn(async () => undefined),
   isCurrent: () => true, sharingImpactAcknowledged: false, assertListingFresh: vi.fn(async () => undefined) });
 
 describe("business profile reviewed-memory boundary", () => {
+  it.each<BusinessCandidate>([
+    { ...candidate, businessUid: "urn:hushh:business:uat:hushh.ai:v1", synthetic: true,
+      sourceIdentity: { source: "uat_fixture", sourceKey: "hushh.ai:v1" } },
+    { ...candidate, sourceIdentity: { ...candidate.sourceIdentity,
+      sourceKey: '{"source":"uat_test","source_key":"team-demo-v1"}' } },
+  ])("blocks pending demo writes while reconciling an already acknowledged receipt ($sourceIdentity.sourceKey)", async (demo) => {
+    expect(() => businessDraftMessage(demo, "Demo", "https://hushh.ai")).toThrow();
+    expect(() => attachBusinessOrigin(card(), demo)).toThrow();
+    expect(() => createBusinessReviewJob("owner", demo, "Demo", [card()])).toThrow();
+    const input = args();
+    input.job.businessUid = demo.businessUid;
+    input.job.candidate = demo;
+    input.job.candidateSnapshot = businessCandidateSnapshot(demo);
+    input.job.scopes = [`business-review:owner:${demo.businessUid}:${input.job.revision}:0`];
+    checkpoint = { version: 1, job: input.job };
+    await expect(saveBusinessReview(input)).rejects.toThrow("suggestion changed");
+    expect(input.assertListingFresh).not.toHaveBeenCalled();
+    expect(mocks.save).not.toHaveBeenCalled();
+    mocks.lookup.mockResolvedValue([{ exists: true, dataVersion: 2 }]);
+    expect(await saveBusinessReview(input)).toEqual({ saved: 1, remaining: 0 });
+    expect(input.assertListingFresh).not.toHaveBeenCalled();
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
   it("keeps policy out of source facts and rejects personal destinations, sibling facts and invented metadata", () => {
     const message = businessDraftMessage(candidate, "Example business", "https://example.test");
     const details = JSON.parse(message);
@@ -132,8 +155,8 @@ describe("business profile reviewed-memory boundary", () => {
     const original = card(); const result = attachBusinessOrigin(original, candidate);
     expect(result.target_domain).toBe("professional"); expect(result.target_entity_id).toBe("mem_one");
     expect(result.candidate_payload).toMatchObject({ businesses: { entities: { mem_one: { _business_origin: {
-      business_uid: candidate.businessUid, synthetic: true, ownership_verified: false,
-      source_identity: { source: "uat_fixture", source_key: "hushh.ai:v1" },
+      business_uid: candidate.businessUid, synthetic: false, ownership_verified: false,
+      source_identity: { source: "directory", source_key: '{"id":"1"}' },
     } } } } });
     expect(JSON.stringify(original)).not.toContain("_business_origin");
     expect(shouldSkipPkmAgentContextKey("_business_origin")).toBe(true);

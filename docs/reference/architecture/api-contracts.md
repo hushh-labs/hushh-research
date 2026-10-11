@@ -921,9 +921,7 @@ The maintained architecture reference is [Personal Gmail Information Requests](.
 ### B2B profile suggestion — directory discovery, review and confirmation
 
 Real mode is independently default-off: `ONE_BUSINESS_DIRECTORY_ENABLED=true`
-(runtime JSON key `one_business_directory_enabled`). It takes precedence over
-the fixture and never falls back to synthetic information. It returns
-`b2b-profile-suggestion.v2`; v1 remains the synthetic UAT contract below.
+(runtime JSON key `one_business_directory_enabled`). It returns `b2b-profile-suggestion.v2` in every state and never falls back to synthetic information. The retired team fixture is rejected by the frontend, including when an older backend still returns it.
 Fresh primary Firebase email control and Firebase/account-OTP verified phone
 control supply independent lookup signals, never caller query parameters or
 unverified profile fields. Consumer email domains and non-US phones are omitted,
@@ -991,12 +989,9 @@ For a localhost-only rehearsal, `ONE_BUSINESS_LOCAL_REHEARSAL_ENABLED=true`
 is a process-only maintainer override. It additionally requires review mode,
 the exact canonical `REVIEWER_UID`, an actual loopback request peer (not a
 forwarded header), the `development`/`local` runtime, no hosted-runtime markers,
-and the exact UAT Cloud SQL instance with a loopback database host. It never
-relaxes the verified primary `hushh.ai` email or completed-vault checks. A
-reviewer outside that domain receives no fixture; do not alter that identity
-or waive the domain check to manufacture a passing rehearsal. Shared reviewer
-PKM writes still require explicit operator approval. This does not enable the
-fixture in production or implement real directory matching.
+and the exact UAT Cloud SQL instance with a loopback database host. It uses the same verified-contact directory lookup and v2 response as hosted discovery.
+It cannot manufacture a team profile. Shared reviewer PKM writes still require
+explicit operator approval.
 
 `GET /api/one/business/suggestion` requires the existing `VAULT_OWNER`
 capability. The owner is derived from its validated token; query/body email,
@@ -1004,37 +999,30 @@ phone and user IDs cannot select a claimant. Responses, including auth errors,
 are private/no-store. Requests are bounded to 10/minute per existing limiter
 key (process-local unless a shared limiter backend is configured).
 
-`b2b-profile-suggestion.v1` returns `scope: "b2b"`, `status` (`disabled`,
-`no_match`, or `suggestion_available`), `candidates` (zero or one), and
-`pkm_written: false`. A provider outage is `503 BUSINESS_IDENTITY_UNAVAILABLE`,
-not `no_match`. A fresh Firebase primary email must be verified and its exact
-domain must be `hushh.ai`; a cached identity, alias or client assertion cannot
-establish eligibility. Disabled or mismatched Firebase identities fail closed.
-The canonical `vault_keys` row must also have `setup_completed=true` and an
-active vault; this read neither creates a placeholder nor updates login state.
-Failed setup reads are unavailable, not an empty candidate list.
+The retired `ONE_BUSINESS_UAT_FIXTURE_ENABLED` switch is no longer read by the
+runtime. The frontend accepts empty v1 envelopes for compatibility with older
+disabled backends, but rejects every v1 candidate and any `synthetic:true` or
+`uat_fixture` candidate under v2. There is no local synthetic preview builder.
+Only real public directory candidates can be displayed, prepared, or saved.
+The backend rejects upstream `synthetic` or `is_test_profile` markers and the
+reserved `uat_fixture` and `uat_test` native sources rather than relabeling them as real.
+An arbitrary unmarked upstream seed is not proof of real information.
 
-The default-off server switch `ONE_BUSINESS_UAT_FIXTURE_ENABLED=true` maps from
-`one_business_uat_fixture_enabled` in `BACKEND_RUNTIME_CONFIG_JSON`. Admission
-also requires explicit `ENVIRONMENT=uat`; any supplied `HUSHH_DEPLOY_ENV` or
-`APP_RUNTIME_PROFILE` must be `uat`. Missing runtime identity, production,
-hosted dev and conflicting labels return `disabled` before provider access,
-even if the switch is on. This change does not enable or deploy the switch.
-
-The sole candidate is `Hushh — UAT Test Business`, explicitly `synthetic`,
-with website `https://hushh.ai`, source `uat_fixture`, source key `hushh.ai:v1`,
-and stable `business_uid: urn:hushh:business:uat:hushh.ai:v1`. This test business
-UID is not the user UID and is not a production directory identity. There are
-no fabricated phone/address facts. Domain evidence grants no ownership:
-`ownership_verified` and `claim_created` remain false, and business authority
-still requires verification.
-
+Encrypted review keys and idempotency scopes are unchanged. An old synthetic
+checkpoint cannot authorize a new PKM write, but an already acknowledged
+mutation receipt can still be reconciled without replaying the writer or
+requiring a current listing. Previously confirmed saved PKM is not deleted by
+disabling discovery.
 The typed `BusinessSuggestionService` uses `apiJson` with no-store and caller
 owner authority, through the existing One Next proxy on web and `ApiService`
 Capacitor HTTP on native. No new screen or native plugin is introduced in this
 slice; physical-device acceptance is not claimed. The service rejects unknown
 versions and inconsistent candidate/status shapes. Consumers must call after
-setup resolves and the vault unlocks. Ordinary suggestion responses stay in memory.
+setup resolves and the vault unlocks. Ordinary suggestion responses stay in memory. Both business and Magic Intelligence
+cards wait for loaded owner progress and finished personality onboarding; they
+do not mount or request discovery while questions, confirmation, saving or
+failed-save recovery are active. Follow-up cards render after the final
+personality turn, including when ordinary chat messages interrupt onboarding.
 
 The main chat workspace mounts `BusinessProfileSuggestion` after current auth
 and unlocked-vault admission, requiring known, unexpired owner authority.

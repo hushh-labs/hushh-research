@@ -38,6 +38,8 @@ describe("business suggestion transport", () => {
       { ...response, candidates: [real, real] },
       { ...response, candidates: [{ ...real, ownership_verified: true }] },
       { ...response, candidates: [{ ...real, source_identity: { ...real.source_identity, vertical: "ria" } }] },
+      { ...response, candidates: [{ ...real, source_identity: { ...real.source_identity,
+        source_key: '{"source":"uat_test","source_key":"team-demo-v1"}' } }] },
     ]) {
       apiJson.mockResolvedValue(invalid);
       await expect(BusinessSuggestionService.get("owner-token")).rejects.toThrow();
@@ -60,8 +62,8 @@ describe("business suggestion transport", () => {
     expect(apiJson).not.toHaveBeenCalled();
   });
 
-  it("projects the labelled test candidate without turning it into ownership", async () => {
-    apiJson.mockResolvedValue({ ...empty, status: "suggestion_available", candidates: [{
+  it.each(["b2b-profile-suggestion.v1", "b2b-profile-suggestion.v2"])("rejects the retired team demo even under %s", async contract_version => {
+    apiJson.mockResolvedValue({ ...empty, contract_version, status: "suggestion_available", candidates: [{
       business_uid: "urn:hushh:business:uat:hushh.ai:v1", synthetic: true,
       source_identity: { source: "uat_fixture", source_key: "hushh.ai:v1" },
       match_evidence: [{ kind: "verified_email_domain", domain: "hushh.ai" }],
@@ -72,12 +74,7 @@ describe("business suggestion transport", () => {
       ownership_verified: false, claim_created: false,
       verification_required: ["business_authority"],
     }] });
-    const result = await BusinessSuggestionService.get("owner-token");
-    expect(result.candidates[0]).toMatchObject({
-      businessUid: "urn:hushh:business:uat:hushh.ai:v1",
-      synthetic: true, ownershipVerified: false, claimCreated: false,
-      sourceIdentity: { source: "uat_fixture", sourceKey: "hushh.ai:v1" },
-    });
+    await expect(BusinessSuggestionService.get("owner-token")).rejects.toThrow();
   });
 
   it.each([

@@ -30,7 +30,7 @@
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Chat actions complete only after the correlated browser or capability settlement succeeds. The onboarding public-profile card stays a draft until the owner confirms the exact memory preview; Edit and Review unwind locally on Back.",
+        "completion_boundary": "Chat actions complete only after the correlated browser or capability settlement succeeds. Magic Intelligence and public business cards start only after personality onboarding finishes, in a separate follow-up turn. The public-profile card stays a draft until the owner confirms the exact memory preview; Edit and Review unwind locally on Back.",
         "next_route": "/",
         "return_policy": "resolve_root",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
