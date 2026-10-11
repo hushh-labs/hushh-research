@@ -109,7 +109,12 @@ async def _arm(transport, fake, pending, *, note: str | None = None):
     """Drive: model proposes -> card -> tap. Returns (session, task, card)."""
     session = _session(transport, fake, pending)
     task = asyncio.create_task(session.run())
-    await asyncio.sleep(0.3)
+    async with asyncio.timeout(3):
+        while not transport.frames("pending_action"):
+            if task.done():
+                await task
+                raise AssertionError("Session ended before publishing the pending action")
+            await asyncio.sleep(0.01)
     card = transport.frames("pending_action")[-1]
     transport.push({"type": "pending_action.shown", "pending_action_id": card["pending_action_id"]})
     await asyncio.sleep(0.05)

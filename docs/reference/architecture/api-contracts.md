@@ -1172,12 +1172,14 @@ separate work; a static export or native compile is not sign-in proof.
 
 ### Request scope paid answers
 
+The Request scope dialog contains a recipient, one labelled question field and Cancel / Send request. Dates are optional throughout this lane. Periods written in the question remain part of the exact approved question; historical explicit date ranges remain visible and constrain the approved projection. Drive retains its own required date form.
+
 `/api/one/answer-requests` uses Firebase participant authentication and an active connection, without Trusted circle membership or connector setup. Feed and Consent Center use the same answer review card and participant status. The owner approves the exact question, narrowed scopes and whole-dollar price with explicit model-processing consent; approval never creates a standing grant.
 
 | Method | Path under `/api/one/answer-requests` | Contract |
 | --- | --- | --- |
-| GET | `/availability` | Configuration and independent composer/payment admission gates; unavailable profiles retain a disabled CTA. |
-| POST | `/` | Create a connected-person question and resolve eligible scopes through the existing resolver. |
+| GET | `/availability` | Configuration and independent composer/payment admission gates; unavailable profiles open an explanation without a send control. |
+| POST | `/` | Create a connected-person question and resolve eligible scopes through the existing resolver. `periodStart` and `periodEnd` may be omitted or null; a supplied range must contain two real ISO calendar dates in order. |
 | GET | `/inbox`, `/{id}/state` | Owner review queue or exact participant state; unrelated users cannot read the question. |
 | POST | `/{id}/approve`, `/{id}/decline`, `/{id}/cancel` | Exact terms and model-processing consent, refusal or withdrawal; paid cancellation owes a full refund. |
 | GET / POST | `/{id}/payment`, `/{id}/payment/checkout` | Quote/status and mode-bound hosted Checkout with durable overlapping-session recovery. |
