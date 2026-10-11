@@ -119,6 +119,65 @@ def _scope_policy_sync():
     return module
 
 
+@pytest.mark.parametrize("origin", [None, "", "https://dev.one.hushh.ai"])
+def test_commerce_returns_follow_application_origin_without_opening_closed_policy(origin):
+    from runpy import run_path
+    from types import SimpleNamespace
+
+    root = Path(__file__).resolve().parents[2]
+    normalize = run_path(str(root / "scripts/ops/sync_backend_runtime_secrets.py"))[
+        "_canonical_frontend_origin"
+    ]
+    policy = {"scope_commerce_enabled": False, "scope_commerce_stripe_livemode": False}
+    if origin is not None:
+        policy["scope_commerce_frontend_origin"] = origin
+    args = SimpleNamespace(
+        project="hushh-pda-dev",
+        scope_commerce_policy_file="",
+        app_frontend_origin="https://dev.one.hussh.ai",
+    )
+
+    def read(*_args, **_kwargs):
+        return SimpleNamespace(returncode=0, stdout=json.dumps(policy), stderr="")
+
+    result = _scope_policy_sync().policy_for_args(args, read, lambda *_args: True, normalize)
+    expected = dict(policy)
+    if origin:
+        expected["scope_commerce_frontend_origin"] = args.app_frontend_origin
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://dev.one.hushh.ai",
+        "https://dev.one.hushh.ai/path",
+        "https://:443",
+        "https://@dev.one.hushh.ai",
+    ],
+)
+def test_origin_rebinding_refuses_invalid_existing_commerce_configuration(origin):
+    from runpy import run_path
+    from types import SimpleNamespace
+
+    normalize = run_path(
+        str(Path(__file__).resolve().parents[2] / "scripts/ops/sync_backend_runtime_secrets.py")
+    )["_canonical_frontend_origin"]
+    args = SimpleNamespace(
+        project="hushh-pda-dev",
+        scope_commerce_policy_file="",
+        app_frontend_origin="https://dev.one.hussh.ai",
+    )
+
+    def read(*_args, **_kwargs):
+        return SimpleNamespace(
+            returncode=0, stdout=json.dumps({"scope_commerce_frontend_origin": origin}), stderr=""
+        )
+
+    with pytest.raises(ValueError):
+        _scope_policy_sync().policy_for_args(args, read, lambda *_args: True, normalize)
+
+
 def test_commerce_country_json_and_drain_identity_survive_hydration(monkeypatch):
     countries = {"US": {"currency": "usd", "minimum_cents": 50}}
     policy = {

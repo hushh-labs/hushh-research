@@ -87,7 +87,7 @@ def shared_dev_webhook_destination(args: Any, evidence: dict[str, Any], config: 
         and args.secret_project == evidence.get("secret_project") == project
         and evidence.get("source") == "dashboard_general_sandbox"
         and config.sandbox_policy_required
-        and config.frontend_origin == evidence.get("app_origin") == "https://dev.one.hushh.ai"
+        and config.frontend_origin == evidence.get("app_origin") == "https://dev.one.hussh.ai"
         and evidence.get("backend_service")
         == "projects/hushh-pda-dev/locations/us-central1/services/consent-protocol"
         and isinstance(backend, str)

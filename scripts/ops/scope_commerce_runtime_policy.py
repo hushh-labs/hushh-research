@@ -124,8 +124,18 @@ def register_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--scope-commerce-policy-file", default="", help="Approved non-secret JSON policy overlay; omitted fields retain current financial and drain settings.")
 
 
-def policy_for_args(args: argparse.Namespace, run, secret_exists) -> dict[str, Any]:
-    return _merge_scope_commerce_policy(_read_existing_runtime_config(args.project, run, secret_exists), args.scope_commerce_policy_file)
+def policy_for_args(args: argparse.Namespace, run, secret_exists, canonical_origin) -> dict[str, Any]:
+    policy = _merge_scope_commerce_policy(_read_existing_runtime_config(args.project, run, secret_exists), args.scope_commerce_policy_file)
+    origin = policy.get("scope_commerce_frontend_origin")
+    if origin:
+        if not origin.startswith("https://") or canonical_origin(origin) != origin:
+            raise ValueError("Configured scope commerce origin must be a canonical HTTPS origin")
+        application_origin = canonical_origin(args.app_frontend_origin)
+        if not application_origin.startswith("https://"):
+            raise ValueError("Scope commerce requires an HTTPS application origin")
+        # Redirects follow the governed application origin; missing/empty remains closed.
+        policy["scope_commerce_frontend_origin"] = application_origin
+    return policy
 
 
 def apply_policy(config: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:

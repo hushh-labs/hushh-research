@@ -76,6 +76,7 @@ def test_webhook_secret_destination_binds_preview_scope_account_and_project(
         "scope",
         "project",
         "origin",
+        "retired_origin",
         "callback",
         "service",
         "mode",
@@ -87,7 +88,7 @@ def test_shared_dev_webhook_sink_requires_exact_commerce_callback_and_test_pin(
     provider, scope, mutation
 ):
     service, _ = provider
-    config = replace(service.config, frontend_origin="https://dev.one.hushh.ai")
+    config = replace(service.config, frontend_origin="https://dev.one.hussh.ai")
     names = {
         "platform": "SCOPE_COMMERCE_STRIPE_WEBHOOK_SECRET",
         "connect": "SCOPE_COMMERCE_STRIPE_CONNECT_WEBHOOK_SECRET",
@@ -121,6 +122,9 @@ def test_shared_dev_webhook_sink_requires_exact_commerce_callback_and_test_pin(
         args.secret_project = evidence["secret_project"] = "production-project"
     elif mutation == "origin":
         evidence["app_origin"] = "https://other.example"
+    elif mutation == "retired_origin":
+        config = replace(config, frontend_origin="https://dev.one.hushh.ai")
+        evidence["app_origin"] = config.frontend_origin
     elif mutation == "callback":
         args.webhook_url = "https://other.example/api/payments/scope-commerce/webhook"
     elif mutation == "service":

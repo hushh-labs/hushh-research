@@ -59,7 +59,7 @@ def shared_dev_reviewer_ids(policy: dict, origin: str, backend: str) -> set[str]
 
     sandbox = SandboxPolicy.parse(policy.get("scope_commerce_sandbox_policy_json"))
     if (
-        origin != "https://dev.one.hushh.ai"
+        origin != "https://dev.one.hussh.ai"
         or not re.fullmatch(
             r"https://consent-protocol-[a-z0-9]+-uc\.a\.run\.app", backend
         )
@@ -131,7 +131,7 @@ def runtime_reviewer_binding(secret, config: dict, read) -> tuple[set[str], str,
         raise ValueError("isolated_reviewer_runtime_required")
     backend = secret("BACKEND_URL")
     versions = {}
-    shared_dev = config["app_origin"] == "https://dev.one.hushh.ai"
+    shared_dev = config["app_origin"] == "https://dev.one.hussh.ai"
     if shared_dev:
         versions = verify_shared_dev_runtime(read, backend)
         policy = json.loads(
@@ -200,7 +200,7 @@ def main() -> None:
     if response.status_code != 200 or response.json().get("email") != "kushal@hushh.ai":
         raise ValueError("approved_operator_identity_required")
     client = secretmanager.SecretManagerServiceClient(credentials=adc)
-    shared_dev = config["app_origin"] == "https://dev.one.hushh.ai"
+    shared_dev = config["app_origin"] == "https://dev.one.hussh.ai"
     prefix = "" if shared_dev else "SCOPE_COMMERCE_SANDBOX_"
 
     def secret(name: str, version: str = "latest") -> str:

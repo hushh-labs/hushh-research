@@ -34,7 +34,7 @@ this is environment containment, not proof of service-level isolation. No backen
 mint response is intercepted or manufactured.
 
 The shared Dev rehearsal may explicitly select the same private pipe at
-`https://dev.one.hushh.ai`. It reads only Dev's unprefixed runtime configuration
+`https://dev.one.hussh.ai`. It reads only Dev's unprefixed runtime configuration
 and Firebase credential binding. Admission requires the approved two-reviewer
 Sandbox policy, account `acct_1UNyyyLsJU9ZDBZX`, test mode, the exact Dev frontend
 and backend origins, and a ready backend revision serving 100% of traffic with

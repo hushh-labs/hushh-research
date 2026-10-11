@@ -20,7 +20,7 @@ def issuer():
 def dev_policy():
     return {
         "environment": "dev",
-        "scope_commerce_frontend_origin": "https://dev.one.hushh.ai",
+        "scope_commerce_frontend_origin": "https://dev.one.hussh.ai",
         "scope_commerce_sandbox_policy_required": True,
         "scope_commerce_stripe_livemode": False,
         "scope_commerce_stripe_account_id": "acct_1UNyyyLsJU9ZDBZX",
@@ -39,7 +39,7 @@ def test_shared_dev_admission_requires_exact_sandbox_policy(issuer):
 
     from hushh_mcp.services.scope_commerce.stripe_adapter import CommerceProviderError
 
-    origin = "https://dev.one.hushh.ai"
+    origin = "https://dev.one.hussh.ai"
     backend = "https://consent-protocol-synthetic-uc.a.run.app"
     policy = dev_policy()
     assert issuer.shared_dev_reviewer_ids(policy, origin, backend) == {"primary", "counterpart"}
@@ -62,6 +62,11 @@ def test_shared_dev_admission_requires_exact_sandbox_policy(issuer):
     ):
         with pytest.raises(ValueError):
             issuer.shared_dev_reviewer_ids(policy, wrong_origin, wrong_backend)
+    retired = "https://dev.one.hushh.ai"
+    with pytest.raises(ValueError):
+        issuer.shared_dev_reviewer_ids(
+            {**policy, "scope_commerce_frontend_origin": retired}, retired, backend
+        )
     wrong = deepcopy(policy)
     wrong["scope_commerce_sandbox_policy_json"]["reviewer_user_ids"] = ["primary"] * 2
     with pytest.raises(CommerceProviderError):
@@ -126,13 +131,13 @@ def test_shared_dev_admission_requires_serving_runtime_and_secret_binding(issuer
     def secret(name, version="latest"):
         calls.append((name, version))
         return {
-            "APP_FRONTEND_ORIGIN": "https://dev.one.hushh.ai",
+            "APP_FRONTEND_ORIGIN": "https://dev.one.hussh.ai",
             "BACKEND_URL": backend,
             "BACKEND_RUNTIME_CONFIG_JSON": json.dumps(policy),
         }[name]
 
     ids, lane, versions = issuer.runtime_reviewer_binding(
-        secret, {"app_origin": "https://dev.one.hushh.ai"}, records.__getitem__
+        secret, {"app_origin": "https://dev.one.hussh.ai"}, records.__getitem__
     )
     assert ids == {"primary", "counterpart"} and lane == "dev"
     assert ("BACKEND_RUNTIME_CONFIG_JSON", "7") in calls

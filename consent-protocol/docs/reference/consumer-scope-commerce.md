@@ -2244,7 +2244,7 @@ not shared Dev writer admission, a live cutover or canonical baseline.
 ### Main synchronization and current evidence — 2026-10-11 UTC
 
 The infrastructure branch integrated main `1ee136eb` and then the newer
-`5d756e38`, `14a052a8` and `5685d52f` sources through normal merges on the same
+`5d756e38`, `14a052a8`, `5685d52f`, `d532367c` and `e4c9e8e2` sources through normal merges on the same
 branch. No history rewrite,
 new delivery branch, migration baseline or database receipt relabeling is part
 of this synchronization. Main 299–305 keep their identities; unchanged branch
@@ -2301,6 +2301,14 @@ call Stripe or prove reviewer transactions. The packed deployment settings now
 carry the canonical `ANSWER_WORK_DRAIN_AUDIENCE` through Cloud Build and runtime,
 matching the existing workflow and scheduler authority contract. The runtime
 contract check and 36 focused deployment/drain cases pass.
+New Checkout and onboarding returns follow the governed application's HTTPS
+origin. The current Dev origin is `https://dev.one.hussh.ai`; exact reviewer and
+webhook admission pins match it. Missing/empty commerce origin remains closed,
+and malformed existing origins refuse rebinding. Stored provider requests and
+historical return URLs remain immutable; this does not retire the global
+same-environment OAuth/passkey alias contract. Alternate manual release and Dev
+doctor helpers still reference the earlier spelling; the governed workflow owns
+this release. Financial flags, Sandbox identity and caps remain unchanged.
 The Location fixture now unmounts before restoring clocks/globals and resets
 queued asynchronous responses; all 179 Location cases and the canonical 422-case
 Back suite pass with unchanged assertions and timeouts. A synchronized source

@@ -145,8 +145,9 @@ def _canonical_frontend_origin(app_frontend_origin: str) -> str:
     if (
         parsed.scheme not in {"http", "https"}
         or not parsed.netloc
-        or parsed.username
-        or parsed.password
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
         or parsed.query
         or parsed.fragment
         or parsed.path not in {"", "/"}
@@ -576,7 +577,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         _validate_connector_rollout(args)
-        args.scope_commerce_policy = _scope_commerce_runtime_policy()["policy_for_args"](args, _run, _secret_exists)
+        args.scope_commerce_policy = _scope_commerce_runtime_policy()["policy_for_args"](args, _run, _secret_exists, _canonical_frontend_origin)
     except ValueError as exc:
         parser.error(str(exc))
 
