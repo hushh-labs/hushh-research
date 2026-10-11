@@ -311,20 +311,36 @@ test("Messages dock remains above the keyboard when the transcript reserves the 
   page.on("pageerror", error => errors.push(error.message));
   for (const width of [320, 393, 768]) {
     await open(page, width, false, { name: "Messages dock", html: { composer: "true", reserveFullDock: "true" } }, errors);
-    await expect(page.getByRole("textbox", { name: "Message One" })).toBeVisible();
+    const input = page.getByRole("textbox", { name: "Message One" });
+    await expect(input).toBeVisible();
+    const agentSlot = page.locator("[data-bottom-shell-agent-slot]");
+    expect(await agentSlot.evaluate(node => getComputedStyle(node).translate)).toBe("none");
+    for (const mode of ["native-inset", "mobile-web", "resized-viewport"]) {
+      const resized = mode === "resized-viewport";
+      await page.setViewportSize({ width, height: resized ? 564 : 844 });
+      await page.evaluate(({ mode, resized }) => {
+        document.documentElement.classList.remove("native-keyboard-inset", "kb-resizes");
+        document.documentElement.classList.add("kb-open");
+        if (mode === "native-inset") document.documentElement.classList.add("native-keyboard-inset");
+        if (resized) document.documentElement.classList.add("kb-resizes");
+        document.documentElement.style.setProperty("--kb-height", resized ? "0px" : "280px");
+      }, { mode, resized });
+      await expect(input).toBeVisible();
+      await expect(page.locator("[data-bottom-shell-navigation-slot]")).toBeHidden();
+      const clearance = async () => {
+        const frame = await page.locator("[data-agent-dock-surface]").boundingBox();
+        return frame ? Math.round(564 - frame.y - frame.height) : -1;
+      };
+      await expect.poll(clearance).toBeGreaterThanOrEqual(7);
+      await expect.poll(clearance).toBeLessThanOrEqual(9);
+    }
+    await page.locator("[data-messages-dock]").evaluate(node => node.setAttribute("data-native-agent-dock", "true"));
     await page.evaluate(() => {
-      document.documentElement.classList.add("native-keyboard-inset", "kb-open");
+      document.documentElement.classList.remove("kb-resizes");
+      document.documentElement.classList.add("native-keyboard-inset");
       document.documentElement.style.setProperty("--kb-height", "280px");
     });
-    await expect(page.locator("[data-bottom-shell-navigation-slot]")).toBeHidden();
-    await expect.poll(async () => {
-      const frame = await page.locator("[data-agent-dock-surface]").boundingBox();
-      return frame ? Math.round(844 - 280 - frame.y - frame.height) : -1;
-    }).toBeGreaterThanOrEqual(7);
-    await expect.poll(async () => {
-      const frame = await page.locator("[data-agent-dock-surface]").boundingBox();
-      return frame ? Math.round(844 - 280 - frame.y - frame.height) : -1;
-    }).toBeLessThanOrEqual(9);
+    expect(await agentSlot.evaluate(node => getComputedStyle(node).translate)).toBe("none");
     expect(errors).toEqual([]);
   }
 });

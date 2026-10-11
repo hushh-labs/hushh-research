@@ -3119,7 +3119,7 @@ html.native-keyboard-inset iframe[id^="plaid-link-iframe"] {
  * flipping and two backdrop-blur layers taking their first paint in the
  * middle of the composer's descent, which the keyboard trace showed as a
  * 4 px step followed by a 74 px step (bug log B48). */
-html.kb-open:not(.native-keyboard-inset) [data-app-bottom-shell]:not([data-agent-dock-chat]),
+html.kb-open:not(.native-keyboard-inset) [data-app-bottom-shell]:not([data-agent-dock-chat]):not([data-messages-dock]),
 html.kb-open:not(.native-keyboard-inset) .ambient-chrome-mask--bottom {
   opacity: 0;
   visibility: hidden;
@@ -3144,7 +3144,7 @@ html.kb-open [data-keyboard-anchor="bottom"][data-search-surface] {
  * Ultra, 2026-09-22). iOS keeps its frame and the keyboard covers the tab
  * bar; here the tab bar steps aside for the same result, and the root
  * composer gives back the room it reserved for the bar. */
-html.kb-open.kb-resizes [data-app-bottom-shell]:not([data-agent-dock-chat]),
+html.kb-open.kb-resizes [data-app-bottom-shell]:not([data-agent-dock-chat]):not([data-messages-dock]),
 html.kb-open.kb-resizes .ambient-chrome-mask--bottom {
   opacity: 0;
   visibility: hidden;
@@ -6165,7 +6165,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 /* Keep the one composer available above the keyboard. Only navigation steps
  * aside; hiding the whole shell would also hide its now-shared input. */
-html.kb-open [data-agent-dock-chat] [data-bottom-shell-navigation-slot] {
+html.kb-open :is([data-agent-dock-chat], [data-messages-dock]) [data-bottom-shell-navigation-slot] {
   visibility: hidden;
   pointer-events: none;
 }
@@ -6175,26 +6175,27 @@ html.kb-open [data-messages-dock]:not([data-command-active="true"]):not(:has([da
   visibility: hidden;
   pointer-events: none;
 }
-html.kb-open [data-agent-dock-chat] [data-bottom-shell-motion-stack] {
+html.kb-open :is([data-agent-dock-chat], [data-messages-dock]) [data-bottom-shell-motion-stack] {
   transform: none !important;
 }
 /* NativeDockPlacement follows UIKit's keyboard guide. Its DOM reservation
  * stays at the authored resting position; translating it would feed a second
  * keyboard offset back into the next native projection. */
-html:not(.kb-resizes) [data-agent-dock-chat]:not([data-native-agent-dock]) [data-bottom-shell-agent-slot] {
+html:not(.kb-resizes) [data-agent-dock-chat]:not([data-native-agent-dock]) [data-bottom-shell-agent-slot],
+html.kb-open:not(.kb-resizes) [data-messages-dock]:not([data-native-agent-dock]) [data-bottom-shell-agent-slot] {
   translate: 0 calc(max(0px, var(--kb-height, 0px) - var(--app-bottom-shell-keyboard-reservation, var(--app-bottom-shell-height, 0px)) + 0.5rem) * -1);
   transition: translate var(--kb-motion-duration) var(--kb-motion-curve);
 }
-html.kb-open.kb-resizes [data-agent-dock-chat] {
+html.kb-open.kb-resizes :is([data-agent-dock-chat], [data-messages-dock]) {
   padding-bottom: 0.5rem !important;
 }
-html.kb-open.kb-resizes [data-agent-dock-chat] [data-bottom-shell-navigation-slot] {
+html.kb-open.kb-resizes :is([data-agent-dock-chat], [data-messages-dock]) [data-bottom-shell-navigation-slot] {
   display: none;
 }
 @media (prefers-reduced-motion: reduce) {
   [data-agent-dock-composer]:not([hidden]),
   [data-agent-dock-voice]:not([hidden]) { animation: none; }
-  html:not(.kb-resizes) [data-agent-dock-chat] [data-bottom-shell-agent-slot] { transition: none; }
+  html:not(.kb-resizes) :is([data-agent-dock-chat], [data-messages-dock]) [data-bottom-shell-agent-slot] { transition: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

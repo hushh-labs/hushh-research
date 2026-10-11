@@ -388,12 +388,26 @@ for (const width of [320, 393, 834, 1440]) {
         const heights = await siblings.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height));
         expect(heights.length).toBeGreaterThan(1); // Real consumers, not an empty fixture.
         expect(spread(heights)).toBeLessThanOrEqual(1);
-        const titleOffsets = await siblings.evaluateAll((nodes) => nodes.map((node) => {
+        const titleOffsets = await siblings.evaluateAll((nodes) => nodes.filter((node) =>
+          node.querySelector('[data-slot="settings-row-description"]'),
+        ).map((node) => {
           const title = node.querySelector('[data-slot="settings-row-title"]')!;
           return title.getBoundingClientRect().top - node.getBoundingClientRect().top;
         }));
+        expect(titleOffsets.length).toBeGreaterThan(1);
         expect(spread(titleOffsets), `${await source.getAttribute("data-testid")}: uniform siblings retain a shared title start when supporting copy wraps`).toBeLessThanOrEqual(1);
         for (const row of await siblings.all()) {
+          if (await row.locator('[data-slot="settings-row-description"]').count() === 0) {
+            expect(await row.evaluate((node) => {
+              const title = node.querySelector('[data-slot="settings-row-title"]')!.getBoundingClientRect();
+              const titleCenter = title.top + title.height / 2;
+              return [...node.querySelectorAll('[data-slot="settings-row-icon"],[data-slot="settings-row-chevron"]')]
+                .every((control) => {
+                  const box = control.getBoundingClientRect();
+                  return Math.abs(titleCenter - box.top - box.height / 2) <= 1;
+                });
+            }), "title-only siblings retain centered title, icon and chevron").toBe(true);
+          }
           // Voice rows intentionally have only a trailing switch or a passive
           // Coming soon badge; they are not full-row navigation actions.
           if (source !== voiceGroup) expect(await contract(row)).toEqual([]);
@@ -411,7 +425,7 @@ for (const width of [320, 393, 834, 1440]) {
       for (const wallet of walletGroups) {
         expect(await wallet.locator("[data-row-layout]").count()).toBe(5);
         const descriptions = await wallet.locator('[data-slot="settings-row-description"]').allTextContents();
-        expect(descriptions).toHaveLength(5);
+        expect(descriptions).toHaveLength(4);
         expect(descriptions.every((text) => text.trim().length > 0)).toBe(true);
       }
       expect(await voiceGroup.locator("[data-row-layout]").count()).toBe(8);

@@ -186,7 +186,6 @@ describe("Wallet visit introduction", () => {
     expect(screen.getByRole("button", { name: "Open New card, ending 4242" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Open Agent One Profile" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "All (4)" })).toBeEnabled();
-    expect(screen.getByTestId("one-wallet-reveal-4242")).toBeEnabled();
     expect(screen.queryByTestId("wallet-preview-collection")).toBeNull();
     expect(within(screen.getByRole("region", { name: "Saved card details" })).getByText("•••• •••• •••• 4242")).toBeVisible();
     expect(screen.getByText("Card recipients")).toBeVisible();

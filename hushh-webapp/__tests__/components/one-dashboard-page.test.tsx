@@ -147,6 +147,7 @@ describe("OneDashboardPage", () => {
       "gmail",
       "calendar",
       "pkm",
+      "files",
       "consent",
       "messages",
     ] as const;
