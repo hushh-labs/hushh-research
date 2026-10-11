@@ -524,6 +524,11 @@ jobs:
         # through the environment (not inline expressions in shell) keeps an
         # opaque Firebase UID cohort from becoming executable shell text.
         env:
+          UAT_ONE_PROFILE_RESEARCH_ENABLED: ${{ vars.ONE_PROFILE_RESEARCH_ENABLED_UAT || 'true' }}
+          UAT_ONE_MAGIC_INTELLIGENCE_PHASE: ${{ vars.ONE_MAGIC_INTELLIGENCE_PHASE_UAT || '1' }}
+          UAT_ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS: ${{ vars.ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS_UAT || '' }}
+          UAT_ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS: ${{ vars.ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS_UAT || 'ankit@hushh.ai,i-akshat@hush1one.com,i-neelesh@hushh.ai,kushal@hushh.ai' }}
+          UAT_ONE_MAGIC_INTELLIGENCE_QA_EMAILS: ${{ vars.ONE_MAGIC_INTELLIGENCE_QA_EMAILS_UAT || 'jhumma@hushh.ai' }}
           UAT_CONNECTIONS_PANEL_V2: ${{ vars.CONNECTIONS_PANEL_V2_UAT || 'false' }}
           UAT_GOOGLE_DRIVE_CONNECTION: ${{ vars.GOOGLE_DRIVE_CONNECTION_UAT || 'false' }}
           UAT_GOOGLE_DRIVE_LIVE: ${{ vars.GOOGLE_DRIVE_LIVE_UAT || 'false' }}
@@ -590,6 +595,11 @@ jobs:
             --insurance-agents-api-base-url "${{ vars.INSURANCE_AGENTS_API_BASE_URL || 'https://insurance-agents.34.61.69.175.sslip.io' }}" \
             --one-places-directory-enabled "${{ vars.ONE_PLACES_DIRECTORY_ENABLED_UAT || 'true' }}" \
             --one-business-directory-enabled "${{ vars.ONE_BUSINESS_DIRECTORY_ENABLED_UAT || 'false' }}" \
+            --one-profile-research-enabled "$UAT_ONE_PROFILE_RESEARCH_ENABLED" \
+            --one-magic-intelligence-phase "$UAT_ONE_MAGIC_INTELLIGENCE_PHASE" \
+            --one-magic-intelligence-inner-team-emails "$UAT_ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS" \
+            --one-magic-intelligence-senior-team-emails "$UAT_ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS" \
+            --one-magic-intelligence-qa-emails "$UAT_ONE_MAGIC_INTELLIGENCE_QA_EMAILS" \
             --one-voice-mail-reply-enabled "${{ vars.ONE_VOICE_MAIL_REPLY_ENABLED_UAT || 'true' }}" \
             --one-voice-mail-schedule-send-enabled "${{ vars.ONE_VOICE_MAIL_SCHEDULE_SEND_ENABLED_UAT || 'true' }}" \
             --one-voice-mail-drafts-enabled "${{ vars.ONE_VOICE_MAIL_DRAFTS_ENABLED_UAT || 'true' }}" \

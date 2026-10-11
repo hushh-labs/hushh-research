@@ -102,6 +102,11 @@ def fixture_identity(monkeypatch):
 
     monkeypatch.setattr(ActorIdentityService, "get_many", no_phone_claim)
     monkeypatch.setenv("ONE_BUSINESS_DIRECTORY_ENABLED", "true")
+    monkeypatch.setenv("ONE_MAGIC_INTELLIGENCE_PHASE", "2")
+    monkeypatch.setenv(
+        "ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS",
+        "alex@example.test,person@hushh.ai,owner@gmail.com,person@company.test",
+    )
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.delenv("ONE_BUSINESS_UAT_FIXTURE_ENABLED", raising=False)
     monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
@@ -109,6 +114,7 @@ def fixture_identity(monkeypatch):
     monkeypatch.setattr(service, "get_firebase_auth_app", lambda: object())
     monkeypatch.setattr(service, "_setup_resolved", AsyncMock(return_value=True))
     monkeypatch.setattr(service, "business_profile_saved", AsyncMock(return_value=False))
+    monkeypatch.setattr(service, "magic_intelligence_saved", AsyncMock(return_value=False))
     record = SimpleNamespace(
         uid="owner", disabled=False, email="person@hushh.ai", email_verified=True
     )
@@ -164,6 +170,32 @@ async def test_completion_read_failure_never_reoffers_profile(fixture_identity, 
     with pytest.raises(service.BusinessSuggestionUnavailable):
         await service.get_business_suggestion("owner")
     assert fixture_identity[1] == []
+
+
+@pytest.mark.parametrize("saved", ["already", "during_lookup", "unavailable"])
+@pytest.mark.asyncio
+async def test_completed_magic_never_reoffers_optional_business(
+    fixture_identity, monkeypatch, saved
+):
+    directory = AsyncMock(return_value={"status": "offered", "candidates": []})
+    monkeypatch.setattr(service, "lookup_directory", directory)
+    check = AsyncMock(
+        side_effect=(
+            RuntimeError("completion unavailable")
+            if saved == "unavailable"
+            else [True]
+            if saved == "already"
+            else [False, True]
+        )
+    )
+    monkeypatch.setattr(service, "magic_intelligence_saved", check)
+    if saved == "unavailable":
+        with pytest.raises(service.BusinessSuggestionUnavailable):
+            await service.get_business_suggestion("owner")
+    else:
+        result = await service.get_business_suggestion("owner")
+        assert result["status"] == "disabled" and result["candidates"] == []
+    assert directory.await_count == (1 if saved == "during_lookup" else 0)
 
 
 @pytest.mark.parametrize(
@@ -296,7 +328,7 @@ async def test_verified_owner_uses_directory_candidate_not_synthetic_fixture(
     # This test's adapter is mocked so it remains independent of Cloud Run.
     result = await service.get_business_suggestion("owner")
     candidate = result["candidates"][0]
-    assert calls == ["owner"]
+    assert calls == ["owner", "owner"]  # Fresh admission and result-release identity.
     assert result["status"] == "suggestion_available"
     assert result["pkm_written"] is False
     assert candidate["synthetic"] is False
@@ -400,6 +432,41 @@ async def test_non_uat_and_conflicting_labels_never_read_identity(
     assert calls == []
 
 
+@pytest.mark.parametrize("change", ["email", "verification", "exception_off"])
+@pytest.mark.asyncio
+async def test_local_rehearsal_cannot_release_changed_contact_or_withdrawn_exception(
+    fixture_identity, monkeypatch, change
+):
+    record, _ = fixture_identity
+    for key, value in {
+        "ONE_MAGIC_INTELLIGENCE_PHASE": "0",
+        "ONE_BUSINESS_DIRECTORY_ENABLED": "false",
+        "ENVIRONMENT": "development",
+        "APP_RUNTIME_PROFILE": "local",
+        "APP_REVIEW_MODE": "true",
+        "ONE_BUSINESS_LOCAL_REHEARSAL_ENABLED": "true",
+        "REVIEWER_UID": "owner",
+        "GOOGLE_CLOUD_PROJECT": "hushh-pda-uat",
+        "DB_HOST": "127.0.0.1",
+        "CLOUDSQL_INSTANCE_CONNECTION_NAME": "hushh-pda-uat:us-central1:hushh-uat-pg",
+    }.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.delenv("K_SERVICE", raising=False)
+
+    async def lookup(*args, **kwargs):
+        if change == "email":
+            record.email = "different@example.test"
+        elif change == "verification":
+            record.email_verified = False
+        else:
+            monkeypatch.setenv("ONE_BUSINESS_LOCAL_REHEARSAL_ENABLED", "false")
+        return {"status": "suggestion_available", "candidates": [{"private": "draft"}]}
+
+    monkeypatch.setattr(service, "lookup_directory", lookup)
+    result = await service.get_business_suggestion("owner", local_loopback=True)
+    assert result["status"] == "disabled" and result["candidates"] == []
+
+
 @pytest.mark.parametrize(
     "email,verified",
     [
@@ -421,7 +488,7 @@ async def test_ineligible_email_never_builds_candidate(
         service, "lookup_directory", lambda *args, **kwargs: pytest.fail("ineligible lookup")
     )
     result = await service.get_business_suggestion("owner")
-    assert result["status"] == "insufficient_signals"
+    assert result["status"] == "disabled"
     assert result["candidates"] == []
 
 
@@ -452,6 +519,59 @@ async def test_lookup_outage_cannot_use_cached_identity(fixture_identity, monkey
     assert "private-provider" not in str(error.value)
 
 
+@pytest.mark.parametrize("change", ["phase_off", "global_off", "email", "verification", "failure"])
+@pytest.mark.asyncio
+async def test_magic_rollout_rechecks_before_releasing_directory_results(
+    fixture_identity, monkeypatch, change
+):
+    record, calls = fixture_identity
+
+    async def lookup(*args, **kwargs):
+        if change == "phase_off":
+            monkeypatch.setenv("ONE_MAGIC_INTELLIGENCE_PHASE", "0")
+        elif change == "global_off":
+            monkeypatch.setenv("ONE_BUSINESS_DIRECTORY_ENABLED", "false")
+        elif change == "email":
+            record.email = "alex@example.test"  # Also admitted; still a changed identity.
+        elif change == "verification":
+            record.email_verified = False
+        elif change == "failure":
+            monkeypatch.setattr(service, "_lookup_identity", MagicMock(side_effect=RuntimeError()))
+        return {"status": "suggestion_available", "candidates": [{"private": "draft"}]}
+
+    monkeypatch.setattr(service, "lookup_directory", lookup)
+    if change == "failure":
+        with pytest.raises(service.BusinessSuggestionUnavailable):
+            await service.get_business_suggestion("owner")
+    else:
+        result = await service.get_business_suggestion("owner")
+        assert result["status"] == "disabled" and result["candidates"] == []
+    assert calls[0] == "owner"
+
+
+@pytest.mark.asyncio
+async def test_exact_pilot_is_admitted_but_other_users_never_call_directory(
+    fixture_identity, monkeypatch
+):
+    from hushh_mcp.services.magic_intelligence_admission import PILOT_EMAIL
+
+    record, _ = fixture_identity
+    monkeypatch.setenv("ONE_MAGIC_INTELLIGENCE_PHASE", "1")
+    lookup = AsyncMock(return_value={"status": "no_match", "candidates": []})
+    monkeypatch.setattr(service, "lookup_directory", lookup)
+    for email, verified in [
+        ("person@hushh.ai", True),
+        (PILOT_EMAIL, False),
+        ("parth.mawai.12+alias@gmail.com", True),
+    ]:
+        record.email, record.email_verified = email, verified
+        assert (await service.get_business_suggestion("owner"))["status"] == "disabled"
+    lookup.assert_not_awaited()
+    record.email, record.email_verified = PILOT_EMAIL, True
+    assert (await service.get_business_suggestion("owner"))["status"] == "no_match"
+    lookup.assert_awaited_once()
+
+
 @pytest.mark.parametrize("field,value", [("disabled", True), ("uid", "other-owner")])
 @pytest.mark.asyncio
 async def test_disabled_or_mismatched_identity_fails_closed(fixture_identity, field, value):
@@ -469,7 +589,7 @@ def test_route_uses_authenticated_subject_not_query_identity(fixture_identity):
         "/api/one/business/suggestion?user_id=other&email=other@hushh.ai"
     )
     assert response.status_code == 200
-    assert fixture_identity[1] == ["owner"]
+    assert fixture_identity[1] == ["owner", "owner"]
     assert response.headers["cache-control"] == "private, no-store"
 
 
@@ -501,7 +621,7 @@ def test_rate_limit_response_is_private_with_production_handler(fixture_identity
         assert all(response.status_code == 200 for response in responses[:10])
         assert responses[-1].status_code == 429
         assert responses[-1].headers["cache-control"] == "private, no-store"
-        assert len(fixture_identity[1]) == 10
+        assert len(fixture_identity[1]) == 20
     finally:
         limiter.reset()
 
@@ -557,12 +677,11 @@ async def test_real_lookup_only_uses_fresh_verified_primary_contacts(fixture_ide
         assert (await service.get_business_suggestion("owner"))["status"] == "no_match"
     record.phone_number = "+12025550123"
     record.email_verified = False
-    assert (await service.get_business_suggestion("owner"))["status"] == "no_match"
+    assert (await service.get_business_suggestion("owner"))["status"] == "disabled"
     assert received[1:4] == [("person@company.test", None, False)] * 3
-    assert received[-1] == (None, "+12025550123", False)
     record.phone_number = None
-    assert (await service.get_business_suggestion("owner"))["status"] == "insufficient_signals"
-    assert len(received) == 5  # No fixture fallback and no invented contact control.
+    assert (await service.get_business_suggestion("owner"))["status"] == "disabled"
+    assert len(received) == 4  # Phone cannot substitute for cohort membership.
 
 
 def test_real_projection_preserves_branches_and_refuses_false_match_evidence():
@@ -646,7 +765,6 @@ async def test_real_phone_uses_only_owner_bound_verified_account_claim(
     from hushh_mcp.services.actor_identity_service import ActorIdentityService
 
     record, _ = fixture_identity
-    record.email_verified = False
     monkeypatch.setenv("ONE_BUSINESS_DIRECTORY_ENABLED", "true")
     calls = []
     verified = True
@@ -667,10 +785,11 @@ async def test_real_phone_uses_only_owner_bound_verified_account_claim(
     assert (await service.get_business_suggestion("owner"))[
         "contract_version"
     ] == "b2b-profile-suggestion.v2"
-    assert calls == [(None, "+12025550123")]
+    assert calls == [("person@hushh.ai", "+12025550123")]
     verified = False
-    assert (await service.get_business_suggestion("owner"))["status"] == "insufficient_signals"
-    assert len(calls) == 1
+    assert (await service.get_business_suggestion("owner"))["status"] == "no_match"
+    assert calls[-1] == ("person@hushh.ai", None)
+    assert len(calls) == 2
 
 
 @pytest.mark.asyncio
