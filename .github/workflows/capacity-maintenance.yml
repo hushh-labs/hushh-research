@@ -2,7 +2,7 @@ name: Capacity Maintenance
 
 on:
   workflow_run:
-    workflows: [Deploy to UAT]
+    workflows: [Deploy to UAT, Deploy to Production]
     types: [completed]
     branches: [main]
   schedule:
@@ -21,7 +21,7 @@ on:
         required: true
         type: string
       apply:
-        description: Apply cleanup (UAT defers deletion until its drain deadline)
+        description: Apply cleanup (deletion is deferred until its drain deadline)
         required: true
         default: false
         type: boolean
@@ -34,6 +34,7 @@ permissions:
 concurrency:
   group: capacity-maintenance-${{ inputs.environment || 'uat' }}
   cancel-in-progress: false
+  queue: max
 
 jobs:
   select-release:
@@ -51,6 +52,7 @@ jobs:
       release_run_id: ${{ steps.authority.outputs.release_run_id }}
       apply: ${{ steps.authority.outputs.apply }}
       cleanup_ready: ${{ steps.release.outputs.cleanup_ready || steps.scheduled-release.outputs.cleanup_ready }}
+      production_cleanup_ready: ${{ steps.scheduled-production-release.outputs.cleanup_ready || (steps.authority.outputs.environment == 'production' && steps.release.outputs.cleanup_ready) || 'false' }}
       backend_revision: ${{ steps.release.outputs.backend_revision }}
       frontend_revision: ${{ steps.release.outputs.frontend_revision }}
       backend_rollback: ${{ steps.release.outputs.backend_rollback }}
@@ -74,9 +76,11 @@ jobs:
               run = event.get("workflow_run") or {}
               repository = os.environ["GITHUB_REPOSITORY"]
               workflow_path = run.get("path") or (event.get("workflow") or {}).get("path")
-              if not (
-                  run.get("name") == "Deploy to UAT"
-                  and workflow_path == ".github/workflows/deploy-uat.yml"
+              lanes = {"Deploy to UAT": ("uat", ".github/workflows/deploy-uat.yml"),
+                       "Deploy to Production": ("production", ".github/workflows/deploy-production.yml")}
+              lane = lanes.get(run.get("name"))
+              if not (lane
+                  and workflow_path == lane[1]
                   and run.get("event") == "workflow_dispatch"
                   and run.get("status") == "completed"
                   and run.get("conclusion") == "success"
@@ -84,8 +88,8 @@ jobs:
                   and (run.get("repository") or {}).get("full_name") == repository
                   and (run.get("head_repository") or {}).get("full_name") == repository
               ):
-                  raise SystemExit("Upstream run does not authorize UAT cleanup")
-              environment = "uat"
+                  raise SystemExit("Upstream run does not authorize hosted cleanup")
+              environment = lane[0]
               release_run_id = str(run.get("id") or "")
               actor = (run.get("actor") or {}).get("login") or ""
               apply = "true"
@@ -139,6 +143,13 @@ jobs:
         run: |
           python3 scripts/ci/uat-retention-maintenance.py --verify-source-only \
             --state-dir "$RUNNER_TEMP/uat-retention-source"
+
+      - name: Verify due production source before cloud authentication
+        id: scheduled-production-release
+        if: github.event_name == 'schedule'
+        run: |
+          python3 scripts/ci/uat-retention-maintenance.py --environment production --verify-source-only \
+            --state-dir "$RUNNER_TEMP/production-retention-source"
 
       - name: Require a successful healthy release artifact
         if: github.event_name != 'schedule'
@@ -206,7 +217,11 @@ jobs:
               ):
                   print(f"{label}={value}", file=output)
           PY
-          echo "cleanup_ready=true" >> "$GITHUB_OUTPUT"
+          # Manual dispatch needs the same exact source-path, repository and
+          # source-actor proof as scheduled discovery before minting credentials.
+          python3 scripts/ci/uat-retention-maintenance.py --environment "$RELEASE_ENV" \
+            --release-run-id "$RELEASE_RUN_ID" --verify-source-only \
+            --state-dir "$RUNNER_TEMP/$RELEASE_ENV-retention-source"
 
   uat-maintenance:
     name: UAT revision maintenance (no drain wait)
@@ -277,24 +292,28 @@ jobs:
     concurrency:
       group: deploy-production
       cancel-in-progress: false
-    name: Verify and retire old Cloud Run revisions
+      queue: max
+    name: Production revision maintenance (no drain wait)
     needs: select-release
-    if: needs.select-release.outputs.cleanup_ready == 'true' && needs.select-release.outputs.environment == 'production'
+    if: needs.select-release.outputs.production_cleanup_ready == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 180
-    environment: ${{ needs.select-release.outputs.environment }}
+    timeout-minutes: 10
+    environment:
+      name: production
+      deployment: false
     env:
-      RELEASE_ENV: ${{ needs.select-release.outputs.environment }}
-      GCP_PROJECT_ID: ${{ needs.select-release.outputs.environment == 'uat' && 'hushh-pda-uat' || 'hushh-pda' }}
+      GCP_PROJECT_ID: hushh-pda
       GCP_REGION: us-central1
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Checkout current release tooling
+      - name: Checkout current maintenance tooling
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
           ref: main
+          persist-credentials: false
 
-      - name: Authenticate to the selected Google Cloud environment
+      - name: Authenticate to production
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
@@ -306,55 +325,28 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Set selected project context
-        run: gcloud config set project "$GCP_PROJECT_ID"
-
-      - name: Verify live service identity and traffic
-        shell: bash
+      - name: Prepare or finish eligible production revision cleanup
         env:
-          BACKEND_EXPECTED: ${{ needs.select-release.outputs.backend_revision }}
-          FRONTEND_EXPECTED: ${{ needs.select-release.outputs.frontend_revision }}
-        run: |
-          set -euo pipefail
-          test "$(gcloud config get-value project 2>/dev/null)" = "$GCP_PROJECT_ID"
-          for service in consent-protocol hushh-webapp; do
-            expected="$BACKEND_EXPECTED"
-            if [ "$service" = hushh-webapp ]; then expected="$FRONTEND_EXPECTED"; fi
-            gcloud run services describe "$service" --project "$GCP_PROJECT_ID" \
-              --region "$GCP_REGION" --format=json \
-              | python3 -c 'import json,sys; d=json.load(sys.stdin); expected=sys.argv[1]; ready=any(c.get("type")=="Ready" and c.get("status")=="True" for c in d.get("status",{}).get("conditions",[])); serving=[t.get("revisionName") for t in d.get("status",{}).get("traffic",[]) if int(t.get("percent") or 0)>0]; assert ready and serving==[expected], f"Unhealthy or changed serving state: {serving}"' "$expected"
-          done
-          if [ "$RELEASE_ENV" = uat ]; then
-            gcloud run services describe consent-protocol-drive-worker \
-              --project "$GCP_PROJECT_ID" --region "$GCP_REGION" --format=json \
-              | python3 -c 'import json,sys; d=json.load(sys.stdin); ready=any(c.get("type")=="Ready" and c.get("status")=="True" for c in d.get("status",{}).get("conditions",[])); serving=[t for t in d.get("status",{}).get("traffic",[]) if int(t.get("percent") or 0)>0]; assert ready and len(serving)==1 and int(serving[0]["percent"])==100, "Worker serving state ambiguous"'
-          fi
-
-      - name: Inspect or apply bounded revision cleanup
-        shell: bash
-        env:
+          RELEASE_RUN_ID: ${{ needs.select-release.outputs.environment == 'production' && needs.select-release.outputs.release_run_id || '' }}
           APPLY: ${{ needs.select-release.outputs.apply }}
-          BACKEND_CURRENT: ${{ needs.select-release.outputs.backend_revision }}
-          FRONTEND_CURRENT: ${{ needs.select-release.outputs.frontend_revision }}
-          BACKEND_ROLLBACK: ${{ needs.select-release.outputs.backend_rollback }}
-          FRONTEND_ROLLBACK: ${{ needs.select-release.outputs.frontend_rollback }}
         run: |
           set -euo pipefail
-          cleanup_flags=()
-          if [ "$APPLY" = true ]; then cleanup_flags=(--apply --healthy); fi
-          if [ "$RELEASE_ENV" = uat ]; then
-            # The deploy already retired zero-traffic tags; this lane owns full
-            # timeout-derived draining and deletion under the same deploy lock.
-            bash scripts/ci/cloudrun-retention.sh consent-protocol-drive-worker "$GCP_REGION" 2 \
-              "${cleanup_flags[@]}"
-          fi
-          bash scripts/ci/cloudrun-retention.sh consent-protocol "$GCP_REGION" 2 \
-            "$BACKEND_CURRENT" --rollback-revision "$BACKEND_ROLLBACK" \
-            --last-known-good-revision "$BACKEND_CURRENT" "${cleanup_flags[@]}"
-          bash scripts/ci/cloudrun-retention.sh hushh-webapp "$GCP_REGION" 10 \
-            "$FRONTEND_CURRENT" --rollback-revision "$FRONTEND_ROLLBACK" \
-            --last-known-good-revision "$FRONTEND_CURRENT" "${cleanup_flags[@]}"
+          flags=()
+          if [ "$APPLY" = true ]; then flags=(--apply); fi
+          python3 scripts/ci/uat-retention-maintenance.py --environment production \
+            --release-run-id "$RELEASE_RUN_ID" \
+            --state-dir "$RUNNER_TEMP/production-retention-state" "${flags[@]}"
 
-      - name: Report post-cleanup connection budget
+      - name: Save production drain evidence for a later maintenance pass
+        if: success() && needs.select-release.outputs.apply == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-retention-state
+          path: ${{ runner.temp }}/production-retention-state/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Report remaining production connection capacity
         if: needs.select-release.outputs.apply == 'true'
-        run: python3 scripts/ci/runtime-capacity-budget.py --environment "$RELEASE_ENV"
+        continue-on-error: true
+        run: python3 scripts/ci/runtime-capacity-budget.py --environment production

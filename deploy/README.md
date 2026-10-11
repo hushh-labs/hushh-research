@@ -53,30 +53,38 @@ Production is a separate explicit authority transition. UAT success does not
 authorize it, and UAT credentials or runtime identities must never be reused in
 production.
 
-## UAT revision maintenance
+## Hosted revision maintenance
 
-UAT deployment completes after release verification, artifact publication, quick
+UAT and production deployments complete after release verification, artifact publication, quick
 zero-traffic tag retirement, and the final health assertion. Old revision deletion runs in **Capacity Maintenance**,
-triggered after a successful UAT run and checked every 15 minutes. Maintenance
-uses the UAT environment without creating a deployment record. Its failure does
+triggered after a successful deployment and checked by the existing 15-minute timer. Maintenance
+uses the matching environment without creating a deployment record. Its failure does
 not change the release result.
 
 The authority job verifies the source repository, workflow, governed actor and
 healthy release artifact before cloud authentication. No-op runs skip cleanup.
 Each mutation pass verifies that release against live traffic, removes unused tags, and saves drain evidence in the
-`uat-retention-state` artifact. A later pass deletes only eligible revisions after
+`uat-retention-state` or `production-retention-state` artifact. A later pass deletes only eligible revisions after
 the maximum request timeout plus 60 seconds has elapsed. The backend still
 supports 3,600-second requests. No runner sleeps through that grace period.
 Traffic/generation or release changes invalidate the saved clock; missing or
 expired evidence starts a fresh clock. Current, latest, predeploy rollback, and
 the actual last-known-good revisions remain protected.
 
-Only a short maintenance pass shares the UAT rollout/rollback lock; all UAT
+Only a short maintenance pass shares its environment's rollout/rollback lock; all
 participants queue without replacing pending deployments. Admission checks
 conservatively count every retained UAT database revision while cleanup is
 deferred, so overlapping drains cannot silently exceed the database budget.
-The capacity gate can still reject an unsafe release. Production maintenance
-remains an explicit manual operation.
+The capacity gate can still reject an unsafe release.
+
+Production's source-only selection skips cloud authentication after a settled
+pass, or while every retained drain deadline is still in the future. A completion
+receipt binds the environment, project, healthy release and latest completed
+deployment observation. Missing or expired receipts and newer deployments cause
+a fresh pass; a failed deployment is an inspection signal, never cleanup
+authority. This reuses the existing workflow and timer, with no new cron runs.
+Manual Cloud Run changes outside governed releases require an explicit maintenance
+dispatch; the settled-receipt optimization does not claim to detect those changes.
 
 ## What lives here
 

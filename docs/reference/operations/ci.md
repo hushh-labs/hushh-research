@@ -476,12 +476,13 @@ Deploy to UAT is expected to behave as a closed-loop release lane:
 7. roll back only the failing changed surface
 8. publish release artifacts with revisions, reports, and final status
 
-UAT revision retirement is a separate `Capacity Maintenance` workflow. It records
+UAT and production revision retirement use the existing `Capacity Maintenance` workflow. It records
 drain deadlines and returns; scheduled passes revalidate the healthy source
 release and live traffic before deleting eligible revisions. The deployment
-workflow finishes without awaiting retirement. Maintenance creates no UAT
+workflow finishes without awaiting retirement. Maintenance creates no environment
 deployment record and holds the shared mutation lock only during a short pass,
-never during the request drain. See [the UAT maintenance contract](../../../deploy/README.md#normal-uat-dispatch).
+never during the request drain. Production skips cloud authentication for settled
+or not-yet-due drain receipts; both lanes reuse the existing timer. See [the hosted maintenance contract](../../../deploy/README.md#hosted-revision-maintenance).
 
 See [Branch Governance](./branch-governance.md).
 
