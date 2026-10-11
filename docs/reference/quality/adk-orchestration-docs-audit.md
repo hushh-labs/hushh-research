@@ -93,6 +93,19 @@ a bounded consolidation follow-up under quality contracts. Direct-message timest
 and the network route catalog are extracted into their existing owners instead
 of raising those size allowances. This records structural debt, not live acceptance.
 
+The October 11 synchronization retains the original 2,328 baseline entries and
+reviews only 225 changed occurrence-ranked slots against infrastructure
+`f0517d5f` and incoming main `14a052a8`: 154 exact main sources, 26 metrics
+within the incoming parent's sizes, and 45 bounded combined spans. Independent
+backend, frontend/native and deployment reviews inspected the combined spans;
+their exact values, parent values, source hashes and reasons are recorded under
+`main_synchronization_20261011` in the baseline. The four changed same-named
+Drive operation slots remain 1/2/3/5; unchanged slots 0/4 are preserved. No
+scanner, budget, exclusion, dependency or import rule changed. A one-line future
+growth negative control still fails the ratchet. Required core and hosted CI
+remain separate gates; accepting inherited size debt proves neither deployment
+nor the scope-payment lifecycle.
+
 ## Owners and next gate
 
 | Owner | Required receipt |

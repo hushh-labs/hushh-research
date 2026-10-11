@@ -2244,7 +2244,7 @@ not shared Dev writer admission, a live cutover or canonical baseline.
 ### Main synchronization and current evidence — 2026-10-11 UTC
 
 The infrastructure branch integrated main `1ee136eb` and then the newer
-`5d756e38` source through normal merges on the same branch. No history rewrite,
+`5d756e38` and `14a052a8` sources through normal merges on the same branch. No history rewrite,
 new delivery branch, migration baseline or database receipt relabeling is part
 of this synchronization. Main 299–305 keep their identities; unchanged branch
 SQL is registered as 306–311. The exact prior manifest, six SQL bodies and
@@ -2276,3 +2276,8 @@ provider work and seller records remain empty: source tests do not establish
 reviewer funding, scope delivery, bank payout or authenticated Stripe MCP reads.
 A synchronized source candidate still requires the unchanged core/CI gates and
 governed deployment before deployed acceptance.
+
+The unchanged branch architecture ratchet requires explicit review of incoming
+main's size findings. Its 225 exact reviewed slots retain both parent behaviors,
+duplicate occurrence ordering and future growth enforcement; the provenance is
+recorded in the [quality decision memo](../../../docs/reference/quality/adk-orchestration-docs-audit.md#reviewed-integration-debt).
