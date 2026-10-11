@@ -4,6 +4,10 @@
   "license": "Apache-2.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/prepare-wallet-ocr.mjs",
+    "predev:webpack": "node scripts/prepare-wallet-ocr.mjs",
+    "prebuild": "node scripts/prepare-wallet-ocr.mjs",
+    "prebuild:webpack": "node scripts/prepare-wallet-ocr.mjs",
     "dev": "next dev --turbopack",
     "dev:webpack": "next dev --webpack",
     "build": "next build",
