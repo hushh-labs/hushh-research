@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type MouseEvent,
@@ -15,7 +16,6 @@ import { Check, Copy, Laptop, Loader2, Send } from "@/components/icons";
 
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
 import { copyTextToClipboard } from "@/components/agent/chat-markdown-link";
-import { Button } from "@/components/ui/button";
 import {
   PuppyModelPicker,
   type ModelSelection,
@@ -36,6 +36,9 @@ import {
 } from "@/lib/services/puppy-one-service";
 import { cn } from "@/lib/utils";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
+import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { AgentDockPortal, useAgentDockHost } from "@/components/agent/agent-dock";
 
 const TRUSTED_DEVICES: ProfilePaneLocation = {
   panel: "security",
@@ -75,6 +78,7 @@ interface PuppyTurn {
 export function HermesChatPanel({
   className,
   active = true,
+  sharedDock = false,
 }: {
   className?: string;
   /**
@@ -88,10 +92,21 @@ export function HermesChatPanel({
    * entire point.
    */
   active?: boolean;
+  /** Presentation only: Puppy retains its own draft and guarded send owner. */
+  sharedDock?: boolean;
 }) {
   const [status, setStatus] = useState<PuppyStatus | null>(null);
   const [turns, setTurns] = useState<PuppyTurn[]>([]);
   const [draft, setDraft] = useState("");
+  const editorRef = useRef<HTMLTextAreaElement | null>(null);
+  const dockHost = useAgentDockHost();
+  useLayoutEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || !active) return;
+    editor.style.height = "0px";
+    const ceiling = Number.parseFloat(getComputedStyle(editor).maxHeight);
+    editor.style.height = `${Math.max(44, Math.min(editor.scrollHeight, Number.isFinite(ceiling) ? ceiling : 160))}px`;
+  }, [draft, active, dockHost]);
   const [sending, setSending] = useState(false);
   // The on-device pill is a per-viewer preference, so it survives a reload:
   // a toggle that silently reset to "on-device" on every mount told the user
@@ -462,12 +477,14 @@ export function HermesChatPanel({
           size), not a bordered box on a divider: the small 40px field under a
           rule was the clearest sign this surface was a different, lesser app.
           15px on phones, as One's, so the field reads at One's size. */}
-      <div className="mt-3 flex min-h-[3.75rem] shrink-0 items-center gap-2 overflow-hidden rounded-[var(--app-input-radius)] bg-foreground/[0.045] px-2.5 pl-3.5 shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] focus-within:ring-1 focus-within:ring-inset focus-within:ring-[color:var(--app-accent)]/40">
+      <AgentDockPortal enabled={sharedDock && active} visible>
+      <AgentBarSurface embedded={sharedDock} className={cn("agent-chat-composer-surface agent-chat-composer-compact min-w-0 shrink-0 items-end gap-2", !sharedDock && "mt-3")}>
         <textarea
+          ref={editorRef}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
+            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
               void send();
             }
@@ -484,19 +501,21 @@ export function HermesChatPanel({
                 : composerPlaceholder(link)
           }
           aria-label="Message Puppy One"
-          className="h-auto max-h-28 min-h-0 min-w-0 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-0 py-3 text-[15px] leading-snug text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
+          className="agent-chat-composer-field min-w-0 flex-1 resize-none overflow-y-auto border-0 bg-transparent text-[16px] text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-60 break-words [overflow-wrap:anywhere] [word-break:break-word]"
         />
-        <Button
+        <div className="agent-chat-composer-actions flex shrink-0 items-center">
+        <ShellActionSurface
           type="button"
-          size="icon"
-          className="h-9 w-9 shrink-0 rounded-full"
+          className="text-[color:var(--app-accent)]"
           onClick={() => void send()}
           disabled={!connected || sending || !draft.trim()}
           aria-label="Send to Puppy One"
         >
           <Send className="size-4" />
-        </Button>
-      </div>
+        </ShellActionSurface>
+        </div>
+      </AgentBarSurface>
+      </AgentDockPortal>
     </div>
   );
 }

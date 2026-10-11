@@ -2641,6 +2641,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const composerDraft = useOneComposerDraft(isCanonicalChatRoute, isVaultUnlocked ? user?.uid ?? null : null);
   const { input, setInput, attachment: longPromptAttachment, setAttachment: setLongPromptAttachment,
     expanded: composerExpanded, setExpanded: setComposerExpandedState } = composerDraft;
+  const [textAttachmentEditorOpen, setTextAttachmentEditorOpen] = useState(false);
+  useEffect(() => { setTextAttachmentEditorOpen(false); }, [composerDraft.context, user?.uid, isVaultUnlocked, isPuppySurface]);
   // A selected search result is session-only; chat receives its opaque reference
   // separately from the human prompt and rechecks it against live Drive.
   const [pendingDriveSearchSelection, setPendingDriveSearchSelection] = useState<
@@ -8926,7 +8928,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       else if (event.action === "mic" && canToggleVoice) void startConversationalVoice();
       else if (event.action === "cancel" && stoppableTurn) void stopActiveTurnRef.current?.();
       else if (event.action === "attachment-edit" && event.attachmentId === "paste" && longPromptAttachment) {
-        setInput(longPromptAttachment.text); setLongPromptAttachment(createPendingTextAttachment(longPromptAttachment.text, true)); setComposerExpanded(true);
+        setTextAttachmentEditorOpen(true);
       } else if (event.action === "attachment-remove" && event.attachmentId === "paste") removeLongPromptAttachment();
       else if (event.action === "collapse") collapseComposer();
       else if (event.action === "attachment-remove" && event.attachmentId === "drive") {
@@ -9231,23 +9233,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   </SelectContent>
                 </Select>
               ) : null}
-              {/*
-                The compact segmented control at header scale. The full-width
-                filter primitive was tried here first and stood ~44px tall
-                against 36px icon buttons, so the header stopped lining up.
-                This one is h-8. It has NO sliding thumb: the active segment is
-                a per-button background that cross-fades, and a comment here
-                used to claim a slide the code never had. `SegmentedPill` is
-                the primitive that ships the translateX indicator, with its own
-                theme hooks and reduced-motion guard; the day this header wants
-                that animation it should move to that component rather than
-                grow a second implementation of it.
-
-                On a phone it is icon-only (cloud: One, laptop: Puppy), which
-                takes it from 113px to 84px at the same h-8. Each segment keeps
-                its spoken name through `accessibleLabel`, so hiding the visible
-                word removes nothing from a screen reader.
-              */}
+              {/* The shared finite-selector family: a retained 150ms thumb,
+                  compact paint and full 44px targets. Icons keep their names. */}
               <NativeChatChrome kind="agent-surface" owner={renderedWorkspaceOwnerId}
                 context={chatChromeContext}
                 eligible={isCanonicalChatRoute && hasChatAccess && !isHistoryDrawerOpen}
@@ -9255,10 +9242,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   if (next === "puppy") enterPuppySurface();
                   else setAgentSurface(next);
                 }} focusRef={agentSurfaceFocusRef}
-                className="flex h-11 w-[88px] shrink-0 items-center justify-center sm:w-[116px]">
+                className="flex h-11 w-[94px] shrink-0 items-center justify-center sm:w-[116px]">
               <SegmentedControl
                 selectedButtonRef={agentSurfaceFocusRef}
-                variant="compact"
+                variant="sliding"
                 size="sm"
                 ariaLabel="Agent"
                 value={agentSurface}
@@ -9287,7 +9274,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 ]}
                 iconClassName="sm:hidden"
                 labelClassName="max-sm:hidden"
-                className="w-auto shrink-0"
+                className="w-full shrink-0 text-xs"
               />
               </NativeChatChrome>
               <ShellActionSurface
@@ -9332,6 +9319,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             <PuppyOneSurface
               key={user?.uid ?? "signed-out"}
               active={isPuppySurface}
+              sharedDock={isCanonicalChatRoute}
               conversations={puppyConversations}
               activeConversationId={puppyConversationId}
               onCreateConversation={handleCreateNewPuppyChat}
@@ -10701,7 +10689,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             </div>
           </div>
 
-          <AgentDockPortal enabled={isCanonicalChatRoute} visible={!showVoiceBar && !isPuppySurface} suppressed={isPuppySurface}>
+          <AgentDockPortal enabled={isCanonicalChatRoute && !isPuppySurface} visible={!showVoiceBar}>
           <div
             inert={isHistoryDrawerOpen}
             data-agent-chat-composer-form={
@@ -10792,9 +10780,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         }}><X className="h-4 w-4" /></Button>
                     </div>
                   ) : null}
-                  {longPromptAttachment && !nativeDockPorts?.owned ? (
+                  {longPromptAttachment ? (
                     <AgentComposerTextAttachment
                       attachment={longPromptAttachment}
+                      editorOpen={textAttachmentEditorOpen}
+                      onEditorOpenChange={setTextAttachmentEditorOpen}
+                      hideTrigger={nativeDockPorts?.owned}
                       onChange={editLongPromptAttachment}
                       onRemove={removeLongPromptAttachment}
                       onCollapse={collapseComposer}

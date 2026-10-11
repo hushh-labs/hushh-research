@@ -49,6 +49,9 @@ vi.mock("@/components/agent/puppy-resource-monitor", () => ({
   PuppyMachineSheet: () => null,
 }));
 import type { PuppyStatus } from "@/lib/services/puppy-one-service";
+import { useState } from "react";
+import { AgentDockPortal, AgentDockProvider, AgentDockVoiceBoundary } from "@/components/agent/agent-dock";
+import { AgentBarSurface, RetainedAgentBar } from "@/components/agent/agent-bar-surface";
 
 /**
  * What the connected panel promises, how it says it, and how it reads.
@@ -92,6 +95,47 @@ afterEach(() => {
 });
 
 describe("HermesChatPanel empty state", () => {
+  it("shares the retained bar with Cloud while keeping each unsent draft isolated", async () => {
+    function CloudComposer({ active }: { active: boolean }) {
+      const [draft, setDraft] = useState("");
+      return <AgentDockPortal enabled={active} visible><AgentBarSurface embedded><textarea aria-label="Message One" value={draft} onChange={event => setDraft(event.target.value)} /></AgentBarSurface></AgentDockPortal>;
+    }
+    function Shell({ puppy }: { puppy: boolean }) {
+      return <AgentDockProvider>
+        <AgentDockVoiceBoundary><RetainedAgentBar><AgentBarSurface><button>Talk to One</button></AgentBarSurface></RetainedAgentBar></AgentDockVoiceBoundary>
+        <div hidden={!puppy}><HermesChatPanel active={puppy} sharedDock /></div>
+        <div hidden={puppy}><CloudComposer active={!puppy} /></div>
+      </AgentDockProvider>;
+    }
+    mocks.fetchPuppyStatus.mockResolvedValue(CONNECTED);
+    mocks.link.current = null;
+    const view = render(<Shell puppy={false} />);
+    const seat = view.container.querySelector("[data-agent-dock-composer]");
+    fireEvent.change(screen.getByRole("textbox", { name: "Message One" }), { target: { value: "Cloud-only draft" } });
+    view.rerender(<Shell puppy />);
+    const puppy = await screen.findByRole("textbox", { name: "Message Puppy One" });
+    fireEvent.change(puppy, { target: { value: "Puppy-only draft" } });
+    expect(puppy.closest("[data-agent-dock-composer]")).toBe(seat);
+    expect(screen.queryByRole("textbox", { name: "Message One" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Talk to One" })).toBeNull();
+    view.rerender(<Shell puppy={false} />);
+    expect(screen.getByRole("textbox", { name: "Message One" })).toHaveValue("Cloud-only draft");
+    expect(screen.queryByRole("textbox", { name: "Message Puppy One" })).toBeNull();
+    view.rerender(<Shell puppy />);
+    expect(screen.getByRole("textbox", { name: "Message Puppy One" })).toHaveValue("Puppy-only draft");
+    expect(view.container.querySelectorAll("[data-agent-dock-composer]")).toHaveLength(1);
+    expect(mocks.runAgent).not.toHaveBeenCalled();
+  });
+  it("does not submit unfinished IME text; an ordinary Enter sends once", async () => {
+    await mount();
+    const editor = await screen.findByPlaceholderText("Ask Puppy One…");
+    fireEvent.change(editor, { target: { value: "Synthetic composition" } });
+    fireEvent.keyDown(editor, { key: "Enter", isComposing: true });
+    expect(mocks.runAgent).not.toHaveBeenCalled();
+    expect(editor).toHaveValue("Synthetic composition");
+    fireEvent.keyDown(editor, { key: "Enter", isComposing: false });
+    await waitFor(() => expect(mocks.runAgent).toHaveBeenCalledOnce());
+  });
   it("promises on-machine generation only while the turn is pinned to it", async () => {
     await mount();
     expect(

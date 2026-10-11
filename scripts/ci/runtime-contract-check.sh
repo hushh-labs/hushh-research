@@ -157,7 +157,7 @@ if grep -q '^  _PASSKEY_RP_ID:' "$frontend_cloudbuild"; then
 fi
 
 for hosted_rp_id in \
-  'dev.one.hushh.ai' \
+  'dev.one.hussh.ai' \
   'uat.one.hushh.ai' \
   'one.hushh.ai'; do
   if ! grep -q "expected_passkey_rp_id=\"${hosted_rp_id}\"" "$frontend_cloudbuild"; then

@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2397,
+  "finding_count": 2398,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -17951,7 +17951,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/agent-chat-pasted-text-attachment.test.tsx",
       "symbol": null,
-      "value": 539
+      "value": 564
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18950,7 +18950,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/agent-text-attachment-editor.tsx",
       "symbol": null,
-      "value": 863
+      "value": 876
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19013,7 +19013,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/hermes-chat-panel.tsx",
       "symbol": null,
-      "value": 792
+      "value": 811
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21579,6 +21579,16 @@
       "path": "scripts/ops/verify-env-secrets-parity.py",
       "symbol": null,
       "value": 1326
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/one-voice/__tests__/one-voice-control.test.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/components/one-voice/__tests__/one-voice-control.test.tsx",
+      "ratchet_reason": "new finding",
+      "symbol": null,
+      "value": 535
     }
   ],
   "inspected_files": 6625,
@@ -29195,6 +29205,156 @@
     },
     "date": "2026-10-01",
     "evidence": "docs/reference/quality/adk-orchestration-docs-audit.md#reviewed-integration-debt",
+    "final_main_adk_convergence_20261011": {
+      "adk_presentation_delta": "5c86617f2c11c7bc822392acd52ee758677a09a5",
+      "date": "2026-10-11",
+      "evidence": "docs/reference/quality/adk-orchestration-docs-audit.md#reviewed-integration-debt",
+      "limits": "Exact20reviewedslots only; budgets/scanner/exclusions and all unrelated values unchanged. Source review is not live acceptance.",
+      "main": "c3dad00c997b85c0651b40a12bd722bc63276dd7",
+      "reviewed_values": {
+        "class_size|consent-protocol/hushh_mcp/services/pkm_answer_request_service.py|PkmAnswerRequestService|class exceeds the advisory operon budget": {
+          "previous": 868,
+          "reason": "Validated optional dates, PostgreSQL preserved inputs, rollback callback privacy tooling, or canonical-dev-origin refusal before secrets.",
+          "reviewed": 870,
+          "reviewer": "pipeline_convergence_review",
+          "source_sha256": "c6e651a30c82335cebc2ef623ee1dacfa9f9845ea742dd2af6e5526aca8e85e8"
+        },
+        "function_size|consent-protocol/tests/test_prod_drive_deploy_contract.py|test_older_target_keeps_release_tooling_but_cannot_enable_drive|function exceeds the advisory gene budget": {
+          "previous": 102,
+          "reason": "Validated optional dates, PostgreSQL preserved inputs, rollback callback privacy tooling, or canonical-dev-origin refusal before secrets.",
+          "reviewed": 103,
+          "reviewer": "pipeline_convergence_review",
+          "source_sha256": "312b9812aaca63b42247b2df86767552c9293b701ebfedd68e3a330e5b1df18c"
+        },
+        "module_size|consent-protocol/hushh_mcp/services/pkm_answer_request_service.py||module exceeds the advisory operon budget": {
+          "previous": 924,
+          "reason": "Validated optional dates, PostgreSQL preserved inputs, rollback callback privacy tooling, or canonical-dev-origin refusal before secrets.",
+          "reviewed": 940,
+          "reviewer": "pipeline_convergence_review",
+          "source_sha256": "c6e651a30c82335cebc2ef623ee1dacfa9f9845ea742dd2af6e5526aca8e85e8"
+        },
+        "module_size|consent-protocol/tests/services/test_pkm_answer_requests_postgres.py||module exceeds the advisory operon budget": {
+          "previous": 757,
+          "reason": "Validated optional dates, PostgreSQL preserved inputs, rollback callback privacy tooling, or canonical-dev-origin refusal before secrets.",
+          "reviewed": 760,
+          "reviewer": "pipeline_convergence_review",
+          "source_sha256": "d93e304d7047fbeb30288a9e099076714e66176bdbfbf42f622ee22600c6fd7d"
+        },
+        "module_size|consent-protocol/tests/test_frontend_prebuilt_image_contract.py||module exceeds the advisory operon budget": {
+          "previous": 634,
+          "reason": "Validated optional dates, PostgreSQL preserved inputs, rollback callback privacy tooling, or canonical-dev-origin refusal before secrets.",
+          "reviewed": 655,
+          "reviewer": "pipeline_convergence_review",
+          "source_sha256": "ac25c9dff691673b0feb4ea819fc3e15e8d43ed7bfaaf088f28b1490744fda81"
+        },
+        "module_size|hushh-webapp/__tests__/components/agent-chat-pasted-text-attachment.test.tsx||module exceeds the advisory operon budget": {
+          "previous": 539,
+          "reason": "Retained composer, existing draft/IME/attachment behavior; preserved private transport and voice readiness. Four extra mock lines keep root authority checks.",
+          "reviewed": 564,
+          "reviewer": "adk_integration_review",
+          "source_sha256": "bc51832644cc058729749f0beb9baa1345116e6eae81b0915c3f03ef2b32deb9"
+        },
+        "module_size|hushh-webapp/__tests__/components/document-payout-account.test.tsx||module exceeds the advisory operon budget": {
+          "previous": 851,
+          "reason": "Exact incoming-main or bounded combined finance, document-review, navigation and owner-provider contracts.",
+          "reviewed": 853,
+          "reviewer": "main_ui_fitness_review",
+          "source_sha256": "4a61c1e9e59dae1b43adc8282509c059d2a735234808f8e7531d1abfc6cba076"
+        },
+        "module_size|hushh-webapp/__tests__/components/one-location-agent-page.test.tsx||module exceeds the advisory operon budget": {
+          "previous": 9907,
+          "reason": "Exact incoming-main or bounded combined finance, document-review, navigation and owner-provider contracts.",
+          "reviewed": 9913,
+          "reviewer": "main_ui_fitness_review",
+          "source_sha256": "7db66e3e59bf9656cb5f3e0bf8231fd0722ccaa1f4113b6db404a8581585d38f"
+        },
+        "module_size|hushh-webapp/__tests__/utils/top-shell-breadcrumbs.test.ts||module exceeds the advisory operon budget": {
+          "previous": 1177,
+          "reason": "Exact incoming-main or bounded combined finance, document-review, navigation and owner-provider contracts.",
+          "reviewed": 1191,
+          "reviewer": "main_ui_fitness_review",
+          "source_sha256": "5817e779a472e1f80850b7d70c2ceddabb3838a7541b6f4c5f000022bab578a8"
+        },
+        "module_size|hushh-webapp/app/api/kai/[...path]/route.ts||module exceeds the advisory operon budget": {
+          "previous": 546,
+          "reason": "Exact incoming-main or bounded combined finance, document-review, navigation and owner-provider contracts.",
+          "reviewed": 550,
+          "reviewer": "main_ui_fitness_review",
+          "source_sha256": "cf7ca0760b10cd0ddd99343f01b49c6c2b208769f6546e632e7d27677129c1f5"
+        },
+        "module_size|hushh-webapp/app/providers.tsx||module exceeds the advisory operon budget": {
+          "previous": 908,
+          "reason": "Exact incoming-main or bounded combined finance, document-review, navigation and owner-provider contracts.",
+          "reviewed": 914,
+          "reviewer": "main_ui_fitness_review",
+          "source_sha256": "594020b7edb2a279f00dfdeaa4021f0bee42f75652de79d8baa78ad1a7462176"
+        },
+        "module_size|hushh-webapp/components/agent/agent-text-attachment-editor.tsx||module exceeds the advisory operon budget": {
+          "previous": 863,
+          "reason": "Retained composer, existing draft/IME/attachment behavior; preserved private transport and voice readiness. Four extra mock lines keep root authority checks.",
+          "reviewed": 876,
+          "reviewer": "adk_integration_review",
+          "source_sha256": "dd13e1994b3a0f6746e71042b25c67f8dd145fb06557e1f8d1680069a1a4c321"
+        },
+        "module_size|hushh-webapp/components/agent/hermes-chat-panel.tsx||module exceeds the advisory operon budget": {
+          "previous": 792,
+          "reason": "Retained composer, existing draft/IME/attachment behavior; preserved private transport and voice readiness. Four extra mock lines keep root authority checks.",
+          "reviewed": 811,
+          "reviewer": "adk_integration_review",
+          "source_sha256": "09dc8d96723fc47a3e79f3b2c9012c8b3b7816cf8fc46439dd821be8f2fd6dc1"
+        },
+        "module_size|hushh-webapp/components/kai/kai-flow.tsx||module exceeds the advisory operon budget": {
+          "previous": 4072,
+          "reason": "Exact incoming-main or bounded combined finance, document-review, navigation and owner-provider contracts.",
+          "reviewed": 4073,
+          "reviewer": "main_ui_fitness_review",
+          "source_sha256": "97fea55596647d947ce0feea339b496983da4e92ef0104ec99a97bc41dc5bb1a"
+        },
+        "module_size|hushh-webapp/components/kai/views/dashboard-master-view.tsx||module exceeds the advisory operon budget": {
+          "previous": 2815,
+          "reason": "Exact incoming-main or bounded combined finance, document-review, navigation and owner-provider contracts.",
+          "reviewed": 2819,
+          "reviewer": "main_ui_fitness_review",
+          "source_sha256": "9f49dff0c2468b5eb32667af8e9cbaa5e78338c8bd47505c897908e6bad48a6c"
+        },
+        "module_size|hushh-webapp/components/kai/views/portfolio-review-view.tsx||module exceeds the advisory operon budget": {
+          "previous": 2537,
+          "reason": "Exact incoming-main or bounded combined finance, document-review, navigation and owner-provider contracts.",
+          "reviewed": 2542,
+          "reviewer": "main_ui_fitness_review",
+          "source_sha256": "e7f1f0719ca3e77d0793e343ad4f87dfa2421bd7bd05eec3f3a084a9870edfaa"
+        },
+        "module_size|hushh-webapp/components/one-location/redesign/location-redesign-hub.tsx||module exceeds the advisory operon budget": {
+          "previous": 6826,
+          "reason": "Exact incoming-main or bounded combined finance, document-review, navigation and owner-provider contracts.",
+          "reviewed": 6828,
+          "reviewer": "main_ui_fitness_review",
+          "source_sha256": "6cab4eb47cc2373e679b3b4fef58d61e3df4ce3704de853a1bf1ba8cdba02dc1"
+        },
+        "module_size|hushh-webapp/components/one-voice/__tests__/one-voice-control.test.tsx||module exceeds the advisory operon budget": {
+          "previous": null,
+          "reason": "Retained composer, existing draft/IME/attachment behavior; preserved private transport and voice readiness. Four extra mock lines keep root authority checks.",
+          "reviewed": 535,
+          "reviewer": "adk_integration_review",
+          "source_sha256": "0081b1fc87571d81e4b0493b5049f111732010a24075e77de7888da7095de719"
+        },
+        "module_size|hushh-webapp/e2e/document-share-review.layout.spec.ts||module exceeds the advisory operon budget": {
+          "previous": 1147,
+          "reason": "Exact incoming-main or bounded combined finance, document-review, navigation and owner-provider contracts.",
+          "reviewed": 1213,
+          "reviewer": "main_ui_fitness_review",
+          "source_sha256": "469a64c51198ac41962b0403f0a4bcf12580ccb4659c753443a27aa1afa81d22"
+        },
+        "module_size|hushh-webapp/lib/services/answer-request-service.ts||module exceeds the advisory operon budget": {
+          "previous": 537,
+          "reason": "Exact incoming-main or bounded combined finance, document-review, navigation and owner-provider contracts.",
+          "reviewed": 544,
+          "reviewer": "main_ui_fitness_review",
+          "source_sha256": "e299457c8523f52544b9bf0a79d28a5e85db9ac159f7d7adff817cacf4507abe"
+        }
+      },
+      "root": "d50d03df94"
+    },
     "frozen_integration_2026_10_10": {
       "date": "2026-10-10",
       "evidence": "docs/reference/quality/adk-orchestration-docs-audit.md#reviewed-integration-debt",

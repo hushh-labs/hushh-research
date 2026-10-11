@@ -1,19 +1,43 @@
 "use client";
 
-import type { ComponentPropsWithRef } from "react";
+import { createContext, useContext, useState, type ComponentPropsWithRef, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { BOTTOM_CHROME_COLUMN_CLASSNAME } from "@/components/app-ui/bottom-chrome-column";
 import { cn } from "@/lib/utils";
 import { useAgentDockSurface } from "./agent-dock";
 import { useNativeDockPorts } from "./native-dock-port";
 
+const VoiceSeatContext = createContext<HTMLDivElement | null | undefined>(undefined);
+
+/** The shell owns the presentation lifetime; changing the voice backend must
+ * not replace Chat's portal target, textarea, selection or undo history. Voice
+ * owners project only their controls here, and retain their own panels/actions. */
+export function RetainedAgentBar({ children }: { children: ReactNode }) {
+  const [seat, setSeat] = useState<HTMLDivElement | null>(null);
+  return <VoiceSeatContext.Provider value={seat}>
+    <div data-agent-bar-shell className="flex w-full min-w-0 flex-col gap-2">
+      {children}
+      <AgentBarSurface retained>
+        <div ref={setSeat} className="flex w-full min-w-0 items-center" />
+      </AgentBarSurface>
+    </div>
+  </VoiceSeatContext.Provider>;
+}
+
 /** One presentation for voice capture and Chat input; no routing or microphone authority. */
-export function AgentBarSurface({ className, children, embedded = false, ...props }: ComponentPropsWithRef<"div"> & { embedded?: boolean }) {
+export function AgentBarSurface({ className, children, embedded = false, retained = false, ...props }: ComponentPropsWithRef<"div"> & { embedded?: boolean; retained?: boolean }) {
+  const voiceSeat = useContext(VoiceSeatContext);
   const dock = useAgentDockSurface();
   const composerVisible = dock?.composerVisible ?? false;
   const suppressed = dock?.suppressed ?? false;
   const attachHost = dock?.setHost;
   const native = useNativeDockPorts();
   const nativeOwned = native?.owned === true;
+  // This is an explicitly authored presentation slot, not DOM-derived action
+  // mapping. Embedded Chat always renders into the retained composer seat.
+  if (!embedded && !retained && voiceSeat !== undefined) {
+    return voiceSeat ? createPortal(<div {...props} className={cn("flex w-full min-w-0 items-center", className)}>{children}</div>, voiceSeat) : null;
+  }
   return (
     <div
       {...props}
