@@ -60,6 +60,16 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
       if (cancelled || subscriptionsFailed) await handle.remove(); else handles.push(handle);
     };
     const invalidate = () => { lease.current?.invalidate(); remeasure((value) => value + 1); };
+    const readmit = () => {
+      const active = lease.current, snapshot = current.current;
+      if (cancelled || subscriptionsFailed || !active?.ownsInstallation || active.context !== snapshot.context || active.projection.ownerEpoch !== snapshot.epoch || !snapshot.theme) return;
+      // Refresh permission from the current owner without replacing its host.
+      void active.update({ ...snapshot.theme, enabled: snapshot.allowed }, true).catch(() => {
+        const latest = current.current;
+        if (!cancelled && !subscriptionsFailed && lease.current === active && active.projection.documentId === nativeDocumentId() &&
+            active.projection.ownerEpoch === latest.epoch && active.context === latest.context) invalidate();
+      });
+    };
     const reconcileGeometry = () => {
       const geometry = slot.current && measureNativeChromeGeometry(slot.current, "back");
       if (geometry && current.current.allowed && document.visibilityState !== "hidden" &&
@@ -82,7 +92,8 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
             isCurrentNativeControlAppearance(active.projection) &&
             !nativeShellOverlayBlocked() && !isSessionChromeSuppressed() && !getVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions &&
             document.visibilityState !== "hidden", () => callback.current()).catch(() => undefined);
-        })), retain(nativeChrome.addListener("invalidated", invalidate)), retain(subscribeNativeSessionPrivacy(invalidate))]);
+        })), retain(nativeChrome.addListener("invalidated", invalidate)),
+        retain(nativeChrome.addListener("readmissionRequested", readmit)), retain(subscribeNativeSessionPrivacy(invalidate))]);
         if (!cancelled) {
           setInPlaceUpdates(capability.inPlaceUpdates === true);
           setBackReplacement(capability.backReplacement === true);

@@ -302,6 +302,15 @@ export function NativeChatChrome(props: Props) {
       if (cancelled || subscriptionsFailed) await handle.remove(); else handles.push(handle);
     };
     const invalidate = () => { lease.current?.invalidate(); remeasure((count) => count + 1); };
+    const readmit = () => {
+      const active = lease.current, snapshot = current.current;
+      if (cancelled || subscriptionsFailed || !active?.ownsInstallation || active.context !== snapshot.context || active.projection.ownerEpoch !== snapshot.epoch || !snapshot.theme) return;
+      void active.update({ ...snapshot.theme, enabled: canAct(), value: snapshot.value, expanded: snapshot.expanded }, true).catch(() => {
+        const latest = current.current;
+        if (!cancelled && !subscriptionsFailed && lease.current === active && active.projection.documentId === nativeDocumentId() &&
+            active.projection.ownerEpoch === latest.epoch && active.context === latest.context) invalidate();
+      });
+    };
     const reconcileGeometry = () => {
       const geometry = slot.current && measureNativeChromeGeometry(slot.current, kind);
       if (geometry && canAct() && !heldFocus.current && lease.current?.matchesGeometry(geometry)) return;
@@ -334,7 +343,8 @@ export function NativeChatChrome(props: Props) {
             else if (callback.kind === "accent") { if (event.value === "blue" || event.value === "gold") callback.onValueChange(event.value); }
             else if (event.value !== undefined) callback.onValueChange(event.value);
           }).catch(() => undefined);
-        })), retain(nativeChrome.addListener("invalidated", invalidate)), retain(subscribeNativeSessionPrivacy(invalidate))]);
+        })), retain(nativeChrome.addListener("invalidated", invalidate)),
+        retain(nativeChrome.addListener("readmissionRequested", readmit)), retain(subscribeNativeSessionPrivacy(invalidate))]);
         if (!cancelled) {
           setInPlaceUpdates(capability.inPlaceUpdates === true);
           setRetainedControls(capability.retainedControls === true);

@@ -67,10 +67,16 @@ private enum NativeRegionRefusal: Int {
 /// One WebView, retained native base plane, bounded overlay groups. The outer
 /// container routes only explicitly admitted hits; Maps keeps its WK hit path.
 final class NativePresentationContainer: UIView {
-    enum BasePresentation { case underlay, contentBacked }
+    static let isolationDidChange = Notification.Name("HushhNativeDrawerIsolationDidChange")
+    enum BasePresentation { case underlay, contentBacked, coherentDrawers }
     let webView: WKWebView
     let basePresentation: BasePresentation
-    var contentBackedPresentation: Bool { basePresentation == .contentBacked }
+    var contentBackedPresentation: Bool { basePresentation != .underlay }
+    var legacyRegionPresentation: Bool { basePresentation == .contentBacked }
+    var wholeNativeDrawers: Bool { basePresentation == .coherentDrawers }
+    private var ownedDrawerIsolation = false
+    var interactionIsolated: Bool { overlayIsolated || ownedDrawerIsolation }
+    private(set) var isolationGeneration = 0
     let drawerClipping: Bool
     private let baseViewport = UIView()
     // Retain the legacy name for the independently reversible underlay pilot.
@@ -108,6 +114,8 @@ final class NativePresentationContainer: UIView {
     }
 
     func setRegions(document: String, revision: Int, viewport: CGSize, top: CGFloat, bottom: CGFloat, isolated: Bool, covered: Bool = false, privacyGeneration: Int? = nil, drawer: String? = nil, initialPose: NativePanelPose? = nil) -> Bool {
+        // The coherent owner has no React/native pose or clipping path.
+        guard !wholeNativeDrawers else { return rejectRegion(.coverage) }
         guard contentBackedPresentation, viewport == bounds.size else { return rejectRegion(.viewport) }
         guard revision >= 0, regionDocument != document || revision > regionRevision else { return rejectRegion(.revision) }
         guard top.isFinite, bottom.isFinite, top >= 0, bottom >= 0,
@@ -238,7 +246,7 @@ final class NativePresentationContainer: UIView {
     func setAdmission(_ id: String, admitted: Bool, presentationRegionRevision: Int? = nil, privacyGeneration: Int? = nil) {
         guard var control = controls[id] else { return }
         let currentRegion = acceptsPresentationRevision(presentationRegionRevision, privacyGeneration: privacyGeneration)
-        let admitted = admitted && currentRegion && !privacyConcealed && !(contentBackedPresentation && overlayIsolated)
+        let admitted = admitted && currentRegion && !privacyConcealed && !ownedDrawerIsolation && !(contentBackedPresentation && overlayIsolated)
         control.admitted = admitted
         controls[id] = control
         control.view.isUserInteractionEnabled = admitted
@@ -246,6 +254,24 @@ final class NativePresentationContainer: UIView {
     }
 
     func remove(_ id: String) { controls.removeValue(forKey: id)?.view.removeFromSuperview() }
+
+    /// Called synchronously by the complete native drawer owner. Covering a
+    /// base surface changes eligibility, never its paint or retained identity.
+    func isolateForOwnedDrawer(_ covered: Bool) {
+        guard wholeNativeDrawers, ownedDrawerIsolation != covered else { return }
+        ownedDrawerIsolation = covered
+        isolationGeneration += 1
+        webView.isUserInteractionEnabled = !covered
+        webView.accessibilityElementsHidden = covered
+        underlay.isUserInteractionEnabled = !covered
+        underlay.accessibilityElementsHidden = covered
+        if covered {
+            for id in Array(controls.keys) { setAdmission(id, admitted: false) }
+        }
+        NotificationCenter.default.post(name: Self.isolationDidChange, object: self)
+        // Uncovering does not restore captured permissions. The current feature
+        // bindings must explicitly re-admit their actions after settlement.
+    }
 
     func groupPose(_ id: String) -> NativePanelPose? { fences[id]?.pose }
 

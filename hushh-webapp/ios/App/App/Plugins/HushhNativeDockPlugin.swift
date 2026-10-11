@@ -58,6 +58,11 @@ struct HushhDockFence {
         update = sequence; return true
     }
     mutating func edited() { edit += 1 }
+    mutating func invalidateChoices() {
+        confirmed = event
+        confirmedEmission = nil
+        emissions.removeAll()
+    }
     mutating func emitted(kind: String, action: String? = nil) -> Int {
         event += 1
         emissions[event] = Emission(update: update, edit: edit, kind: kind, action: action)
@@ -450,9 +455,18 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
                 self.admissionProbe = probe
             }
             #endif
-            for name in [UIApplication.willResignActiveNotification, HushhSessionPrivacyShield.presentationDidChange] {
+            for name in [UIApplication.willResignActiveNotification, HushhSessionPrivacyShield.presentationDidChange,
+                         NativePresentationContainer.isolationDidChange] {
                 self.observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
                     guard let self, #available(iOS 26.0, *) else { return }
+                    if notification.name == NativePresentationContainer.isolationDidChange {
+                        guard notification.object as? NativePresentationContainer === self.compositor else { return }
+                        self.fence.invalidateChoices()
+                        if self.compositor?.interactionIsolated == false {
+                            self.notifyListeners("readmissionRequested", data: [:], retainUntilConsumed: false)
+                        }
+                        return // Never hide the dock or discard its draft for ordinary coverage.
+                    }
                     #if DEBUG
                     let probePrivacy = HushhSessionPrivacyShield.shared.snapshot()
                     self.admissionProbe?.accessibilityElementsHidden = notification.name == UIApplication.willResignActiveNotification ||
@@ -498,8 +512,8 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
         call.resolve(["contractVersion": 1, "supported": admitted,
                       "underlayPresentation": compositor != nil && compositor?.contentBackedPresentation != true,
                       "contentBackedPresentation": compositor?.contentBackedPresentation == true,
-                      "reservedPresentationRegions": compositor?.contentBackedPresentation == true,
-                      "fullWindowOverlays": compositor?.contentBackedPresentation == true])
+                      "reservedPresentationRegions": compositor?.legacyRegionPresentation == true,
+                      "fullWindowOverlays": compositor?.legacyRegionPresentation == true])
     }
     @objc func apply(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
@@ -592,10 +606,10 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
             self.hosting?.overrideUserInterfaceStyle = theme.style
             self.requestedVisible = call.getBool("visible") ?? false
             self.model.visible = self.requestedVisible && self.safe
-            self.model.interactionEnabled = self.model.visible && (call.getBool("interactionEnabled") ?? true) && self.compositor?.overlayIsolated != true
+            self.model.interactionEnabled = self.model.visible && (call.getBool("interactionEnabled") ?? true) && self.compositor?.interactionIsolated != true
             // A real modal takes focus; a temporary admission/disabled echo
             // does not dismiss the keyboard or replace the retained editor.
-            if self.compositor?.overlayIsolated == true { self.model.editor?.resignFirstResponder() }
+            if self.compositor?.interactionIsolated == true { self.model.editor?.resignFirstResponder() }
             self.hosting?.view.isHidden = !self.requestedVisible || !self.safe
             self.hosting?.view.isUserInteractionEnabled = self.model.interactionEnabled
             self.hosting?.view.accessibilityElementsHidden = !self.model.interactionEnabled
@@ -691,7 +705,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
                   let kind = call.getString("kind") else { call.resolve(["valid": false]); return }
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
             let valid = self.fence.confirm(identity, sequence: sequence, applied: applied, editRevision: editRevision, kind: kind,
-                allowed: self.safe && self.requestedVisible && self.model.visible && self.model.interactionEnabled && self.compositor?.overlayIsolated != true && call.getString("context") == self.context &&
+                allowed: self.safe && self.requestedVisible && self.model.visible && self.model.interactionEnabled && self.compositor?.interactionIsolated != true && call.getString("context") == self.context &&
                     call.getInt("editorRevision") == (self.model.mode == "text" ? self.editorRevision : 0) &&
                     call.getInt("privacyGeneration") == privacy.generation)
             call.resolve(["valid": valid])
@@ -705,7 +719,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
             let consumed = self.fence.consume(identity, sequence: sequence, editRevision: edit,
-                allowed: self.safe && self.model.visible && self.model.interactionEnabled && self.model.mode == "text" && self.model.sendEnabled &&
+                allowed: self.safe && self.compositor?.interactionIsolated != true && self.model.visible && self.model.interactionEnabled && self.model.mode == "text" && self.model.sendEnabled &&
                     self.model.editor?.markedTextRange == nil && call.getString("context") == self.context &&
                     call.getInt("privacyGeneration") == privacy.generation)
             if consumed {
@@ -719,7 +733,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func beginEditingTransition(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             guard let self, let identity = self.identity(call), let sequence = call.getInt("sequence"),
-                  let edit = call.getInt("editRevision"), self.safe, self.model.visible, self.model.interactionEnabled,
+                  let edit = call.getInt("editRevision"), self.safe, self.compositor?.interactionIsolated != true, self.model.visible, self.model.interactionEnabled,
                   self.model.mode == "text", !self.model.awaitingConsumption, !self.model.awaitingTransition,
                   self.model.editor?.markedTextRange == nil,
                   call.getString("context") == self.context, call.getInt("editorRevision") == self.editorRevision,
@@ -733,7 +747,7 @@ final class HushhNativeDockPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     private func emit(kind: String, action: String?, attachment: String?, text: String?, range: NSRange?) {
-        guard #available(iOS 26.0, *), safe, model.visible, model.interactionEnabled, !model.awaitingConsumption, !model.awaitingTransition, let identity = fence.identity else { return }
+        guard #available(iOS 26.0, *), safe, compositor?.interactionIsolated != true, model.visible, model.interactionEnabled, !model.awaitingConsumption, !model.awaitingTransition, let identity = fence.identity else { return }
         if kind == "edit" { fence.edited() }
         let selection = range ?? model.editor?.selectedRange ?? NSRange(location: 0, length: 0)
         var payload = identityPayload(identity)

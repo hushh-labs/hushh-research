@@ -293,6 +293,10 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
     override open func capacitorDidLoad() {
         super.capacitorDidLoad()
         #if DEBUG
+        if #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone,
+           NativeDrawerQualificationPolicy.enabled, let existing = webView, view === existing {
+            view = NativePresentationContainer(webView: existing, basePresentation: .coherentDrawers)
+        }
         // Qualification-only; older wrappers and Release retain their current
         // host until composition, touch and physical frame pacing pass.
         if #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone,
@@ -329,6 +333,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         bridge?.registerPluginInstance(HushhNativeNavigationPlugin())
         bridge?.registerPluginInstance(HushhNativeChromePlugin())
         bridge?.registerPluginInstance(HushhNativeDockPlugin())
+        bridge?.registerPluginInstance(HushhNativeDrawersPlugin())
         bridge?.registerPluginInstance(HushhStreamPlugin())
         bridge?.registerPluginInstance(HushhOAuthReturnPlugin())
         bridge?.registerPluginInstance(HushhPlaidLinkPlugin())
@@ -376,6 +381,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
             "HushhNativeNavigation",
             "HushhNativeChrome",
             "HushhNativeDock",
+            "HushhNativeDrawers",
             "HushhStream",
             "HushhOAuthReturn",
             "HushhPlaidLink"

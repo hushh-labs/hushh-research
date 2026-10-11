@@ -1,6 +1,7 @@
 "use client";
 
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
+import { nativeDrawerIsolation } from "./native-drawers";
 import { nativeDocumentId } from "@/lib/capacitor/session-privacy";
 import { customNativePresentationEnabled } from "./native-presentation-policy";
 import type { NativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
@@ -88,6 +89,7 @@ export interface HushhNativeChromePlugin {
   confirmChoice(options: ChromeChoice): Promise<{ valid: boolean }>;
   addListener(eventName: "choiceRequested", listener: (event: ChromeChoice) => void): Promise<PluginListenerHandle>;
   addListener(eventName: "invalidated", listener: () => void): Promise<PluginListenerHandle>;
+  addListener(eventName: "readmissionRequested", listener: () => void): Promise<PluginListenerHandle>;
 }
 
 export const nativeChrome = registerPlugin<HushhNativeChromePlugin>("HushhNativeChrome");
@@ -451,13 +453,13 @@ export class NativeChromeLease {
   }
   /** Fence choices synchronously; only the latest acknowledged snapshot is usable.
    * A stale update failure cannot retire or overwrite a newer presentation. */
-  async update(presentation: ChromeUpdate): Promise<boolean> {
+  async update(presentation: ChromeUpdate, refreshAdmission = false): Promise<boolean> {
     if (!this.current || !this.inPlaceUpdates) return false;
     if (this.projection.kind !== "more" && !admittedValue(this.projection, presentation.value) ||
         this.projection.kind === "more" && presentation.value !== undefined) {
       throw new Error("NATIVE_CHROME_UPDATE_INVALID");
     }
-    if (this.requestedUpdate === this.appliedUpdate && this.matchesPresentation(presentation) &&
+    if (!refreshAdmission && this.requestedUpdate === this.appliedUpdate && this.matchesPresentation(presentation) &&
         JSON.stringify(this.appliedAdmission) === JSON.stringify(nativePresentationAdmission())) {
       // Admission already contains this snapshot. Waiting for activation must
       // not manufacture an update or recreate the native control afterward.
@@ -466,9 +468,9 @@ export class NativeChromeLease {
         this.matchesPresentation(presentation);
     }
     const updateSequence = ++this.requestedUpdate;
-    await this.activate();
-    if (!this.current || !this.active || updateSequence !== this.requestedUpdate) return false;
     try {
+      await this.activate();
+      if (!this.current || !this.active || updateSequence !== this.requestedUpdate) return false;
       const admission = nativePresentationAdmission();
       const ack = await bounded(nativeChrome.update({ ...this.projection, ...presentation, updateSequence, ...admission }));
       if (!this.current || updateSequence !== this.requestedUpdate) return false;
@@ -493,6 +495,7 @@ export class NativeChromeLease {
     if (!admittedValue(this.projection, event.value)) return;
     // Consume locally before awaiting: duplicate notifications cannot race.
     this.sequence = event.sequence;
+    const isolation = nativeDrawerIsolation();
     const { valid } = await bounded(nativeChrome.confirmChoice({
       documentId: event.documentId, ownerEpoch: event.ownerEpoch, controlId: event.controlId,
       revision: event.revision, sequence: event.sequence, privacyGeneration: event.privacyGeneration,
@@ -501,7 +504,7 @@ export class NativeChromeLease {
       ...(event.presentationSequence === undefined ? {} : { presentationSequence: event.presentationSequence }),
       ...(event.value === undefined ? {} : { value: event.value }),
     }));
-    if (valid && this.active && this.current && event.sequence === this.sequence &&
+    if (valid && !isolation.isolated && !nativeDrawerIsolation().isolated && isolation.generation === nativeDrawerIsolation().generation && this.active && this.current && event.sequence === this.sequence &&
         (!this.inPlaceUpdates || this.requestedUpdate === this.appliedUpdate && event.updateSequence === this.appliedUpdate) && allowed()) {
       action();
     }

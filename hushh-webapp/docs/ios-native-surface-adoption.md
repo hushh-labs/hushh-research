@@ -1,6 +1,6 @@
 # iOS Native Controls and Liquid Glass
 
-Implementation owner: frontend/native shell. Reviewed against source on 2026-10-10.
+Implementation owner: frontend/native shell. Reviewed against source on 2026-10-11.
 This is a component inventory and bounded adoption reference, not a claim that every
 candidate is implemented or released.
 
@@ -12,6 +12,60 @@ One Capacitor host retains the active document; adopting a control does not crea
 another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
+
+### Whole native drawer migration boundary — 2026-10-11
+
+The selected direction is now complete native History and Profile presentations
+on supported iPhones, including their moving headers, bodies, scrims and nested
+interaction layers. React retains routing, settings, security and operation
+authority. This replaces the earlier restriction to a synthetic History study;
+it does **not** establish product admission or device acceptance.
+
+The first reversible boundary is implemented on top of `e5ad899659`:
+
+| Boundary | Current source | Acceptance |
+| --- | --- | --- |
+| Private presentation | Separate `HushhNativeDrawers` v1; bounded in-memory row projections, opaque action handles and one shared auth/vault owner generation | Bridge contract and host tests; no credentials or protected bodies in public NativeChrome metadata |
+| Whole drawer owner | Retained UIKit/SwiftUI child, native scrim, cancellation/regrab and local settlement | No React frame-pose or clipping messages; closed preparation does not intercept the page |
+| Covered base controls | Remain mounted/materially visible; touch and accessibility isolated locally | Pending Chrome/Dock/Nav choices are invalidated across isolation cycles, including every post-await dispatch; uncover requests fresh same-host admission |
+| Failure/privacy retirement | Immediate targeted withdrawal, cancelled-admission tombstones and confirmed absence | Private snapshots/callbacks clear; listener cleanup cannot delay withdrawal; uncertain operations never replay; public-only isolation observer survives uncertain withdrawal until document retirement |
+| Product authority identity | Existing validated Auth owner and vault epoch; opaque shared owner ID and monotonically increasing family leases | No account ID, token, key or route-derived authority is sent as owner metadata |
+| Actual History and Profile ports | Not connected yet | Search/rename/delete confirmation, Drive nested review, Profile settings/forms and protected nested layers remain unimplemented in the new presenter |
+
+The new boundary is **qualification-only**, using a separate Debug composition
+switch. Normal builds keep the stable recovery; old experimental custom-control
+flags remain rejected. The new switch must not be treated as complete product
+parity: it currently prepares action rows, not the entire Profile feature set.
+No replacement product was installed for this boundary. The existing iPhone
+recovery identity below is unchanged; iPad remains unqualified.
+
+Focused verification: 148 bridge/navigation tests, 57 host-native support tests,
+typecheck, Debug test compilation, Release simulator build, native plugin/static
+parity and design-system/performance-source checks pass. These are
+functional/contract checks, not physical glass, transition, accessibility or
+frame-performance acceptance. Further source changes require refreshed evidence.
+
+The private contract rejects undeclared fields on both sides. Capability catch-up
+is bounded at the observer owner, and no body is published before all listeners
+are ready. Old confirmation/activation failures cannot withdraw newer bindings or
+reverse confirmed retirement. The coherent composition does not advertise or call
+the superseded reserved-region protocol. NativeChrome remains version 2.
+
+Product integration must publish real rows while closed, retain existing feature
+owners and revalidate current auth/vault/readiness after every awaited choice.
+Withdraw private native replicas independently of retained React descendants on
+owner, lock or verification transitions. Bind loaded rows to their originating
+owner/epoch; do not relabel an old asynchronous history result with a new owner.
+Geometry, icons, keyboard/IME transitions and every nested layer require explicit
+parity before the complete family is enabled. No per-frame coordination with a
+React drawer or DOM-inferred action binding is permitted.
+
+The ADK copy lacks the newer `ui:doctor` package entry. Running the canonical
+current validator against this worktree exposed pre-existing Back/Search authoring
+drift and missing validator mutation-test sources. Surface map, action gateway,
+Siri and route-orchestration checks pass. Resolve that branch/tooling gap without
+weakening the gate before release; canonical core, exact-head CI, Admin SOP,
+deployment and distribution are separate, unproven transitions for this change.
 
 ### Recovery default — 2026-10-09
 

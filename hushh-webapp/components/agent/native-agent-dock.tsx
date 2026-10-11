@@ -9,6 +9,7 @@ import { boundedDock, DockEventFence, getNativeDockCapabilities, nativeDock, nex
 import { useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
 import { getNativeSessionPrivacyState, subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
+import { nativeDrawerIsolation } from "@/lib/capacitor/native-drawers";
 import { isSessionChromeSuppressed, useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { useAgentDockState } from "./agent-dock";
 import { useNativeDockPorts } from "./native-dock-port";
@@ -135,10 +136,11 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
             !before.enabled || before.suppressed || before.overlay || before.dock?.suppressed ||
             isSessionChromeSuppressed() || nativeShellOverlayBlocked()) return;
         const { documentId, ownerEpoch, revision, updateSequence, sequence, editRevision, editorRevision, privacyGeneration, context, kind } = event;
+        const isolation = nativeDrawerIsolation();
         const confirmation = await boundedDock(nativeDock.confirmEvent({ documentId, ownerEpoch, revision, updateSequence, sequence, editRevision, editorRevision, privacyGeneration, context, kind }));
         const after = current.current;
         const afterPort = after.ports?.get(after.family);
-        if (!confirmation.valid || capturedGeneration !== generation.current || !after.enabled || after.dock?.suppressed || after.suppressed || after.overlay ||
+        if (!confirmation.valid || isolation.isolated || nativeDrawerIsolation().isolated || isolation.generation !== nativeDrawerIsolation().generation || capturedGeneration !== generation.current || !after.enabled || after.dock?.suppressed || after.suppressed || after.overlay ||
             isSessionChromeSuppressed() || nativeShellOverlayBlocked() || !afterPort ||
             event.editorRevision !== afterPort.projection.editorRevision ||
             event.kind === "action" && (applied.current?.sequence !== event.updateSequence || applied.current.configuration !== actionConfiguration(afterPort.projection)) ||
@@ -150,7 +152,8 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
           const latest = current.current;
           const latestPort = latest.ports?.get(latest.family);
           if (identity.current !== consuming || fence.current !== consumptionFence) return;
-          if (capturedGeneration !== generation.current) {
+          if (capturedGeneration !== generation.current || nativeDrawerIsolation().isolated ||
+              isolation.generation !== nativeDrawerIsolation().generation) {
             // An overlay can invalidate admission while native consumption is
             // in flight. Retire that exact held replica without dispatching or
             // replaying Send; otherwise its editor would remain frozen.
@@ -186,7 +189,8 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
             const transition = await boundedDock(nativeDock.beginEditingTransition({ documentId, ownerEpoch, revision, sequence, editRevision, editorRevision, privacyGeneration, context }));
             const latest = current.current;
             if (!transition.accepted) { morphyToast.error("Your draft changed. Try the edit again."); return; }
-            if (capturedGeneration !== generation.current || identity.current !== consuming ||
+            if (capturedGeneration !== generation.current || nativeDrawerIsolation().isolated ||
+                isolation.generation !== nativeDrawerIsolation().generation || identity.current !== consuming ||
                 latest.ports?.get(latest.family) !== afterPort || latest.overlay || latest.suppressed || !latest.enabled ||
                 isSessionChromeSuppressed() || nativeShellOverlayBlocked()) { await restoreUnsent(); return; }
           }

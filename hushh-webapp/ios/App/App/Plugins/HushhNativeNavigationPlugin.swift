@@ -99,9 +99,13 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             for name in [UIResponder.keyboardWillShowNotification, UIResponder.keyboardWillHideNotification,
                          UIResponder.keyboardDidHideNotification,
                          UIApplication.willResignActiveNotification, UIApplication.didBecomeActiveNotification,
-                         HushhSessionPrivacyShield.presentationDidChange] {
+                         HushhSessionPrivacyShield.presentationDidChange, NativePresentationContainer.isolationDidChange] {
                 self.observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                     guard let self else { return }
+                    if note.name == NativePresentationContainer.isolationDidChange {
+                        guard note.object as? NativePresentationContainer === self.compositor else { return }
+                        self.confirmedSequence = self.tapSequence
+                    }
                     if note.name == UIResponder.keyboardWillShowNotification {
                         self.keyboardVisible = true; self.keyboardHidePending = false
                     }
@@ -128,9 +132,10 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             if #available(iOS 26.0, *) {
                 call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "interactionIsolation": true,
                               "underlayPresentation": self.compositor != nil && self.compositor?.contentBackedPresentation != true,
-                              "contentBackedPresentation": self.compositor?.contentBackedPresentation == true,
-                              "reservedPresentationRegions": self.compositor?.contentBackedPresentation == true,
-                              "fullWindowOverlays": self.compositor?.contentBackedPresentation == true,
+                              "contentBackedPresentation": self.compositor?.legacyRegionPresentation == true,
+                              "reservedPresentationRegions": self.compositor?.legacyRegionPresentation == true,
+                              "fullWindowOverlays": self.compositor?.legacyRegionPresentation == true,
+                              "wholeNativeDrawers": self.compositor?.wholeNativeDrawers == true,
                               "supported": self.navigationItems != nil,
                               "contentHeight": self.contentHeight, "bottomInset": self.bottomInset])
             } else {
@@ -192,7 +197,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
             let sequence = call.getInt("sequence") ?? -1
             let tab = call.getString("tab") ?? ""
-            let valid = self.compositor?.overlayIsolated != true && call.getString("documentId") == self.state.documentId &&
+            let valid = self.compositor?.interactionIsolated != true && call.getString("documentId") == self.state.documentId &&
                 call.getInt("interactionEpoch") == self.state.interactionEpoch &&
                 call.getInt("privacyGeneration") == privacy.generation &&
                 sequence == self.tapSequence && sequence > self.confirmedSequence &&
@@ -305,7 +310,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         let tab = HushhNativeNavigationState.tabs[item.tag]
         let privacy = HushhSessionPrivacyShield.shared.snapshot()
         updatePresentation() // Do not commit a selection before React's existing guard accepts it.
-        guard state.acceptsTap(tab, appIsActive: privacy.appIsActive,
+        guard compositor?.interactionIsolated != true, state.acceptsTap(tab, appIsActive: privacy.appIsActive,
                               shielded: privacy.shielded, keyboardVisible: keyboardVisible) else { return }
         tapSequence += 1
         notifyListeners("selectionRequested", data: ["tab": tab, "sequence": tapSequence,

@@ -10,6 +10,11 @@ import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppr
 import { writeAccent } from "@/lib/theme/accent";
 import { isCurrentNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { DockEventFence, type DockEvent, type DockState } from "@/lib/capacitor/native-dock";
+import { NativeDrawerChoiceFence, validNativeDrawerProjection, nativeDrawerIsolation, subscribeNativeDrawerIsolation, type NativeDrawerProjection, type NativeDrawerChoice, type NativeDrawerIsolation, type HushhNativeDrawersPlugin } from "@/lib/capacitor/native-drawers";
+import { NativeDrawerPresentation } from "@/lib/capacitor/native-drawer-presentation";
+import { createNativeDrawerIdentity, nativeDrawerOwnerIsCurrent } from "@/lib/capacitor/native-drawer-owner";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { NativeAgentDock } from "@/components/agent/native-agent-dock";
 import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
 import { NativePanelPoseWriter, useNativePanelPresentation, type NativePanelPose } from "@/lib/capacitor/native-panel-presentation";
@@ -62,6 +67,209 @@ vi.mock("@/lib/capacitor/session-privacy", () => ({ nativeDocumentId: () => brid
     return { remove: async () => { privacy.callbacks.delete(callback); } };
   } }));
 vi.mock("@/lib/voice/voice-surface-metadata", () => ({ useVoiceSurfaceMetadata: () => null, getVoiceSurfaceMetadata: () => null }));
+describe("private native drawer action boundary", () => {
+  const state = (): NativeDrawerProjection => ({ documentId: "public-document", ownerEpoch: "opaque-owner", ownerGeneration: 1, revision: 1,
+    family: "history", updateSequence: 1, privacyGeneration: 0, title: "Public samples", open: true,
+    enabled: true, backEnabled: false, appearance: "light", accentHex: "#007aff", foregroundHex: "#000000",
+    sections: [{ id: "today", title: "Today", rows: [{ id: "row-handle", label: "Weekend ideas", enabled: true }] }] });
+  const choice = (): NativeDrawerChoice => ({ documentId: "public-document", ownerEpoch: "opaque-owner", ownerGeneration: 1, revision: 1,
+    family: "history", updateSequence: 1, privacyGeneration: 0, sequence: 1, interactionGeneration: 1, action: "row", rowId: "row-handle" });
+
+  it("shares one opaque auth/vault boundary across families and never resets revisions on remount", () => {
+    publishValidatedAuthSessionOwner("synthetic-first-owner");
+    const history = createNativeDrawerIdentity("history")!;
+    const profile = createNativeDrawerIdentity("profile")!;
+    expect(profile.ownerEpoch).toBe(history.ownerEpoch);
+    expect(profile.ownerGeneration).toBe(history.ownerGeneration);
+    expect(profile.revision).toBeGreaterThan(history.revision);
+    expect(createNativeDrawerIdentity("history")!.revision).toBeGreaterThan(profile.revision);
+    advanceVaultSessionEpoch();
+    expect(nativeDrawerOwnerIsCurrent(history)).toBe(false);
+    const renewed = createNativeDrawerIdentity("profile")!;
+    expect(renewed.ownerGeneration).toBeGreaterThan(profile.ownerGeneration);
+    publishValidatedAuthSessionOwner("synthetic-second-owner");
+    expect(nativeDrawerOwnerIsCurrent(renewed)).toBe(false);
+    const changed = createNativeDrawerIdentity("history")!;
+    expect(changed.ownerGeneration).toBeGreaterThan(renewed.ownerGeneration);
+    expect(JSON.stringify(changed)).not.toContain("synthetic-second-owner");
+    publishValidatedAuthSessionOwner(null);
+    expect(createNativeDrawerIdentity("profile")).toBeNull();
+    expect(nativeDrawerOwnerIsCurrent(changed)).toBe(false);
+  });
+
+  it("requires current authority after awaited confirmation and consumes one operation once", async () => {
+    const projection = state();
+    const fence = new NativeDrawerChoiceFence(projection);
+    expect(fence.update(projection)).toBe(true);
+    const operation = vi.fn();
+    const confirmed = () => Promise.resolve({ valid: true });
+    const result = await Promise.all([fence.consume(choice(), confirmed, () => true, operation),
+      fence.consume(choice(), confirmed, () => true, operation)]);
+    expect(result).toEqual([true, false]);
+    expect(operation).toHaveBeenCalledOnce();
+    expect(await fence.consume({ ...choice(), sequence: 2, rowId: "not-authored" }, confirmed, () => true, operation)).toBe(false);
+    expect(await fence.consume({ ...choice(), sequence: 2, ownerEpoch: "departed-owner" }, confirmed, () => true, operation)).toBe(false);
+  });
+
+  it("withdraws pending choices on binding update or retirement, without automatic replay", async () => {
+    const projection = state();
+    const fence = new NativeDrawerChoiceFence(projection);
+    fence.update(projection);
+    let finish!: (result: { valid: boolean }) => void;
+    const confirmation = new Promise<{ valid: boolean }>(resolve => { finish = resolve; });
+    const operation = vi.fn();
+    const pending = fence.consume(choice(), () => confirmation, () => true, operation);
+    fence.update({ ...projection, updateSequence: 2, enabled: false });
+    finish({ valid: true });
+    expect(await pending).toBe(false);
+    expect(operation).not.toHaveBeenCalled();
+    fence.retire();
+    expect(fence.update({ ...projection, updateSequence: 3 })).toBe(false);
+    const duplicateIds = { ...projection, sections: [{ id: "row-handle", rows: projection.sections[0].rows }] };
+    expect(validNativeDrawerProjection(duplicateIds)).toBe(false);
+    expect(validNativeDrawerProjection({ ...projection, accentHex: "#acf", foregroundHex: "#223344aa" })).toBe(true);
+    expect(validNativeDrawerProjection({ ...projection, ...{ undeclaredPayload: "synthetic" } })).toBe(false);
+    expect(validNativeDrawerProjection({ ...projection, sections: [{ ...projection.sections[0], rows: [
+      { ...projection.sections[0].rows[0], ...{ undeclaredPayload: "synthetic" } },
+    ] }] })).toBe(false);
+  });
+
+  function presentationBridge() {
+    const listeners = new Set<(event: NativeDrawerChoice) => void>();
+    const isolationListeners = new Set<(event: NativeDrawerIsolation) => void>();
+    let isolation = { ...nativeDrawerIsolation() };
+    const remove = vi.fn(async () => undefined);
+    const apply = vi.fn(async (projection: NativeDrawerProjection) => ({ ...projection, phase: "active" as const }));
+    const retire = vi.fn(async () => ({ ...state(), phase: "retired" as const }));
+    const plugin: HushhNativeDrawersPlugin = {
+      getCapabilities: async () => ({ contractVersion: 1, supported: true, wholePresentation: true, ...isolation }),
+      apply, retire, confirmChoice: vi.fn(async () => ({ valid: true })),
+      addListener: async (name: "choice" | "isolationChanged", callback: ((event: NativeDrawerChoice) => void) | ((event: NativeDrawerIsolation) => void)) => {
+        if (name === "choice") listeners.add(callback as (event: NativeDrawerChoice) => void);
+        else isolationListeners.add(callback as (event: NativeDrawerIsolation) => void);
+        return { remove: async () => { listeners.delete(callback as (event: NativeDrawerChoice) => void);
+          isolationListeners.delete(callback as (event: NativeDrawerIsolation) => void); await remove(); } };
+      },
+    };
+    return { plugin, apply, retire, remove, emit: (event: NativeDrawerChoice) => listeners.forEach(callback => callback(event)),
+      isolate: (isolated: boolean, notify = true) => {
+        isolation = { generation: isolation.generation + 1, isolated };
+        if (notify) isolationListeners.forEach(callback => callback(isolation));
+      } };
+  }
+
+  it.each(["accepted", "rejected"] as const)("waits for latest admission and fences a replaced callback after %s obsolete confirmation", async outcome => {
+    const bridge = presentationBridge();
+    const first = deferred<ReturnType<typeof state> & { phase: "active" }>();
+    bridge.apply.mockImplementationOnce(() => first.promise);
+    const phases = vi.fn(), oldAction = vi.fn(), newAction = vi.fn();
+    const presentation = new NativeDrawerPresentation(state(), bridge.plugin, () => true, phases);
+    const actions = { rows: new Map([["row-handle", oldAction]]), open: vi.fn(), close: vi.fn() };
+    expect(await presentation.listen()).toBe(true);
+    expect(presentation.publish(state(), actions)).toBe(true);
+    expect(presentation.publish({ ...state(), updateSequence: 2 }, { ...actions, rows: new Map([["row-handle", newAction]]) })).toBe(true);
+    bridge.emit(choice());
+    expect(bridge.plugin.confirmChoice).not.toHaveBeenCalled();
+    first.resolve({ ...state(), phase: "active" });
+    await waitFor(() => expect(phases).toHaveBeenCalledWith("active"));
+    bridge.emit(choice());
+    expect(bridge.plugin.confirmChoice).not.toHaveBeenCalled();
+    const pending = deferred<{ valid: boolean }>();
+    vi.mocked(bridge.plugin.confirmChoice).mockReturnValueOnce(pending.promise);
+    bridge.emit({ ...choice(), sequence: 2, updateSequence: 2 });
+    await waitFor(() => expect(bridge.plugin.confirmChoice).toHaveBeenCalledOnce());
+    presentation.publish({ ...state(), updateSequence: 3, enabled: false }, actions);
+    if (outcome === "accepted") pending.resolve({ valid: true });
+    else pending.reject(new Error("Synthetic obsolete confirmation failure"));
+    await waitFor(() => expect(bridge.apply).toHaveBeenCalledTimes(3));
+    expect(newAction).not.toHaveBeenCalled();
+    expect(oldAction).not.toHaveBeenCalled();
+    bridge.retire.mockResolvedValue({ ...state(), updateSequence: 3, phase: "retired" });
+    expect(await presentation.retire()).toBe(true);
+    expect(bridge.remove).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["wrong-owner", "missing"] as const)("quarantines uncertain delivery and never restores fallback with %s retirement proof", async proof => {
+    const bridge = presentationBridge();
+    const cleanup = deferred<void>();
+    bridge.remove.mockImplementation(() => cleanup.promise);
+    bridge.retire.mockResolvedValue(proof === "missing" ? null as never : { ...state(), ownerEpoch: "replacement", phase: "retired" });
+    bridge.apply.mockRejectedValueOnce(new Error("synthetic uncertain delivery"));
+    const phases = vi.fn(), action = vi.fn();
+    const presentation = new NativeDrawerPresentation(state(), bridge.plugin, () => true, phases);
+    const actions = { rows: new Map([["row-handle", action]]), open: vi.fn(), close: vi.fn() };
+    await presentation.listen();
+    bridge.isolate(true);
+    presentation.publish(state(), actions);
+    await waitFor(() => expect(phases).toHaveBeenCalledWith("quarantined"));
+    expect(presentation.publish({ ...state(), updateSequence: 2 }, actions)).toBe(false);
+    bridge.emit(choice());
+    expect(bridge.apply).toHaveBeenCalledOnce();
+    expect(bridge.plugin.confirmChoice).not.toHaveBeenCalled();
+    expect(action).not.toHaveBeenCalled();
+    expect(await presentation.retire()).toBe(false);
+    expect(bridge.retire).toHaveBeenCalledOnce();
+    expect(phases).not.toHaveBeenCalledWith("retired");
+    expect(bridge.remove).toHaveBeenCalledTimes(1);
+    bridge.isolate(false); // Later native privacy retirement must still update public eligibility.
+    expect(nativeDrawerIsolation().isolated).toBe(false);
+    window.dispatchEvent(new Event("pagehide"));
+    expect(bridge.remove).toHaveBeenCalledTimes(2);
+    cleanup.resolve();
+  });
+  it("reconciles authoritative isolation after retirement before releasing the public observer", async () => {
+    const bridge = presentationBridge();
+    const presentation = new NativeDrawerPresentation(state(), bridge.plugin, () => true, vi.fn());
+    await presentation.listen();
+    presentation.publish(state(), { rows: new Map([["row-handle", vi.fn()]]), open: vi.fn(), close: vi.fn() });
+    await waitFor(() => expect(bridge.apply).toHaveBeenCalledOnce());
+    bridge.isolate(true);
+    expect(nativeDrawerIsolation().isolated).toBe(true);
+    bridge.retire.mockImplementation(async () => {
+      bridge.isolate(false, false); // The bridge can coalesce the final notification.
+      return { ...state(), phase: "retired" };
+    });
+    expect(await presentation.retire()).toBe(true);
+    expect(nativeDrawerIsolation().isolated).toBe(false);
+    expect(bridge.remove).toHaveBeenCalledTimes(2);
+  });
+  it("removes the acquired observer if capability catch-up hangs and never admits a premature projection", async () => {
+    vi.useFakeTimers();
+    try {
+      const bridge = presentationBridge();
+      const capability = await bridge.plugin.getCapabilities();
+      vi.spyOn(bridge.plugin, "getCapabilities").mockResolvedValueOnce(capability).mockReturnValue(new Promise(() => undefined));
+      const phases = vi.fn();
+      const presentation = new NativeDrawerPresentation(state(), bridge.plugin, () => true, phases);
+      const listening = presentation.listen();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(presentation.publish(state(), { rows: new Map([["row-handle", vi.fn()]]), open: vi.fn(), close: vi.fn() })).toBe(false);
+      await vi.advanceTimersByTimeAsync(5_001);
+      expect(await listening).toBe(false);
+      expect(bridge.apply).not.toHaveBeenCalled();
+      expect(bridge.remove).toHaveBeenCalledTimes(2);
+      expect(phases.mock.calls.at(-1)?.[0]).toBe("retired");
+    } finally { vi.useRealTimers(); }
+  });
+  it("ignores obsolete confirmation rejection after confirmed retirement", async () => {
+    const bridge = presentationBridge();
+    const confirmation = deferred<{ valid: boolean }>();
+    vi.mocked(bridge.plugin.confirmChoice).mockReturnValueOnce(confirmation.promise);
+    const phases = vi.fn(), operation = vi.fn();
+    const presentation = new NativeDrawerPresentation(state(), bridge.plugin, () => true, phases);
+    await presentation.listen();
+    presentation.publish(state(), { rows: new Map([["row-handle", operation]]), open: vi.fn(), close: vi.fn() });
+    await waitFor(() => expect(phases).toHaveBeenCalledWith("active"));
+    bridge.emit(choice());
+    await waitFor(() => expect(bridge.plugin.confirmChoice).toHaveBeenCalledOnce());
+    expect(await presentation.retire()).toBe(true);
+    await act(async () => { confirmation.reject(new Error("Synthetic departed-owner failure")); });
+    expect(phases.mock.calls.map(([phase]) => phase)).toEqual(["active", "retired"]);
+    expect(bridge.retire).toHaveBeenCalledOnce();
+    expect(operation).not.toHaveBeenCalled();
+  });
+});
+
 const projection = { kind: "back" as const, label: "Go back", enabled: true,
   appearance: "light" as const, accentHex: "#112233", foregroundHex: "#223344",
   frame: { x: 2, y: 60, width: 44, height: 44 }, viewport: { width: 390, height: 844 } };
@@ -238,6 +446,7 @@ describe("private dock asynchronous submission boundary", () => {
       recovery: { text: "", context: "synthetic-conversation", editorRevision: 0, consumed: true } }));
     dockBridge.confirmEvent.mockReset().mockResolvedValue({ valid: true });
     dockBridge.consumeDraft.mockReset();
+    dockBridge.beginEditingTransition.mockReset();
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ x: 20, y: 700, width: 350, height: 52,
       top: 700, bottom: 752, left: 20, right: 370, toJSON: () => ({}) });
     vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
@@ -431,6 +640,28 @@ describe("private dock asynchronous submission boundary", () => {
     await waitFor(() => expect(dockBridge.apply.mock.calls.some(([state]) => state.settledConsumption === 1)).toBe(true));
     expect(onAction).toHaveBeenCalledOnce();
     expect(dockBridge.consumeDraft).toHaveBeenCalledOnce();
+  });
+  it.each(["send", "collapse"] as const)("withdraws a delayed %s snapshot after a complete native drawer cycle without replay", async action => {
+    let isolationCallback!: (event: NativeDrawerIsolation) => void;
+    const handle = await subscribeNativeDrawerIsolation({
+      getCapabilities: async () => ({ ...nativeDrawerIsolation() }),
+      addListener: async (_, callback) => { isolationCallback = callback; return { remove: async () => undefined }; },
+    });
+    const operation = vi.fn();
+    const receipt = deferred<{ consumed: boolean; editRevision: number; accepted: boolean }>();
+    dockBridge.consumeDraft.mockReturnValue(receipt.promise);
+    dockBridge.beginEditingTransition.mockReturnValue(receipt.promise);
+    render(fixture(false, operation));
+    await waitFor(() => expect(dockBridge.apply).toHaveBeenCalled());
+    const initial = dockBridge.apply.mock.calls.at(-1)![0] as DockState;
+    act(() => dockBridge.callbacks.get("input")?.({ ...send(initial), action }));
+    await waitFor(() => expect(action === "send" ? dockBridge.consumeDraft : dockBridge.beginEditingTransition).toHaveBeenCalledOnce());
+    const epoch = nativeDrawerIsolation().generation;
+    act(() => { isolationCallback({ generation: epoch + 1, isolated: true }); isolationCallback({ generation: epoch + 2, isolated: false }); });
+    await act(async () => { receipt.resolve({ consumed: true, editRevision: 1, accepted: true }); });
+    await waitFor(() => expect(dockBridge.retire).toHaveBeenCalledWith(expect.objectContaining({ revision: initial.revision, preserveDraft: true })));
+    expect(operation).not.toHaveBeenCalled();
+    await handle.remove();
   });
 });
 
@@ -841,8 +1072,24 @@ describe("native chrome presentation lease", () => {
     expect(lease.projection.accentHex).toBe(original.accentHex);
     expect(await lease.update(original)).toBe(true);
     expect(bridge.update).toHaveBeenCalledTimes(2);
+    // An uncover receipt must refresh the current permissions even when the
+    // projection itself is unchanged. It must not recreate a host or lease.
+    expect(await lease.update(original, true)).toBe(true);
+    expect(bridge.update).toHaveBeenCalledTimes(3);
+    expect(bridge.prepare).toHaveBeenCalledOnce();
+    expect(bridge.activate).toHaveBeenCalledOnce();
     lease.invalidate();
     expect(await lease.update(original)).toBe(false);
+    const obsolete = new NativeChromeLease(projection, "owner-a", "old-context", true);
+    await obsolete.prepare();
+    const delayedActivation = deferred<ChromeAcknowledgement>();
+    bridge.activate.mockReturnValueOnce(delayedActivation.promise);
+    const readmission = obsolete.update(original, true);
+    const observed = readmission.then(result => ({ result }));
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(2));
+    obsolete.invalidate();
+    delayedActivation.reject(new Error("Synthetic departed-owner activation failure"));
+    expect(await observed).toEqual({ result: false });
   });
   it("keeps an uncertain presentation quarantined until exact retirement is confirmed", async () => {
     const lease = new NativeChromeLease(projection, "owner-a");
@@ -1058,7 +1305,7 @@ describe("native chrome presentation lease", () => {
     const subscriptions = bridge.subscribe.mock.calls.length;
     const oldAction = vi.fn(), currentAction = vi.fn();
     const pending = render(retainedControl(kind, "pending-listener", oldAction));
-    await waitFor(() => expect(bridge.subscribe).toHaveBeenCalledTimes(subscriptions + 2));
+    await waitFor(() => expect(bridge.subscribe).toHaveBeenCalledTimes(subscriptions + 3));
     const currentView = render(retainedControl(kind, "current-listener", currentAction));
     await waitFor(() => expect(bridge.activate).toHaveBeenCalledOnce());
     const currentControl = bridge.prepare.mock.calls.at(-1)![0];

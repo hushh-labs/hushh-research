@@ -13,42 +13,8 @@ enum NativeHistoryQualification {
     }
 }
 
-struct NativeHistoryQualificationMotion {
-    private(set) var generation = 0
-    private(set) var committedOpen = false
-    private(set) var progress: CGFloat = 0
-    private(set) var retired = false
-
-    @discardableResult mutating func begin(at progress: CGFloat) -> Int {
-        guard !retired else { return generation }
-        generation += 1
-        self.progress = min(1, max(0, progress))
-        return generation
-    }
-
-    mutating func move(to progress: CGFloat) {
-        guard !retired else { return }
-        self.progress = min(1, max(0, progress))
-    }
-
-    func destination(velocity: CGFloat, cancelled: Bool) -> Bool {
-        if cancelled { return committedOpen }
-        if abs(velocity) > 350 { return velocity > 0 }
-        return progress >= 0.5
-    }
-
-    @discardableResult mutating func commit(open: Bool, generation: Int) -> Bool {
-        guard !retired, generation == self.generation else { return false }
-        committedOpen = open
-        progress = open ? 1 : 0
-        return true
-    }
-
-    mutating func retire() {
-        generation += 1
-        retired = true
-    }
-}
+// The public study and product owner exercise the same cancellation/regrab gene.
+typealias NativeHistoryQualificationMotion = NativeDrawerMotion
 
 @available(iOS 26.0, *)
 final class NativeHistoryQualificationAppearance: ObservableObject {

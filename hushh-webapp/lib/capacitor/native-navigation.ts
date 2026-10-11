@@ -2,6 +2,7 @@
 
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import { customNativePresentationEnabled } from "./native-presentation-policy";
+import { nativeDrawerIsolation } from "./native-drawers";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type Ref, type RefObject } from "react";
 import { nativeDocumentId, subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
 import { NATIVE_CONTROL_CONTRACT_VERSION, type NativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
@@ -26,7 +27,7 @@ type NavigationState = NativeControlAppearance & {
 };
 
 export interface HushhNativeNavigationPlugin {
-  getCapabilities(): Promise<Geometry & { contractVersion: number; interactionIsolation?: boolean; underlayPresentation?: boolean; contentBackedPresentation?: boolean; reservedPresentationRegions?: boolean; fullWindowOverlays?: boolean }>;
+  getCapabilities(): Promise<Geometry & { contractVersion: number; interactionIsolation?: boolean; underlayPresentation?: boolean; contentBackedPresentation?: boolean; reservedPresentationRegions?: boolean; fullWindowOverlays?: boolean; wholeNativeDrawers?: boolean }>;
   setState(options: NavigationState): Promise<Geometry>;
   confirmSelection(options: Selection): Promise<{ valid: boolean }>;
   addListener(eventName: "selectionRequested", listener: (event: Selection) => void): Promise<PluginListenerHandle>;
@@ -206,9 +207,10 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
               event.interactionEpoch !== state.interactionEpoch || !Number.isSafeInteger(event.sequence) ||
               event.sequence <= lastSelection.current || !NATIVE_NAVIGATION_TABS.includes(event.tab)) return;
           const requestEpoch = confirmationEpoch;
+          const isolation = nativeDrawerIsolation();
           void nativeNavigation.confirmSelection(event).then(({ valid }) => {
             const latest = current.current;
-            if (!valid || cancelled || requestEpoch !== confirmationEpoch || !latest?.visible || !latest.interactionEnabled || overlays.size > 0 ||
+            if (!valid || cancelled || isolation.isolated || nativeDrawerIsolation().isolated || isolation.generation !== nativeDrawerIsolation().generation || requestEpoch !== confirmationEpoch || !latest?.visible || !latest.interactionEnabled || overlays.size > 0 ||
                 document.visibilityState === "hidden" || event.documentId !== latest.documentId ||
                 event.interactionEpoch !== latest.interactionEpoch || event.sequence <= lastSelection.current) return;
             lastSelection.current = event.sequence;
@@ -231,8 +233,9 @@ export function useNativeNavigation({ enabled, visible, interactionEnabled = tru
         if (!cancelled) {
           // Qualified regions keep DOM overlays away from the native strip.
           // Older foreground pilots still conceal safely during coverage.
-          setInteractionIsolation(customNativePresentationEnabled() && capability.interactionIsolation === true &&
-            (capability.contentBackedPresentation !== true || reservedRegions.current));
+          setInteractionIsolation(capability.interactionIsolation === true &&
+            (capability.wholeNativeDrawers === true || customNativePresentationEnabled() &&
+              (capability.contentBackedPresentation !== true || reservedRegions.current)));
           setSupported(true);
         }
       } catch { /* Old wrappers and non-iOS builds retain the existing web navigation. */ }

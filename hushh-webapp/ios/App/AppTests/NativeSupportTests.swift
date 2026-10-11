@@ -4,6 +4,125 @@ import WebKit
 @testable import App
 
 final class NativeSupportTests: XCTestCase {
+    private func privateDrawerState(family: String = "profile", open: Bool = true,
+                                   owner: String = "opaque-owner", revision: Int = 1, update: Int = 1,
+                                   appearance: String = "light") -> NativeDrawerProjection {
+        NativeDrawerProjection(documentId: "public-document", ownerEpoch: owner, ownerGeneration: revision, revision: revision, family: family,
+            updateSequence: update, privacyGeneration: 0, appearance: appearance, accentHex: "#007aff", foregroundHex: "#000000",
+            title: "Public sample", sections: [NativeDrawerSection(id: "settings", title: "Settings",
+                rows: [NativeDrawerRow(id: "row-handle", label: "Appearance", detail: nil, symbol: "circle.lefthalf.filled",
+                    enabled: true, destructive: nil, selected: nil, pending: nil)])],
+            open: open, enabled: true, backEnabled: false)
+    }
+
+    func testPrivateNativeDrawerRejectsStaleOwnersAndConsumesOnlyEmittedChoices() {
+        var lease = NativeDrawerLease()
+        let state = privateDrawerState()
+        var options = try! JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as! [String: Any]
+        XCTAssertTrue(NativeDrawerProjection.hasClosedShape(options))
+        options["undeclaredPayload"] = "synthetic"
+        XCTAssertFalse(NativeDrawerProjection.hasClosedShape(options), "Private projections must reject arbitrary bridge fields")
+        options.removeValue(forKey: "undeclaredPayload")
+        var sections = options["sections"] as! [[String: Any]]
+        var rows = sections[0]["rows"] as! [[String: Any]]
+        rows[0]["undeclaredPayload"] = "synthetic"
+        sections[0]["rows"] = rows; options["sections"] = sections
+        XCTAssertFalse(NativeDrawerProjection.hasClosedShape(options))
+        XCTAssertTrue(lease.apply(state))
+        XCTAssertNil(lease.emit(action: "row", row: "not-authored", state: state))
+        let sequence = lease.emit(action: "row", row: "row-handle", state: state)!
+        XCTAssertFalse(lease.confirm(identity: state.identity, update: 1, privacy: 0, sequence: sequence, interaction: 1,
+            action: "row", row: "not-authored", allowed: true))
+        XCTAssertTrue(lease.confirm(identity: state.identity, update: 1, privacy: 0, sequence: sequence, interaction: 1,
+            action: "row", row: "row-handle", allowed: true))
+        XCTAssertFalse(lease.confirm(identity: state.identity, update: 1, privacy: 0, sequence: sequence, interaction: 1,
+            action: "row", row: "row-handle", allowed: true))
+        let pending = lease.emit(action: "row", row: "row-handle", state: state)!
+        let replacement = privateDrawerState(owner: "replacement", revision: 2)
+        XCTAssertTrue(lease.apply(replacement))
+        XCTAssertFalse(lease.retire(state.identity), "An old retirement cannot remove a replacement")
+        XCTAssertFalse(lease.confirm(identity: state.identity, update: 1, privacy: 0, sequence: pending, interaction: 1,
+            action: "row", row: "row-handle", allowed: true))
+        XCTAssertFalse(lease.apply(state))
+        XCTAssertTrue(lease.retire(replacement.identity))
+        XCTAssertFalse(lease.apply(privateDrawerState(owner: "replacement", revision: 2, update: 2)),
+            "Privacy retirement requires a newly bound presentation, not an old lease")
+        var session = NativeDrawerSessionFence()
+        XCTAssertTrue(session.admit(state.identity))
+        XCTAssertTrue(session.admit(replacement.identity))
+        XCTAssertFalse(session.contains(privateDrawerState(family: "history").identity))
+        XCTAssertFalse(session.admit(privateDrawerState(family: "history", update: 9).identity),
+            "Late projections cannot revive the other departing-owner family")
+        var moving = NativeDrawerLease()
+        XCTAssertTrue(moving.apply(state))
+        let emitted = try! XCTUnwrap(moving.emit(action: "row", row: "row-handle", state: state))
+        moving.invalidateInteractions()
+        XCTAssertFalse(moving.confirm(identity: state.identity, update: 1, privacy: 0, sequence: emitted,
+            interaction: 1, action: "row", row: "row-handle", allowed: true),
+            "A closing drag invalidates a pending row action even before React updates")
+        var cancelledPreparation = NativeDrawerLease()
+        XCTAssertTrue(cancelledPreparation.retire(state.identity))
+        XCTAssertFalse(cancelledPreparation.apply(state), "A lost apply cannot resurrect a cancelled private body")
+        XCTAssertTrue(cancelledPreparation.retire(state.identity), "Exact absence proof is idempotent")
+    }
+
+    @MainActor
+    func testWholeNativeDrawerKeepsBasePaintThroughCoverageAndClearsPrivateReplicaOnRetirement() throws {
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let container = NativePresentationContainer(webView: web, basePresentation: .coherentDrawers)
+        let glass = UIButton(frame: CGRect(x: 10, y: 10, width: 44, height: 44))
+        container.install(glass, id: "base-control", group: nil)
+        container.setAdmission("base-control", admitted: true)
+        let base = try XCTUnwrap(glass.superview)
+        let parent = UIViewController()
+        parent.view = container
+        let controller = NativeDrawerPresentationController(privateDrawerState())
+        parent.addChild(controller)
+        container.addSubview(controller.view)
+        controller.view.frame = container.bounds
+        controller.didMove(toParent: parent)
+        controller.isolation = { container.isolateForOwnedDrawer($0) }
+        controller.activateInitialPresentation()
+        let host = try XCTUnwrap(controller.host)
+        controller.update(privateDrawerState(update: 2, appearance: "dark"))
+        XCTAssertTrue(controller.host === host, "Appearance/content updates retain the native host")
+        XCTAssertEqual(controller.overrideUserInterfaceStyle, .dark)
+        controller.settle(open: false, userIntent: false)
+        XCTAssertFalse(web.isUserInteractionEnabled, "Closing target is not visible settlement")
+        XCTAssertTrue(web.accessibilityElementsHidden)
+        XCTAssertFalse(base.isHidden, "Drawer coverage must not hide the exposed material")
+        XCTAssertFalse(glass.isHidden)
+        XCTAssertTrue(glass.superview === base)
+        XCTAssertFalse(glass.isUserInteractionEnabled)
+        XCTAssertFalse(container.setRegions(document: "public-document", revision: 1,
+            viewport: container.bounds.size, top: 100, bottom: 100, isolated: true, covered: true),
+            "The new owner must not accept the historical asynchronous clipping protocol")
+        controller.beginDrag()
+        XCTAssertTrue(controller.host === host)
+        controller.retire()
+        XCTAssertTrue(controller.children.isEmpty)
+        XCTAssertNil(host.view.superview)
+        XCTAssertNil(controller.view.superview)
+        XCTAssertTrue(controller.model.projection.sections.isEmpty)
+        XCTAssertTrue(controller.model.projection.title.isEmpty)
+        XCTAssertNil(controller.model.choose)
+        XCTAssertTrue(web.superview === container)
+        XCTAssertFalse(base.isHidden)
+        XCTAssertFalse(glass.isUserInteractionEnabled, "Fresh bindings restore permissions, not a captured boolean")
+    }
+
+    @MainActor
+    func testPreparingClosedNativeDrawerDoesNotFlashOrBlockTheExistingPage() {
+        let controller = NativeDrawerPresentationController(privateDrawerState(open: false))
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        var isolated = false
+        controller.isolation = { isolated = $0 }
+        controller.activateInitialPresentation()
+        XCTAssertFalse(isolated)
+        XCTAssertNil(controller.view.hitTest(CGPoint(x: 100, y: 100), with: nil))
+        controller.retire()
+    }
+
     #if DEBUG
     func testNativeHistoryQualificationNeverReactivatesExperimentalProductControls() {
         XCTAssertTrue(NativeHistoryQualification.admits(arguments: [NativeHistoryQualification.argument], phone: true, supported: true))
@@ -632,6 +751,12 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(fence.retire(old))
         XCTAssertFalse(fence.apply(old, sequence: 2))
         XCTAssertTrue(fence.apply(next, sequence: 1))
+        let coveredChoice = fence.emitted(kind: "action", action: "send")
+        fence.invalidateChoices()
+        XCTAssertEqual(fence.identity, next)
+        XCTAssertEqual(fence.edit, 0, "Coverage cannot discard or manufacture an editor revision")
+        XCTAssertFalse(fence.confirm(next, sequence: coveredChoice, applied: 1, editRevision: 0, kind: "action", allowed: true),
+            "Uncovering cannot revive a pre-drawer Send")
         XCTAssertFalse(fence.confirm(old, sequence: choice, applied: 1, editRevision: 0, kind: "action", allowed: true))
         XCTAssertFalse(fence.retire(old))
         XCTAssertEqual(fence.identity, next)
@@ -806,6 +931,11 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(state.confirm(first, sequence: 1, latestSequence: 1, allowed: false)) // privacy/overlay guard
         XCTAssertTrue(state.confirm(first, sequence: 1, latestSequence: 1, allowed: true))
         XCTAssertFalse(state.confirm(first, sequence: 1, latestSequence: 1, allowed: true))
+        state.invalidateChoices(through: 2)
+        XCTAssertFalse(state.confirm(first, sequence: 2, latestSequence: 2, allowed: true),
+            "A pre-drawer choice stays invalid after isolation ends")
+        XCTAssertEqual(state.identity, first)
+        XCTAssertEqual(state.phase, "active", "Ordinary coverage is not native retirement")
         let replacement = HushhNativeChromeState.Identity(document: "a", ownerEpoch: "owner-a", revision: 2)
         XCTAssertFalse(state.prepareBackReplacement(replacement, previousRevision: 0))
         XCTAssertFalse(state.prepareBackReplacement(.init(document: "a", ownerEpoch: "owner-b", revision: 2), previousRevision: 1))
