@@ -2172,12 +2172,14 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   --profile-pane-gutter: clamp(12px, 2.5vw, 18px);
   --profile-pane-top-inset: max(
     var(--profile-pane-gutter),
-    env(safe-area-inset-top, 0px)
+    var(--app-safe-area-top-effective, 0px)
   );
   --profile-pane-right-inset: max(
     var(--profile-pane-gutter),
     env(safe-area-inset-right, 0px)
   );
+  --tw-enter-translate-x: calc(100% + var(--profile-pane-right-inset));
+  --tw-exit-translate-x: calc(100% + var(--profile-pane-right-inset));
   --profile-pane-bottom-inset: max(
     var(--profile-pane-gutter),
     env(safe-area-inset-bottom, 0px)
@@ -2709,25 +2711,25 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   }
 }
 
-html:has(.profile-home-screen),
-html:has(.profile-account-content),
-html:has([data-profile-stack="true"]),
-body:has(.profile-home-screen),
-body:has(.profile-account-content),
-body:has([data-profile-stack="true"]) {
+html:has(.profile-home-screen:not(.profile-pane-sheet *)),
+html:has(.profile-account-content:not(.profile-pane-sheet *)),
+html:has([data-profile-stack="true"]:not(.profile-pane-sheet *)),
+body:has(.profile-home-screen:not(.profile-pane-sheet *)),
+body:has(.profile-account-content:not(.profile-pane-sheet *)),
+body:has([data-profile-stack="true"]:not(.profile-pane-sheet *)) {
   background: var(--ios-account-screen-background) !important;
   min-height: 100dvh;
 }
 
-body:has(.profile-home-screen) .foundation-public-ambient,
-body:has(.profile-account-content) .foundation-public-ambient,
-body:has([data-profile-stack="true"]) .foundation-public-ambient {
+body:has(.profile-home-screen:not(.profile-pane-sheet *)) .foundation-public-ambient,
+body:has(.profile-account-content:not(.profile-pane-sheet *)) .foundation-public-ambient,
+body:has([data-profile-stack="true"]:not(.profile-pane-sheet *)) .foundation-public-ambient {
   display: none;
 }
 
-body:has(.profile-account-content) [data-app-top-bar],
-body:has(.profile-account-content) .bottom-chrome-surface,
-body:has(.profile-account-content) .kai-bottom-nav-pill {
+body:has(.profile-account-content:not(.profile-pane-sheet *)) [data-app-top-bar],
+body:has(.profile-account-content:not(.profile-pane-sheet *)) .bottom-chrome-surface,
+body:has(.profile-account-content:not(.profile-pane-sheet *)) .kai-bottom-nav-pill {
   background: var(--ios-account-nav-material-background) !important;
   border-color: var(--ios-account-nav-material-border) !important;
   box-shadow: var(--ios-account-nav-material-shadow) !important;
@@ -2735,7 +2737,7 @@ body:has(.profile-account-content) .kai-bottom-nav-pill {
   backdrop-filter: var(--ios-account-nav-material-blur);
 }
 
-body:has(.profile-account-content)
+body:has(.profile-account-content:not(.profile-pane-sheet *))
   .kai-bottom-nav-pill
   [data-segment-indicator] {
   background: transparent !important;
@@ -2744,35 +2746,35 @@ body:has(.profile-account-content)
   opacity: 0;
 }
 
-body:has(.profile-account-content)
+body:has(.profile-account-content:not(.profile-pane-sheet *))
   .kai-bottom-nav-pill
   [data-segment-active-pulse] {
   animation: none;
   background: transparent;
 }
 
-body:has(.profile-account-content) .kai-bottom-nav-pill [role="radio"] {
+body:has(.profile-account-content:not(.profile-pane-sheet *)) .kai-bottom-nav-pill [role="radio"] {
   color: var(--ios-account-secondary-label) !important;
   font-weight: var(--ios-account-medium-weight);
 }
 
-body:has(.profile-account-content)
+body:has(.profile-account-content:not(.profile-pane-sheet *))
   .kai-bottom-nav-pill
   [role="radio"]:active,
-body:has(.profile-account-content)
+body:has(.profile-account-content:not(.profile-pane-sheet *))
   .kai-bottom-nav-pill
   [role="radio"][aria-checked="true"] {
   color: var(--ios-account-accent) !important;
   font-weight: var(--ios-account-medium-weight);
 }
 
-body:has(.profile-account-content) .kai-bottom-nav-pill [role="radio"] svg {
+body:has(.profile-account-content:not(.profile-pane-sheet *)) .kai-bottom-nav-pill [role="radio"] svg {
   color: currentColor;
   filter: none;
   transform: none;
 }
 
-body:has(.profile-account-content)
+body:has(.profile-account-content:not(.profile-pane-sheet *))
   .kai-bottom-nav-pill
   [role="radio"]
   > span:last-of-type {
@@ -2781,12 +2783,12 @@ body:has(.profile-account-content)
   line-height: var(--ios-account-tab-label-line);
 }
 
-body:has(.profile-account-content)
+body:has(.profile-account-content:not(.profile-pane-sheet *))
   [data-testid="one-voice-agent-bar-start-icon"] {
   color: var(--ios-account-secondary-label);
 }
 
-body:has(.profile-account-content)
+body:has(.profile-account-content:not(.profile-pane-sheet *))
   [data-testid="one-voice-agent-bar-start-icon"]
   > span:nth-of-type(2) {
   font-size: var(--ios-account-description-size);
@@ -3134,6 +3136,16 @@ html.kb-open:not(.native-keyboard-inset) .ambient-chrome-mask--bottom {
  * covers it on iOS, it steps aside on Android), yet its height was still
  * reserved: the palette floated ~160 dp above the keyboard and its top ran
  * under the status bar (Galaxy S24 Ultra, 2026-09-22). */
+[data-keyboard-anchor="bottom"][data-search-surface] {
+  /* Bound the entire surface, including its input and padding, to the band
+   * between the status bar and the keyboard/chrome. Results alone may shrink. */
+  max-height: max(0px, calc(
+    100dvh - var(--kb-height, 0px) -
+    var(--palette-chrome-clearance, var(--bottom-chrome-stack-height, 0px)) -
+    var(--app-safe-area-top-effective, 0px) - 1rem
+  )) !important;
+}
+
 html.kb-open [data-keyboard-anchor="bottom"][data-search-surface] {
   --palette-chrome-clearance: 0px;
 }
@@ -3576,8 +3588,11 @@ body:has([data-location-hub], [data-wallet-hub]) [data-app-shell-top-spacer="tru
 
 /* Capacitor iOS uses `ios.contentInset = "never"` with CSS-owned insets; don't double-count shell spacing. */
 html.native-ios {
-  /* Enforce a minimum status bar safe area top of 44px to prevent overlapping on iOS Capacitor */
-  --app-safe-area-top: max(44px, env(safe-area-inset-top, 0px));
+  /* UIKit supplies the real inset even when WKWebView env() is zero. Older
+   * binaries and the first document frame use a Dynamic-Island-safe fallback. */
+  --app-safe-area-top: max(var(--app-native-safe-area-top, 59px), env(safe-area-inset-top, 0px));
+  /* A measured zero is valid after rotation; stale CSS probes must not win. */
+  --app-safe-area-top-effective: var(--app-native-safe-area-top, max(var(--app-safe-area-top), env(safe-area-max-inset-top, 0px), var(--app-safe-area-top-probe)));
   /* Lift persistent bottom chrome above the iOS home indicator zone. */
   --app-bottom-chrome-lift: 10px;
   /* Keep a small effective inset because WKWebView already applies content inset on iOS. */
@@ -7661,7 +7676,7 @@ html.native-full-window-overlays:not([data-native-full-window-covered]) :is(
 }
 @keyframes profile-pull-exit {
   from { transform: translate3d(var(--profile-pull-x, 0px), 0, 0); }
-  to { transform: translate3d(100%, 0, 0); }
+  to { transform: translate3d(calc(100% + var(--profile-pane-right-inset, 0px)), 0, 0); }
 }
 @keyframes profile-pull-scrim-exit {
   from { opacity: var(--profile-pull-opacity, 1); }

@@ -96,6 +96,32 @@ def refs(db):
     ]
 
 
+def test_connections_query_loads_owner_recipients_and_filters_blocks(cards_db, monkeypatch):
+    db, service = cards_db
+    monkeypatch.setenv("WALLET_CARD_ACCESS_ENABLED", "false")
+    result = service.connections("alice")
+    assert [(row["displayName"], row["trusted"]) for row in result["items"]] == [
+        ("Charu", True),
+        ("Rupman", False),
+    ]
+    assert result["hasMore"] is False
+    assert len(service.connections("alice", "rup")["items"]) == 1
+    assert service.connections("outsider")["items"] == []
+    with pytest.raises(WalletCardAccessError, match="WALLET_CARD_ACCESS_UNAVAILABLE"):
+        service.create_grants("alice", "card_test", str(uuid.uuid4()), refs(db), 10)
+    with db.engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO direct_message_blocks(blocker_user_id,blocked_user_id) VALUES('bob','alice')"
+            )
+        )
+    assert [row["displayName"] for row in service.connections("alice")["items"]] == ["Charu"]
+    with db.engine.begin() as conn:
+        conn.execute(text("DELETE FROM actor_identity_cache WHERE user_id='charu'"))
+    assert service.connections("alice")["items"][0]["displayName"] == "A connection"
+    assert service.connections("alice")["items"][0]["trusted"] is True
+
+
 def test_saved_owner_cards_share_without_extra_verification_but_foreign_cards_do_not(cards_db):
     db, service = cards_db
     legacy = "card_" + str(uuid.uuid4())
