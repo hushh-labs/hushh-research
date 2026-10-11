@@ -10,7 +10,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import type { CardShareContext } from "@/lib/services/wallet-card-share-service";
-import { WalletCardAccessService, type CardAccessRecipient, type CardAccessState } from "@/lib/services/wallet-card-access-service";
+import { CardAccessUnavailableError, WalletCardAccessService, type CardAccessRecipient, type CardAccessState } from "@/lib/services/wallet-card-access-service";
 import { WalletService, type WalletCardSummary, type WalletCardShareReceipt } from "@/lib/services/wallet-service";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useBackLayer } from "@/lib/navigation/back-layers";
@@ -29,8 +29,10 @@ export function WalletSavedCardSharing({ card, getContext, disabled }: {
   const [failed, setFailed] = useState(false);
   const [state, setState] = useState<CardAccessState | null>(null);
   const [stateFailed, setStateFailed] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
   const [busy, setBusy] = useState(false);
   const [revision, setRevision] = useState(0);
+  const [recipientRevision, setRecipientRevision] = useState(0);
   const [receipts, setReceipts] = useState<WalletCardShareReceipt[]>([]);
   const generation = useRef(0);
   const sending = useRef(false);
@@ -44,31 +46,33 @@ export function WalletSavedCardSharing({ card, getContext, disabled }: {
   useEffect(() => { close(); setState(null); setReceipts([]); attempt.current = null; }, [card.cardId, getContext, close]);
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     const context = getContext(card.cardId);
     if (!context) return;
-    setStateFailed(false);
-    void WalletCardAccessService.state(context, card.cardId).then(result => {
+    setStateFailed(false); setUnavailable(false);
+    void WalletCardAccessService.state(context, card.cardId, controller.signal).then(result => {
       if (!cancelled && context.isCurrent()) setState(result);
-    }).catch(() => { if (!cancelled && context.isCurrent()) { setState(null); setStateFailed(true); } });
+    }).catch(error => { if (!cancelled && context.isCurrent()) { setState(null); setStateFailed(true); setUnavailable(error instanceof CardAccessUnavailableError); } });
     void WalletService.listCardShareReceipts({ ...context, cardId: card.cardId }).then(result => {
       if (!cancelled && context.isCurrent()) setReceipts(result);
     }).catch(() => { /* Historical copies never determine current grant state. */ });
-    return () => { cancelled = true; };
+    return () => { cancelled = true; controller.abort(); };
   }, [card.cardId, getContext, revision]);
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
+    const controller = new AbortController();
     setLoading(true); setFailed(false);
     const timer = window.setTimeout(() => {
       const context = getContext(card.cardId);
       if (!context) { close(); return; }
-      void WalletCardAccessService.recipients(context, query).then(result => {
+      void WalletCardAccessService.recipients(context, query, controller.signal).then(result => {
         if (!cancelled && context.isCurrent()) { setRecipients(result.items); setHasMore(result.hasMore); }
       }).catch(() => { if (!cancelled && context.isCurrent()) setFailed(true); })
         .finally(() => { if (!cancelled && context.isCurrent()) setLoading(false); });
     }, 200);
-    return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [open, query, card.cardId, getContext, revision, close]);
+    return () => { cancelled = true; controller.abort(); window.clearTimeout(timer); };
+  }, [open, query, card.cardId, getContext, recipientRevision, close]);
   useEffect(() => {
     const hide = () => { if (document.visibilityState === "hidden") close(); };
     document.addEventListener("visibilitychange", hide);
@@ -109,7 +113,7 @@ export function WalletSavedCardSharing({ card, getContext, disabled }: {
         <SettingsRow icon={ProfilePaneInviteIcon} iconTone="transparent" title="Share card"
           description="Temporary access for your connections."
           chevron onClick={() => setOpen(true)} disabled={disabled || busy} />
-        {stateFailed ? <SettingsRow title="Retry" onClick={() => setRevision(value => value + 1)} /> : null}
+        {stateFailed ? <SettingsRow title="Retry" description={unavailable ? "Card sharing is temporarily unavailable." : "Could not load sharing. Check your connection."} onClick={() => setRevision(value => value + 1)} /> : null}
       </SettingsGroup>
       <SettingsGroup title="Shared with">
         {state?.grants.length ? state.grants.map(grant => <SettingsRow key={grant.id} icon={ProfilePaneInviteIcon} iconTone="transparent"
@@ -127,7 +131,7 @@ export function WalletSavedCardSharing({ card, getContext, disabled }: {
         <div className="space-y-4">
           <Input aria-label="Search connections" placeholder="Search connections" value={query} disabled={busy} onChange={event => setQuery(event.target.value)} />
           <div className="max-h-64 overflow-y-auto" aria-label="Connections">
-            {loading ? <p role="status">Finding connections…</p> : failed ? <Button variant="secondary" onClick={() => setRevision(value => value + 1)}>Retry connections</Button> : recipients.map(recipient => <label key={recipient.personRef} className="flex min-h-14 items-center gap-3 rounded-xl px-3 py-2 text-[13px]">
+            {loading ? <p role="status">Finding connections…</p> : failed ? <Button variant="secondary" onClick={() => setRecipientRevision(value => value + 1)}>Retry connections</Button> : recipients.map(recipient => <label key={recipient.personRef} className="flex min-h-14 items-center gap-3 rounded-xl px-3 py-2 text-[13px]">
               <Avatar className="size-8"><AvatarImage src={recipient.photoUrl || undefined} alt="" /><AvatarFallback>{recipient.displayName.slice(0, 1)}</AvatarFallback></Avatar>
               <span className="min-w-0 flex-1 break-words">{recipient.displayName}{recipient.trusted ? <span className="flex items-center gap-1 text-xs text-muted-foreground"><ProfilePaneSecurityIcon size={14} />Trusted Circle</span> : null}</span>
               <Checkbox aria-label={`Share with ${recipient.displayName}`} checked={Boolean(selected[recipient.personRef])} disabled={busy}
