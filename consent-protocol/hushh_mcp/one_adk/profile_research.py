@@ -76,6 +76,7 @@ async def run_profile_research(
     suggestions: list[str] = []
     search_observed = False
     attempt_search_observed = False
+    search_attempts = 0
 
     async def before_model(callback_context: Any, llm_request: Any) -> None:
         await require_access()
@@ -83,6 +84,12 @@ async def run_profile_research(
     async def after_model(callback_context: Any, llm_response: Any) -> None:
         nonlocal search_observed, attempt_search_observed
         await require_access()
+        if callback_context.agent_name == "one_profile_research":
+            parts = getattr(getattr(llm_response, "content", None), "parts", None) or []
+            if sum(bool(getattr(part, "function_call", None)) for part in parts) > 1:
+                # ADK dispatches parallel calls concurrently. Keep each Search
+                # receipt bound to its own attempt, including task completion.
+                raise ValueError("Profile research tools must run sequentially")
         metadata = getattr(llm_response, "grounding_metadata", None)
         if getattr(metadata, "web_search_queries", None) or getattr(
             metadata, "grounding_chunks", None
@@ -102,9 +109,12 @@ async def run_profile_research(
             suggestions.append(html)
 
     async def before_tool(tool: Any, args: Any, tool_context: Any) -> None:
-        nonlocal attempt_search_observed
+        nonlocal attempt_search_observed, search_attempts
         await require_access()
         if tool.name == "google_search":
+            if search_attempts >= 2:
+                raise ValueError("Profile research allows only one Search follow-up")
+            search_attempts += 1
             attempt_search_observed = False
             source_receipts.clear()
 

@@ -198,10 +198,12 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
 - Live eval before promotion: none yet. Mocked contract tests only; extraction
   quality on real mailboxes and calendars is unmeasured.
 
-### Declared: onboarding public profile research
+### Declared: Magic Intelligence
 
 - Owning agent: `agent_one`, bounded task `one_profile_research`; its existing
   `google_search` child supplies public evidence. No new top-level router.
+  Magic Intelligence researches the owner's public personal profile after
+  onboarding; business information is optional.
 - Manifest path: `consent-protocol/hushh_mcp/agents/one/agent.yaml`.
 - Structured output: `ProfileReport` in `hushh_mcp/one_adk/profile_research.py`;
   match status, name, concise summary, up to four sections and eight facts per
@@ -210,6 +212,8 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
   organizational email domain only as a hint. It keeps full email/phone as
   private matching context, without requiring a public contact match. At most
   one broader name-only follow-up fits the existing five-call/30-second budget.
+  Search calls run sequentially so each attempt carries only its own receipts;
+  the host rejects parallel tool calls and more than two Search attempts.
   The tool result exposes whether Search execution was observed; a refusal
   cannot be treated as proof that a profile does not exist.
 - Validator rejects unknown fields, duplicate sections, unsupported URLs and
@@ -224,6 +228,10 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
   `ONE_PROFILE_RESEARCH_ENABLED` (default off). Drafts use turn-local storage,
   private no-store responses and a session-only chat card; they bypass transcript
   persistence and automatic memory capture.
+- Independence: personal research has its own flag and generic owner/setup
+  admission and private-response utilities. It never requires Business
+  Intelligence, a company record, or company ownership. Career, education and
+  public personal findings can form a complete card; business is optional.
 - Wire boundary: `POST /api/one/profile-research` takes no identity body;
   owner identity is selected at ingress. It returns `status`, `pkm_written:false`
   and, when offered, `report` plus bounded Google Search suggestions. The

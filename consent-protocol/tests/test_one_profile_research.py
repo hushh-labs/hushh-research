@@ -1,6 +1,7 @@
 """Profile drafts use real ADK task completion and never write owner memory."""
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from google.adk.models.base_llm import BaseLlm
@@ -8,6 +9,7 @@ from google.adk.models.llm_response import LlmResponse
 from google.genai import types
 from pydantic import PrivateAttr, ValidationError
 
+from hushh_mcp.hushh_adk.turn import SpecialistAdkTurnError
 from hushh_mcp.one_adk.profile_research import ProfileReport, run_profile_research
 from hushh_mcp.services import profile_research_service as service
 
@@ -40,6 +42,8 @@ class ProfileModel(BaseLlm):
     _search_evidence: bool = PrivateAttr(default=True)
     _recover_after_refusal: bool = PrivateAttr(default=False)
     _refuse_followup: bool = PrivateAttr(default=False)
+    _parallel_tool: str | None = PrivateAttr(default=None)
+    _repeat_search: bool = PrivateAttr(default=False)
 
     def __init__(
         self,
@@ -49,6 +53,8 @@ class ProfileModel(BaseLlm):
         search_evidence=True,
         recover_after_refusal=False,
         refuse_followup=False,
+        parallel_tool=None,
+        repeat_search=False,
     ):
         super().__init__(model="gemini-fixture")
         self._cited_url = cited_url
@@ -56,12 +62,40 @@ class ProfileModel(BaseLlm):
         self._search_evidence = search_evidence
         self._recover_after_refusal = recover_after_refusal
         self._refuse_followup = refuse_followup
+        self._parallel_tool = parallel_tool
+        self._repeat_search = repeat_search
 
     async def generate_content_async(self, llm_request, stream=False):
         self._requests.append(llm_request)
         self._calls += 1
-        followup = self._recover_after_refusal or self._refuse_followup
-        if self._calls == 1 or (followup and self._calls == 3):
+        followup = self._recover_after_refusal or self._refuse_followup or self._repeat_search
+        if self._parallel_tool and self._calls == 1:
+            yield LlmResponse(
+                content=types.Content(
+                    role="model",
+                    parts=[
+                        types.Part(
+                            function_call=types.FunctionCall(
+                                name="google_search",
+                                args={"request": "Alex Example public profile"},
+                            )
+                        ),
+                        types.Part(
+                            function_call=types.FunctionCall(
+                                name=self._parallel_tool,
+                                args=REPORT
+                                if self._parallel_tool == "finish_task"
+                                else {"request": "Alex Example career"},
+                            )
+                        ),
+                    ],
+                )
+            )
+        elif (
+            self._calls == 1
+            or (followup and self._calls == 3)
+            or (self._repeat_search and self._calls == 5)
+        ):
             yield LlmResponse(
                 content=types.Content(
                     role="model",
@@ -214,6 +248,52 @@ async def test_a_public_search_follow_up_recovers_without_more_than_five_model_c
     assert responses[-1].response["sources"] == [{"title": "Team", "url": SOURCE}]
 
 
+@pytest.mark.parametrize("parallel_tool", ["google_search", "finish_task"])
+async def test_parallel_tools_are_rejected_before_search_receipts_can_mix(
+    monkeypatch, parallel_tool
+):
+    model = ProfileModel(parallel_tool=parallel_tool)
+    monkeypatch.setattr(
+        "hushh_mcp.runtime_providers.build_managed_regional_gemini_adk_model", lambda *args: model
+    )
+
+    async def admitted():
+        return None
+
+    with pytest.raises(SpecialistAdkTurnError) as failed:
+        await run_profile_research(
+            identity={"full_name": "Alex Example", "email": None, "phone_number": None},
+            user_id="owner",
+            consent_token=OWNER_TOKEN,
+            require_access=admitted,
+        )
+    assert isinstance(failed.value.__cause__, ValueError)
+    assert str(failed.value.__cause__) == "Profile research tools must run sequentially"
+    assert failed.value.partial_turn.tool_results == ()
+    assert model._calls == 1
+
+
+async def test_search_stops_after_one_followup_within_the_model_budget(monkeypatch):
+    model = ProfileModel(no_match=True, repeat_search=True)
+    monkeypatch.setattr(
+        "hushh_mcp.runtime_providers.build_managed_regional_gemini_adk_model", lambda *args: model
+    )
+
+    async def admitted():
+        return None
+
+    with pytest.raises(SpecialistAdkTurnError) as failed:
+        await run_profile_research(
+            identity={"full_name": "Alex Example", "email": None, "phone_number": None},
+            user_id="owner",
+            consent_token=OWNER_TOKEN,
+            require_access=admitted,
+        )
+    assert isinstance(failed.value.__cause__, ValueError)
+    assert str(failed.value.__cause__) == "Profile research allows only one Search follow-up"
+    assert model._calls == 5
+
+
 @pytest.mark.parametrize("no_match", [False, True])
 async def test_offline_followup_does_not_borrow_the_previous_search_receipt(monkeypatch, no_match):
     model = ProfileModel(no_match=no_match, refuse_followup=True)
@@ -274,6 +354,68 @@ async def test_empty_search_is_valid_but_refusal_without_search_is_not_absence(
     else:
         with pytest.raises(ValueError, match="Search execution receipt"):
             await invoke
+
+
+async def test_personal_profile_admission_does_not_depend_on_business_discovery(monkeypatch):
+    from firebase_admin import auth as firebase_auth
+
+    from hushh_mcp.services import business_suggestion_service, one_owner_admission
+
+    monkeypatch.setenv("ONE_PROFILE_RESEARCH_ENABLED", "true")
+    monkeypatch.setenv("ONE_BUSINESS_DIRECTORY_ENABLED", "false")
+    monkeypatch.setenv("ONE_BUSINESS_LOCAL_REHEARSAL_ENABLED", "false")
+
+    def business_must_not_run(*args, **kwargs):
+        pytest.fail("Personal profile research must not use business discovery or admission")
+
+    for name in (
+        "_lookup_identity",
+        "_setup_resolved",
+        "lookup_directory",
+        "get_pool",
+        "get_firebase_auth_app",
+    ):
+        monkeypatch.setattr(business_suggestion_service, name, business_must_not_run)
+    connection = SimpleNamespace(
+        fetchrow=AsyncMock(return_value={"setup_completed": True, "vault_status": "active"})
+    )
+    lease = MagicMock()
+    lease.__aenter__ = AsyncMock(return_value=connection)
+    lease.__aexit__ = AsyncMock(return_value=None)
+    monkeypatch.setattr(
+        one_owner_admission,
+        "get_pool",
+        AsyncMock(return_value=SimpleNamespace(acquire=lambda: lease)),
+    )
+    monkeypatch.setattr(one_owner_admission, "get_firebase_auth_app", lambda: object())
+    identity = SimpleNamespace(
+        uid="owner",
+        disabled=False,
+        display_name="Alex Example",
+        email="alex@example.test",
+        email_verified=True,
+        phone_number="+15555550123",
+    )
+    monkeypatch.setattr(firebase_auth, "get_user", lambda uid, *, app: identity)
+
+    async def admitted(*args):
+        return object()
+
+    async def researcher(**kwargs):
+        assert kwargs["identity"]["full_name"] == identity.display_name
+        return {"report": REPORT, "search_suggestions": []}
+
+    result = await service.offer_profile_research(
+        user_id="owner",
+        consent_token=OWNER_TOKEN,
+        researcher=researcher,
+        owner_check=admitted,
+    )
+    assert result["status"] == "offered" and result["pkm_written"] is False
+    assert [section["kind"] for section in result["report"]["sections"]] == ["career"]
+    connection.fetchrow.assert_awaited_once_with(
+        "SELECT setup_completed, vault_status FROM vault_keys WHERE user_id = $1 LIMIT 1", "owner"
+    )
 
 
 async def test_current_owner_identifiers_only_and_no_persistence(monkeypatch, caplog):

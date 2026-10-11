@@ -45,6 +45,29 @@ function userMessage(text: string): BubbleMessage {
   };
 }
 
+describe("ephemeral assistant cards", () => {
+  it.each(["ephemeralCard", "businessProfileCard"] as const)(
+    "renders app-owned cards through %s without exposing transcript actions",
+    (prop) => {
+      render(
+        <AgentBubble
+          message={{
+            id: "background-card",
+            role: "assistant",
+            text: "Review your details.",
+            timestamp: "",
+            status: "done",
+            ephemeral: true,
+          }}
+          {...{ [prop]: <div>Reviewed details</div> }}
+        />,
+      );
+      expect(screen.getByText("Reviewed details")).toBeVisible();
+      expect(screen.queryByTestId("agent-message-response-actions")).toBeNull();
+    },
+  );
+});
+
 describe("sent user bubble with a pasted attachment", () => {
   it("shows the typed text and a compact chip, never the pasted body", () => {
     render(<AgentBubble message={userMessage("Summarize this")} />);

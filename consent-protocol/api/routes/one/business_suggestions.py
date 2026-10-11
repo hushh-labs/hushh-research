@@ -4,34 +4,17 @@ from ipaddress import ip_address
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
-from fastapi.routing import APIRoute
-from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from api.middleware import require_vault_owner_token
 from api.middlewares.rate_limit import limiter
+from api.utils.private_no_store import (
+    PRIVATE_NO_STORE_HEADERS as _NO_STORE,
+)
+from api.utils.private_no_store import PrivateNoStoreRoute as _PrivateSuggestionRoute
 from hushh_mcp.services.business_suggestion_service import (
     BusinessSuggestionUnavailable,
     get_business_suggestion,
 )
-
-_NO_STORE = {"Cache-Control": "private, no-store"}
-
-
-class _PrivateSuggestionRoute(APIRoute):
-    def get_route_handler(self):
-        handler = super().get_route_handler()
-
-        async def private_handler(request: Request):
-            try:
-                response = await handler(request)
-            except StarletteHTTPException as exc:
-                exc.headers = {**(exc.headers or {}), **_NO_STORE}
-                raise
-            response.headers.update(_NO_STORE)
-            return response
-
-        return private_handler
-
 
 router = APIRouter(
     prefix="/api/one/business",
