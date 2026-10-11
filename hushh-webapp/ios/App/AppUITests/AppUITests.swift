@@ -828,7 +828,7 @@ final class AppUITests: XCTestCase {
         for cycle in 0..<10 {
             guard waitForAdmittedControl(puppy) else { XCTFail("SHARED_DOCK_AGENT_TAB_MISSING"); return }
             puppy.tap()
-            let cloudCovered = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == false"), object: editor)
+            let cloudCovered = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !editor.exists || !editor.isHittable }, object: app)
             XCTAssertEqual(XCTWaiter.wait(for: [cloudCovered], timeout: 10), .completed, "SHARED_DOCK_CLOUD_EDITOR_STILL_INTERACTIVE")
             guard waitForAdmittedControl(cloud) else { XCTFail("SHARED_DOCK_CLOUD_TAB_MISSING"); return }
             cloud.tap()
