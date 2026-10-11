@@ -23,7 +23,10 @@ name agreement cannot silently drift afterwards.
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -104,3 +107,45 @@ def test_uat_enables_temporary_card_sharing_with_its_encryption_key() -> None:
     assert '"302_wallet_temporary_card_access.sql"' in manifest
     production = _read(REPO_ROOT / ".github/workflows/deploy-production.yml")
     assert "_WALLET_CARD_ACCESS_ENABLED=true" not in production
+
+
+@pytest.mark.parametrize("supports_flag", [False, True])
+@pytest.mark.parametrize("flag_value", ["true", "false"])
+def test_uat_card_sharing_substitution_preserves_historical_deploys(
+    tmp_path: Path, supports_flag: bool, flag_value: str
+) -> None:
+    workflow = _read(REPO_ROOT / ".github/workflows/deploy-uat.yml")
+    guard = re.search(
+        r"(?m)^          if grep -q [^\n]*_WALLET_CARD_ACCESS_ENABLED[^\n]*\n"
+        r"(?:^          .*\n)*?^          fi$",
+        workflow,
+    )
+    assert guard, "UAT must guard new substitutions against the selected build config"
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    (deploy / "backend.cloudbuild.yaml").write_text(
+        'substitutions:\n  _WALLET_CARD_ACCESS_ENABLED: "false"\n'
+        if supports_flag
+        else 'substitutions:\n  _BACKEND_SERVICE: "consent-protocol"\n',
+        encoding="utf-8",
+    )
+    script = guard.group().replace(
+        "${{ vars.WALLET_CARD_ACCESS_UAT_ENABLED || 'true' }}", flag_value
+    )
+    result = subprocess.run(  # noqa: S603 - Checked-in workflow code and fixed test values.
+        [
+            "bash",
+            "-euc",
+            'SUBSTITUTIONS="_BACKEND_SERVICE=consent-protocol"\n'
+            + script
+            + '\nprintf "%s" "$SUBSTITUTIONS"',
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    expected = "_BACKEND_SERVICE=consent-protocol"
+    if supports_flag:
+        expected += f"##_WALLET_CARD_ACCESS_ENABLED={flag_value}"
+    assert result.stdout == expected

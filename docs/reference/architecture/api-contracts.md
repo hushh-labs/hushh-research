@@ -184,8 +184,10 @@ direct-message encryption key and `WALLET_CARD_ACCESS_ENABLED=true` (default off
 The backend Cloud Build substitution `_WALLET_CARD_ACCESS_ENABLED` explicitly
 binds this flag so replacement environment deployments preserve its setting.
 The UAT workflow enables it with the existing UAT encryption-key binding;
-`WALLET_CARD_ACCESS_UAT_ENABLED=false` is the UAT rollback switch. Other deploy
-lanes retain the default-off setting until their own prerequisites are provisioned.
+`WALLET_CARD_ACCESS_UAT_ENABLED=false` is the UAT rollback switch. The workflow
+omits the substitution when an older selected build config does not declare it.
+Other deploy lanes retain the default-off setting until their own prerequisites
+are provisioned.
 After these changes land on green `main`, dispatch **Deploy to UAT** with scope
 `auto` and that exact commit SHA; confirm the resolved scope includes both the
 backend flag and the Wallet readiness UI. Verify sharing readiness, creation, recipient access and revocation
