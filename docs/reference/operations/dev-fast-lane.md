@@ -161,6 +161,16 @@ The governed workflow has completed live dev deployments. On 2026-09-27, readbac
 of the dev project's regional and global Cloud Build trigger inventories found no
 triggers. Preserve this single deployment authority and existing owner resources.
 
+### Selected release verification
+
+Dev reuses UAT's canonical changed-SHA verification selector. Only selected
+preservation and reviewer lanes install their extra dependencies. Preservation
+runs independently of backend migration selection, and required reviewer
+navigation must produce a successful receipt before dev acceptance. Reviewer
+credentials are resolved in process memory, not written to the workflow environment
+file. Schema, candidate health, provenance and semantic checks remain mandatory.
+The isolated commerce preview retains its own admission and verification path.
+
 ### Deployment duration and independent work
 
 Review on 2026-10-07: compare selected work and active deployment time separately
@@ -173,6 +183,13 @@ from queue waiting and source validation.
 | [UAT 37523933082](https://github.com/hushh-labs/hushh-research/actions/runs/37523933082) | Frontend only | 14m11s; another 14m53s elapsed before its first job |
 | [UAT 37537896978](https://github.com/hushh-labs/hushh-research/actions/runs/37537896978) | Backend, frontend, Drive worker | 21m55s |
 | [UAT 37554552503](https://github.com/hushh-labs/hushh-research/actions/runs/37554552503) | Backend, frontend, Drive worker | 29m34s |
+
+Fresh backend-only [dev run 38121306320](https://github.com/hushh-labs/hushh-research/actions/runs/38121306320)
+finished in 14m26s on October 11. Its active deploy job was 14m21s; semantic
+verification took about 22s, image building 93s, migration checks 168s, deployment
+194s and promotion 146s. These observations do not support removing semantic or
+security gates. Incremental service selection avoids rebuilding unaffected
+services; image publication remains a separate explicitly requested operation.
 
 This bounded sample does not show dev as intrinsically slower than UAT.
 [Source validation 37572520334](https://github.com/hushh-labs/hushh-research/actions/runs/37572520334)

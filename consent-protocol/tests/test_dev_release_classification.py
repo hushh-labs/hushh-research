@@ -88,3 +88,52 @@ def test_semantic_failure_selects_rollback(
     assert result["release_failed"] is blocked
     assert result["backend_failure"] is backend
     assert result["frontend_failure"] is frontend
+
+
+@pytest.mark.parametrize("semantic", ["success", "failure"])
+@pytest.mark.parametrize(
+    ("required", "outcome", "blocked"),
+    [
+        (True, "failure", True),
+        (True, "skipped", True),
+        (True, "success", False),
+        (False, "skipped", False),
+    ],
+)
+def test_selected_owner_navigation_requires_a_successful_receipt(
+    tmp_path, monkeypatch, required, outcome, blocked, semantic
+):
+    root = Path(__file__).resolve().parents[2]
+    workflow = yaml.safe_load((root / ".github/workflows/deploy-dev.yml").read_text())
+    step = next(
+        step
+        for step in workflow["jobs"]["deploy"]["steps"]
+        if step.get("id") == "classify-dev-release"
+    )
+    source = step["run"].split("python3 - <<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+    source = source.replace("/tmp/", str(tmp_path) + "/")  # noqa: S108 - redirect to pytest isolation.
+    if semantic == "failure":
+        (tmp_path / "dev-release-verify-attempt-1.json").write_text(
+            json.dumps({"status": "blocked", "failures": ["signed_in_routes:/one"]})
+        )
+    for key, value in {
+        "DEV_TARGET": "shared-dev",
+        "DEPLOY_BACKEND": "false",
+        "DEPLOY_FRONTEND": "true",
+        "PARITY_ATTEMPT_1": "success",
+        "PARITY_ATTEMPT_2": "skipped",
+        "FRONTEND_PROVENANCE_OUTCOME": "success",
+        "DB_OUTCOME": "skipped",
+        "SEMANTIC_ATTEMPT_1": semantic,
+        "SEMANTIC_ATTEMPT_2": "skipped",
+        "REVIEWER_BYOK_REQUIRED": str(required).lower(),
+        "REVIEWER_BYOK_OUTCOME": outcome,
+        "GITHUB_OUTPUT": str(tmp_path / "outputs"),
+    }.items():
+        monkeypatch.setenv(key, value)
+    exec(compile(source, "dev-classifier", "exec"), {})  # noqa: S102 - authored workflow classifier
+    result = json.loads((tmp_path / "dev-release-classification.json").read_text())
+    assert result["release_failed"] is blocked
+    assert result["frontend_failure"] is blocked
+    assert result["backend_failure"] is False
+    assert ("reviewer_byok_unverified" in result["blocking_classifications"]) is blocked

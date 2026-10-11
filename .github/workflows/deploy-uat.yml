@@ -672,7 +672,7 @@ jobs:
           echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
 
       - name: Install Cloud SQL Auth Proxy
-        if: steps.scope.outputs.deploy_backend == 'true'
+        if: steps.scope.outputs.deploy_backend == 'true' || steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -865,11 +865,21 @@ jobs:
           BOOTSTRAP_FOCUS_PROFILE=uat bash scripts/env/bootstrap_profiles.sh --strict
           bash scripts/env/use_profile.sh uat
 
-          if [ "${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}" = "true" ]; then
-            PKM_UPGRADE_PROTECTED_UAT=1 \
-            PKM_UPGRADE_RUNTIME_AUDIT_DEFERRED=1 \
-              ./scripts/ci/pkm-upgrade-gate.sh
+
+      - name: Install PostgreSQL client for selected preservation
+        if: steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
+        shell: bash
+        run: |
+          if ! command -v psql >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
           fi
+
+      - name: Verify selected PKM preservation before deployment
+        id: verify-pkm-preservation
+        if: steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
+        shell: bash
+        run: bash scripts/ci/run-release-pkm-gate.sh uat
 
       - name: Verify One mail sender configuration
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -1703,24 +1713,7 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_ENV"
 
-          if [ "${{ steps.verification-plan.outputs.run_reviewer_byok }}" = "true" ]; then
-            reviewer_uid="$(gcloud secrets versions access latest \
-              --secret=REVIEWER_UID \
-              --project="${{ env.GCP_PROJECT_ID }}")"
-            reviewer_passphrase="$(gcloud secrets versions access latest \
-              --secret=REVIEWER_VAULT_PASSPHRASE \
-              --project="${{ env.GCP_PROJECT_ID }}")"
-            echo "::add-mask::$reviewer_uid"
-            echo "::add-mask::$reviewer_passphrase"
-            {
-              echo "REVIEWER_UID<<EOF"
-              printf '%s\n' "$reviewer_uid"
-              echo "EOF"
-              echo "REVIEWER_VAULT_PASSPHRASE<<EOF"
-              printf '%s\n' "$reviewer_passphrase"
-              echo "EOF"
-            } >> "$GITHUB_ENV"
-          fi
+
 
       - name: Semantic UAT verification
         id: verify-uat-1
@@ -1759,6 +1752,7 @@ jobs:
         env:
           REVIEWER_APP_ORIGIN: ${{ env.APP_FRONTEND_ORIGIN }}
           REVIEWER_APP_ROUTES: /,/one/kai?tab=portfolio,/one/pkm
+          REVIEWER_SECRET_PROJECT: ${{ env.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
           node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs \

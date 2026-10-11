@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from hushh_mcp.services.personal_agent_hosting import resolve_hosting_mode
 from hushh_mcp.services.personal_agent_placement_detach import detach_placement, plan_detach
 from tests.pkm_conformance import postgres_harness
 from tests.pkm_conformance.postgres_harness import TempPostgres, find_pg_bin
@@ -136,6 +138,20 @@ def test_detach_keeps_identity_records_the_placement_and_frees_the_slot(pg):
     assert snapshot["backend_metadata"]["url"] == "https://agent.example.test"
     assert snapshot["reason"] == "moving to Azure" and snapshot["detachedAt"].endswith("Z")
     assert set(after["backend_metadata"]) == {"detachedPlacements"}
+    # The real detach's stable route is identity history, not active compute.
+    assert (
+        resolve_hosting_mode(
+            row=after,
+            registry_read_ok=True,
+            setup_job=None,
+            setup_job_read_ok=True,
+            shared_choice={
+                "tier": "shared",
+                "chosen_at": after["updated_at"] + timedelta(seconds=2),
+            },
+        )
+        == "shared"
+    )
 
 
 def test_a_stale_observation_cannot_detach(pg):

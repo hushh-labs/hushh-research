@@ -191,13 +191,22 @@ reason. Silent omission is not permitted.
 
 | Layer | Status | Reason |
 | --- | --- | --- |
-| **Web** | Source path only | The app gates inference on a provisioned BYOC pod and sends turns to its pinned endpoint. A direct Hermes client exists in the local sibling checkout, but the serving dev backend has not admitted it; end-to-end device inference is not established. |
-| **iOS** | **N/A** | Native binding discovery and direct connection to the owner's BYOC relay are not implemented. A phone must not route inference through the shared hub relay. |
-| **Android** | **N/A** | Same direct-relay integration gap as iOS. |
+| **Web** | Source and dated dev acceptance | The browser verifies signed owner/pod metadata, admits an app-role session and streams turns directly from the BYOC pod. The personal Azure Dev 15 rehearsal completed Puppy inference, cancellation, reconnect and on-demand wake. |
+| **iOS** | Source implemented; physical acceptance pending | The native app uses the same signed app-role admission and its native HTTP/SSE transport. The phone is an app client; the trusted inference device maintains the separate sealed WSS connection. |
+| **Android** | Source implemented; physical acceptance pending | The same app-role admission and native HTTP/SSE boundary applies. A native source path does not prove an installed-device rehearsal. |
 
-The phone path needs an authenticated device client that reads its signed pod
-binding and connects to the same BYOC pod relay as the app. That client wiring
-and its owner/device rehearsal remain follow-up work.
+Puppy is available only through a registry-confirmed owner-cloud deployment;
+Shared and Hussh-hosted pods cannot grant its inference binding. Browser/app and
+trusted device must reach the same owner and pod incarnation. Independent active
+internet connections remain a live acceptance item; cellular specifically is not
+required. See the dated [readiness memo](../quality/adk-orchestration-docs-audit.md)
+for serving-image receipts and unresolved physical-device evidence.
+
+The relay rechecks session expiry, withdrawal and incarnation before outbound
+requests. New work arriving during an older idle wait does not evict the device;
+heartbeats still do not extend useful-work idle grace. These latest corrections
+require their own verified image and exact owner-approved installation before
+being described as deployed.
 
 ## Where things are
 

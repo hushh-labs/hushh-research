@@ -22,6 +22,7 @@ def test_ci_smoke_and_uat_share_the_selector() -> None:
     for workflow in (
         ".github/workflows/ci.yml",
         ".github/workflows/main-post-merge-smoke.yml",
+        ".github/workflows/deploy-dev.yml",
         ".github/workflows/deploy-uat.yml",
     ):
         require(workflow, selector, "verification-plan")

@@ -17,7 +17,8 @@ retains its dated Dev 12 evidence. Puppy responds on Dev 15. Native provider jou
 independent-network acceptance, active-work update drain
 and the cold-response target still require evidence. Dev 15 also passed live
 cancellation, machine-panel readback, scale-to-zero and on-demand Puppy wake.
-The integrated candidate passed complete hosted CI and now serves on dev.
+The deployed `f0517d5f981a` candidate passed complete hosted CI. Later branch
+changes have separate source evidence and are not serving on dev.
 Both disposable clouds passed recovery from the exact personal predecessor to
 the newly built image. Normal owner approval and installation are verified;
 active-work drain remains unverified because OAuth delay may have outlasted the
@@ -29,6 +30,31 @@ serves TLS and an authenticated, unlocked owner session. Same-image maintenance
 restored the personal Azure pod's exact-origin CORS admission. Cloud chat now
 completes in that browser; Puppy also completes a streamed local-model response
 on the new origin after correcting the standalone relay's certificate trust setup.
+
+## Main readiness — October 11
+
+**Do not merge or roll out BYOC yet.** Infrastructure `14876c2a3b8d` passed
+[all 23 hosted checks](https://github.com/hushh-labs/hushh-research/actions/runs/38132031368).
+[PR 7555](https://github.com/hushh-labs/hushh-research/pull/7555) still requires
+review, and main advanced to `c3dad00c997b` after that validation. The active
+hardening patch adds outbound relay expiry/revocation/incarnation checks,
+corrects the idle-wait race, and refuses Shared selection with unresolved pod
+resources. Its lifecycle baseline passes 185 cases, with 129 final focused cases after
+the cohesive relay extraction; 29 new boundary cases fail
+against the original source in an isolated, memory-only negative control.
+These corrections are not deployed and need final combined validation.
+
+| Gate | Current result / next evidence |
+| --- | --- |
+| CI/deploy convergence | Same Actions authority and Cloud Build executor. Dev adopts UAT's selected preservation/reviewer plan; frontend-only UAT preservation runs independently of migrations. Production gains automatic service selection. Workflow edits require governed landing and a live rehearsal. |
+| Existing users / Shared | Explicit owner choice plus the strictly evidenced legacy cohort; assigned, pending or unresolved pods never become Shared by default. Canonical migration 311 and parked dev 958 need environment-specific adoption evidence. The first-update changelog framework exists, but UAT/production release content is intentionally unconfigured; it must be bound to the reviewed rollout rather than shown to new users. |
+| Updates / erasure | Exact-release approvals and isolated recovery pass; normal Dev 15 installation passes. Active-work drain, production provenance/channels, production erasure and retained-resource disposition need their own receipts. |
+| Puppy / phone | BYOC-only signed owner/device/pod authority exists; personal dev inference and cancellation pass. Independent phone/Mac internet acceptance and the latest relay image remain unverified. |
+| Both-cloud launch | Native Google/connector journeys, production IAM/retention/recovery, hub capacity and UAT acceptance remain release gates. Matched-resource cold p95 is about 71s on each cloud, above the 30s target. |
+
+Source readiness and environment acceptance are separate decisions. Keep all
+owner resources and selected configurations; no automatic upgrade, main merge,
+UAT/production deployment or stable publication is authorized by this memo.
 
 ## Source and serving evidence
 
