@@ -331,6 +331,14 @@ def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> N
             '--run-live-model-checks "${{ steps.verification-plan.outputs.run_live_model_checks }}"'
             in step["run"]
         )
+    steps = workflow["jobs"]["deploy"]["steps"]
+    preserve = next(
+        step for step in steps if step.get("name") == "Preserve current release tooling"
+    )
+    checkout = next(step for step in steps if step.get("name") == "Checkout deployment SHA")
+    assert steps.index(preserve) < steps.index(checkout)
+    assert "cp scripts/ops/verify_uat_release.py" in preserve["run"]
+    assert 'cp "${RUNNER_TEMP}/release-tools/verify_uat_release.py"' in checkout["run"]
 
 
 def test_managed_vertex_readiness_job_clears_retained_runtime_secrets() -> None:

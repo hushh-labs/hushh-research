@@ -209,6 +209,8 @@ verifier records RIA as skipped with `live_model_checks_not_requested`; health,
 authentication, connector configuration and command recovery still run. An
 explicitly requested RIA transport timeout or negative result still blocks;
 only an actual provider-unavailable response is reported as degraded.
+The workflow retains the current verifier across checkout of an older approved
+application SHA, so that release also obeys the operator's explicit selection.
 Direct backend Cloud Builds (including production) default
 `_VERIFY_MANAGED_VERTEX_RUNTIME=false`; an operator may explicitly set it to
 `true`. Local PKM evaluation similarly requires

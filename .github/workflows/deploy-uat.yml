@@ -179,12 +179,17 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/release-tools"
           cp scripts/ci/resolve-cloud-run-deploy-revision.py \
             "${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py"
+          cp scripts/ops/verify_uat_release.py \
+            "${RUNNER_TEMP}/release-tools/verify_uat_release.py"
 
       - name: Checkout deployment SHA
         shell: bash
         run: |
           set -euo pipefail
           git checkout --detach "${{ steps.resolve-sha.outputs.sha }}"
+          # Keep the current opt-in contract when verifying an older approved build.
+          cp "${RUNNER_TEMP}/release-tools/verify_uat_release.py" \
+            scripts/ops/verify_uat_release.py
 
       - name: Validate Google Cloud workload identity configuration
         shell: bash
