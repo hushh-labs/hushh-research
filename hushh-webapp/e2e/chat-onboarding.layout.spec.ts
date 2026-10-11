@@ -103,8 +103,40 @@ async function assertContract(page: Page, viewportWidth: number) {
   );
   expect(overflow).toBeLessThanOrEqual(0);
 
+  // The production Magic entry point is at most one third of the old ~550px
+  // profile offer, without shrinking its text or 44px review action.
+  const magic = page.getByTestId("magic-intelligence-card");
+  const review = magic.getByRole("button", { name: "Review details" });
+  const magicBox = (await magic.boundingBox())!;
+  const reviewBox = (await review.boundingBox())!;
+  expect(magicBox.height).toBeLessThanOrEqual(180);
+  expect(reviewBox.height).toBeGreaterThanOrEqual(44);
+  await test.info().attach("magic-compact", {
+    body: await magic.screenshot({ path: test.info().outputPath("magic-compact.png") }),
+    contentType: "image/png",
+  });
+  await expect(magic.getByText("Reviewed details appear here.")).toBeHidden();
+  await review.click();
+  await expect(magic.getByText("Reviewed details appear here.")).toBeVisible();
+  await magic.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(review).toBeVisible();
+
   const chips = page.getByTestId("chat-onboarding-chips").getByRole("button");
-  await expect(chips).toHaveCount(7);
+  await expect(chips).toHaveCount(10);
+  await expect(chips).toHaveText([
+    "Location", "Mail", "Calendar", "Finance", "Advisor", "Wallet", "Consent", "Memory", "Messages", "Skip for now",
+  ]);
+  const boxes = await chips.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().toJSON()));
+  expect(boxes[9].y).toBeGreaterThanOrEqual(Math.max(...boxes.slice(0, 9).map((box) => box.bottom)));
+  if (viewportWidth < 640) {
+    for (let row = 0; row < 3; row += 1) {
+      const group = boxes.slice(row * 3, row * 3 + 3);
+      expect(new Set(group.map((box) => box.y)).size).toBe(1);
+      expect(group[0].right).toBeLessThanOrEqual(group[1].x);
+      expect(group[1].right).toBeLessThanOrEqual(group[2].x);
+      if (row > 0) expect(group[0].y).toBeGreaterThanOrEqual(boxes[(row - 1) * 3].bottom);
+    }
+  }
   for (const box of await chips.evaluateAll((nodes) =>
     nodes.map((node) => node.getBoundingClientRect().toJSON() as DOMRect),
   )) {
@@ -232,6 +264,13 @@ async function ownBubbleSelection(page: Page) {
 for (const theme of ["light", "dark"] as const) {
   test.describe(`phone (${theme})`, () => {
     test.use({ viewport: { width: 390, height: 844 } });
+
+    test("three rows of choices fit a narrow phone with Skip below", async ({ page }) => {
+      await page.setViewportSize({ width: 320, height: 568 });
+      const errors = await mount(page, theme);
+      await assertContract(page, 320);
+      expect(errors).toEqual([]);
+    });
 
     test("chips wrap inside the column with full tap targets", async ({ page }) => {
       const errors = await mount(page, theme);

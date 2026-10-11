@@ -28,6 +28,7 @@ import {
   type CapabilityStatusTone,
 } from "@/lib/onboarding/capability-status-display";
 import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
+import { compareOneRosterDisplayOrder } from "@/lib/onboarding/roster-display-order";
 import { buildOneSetupCapabilityRoute, ROUTES } from "@/lib/navigation/routes";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
@@ -266,18 +267,6 @@ function useCachedAgentMetrics(
   return resolveCachedAgentMetrics(userId);
 }
 
-const ROSTER_DISPLAY_ORDER: readonly string[] = [
-  "location",
-  "gmail",
-  "calendar",
-  "finance",
-  "ria",
-  "wallet",
-  "consent",
-  "pkm",
-  "messages",
-];
-
 // Outline icons belong to the One roster only; other surfaces keep their defaults.
 function rosterIcon(mode: OneAgentMode): OneCapabilityIcon {
   const Icon = AGENT_ICON_MAP[mode.id as keyof typeof AGENT_ICON_MAP];
@@ -353,13 +342,7 @@ function buildModes(
       tone: capability.tone,
       isExploreOnly: capability.isExploreOnly === true,
     };
-  }).sort((a, b) => {
-    const rank = (id: string) => {
-      const index = ROSTER_DISPLAY_ORDER.indexOf(id);
-      return index < 0 ? ROSTER_DISPLAY_ORDER.length : index;
-    };
-    return rank(a.id) - rank(b.id);
-  });
+  }).sort(compareOneRosterDisplayOrder);
 }
 
 /**

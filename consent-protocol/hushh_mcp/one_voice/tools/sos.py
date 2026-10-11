@@ -55,6 +55,7 @@ from hushh_mcp.services.one_location_agent_service import (
     OneLocationAgentService,
 )
 from hushh_mcp.services.one_location_circle_service import OneLocationCircleError
+from hushh_mcp.services.one_location_sms_readiness import refresh_sms_recipient_identities
 
 SOS_SHARE_KIND = "sos"
 SOS_DURATION_HOURS = 8
@@ -210,6 +211,7 @@ def _emergency_contacts_sync(service: Any, user_id: str) -> list[EmergencyContac
 
 
 async def _emergency_contacts(service: Any, user_id: str) -> list[EmergencyContactView]:
+    await refresh_sms_recipient_identities(service, owner_user_id=user_id)
     return await asyncio.to_thread(_emergency_contacts_sync, service, user_id)
 
 
@@ -588,6 +590,7 @@ async def trigger_save_my_soul(ctx: ToolContext, args: TriggerSaveMySoulInput) -
     service = _service(ctx)
     note = _normalize_note(args.note)
     try:
+        await refresh_sms_recipient_identities(service, owner_user_id=ctx.user_id)
         result = await asyncio.to_thread(_arm_sync, service, ctx.user_id, ctx.prepared, note)
     except ServiceError as exc:
         return _rejected(exc)
@@ -1050,6 +1053,12 @@ async def add_emergency_contact(ctx: ToolContext, args: EmergencyContactInput) -
             spoken_facts=[f"{person.display_name} is already one of your emergency contacts."],
         )
     try:
+        await refresh_sms_recipient_identities(
+            service,
+            owner_user_id=ctx.user_id,
+            recipient_user_id=person.user_id,
+            adding_contact=True,
+        )
         after = list(
             await asyncio.to_thread(
                 service.add_sms_contact, owner_user_id=ctx.user_id, contact_user_id=person.user_id

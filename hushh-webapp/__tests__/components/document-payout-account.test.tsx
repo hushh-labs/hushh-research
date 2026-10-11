@@ -363,19 +363,19 @@ describe("document payout account", () => {
     } finally { Object.defineProperty(window, "location", { configurable: true, value: realLocation }); }
   });
 
-  it("reads each payout source once on open and once per return to the tab", async () => {
+  it("coalesces returns and queues a fresh bank read behind an earlier display read", async () => {
     let now = 1_000_000;
     vi.spyOn(Date, "now").mockImplementation(() => now);
     const loads = () => [state.hashcoins, state.account, state.bankPayouts, state.earnings].map((load) => load.mock.calls.length);
     state.hashcoins.mockResolvedValue(liveWallet);
     state.account.mockResolvedValue({ stripeMode: "live", account: readyAccount });
     render(<DocumentHashcoinPayouts />);
-    // A return during the first reads queues nothing behind them.
+    // A bank read started before Stripe return cannot satisfy its fresh check.
     act(() => { window.dispatchEvent(new Event("focus")); });
     await screen.findByText("Bank linked");
     await settle();
     // Readiness refreshes only the transactions that depend on it.
-    expect(loads()).toEqual([1, 1, 1, 2]);
+    expect(loads()).toEqual([1, 2, 1, 2]);
     act(() => {
       window.dispatchEvent(new Event("focus"));
       document.dispatchEvent(new Event("visibilitychange"));
@@ -384,6 +384,7 @@ describe("document payout account", () => {
     act(() => { document.dispatchEvent(new Event("visibilitychange")); });
     await settle();
     expect(loads()).toEqual([2, 2, 2, 3]);
+    expect(state.account).toHaveBeenLastCalledWith("owner-token", { fresh: true });
     now += 1_001;
     act(() => { document.dispatchEvent(new Event("visibilitychange")); });
     await settle();
@@ -456,7 +457,9 @@ describe("document payout account", () => {
         detail: { code: "PAYOUT_PLATFORM_SETUP_REQUIRED", message: "Private provider details" },
       })).mockResolvedValueOnce({ url: "https://connect.stripe.com/setup/safe_link" });
       render(<DocumentPayoutAccountCard compact />);
-      fireEvent.click(await screen.findByRole("button", { name: "Link bank" }));
+      const linkBank = await screen.findByRole("button", { name: "Link bank" });
+      await waitFor(() => expect(linkBank).toBeEnabled());
+      fireEvent.click(linkBank);
       expect(await screen.findByRole("alert")).toHaveTextContent("Bank setup is unavailable. Hushh needs to activate payouts.");
       expect(screen.queryByText(/Private provider details/)).toBeNull();
       expect(assign).not.toHaveBeenCalled();
@@ -556,13 +559,13 @@ describe("document payout account", () => {
     rerender(<DocumentPayoutAccountCard />);
     expect(screen.queryByText("Bank linked")).toBeNull();
     expect(screen.getByText("Checking…")).toBeVisible();
-    resolveSecond({ account: null });
-    await screen.findByRole("button", { name: "Link bank" });
+    await act(async () => { resolveSecond({ account: null }); });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Link bank" })).toBeEnabled());
   });
 
   it("refetches after Stripe return and announces actual readiness once without a loop", async () => {
     const { rerender } = render(<DocumentPayoutAccountCard handleReturn compact />);
-    await screen.findByRole("button", { name: "Link bank" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Link bank" })).toBeEnabled());
     const events = vi.fn();
     window.addEventListener(CONSENT_STATE_CHANGED_EVENT, events);
     try {
@@ -574,6 +577,7 @@ describe("document payout account", () => {
       expect(await screen.findByText("Bank linked")).toBeVisible();
       await waitFor(() => expect(events).toHaveBeenCalledOnce());
       expect(state.account).toHaveBeenCalledTimes(2);
+      expect(state.account).toHaveBeenLastCalledWith("owner-token", { fresh: true });
       expect(state.onboard).not.toHaveBeenCalled();
       fireEvent.click(screen.getByRole("button", { name: "Manage bank" }));
       await waitFor(() => expect(state.manage).toHaveBeenCalledExactlyOnceWith("owner-token"));
@@ -590,7 +594,9 @@ describe("document payout account", () => {
     const startSetup = async (query: string) => {
       state.query = query;
       const view = render(<DocumentPayoutAccountCard handleReturn showHistory={false} />);
-      fireEvent.click(await screen.findByRole("button", { name: "Link bank" }));
+      const linkBank = await screen.findByRole("button", { name: "Link bank" });
+      await waitFor(() => expect(linkBank).toBeEnabled());
+      fireEvent.click(linkBank);
       await waitFor(() => expect(assign).toHaveBeenCalledOnce());
       view.unmount();
       assign.mockReset();
@@ -666,15 +672,24 @@ describe("document payout account", () => {
   });
 
   it("drops an old owner's onboarding result after an account switch", async () => {
+    let finishAccount!: (value: { account: null }) => void;
+    state.account.mockImplementationOnce(() => new Promise((resolve) => { finishAccount = resolve; }));
     let finish!: (value: { url: string }) => void;
     state.onboard.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
     const view = render(<DocumentPayoutAccountCard compact />);
-    fireEvent.click(await screen.findByRole("button", { name: "Link bank" }));
-    await waitFor(() => expect(state.onboard).toHaveBeenCalledOnce());
+    const linkBank = await screen.findByRole("button", { name: "Link bank" });
+    // The accessible label exists during the initial read, before setup can open.
+    expect(linkBank).toBeDisabled();
+    fireEvent.click(linkBank);
+    expect(state.onboard).not.toHaveBeenCalled();
+    await act(async () => { finishAccount({ account: null }); });
+    await waitFor(() => expect(linkBank).toBeEnabled());
+    fireEvent.click(linkBank);
+    await waitFor(() => expect(state.onboard).toHaveBeenCalledExactlyOnceWith("owner-token"));
     state.token = "new-owner";
     state.epoch++;
     view.rerender(<DocumentPayoutAccountCard compact />);
-    await screen.findByRole("button", { name: "Link bank" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Link bank" })).toBeEnabled());
     await act(async () => { finish({ url: "https://unsafe.invalid/old-account" }); });
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getByRole("button", { name: "Link bank" })).toBeEnabled();

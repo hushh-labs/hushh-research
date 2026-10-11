@@ -53,6 +53,7 @@ def _is_user_state_event_type(event_type: str) -> bool:
         # payload contains only opaque ids; the Feed and Consent Center remain
         # the authorities for the current request state.
         "document_share_feed_changed",
+        "feed_changed",
         "answer_request_changed",
         "bank_payout_changed",
         "location_settings_changed",
@@ -73,14 +74,17 @@ TIMEOUT_JOB_INTERVAL = 120
 NOTIFICATION_JOB_INTERVAL = 60
 JOB_DB_RECOVERY_DELAY_SECONDS = 15
 LISTENER_HEALTHCHECK_INTERVAL_SECONDS = 30
+LISTENER_PROBE_TIMEOUT_SECONDS = 5
+LOCAL_RESYNC_EVENT_TYPE = "__resync__"
+_SNAPSHOT_HINT_TYPES = {"feed_changed", "document_share_feed_changed", "bank_payout_changed"}
 FINAL_REMINDER_LEAD_MS = 30 * 60 * 1000
 MIN_FINAL_REMINDER_WINDOW_MS = 2 * 60 * 60 * 1000
 
 # Per-user subscriber queues for SSE generators (no polling). Key = user_id.
 # Every live stream owns a distinct bounded queue so two tabs/devices on the
 # same backend worker both receive every transition instead of competing on one
-# queue. A stalled consumer drops only its own oldest event and cannot delay or
-# starve the other streams for the account.
+# queue. Snapshot-aware consumers get a reset on overflow; legacy streams
+# retain their newest events without starving another stream for the account.
 _CONSENT_NOTIFY_QUEUE_MAXSIZE = 100
 _consent_notify_queues: Dict[str, set[asyncio.Queue]] = {}
 _consent_notify_queues_lock = asyncio.Lock()
@@ -160,29 +164,48 @@ def _is_database_unavailable_error(exc: Exception) -> bool:
     return False
 
 
-async def _push_to_consent_queue(user_id: str, data: Dict[str, Any]) -> None:
-    async with _consent_notify_queues_lock:
-        queues = list(_consent_notify_queues.get(user_id, set()))
+class _SnapshotConsentQueue(asyncio.Queue):
+    """A Feed subscriber whose consumer understands whole-snapshot resets."""
 
-    for q in queues:
-        try:
-            q.put_nowait(data)
-        except asyncio.QueueFull:
-            # Queue is full because the SSE consumer is not draining fast
-            # enough. Drop the oldest pending event and enqueue the newest so
-            # the consumer always receives the most recent consent state.
-            try:
-                q.get_nowait()
-            except asyncio.QueueEmpty:
-                pass
-            try:
-                q.put_nowait(data)
-            except asyncio.QueueFull:
-                pass
-            logger.warning(
-                "consent notify queue full; dropped oldest event to bound memory user_id=%s",
-                user_id,
-            )
+
+def _offer_consent_event(user_id: str, data: Dict[str, Any]) -> None:
+    """Event-loop-only fanout with the overflow policy owned by each consumer."""
+    for queue in tuple(_consent_notify_queues.get(user_id, ())):
+        snapshot_aware = isinstance(queue, _SnapshotConsentQueue)
+        if not snapshot_aware and data.get("type") in _SNAPSHOT_HINT_TYPES | {
+            LOCAL_RESYNC_EVENT_TYPE
+        }:
+            # Legacy consent SSE cannot interpret these hints. Do not let a
+            # Feed burst displace actionable consent/message/location events.
+            continue
+        if queue.full():
+            if snapshot_aware:
+                # Hints are incomplete after overflow. A reset restores all
+                # snapshots, even when several resource types filled the queue.
+                while not queue.empty():
+                    queue.get_nowait()
+                queue.put_nowait({"type": LOCAL_RESYNC_EVENT_TYPE})
+            else:
+                # Preserve the legacy newest-events contract; it has no reset
+                # consumer and must not silently lose the entire pending queue.
+                queue.get_nowait()
+        if not queue.full():
+            queue.put_nowait(data)
+
+
+async def _push_to_consent_queue(user_id: str, data: Dict[str, Any]) -> None:
+    # Registry mutations and this non-awaiting fanout run on the serving loop.
+    _offer_consent_event(user_id, data)
+
+
+async def broadcast_local_resync() -> None:
+    """Repair every local stream after a non-durable LISTEN gap."""
+    for user_id in tuple(_consent_notify_queues):
+        _offer_consent_event(user_id, {"type": LOCAL_RESYNC_EVENT_TYPE})
+
+
+def is_listener_active() -> bool:
+    return _listener_active
 
 
 async def _publish_user_state_event(user_id: str, data: Dict[str, Any]) -> bool:
@@ -286,11 +309,12 @@ async def _push_to_developer_consent_queues(data: Dict[str, Any]) -> None:
             logger.warning("developer consent SSE queue full; dropped oldest event")
 
 
-async def subscribe_consent_queue(user_id: str) -> asyncio.Queue:
+async def subscribe_consent_queue(user_id: str, *, snapshot_resets: bool = False) -> asyncio.Queue:
     """Register one bounded queue for one active authenticated SSE stream."""
 
     _remember_serving_loop()
-    queue: asyncio.Queue = asyncio.Queue(maxsize=_CONSENT_NOTIFY_QUEUE_MAXSIZE)
+    queue_type = _SnapshotConsentQueue if snapshot_resets else asyncio.Queue
+    queue: asyncio.Queue = queue_type(maxsize=_CONSENT_NOTIFY_QUEUE_MAXSIZE)
     async with _consent_notify_queues_lock:
         _consent_notify_queues.setdefault(user_id, set()).add(queue)
     return queue
@@ -426,6 +450,21 @@ def _user_state_notify_callback(connection, pid, channel, payload: str) -> None:
             return
 
         def _schedule() -> None:
+            if event_type in _SNAPSHOT_HINT_TYPES:
+                if event_type == "bank_payout_changed":
+                    from hushh_mcp.services.payout_account_status_cache import (
+                        invalidate_payout_account_status,
+                    )
+
+                    # The verified bank webhook publishes only an owner hint.
+                    # Invalidate each worker's display cache before waking its
+                    # subscribers; no provider/account details cross NOTIFY.
+                    for mode in ("test", "live"):
+                        invalidate_payout_account_status(user_id=user_id, mode=mode)
+                # Pure invalidations need no DB/FCM work. Dispatch inline so a
+                # burst cannot accumulate an unbounded set of asyncio tasks.
+                _offer_consent_event(user_id, data)
+                return
             if event_type == "location_circle_message":
                 from hushh_mcp.services.circle_chat_notifications import (
                     wake_circle_chat_push_worker,
@@ -449,7 +488,14 @@ def _user_state_notify_callback(connection, pid, channel, payload: str) -> None:
             _background_notify_tasks.add(task)
             task.add_done_callback(_background_notify_tasks.discard)
 
-        loop.call_soon_threadsafe(_schedule)
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+        if running_loop is loop:
+            _schedule()
+        else:
+            loop.call_soon_threadsafe(_schedule)
     except json.JSONDecodeError:
         logger.warning("user_state.notify_invalid_json")
     except Exception as exc:  # noqa: BLE001 - listener callbacks must never raise
@@ -1101,6 +1147,13 @@ async def _timeout_job_loop():
             logger.warning("Timeout job error: %s", e)
 
 
+async def _probe_listen_connection(conn) -> None:
+    """A bounded round trip also detects half-open listener connections."""
+    if conn.is_closed():
+        raise ConnectionError("Consent LISTEN connection closed")
+    await asyncio.wait_for(conn.fetchval("SELECT 1"), timeout=LISTENER_PROBE_TIMEOUT_SECONDS)
+
+
 async def run_consent_listener():
     """
     Long-running task: LISTEN consent_audit_new and dispatch to FCM + in-app queues.
@@ -1138,11 +1191,10 @@ async def run_consent_listener():
                     "Consent NOTIFY listener active (consent_audit_new, %s)",
                     USER_STATE_CHANNEL,
                 )
+                await broadcast_local_resync()
                 while True:
                     await asyncio.sleep(LISTENER_HEALTHCHECK_INTERVAL_SECONDS)
-                    is_closed = getattr(conn, "is_closed", None)
-                    if callable(is_closed) and is_closed():
-                        raise ConnectionError("Consent LISTEN connection closed")
+                    await _probe_listen_connection(conn)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001 - listener must self-heal
