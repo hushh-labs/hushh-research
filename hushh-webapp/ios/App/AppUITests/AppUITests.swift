@@ -778,6 +778,72 @@ final class AppUITests: XCTestCase {
         }
     }
 
+    func testLocalSessionSharedChatDockKeepsDraftThroughTabsProfileAndKeyboard() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Opt-in installed shared Chat dock regression")
+        }
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            XCTFail("SHARED_DOCK_REQUIRES_RUNNING_SESSION"); return
+        }
+        app.activate()
+        dismissRehearsalChatKeyboard(app)
+        perfTapNav(app, label: "Chat")
+        let web = app.webViews.matching(identifier: "native-webview").firstMatch
+        let editor = rehearsalChatComposer(app)
+        guard waitForAdmittedControl(editor), !web.buttons["Unlock"].exists else {
+            XCTFail("SHARED_DOCK_REQUIRES_UNLOCKED_CHAT"); return
+        }
+        let initialFrame = web.frame
+        let initialValue = editor.value as? String
+        let initialDraft = initialValue == "Message One..." || initialValue == "Message One…" ? "" : initialValue ?? ""
+        // Long enough to wrap, without Return (the web editor owns Enter-to-send).
+        let synthetic = String(repeating: "Unsent synthetic layout check. ", count: 4)
+        let writesSynthetic = initialDraft.isEmpty
+        editor.tap()
+        guard app.keyboards.firstMatch.waitForExistence(timeout: 10) else {
+            XCTFail("SHARED_DOCK_SOFTWARE_KEYBOARD_MISSING"); return
+        }
+        if writesSynthetic { editor.typeText(synthetic) }
+        let expectedDraft = writesSynthetic ? synthetic : initialDraft
+        let keyboard = app.keyboards.firstMatch
+        let layout = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            self.softwareKeyboardIsOnscreen(keyboard, in: app) && editor.frame.maxY <= keyboard.frame.minY + 2
+        }, object: app)
+        XCTAssertEqual(XCTWaiter.wait(for: [layout], timeout: 10), .completed, "SHARED_DOCK_KEYBOARD_LAYOUT_UNSETTLED")
+        XCTAssertLessThanOrEqual(editor.frame.maxY, keyboard.frame.minY + 2, "SHARED_DOCK_EDITOR_CLIPPED_BY_KEYBOARD")
+        dismissRehearsalChatKeyboard(app)
+        defer {
+            // Never erase an independently updated draft; no send or account reset.
+            if writesSynthetic, (editor.value as? String) == synthetic, editor.isHittable {
+                editor.tap()
+                editor.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: synthetic.count))
+                dismissRehearsalChatKeyboard(app)
+            }
+        }
+        let openProfile = app.buttons["Open Profile"].firstMatch
+        let closeProfile = app.buttons["Close Profile"].firstMatch
+        for cycle in 0..<10 {
+            guard waitForAdmittedControl(openProfile) else { XCTFail("SHARED_DOCK_PROFILE_ENTRY_MISSING"); return }
+            openProfile.coordinate(withNormalizedOffset: CGVector(dx: cycle % 2 == 0 ? 0.2 : 0.8, dy: 0.5)).tap()
+            guard waitForAdmittedControl(closeProfile) else { XCTFail("SHARED_DOCK_PROFILE_CLOSE_MISSING"); return }
+            XCTAssertFalse(editor.isHittable, "SHARED_DOCK_COVERED_EDITOR_INTERACTIVE")
+            closeProfile.tap()
+            guard waitForAdmittedControl(editor) else { XCTFail("SHARED_DOCK_EDITOR_NOT_RESTORED"); return }
+            XCTAssertTrue((editor.value as? String) == expectedDraft, "SHARED_DOCK_DRAFT_CHANGED")
+            XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
+            XCTAssertEqual(web.frame, initialFrame)
+            print("SHARED_CHAT_DOCK_PROFILE_CYCLE completed=\(cycle + 1)")
+        }
+        perfTapNav(app, label: "One")
+        XCTAssertTrue(waitForAdmittedControl(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Talk to One")).firstMatch), "SHARED_DOCK_VOICE_PRESENTATION_MISSING")
+        perfTapNav(app, label: "Chat")
+        XCTAssertTrue(waitForAdmittedControl(editor))
+        XCTAssertTrue((editor.value as? String) == expectedDraft, "SHARED_DOCK_ROUTE_CHANGED_DRAFT")
+        XCTAssertFalse(app.textViews["native-dock-editor"].exists, "UNQUALIFIED_NATIVE_DUPLICATE_EDITOR")
+        print("SHARED_CHAT_DOCK_CONTINUITY cycles=10 keyboard=true warm=true submitted=false")
+    }
+
     func testLocalSessionChatDrawerDoesNotReplaceThePage() throws {
         // Real device/session lane: no UITestMode, reviewer bootstrap, reset,
         // or account mutation. An optional process-only credential uses normal

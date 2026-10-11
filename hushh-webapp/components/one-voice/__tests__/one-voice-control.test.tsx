@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OneVoiceControl } from "@/components/one-voice/one-voice-control";
 import { AgentDockPortal, AgentDockProvider, AgentDockVoiceBoundary, useAgentDockFrame } from "@/components/agent/agent-dock";
 import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
+import { AgentBar } from "@/components/agent/agent-bar";
 import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
 import { navigateToAgentChat } from "@/lib/navigation/agent-navigation";
 import type { ServerFrame } from "@/lib/one-voice/protocol";
@@ -32,6 +33,12 @@ const harness = vi.hoisted(() => ({
   native: false,
   openSettings: vi.fn(async () => ({ opened: true })),
   session: null as VoiceSessionController | null,
+  live: false,
+}));
+
+vi.mock("@/lib/one-voice/readiness", () => ({ useOneVoiceLiveEnabled: () => harness.live }));
+vi.mock("@/components/agent/command-agent-bar", () => ({
+  CommandAgentBar: () => <AgentBarSurface><button>Command capture</button></AgentBarSurface>,
 }));
 
 vi.mock("next/navigation", () => ({ usePathname: () => harness.pathname }));
@@ -101,6 +108,7 @@ beforeEach(() => {
   vi.stubGlobal("PointerEvent", MouseEvent);
   harness.session = makeSession();
   harness.native = false;
+  harness.live = false;
   vi.mocked(navigateToAgentChat).mockClear();
   act(() => {
     useVoiceSessionStore.getState().reset();
@@ -111,6 +119,34 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("OneVoiceControl", () => {
+  it("keeps the actual shell composer and selection when readiness switches command to Live and back", () => {
+    function Composer() {
+      const [draft, setDraft] = useState("");
+      return <AgentBarSurface embedded><textarea aria-label="Message One" value={draft} onChange={event => setDraft(event.target.value)} /></AgentBarSurface>;
+    }
+    function Shell() {
+      return <AgentDockProvider>
+        <AgentDockVoiceBoundary><AgentBar layout="slot" /></AgentDockVoiceBoundary>
+        <AgentDockPortal enabled visible><Composer /></AgentDockPortal>
+      </AgentDockProvider>;
+    }
+    const view = render(<Shell />);
+    const editor = screen.getByRole("textbox", { name: "Message One" }) as HTMLTextAreaElement;
+    const seat = editor.closest("[data-agent-dock-composer]");
+    fireEvent.change(editor, { target: { value: "Unsent synthetic draft" } });
+    editor.focus(); editor.setSelectionRange(3, 9);
+    harness.live = true;
+    view.rerender(<Shell />);
+    expect(screen.getByRole("textbox", { name: "Message One" })).toBe(editor);
+    expect(editor.closest("[data-agent-dock-composer]")).toBe(seat);
+    expect(editor).toHaveFocus();
+    expect([editor.selectionStart, editor.selectionEnd]).toEqual([3, 9]);
+    harness.live = false;
+    view.rerender(<Shell />);
+    expect(screen.getByRole("textbox", { name: "Message One" })).toBe(editor);
+    expect(editor).toHaveValue("Unsent synthetic draft");
+    expect(view.container.querySelectorAll("[data-agent-dock-composer]")).toHaveLength(1);
+  });
   it("retains one Agent Bar and the same draft input across text/voice presentation, then retires the route projection", () => {
     let measuredFrame: HTMLDivElement | null = null;
     function FrameProbe() {

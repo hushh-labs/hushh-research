@@ -780,6 +780,9 @@ export function AgentComposerTextAttachment({
   onChange,
   onRemove,
   onCollapse,
+  editorOpen,
+  onEditorOpenChange,
+  hideTrigger = false,
 }: {
   attachment: PendingTextAttachment;
   /** The edited text; an empty edit removes the attachment. */
@@ -787,8 +790,14 @@ export function AgentComposerTextAttachment({
   onRemove: () => void;
   /** A draft restored mid-edit in the composer itself folds back to a chip. */
   onCollapse: () => void;
+  /** Native chips open this same editor, never replace the companion draft. */
+  editorOpen?: boolean;
+  onEditorOpenChange?: (open: boolean) => void;
+  hideTrigger?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [localOpen, setLocalOpen] = useState(false);
+  const open = editorOpen ?? localOpen;
+  const setOpen = onEditorOpenChange ?? setLocalOpen;
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   // The workspace re-renders on every composer keystroke; count lines once
   // per text, not once per keystroke.
@@ -801,7 +810,10 @@ export function AgentComposerTextAttachment({
     [attachment.byteSize, attachment.text],
   );
   return (
+    <>
     <div
+      hidden={hideTrigger}
+      inert={hideTrigger}
       className="relative mb-2 rounded-[18px] border border-foreground/[0.12] bg-foreground/[0.045] text-sm"
       data-testid="agent-chat-text-attachment"
     >
@@ -848,6 +860,7 @@ export function AgentComposerTextAttachment({
       >
         <X aria-hidden="true" />
       </Button>
+    </div>
       <AgentTextAttachmentEditor
         open={open}
         onOpenChange={setOpen}
@@ -857,6 +870,6 @@ export function AgentComposerTextAttachment({
         onCommit={(text) => onChange(text)}
         returnFocusRef={triggerRef}
       />
-    </div>
+    </>
   );
 }

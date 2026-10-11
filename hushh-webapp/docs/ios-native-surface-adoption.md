@@ -13,6 +13,29 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
+### Shared Chat control recovery — 2026-10-11
+
+The shell now retains the composer seat independently of the selected command
+or Live voice owner. Cloud and Puppy project their existing, separate drafts and
+send callbacks into that one Agent Bar; no transcript, credential or operation
+authority is shared. The common finite selector owns the Cloud/Puppy sliding
+thumb and 44px targets. Send/Mic keep compact paint inside 44px hit regions;
+multiline fields scroll at a bounded height without a second entrance fade.
+Native attachment Edit opens the existing attachment editor instead of replacing
+the accompanying message. Puppy cannot submit unfinished IME composition.
+
+The custom native Dock/header/selector policy remains disabled. A foreground
+native Chat family cannot remain visibly behind a full-height React Profile
+without another coherent overlap implementation. Conceal/reveal or per-frame
+bridge clipping is not accepted as continuity. Native bottom navigation and
+the independent Debug native History qualification remain unchanged.
+
+Focused behavior, typecheck, design/performance-source and generated gateway,
+Siri, route-index and surface-map checks pass. The retained-seat negative control
+fails on the previous voice-owner replacement. Physical acceptance is pending
+installation of this source; prior installed-device evidence below applies only
+to its recorded candidate. No native-family or release readiness is inferred.
+
 ### Whole native drawer migration boundary — 2026-10-11
 
 The selected direction is now complete native History and Profile presentations

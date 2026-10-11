@@ -2,7 +2,6 @@
 
 import {
   memo,
-  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -56,7 +55,7 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
   // trees identical while preserving the shared shell slot.
   const [agentBarMounted, setAgentBarMounted] = useState(false);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setAgentBarMounted(true);
   }, []);
 
@@ -136,6 +135,7 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
             <div
               data-bottom-shell-agent-slot
               className="flex w-full justify-center"
+              style={agentBarMounted ? undefined : { minHeight: 52 }}
             >
               {agentBarMounted ? <AgentDockVoiceBoundary><AgentBar layout="slot" /></AgentDockVoiceBoundary> : null}
             </div>
