@@ -15,6 +15,58 @@ final class NativeSupportTests: XCTestCase {
             open: open, enabled: true, backEnabled: false)
     }
 
+    func testPrivateDrawerRenameBindsTheExactEmittedTextAndRejectsUnboundedInput() throws {
+        var state = privateDrawerState(family: "history")
+        var row = state.sections[0].rows[0]
+        row.renameActionId = "rename"; row.deleteActionId = "delete"
+        let options = try JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as! [String: Any]
+        var rewritten = options
+        rewritten["sections"] = [["id": "history", "rows": [try JSONSerialization.jsonObject(with: JSONEncoder().encode(row))]]]
+        state = try JSONDecoder().decode(NativeDrawerProjection.self, from: JSONSerialization.data(withJSONObject: rewritten))
+        var lease = NativeDrawerLease()
+        XCTAssertTrue(lease.apply(state))
+        XCTAssertNil(lease.emit(action: "row", row: "rename", state: state, text: " "))
+        XCTAssertNil(lease.emit(action: "row", row: "rename", state: state, text: String(repeating: "a", count: 161)))
+        XCTAssertNil(lease.emit(action: "row", row: "delete", state: state, text: "not admitted"))
+        let sequence = try XCTUnwrap(lease.emit(action: "row", row: "rename", state: state, text: "Public title"))
+        XCTAssertFalse(lease.confirm(identity: state.identity, update: 1, privacy: 0, sequence: sequence, interaction: 1,
+            action: "row", row: "rename", allowed: true, text: "Altered title"))
+        XCTAssertTrue(lease.confirm(identity: state.identity, update: 1, privacy: 0, sequence: sequence, interaction: 1,
+            action: "row", row: "rename", allowed: true, text: "Public title"))
+        XCTAssertTrue(lease.acceptsSettlement(identity: state.identity, privacy: 0, sequence: sequence))
+        XCTAssertFalse(lease.acceptsSettlement(identity: state.identity, privacy: 1, sequence: sequence))
+        XCTAssertFalse(lease.acceptsSettlement(identity: state.identity, privacy: 0, sequence: sequence + 1))
+        let cancelled = try XCTUnwrap(lease.emit(action: "row", row: "rename", state: state, text: "Public draft"))
+        XCTAssertFalse(lease.settle(identity: state.identity, privacy: 0, sequence: cancelled, success: true),
+            "An unconfirmed choice can only be cancelled, not declared successful")
+        XCTAssertTrue(lease.settle(identity: state.identity, privacy: 0, sequence: cancelled, success: false))
+        XCTAssertFalse(lease.confirm(identity: state.identity, update: 1, privacy: 0, sequence: cancelled, interaction: 1,
+            action: "row", row: "rename", allowed: true, text: "Public draft"))
+        _ = lease.retire(state.identity)
+        XCTAssertFalse(lease.acceptsSettlement(identity: state.identity, privacy: 0, sequence: sequence))
+    }
+
+    @MainActor
+    func testPrivateDrawerRefreshCannotInferOperationCompletionOrClearANewerDraft() {
+        let state = privateDrawerState(family: "history")
+        let model = NativeDrawerModel(state)
+        model.detailRow = "row-handle"; model.detailMode = "rename"; model.renameDraft = "Public title"
+        model.pendingSequence = 1; model.choicePending = true
+        model.update(privateDrawerState(family: "history", update: 2, appearance: "dark"))
+        XCTAssertTrue(model.choicePending)
+        XCTAssertEqual(model.renameDraft, "Public title")
+        model.settle(sequence: 2, success: true)
+        XCTAssertTrue(model.choicePending, "An obsolete settlement cannot close another editor")
+        model.settle(sequence: 1, success: false)
+        XCTAssertFalse(model.choicePending)
+        XCTAssertEqual(model.renameDraft, "Public title", "Confirmed failure preserves a retryable draft")
+        model.pendingSequence = 3; model.choicePending = true
+        model.settle(sequence: 1, success: true)
+        XCTAssertTrue(model.choicePending)
+        model.settle(sequence: 3, success: true)
+        XCTAssertNil(model.detailRow, "An explicit success completes even a same-title rename")
+    }
+
     func testPrivateNativeDrawerRejectsStaleOwnersAndConsumesOnlyEmittedChoices() {
         var lease = NativeDrawerLease()
         let state = privateDrawerState()

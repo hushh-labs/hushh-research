@@ -16,6 +16,8 @@ import {
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AgentMemoryCaptureStatus } from "@/components/agent/agent-memory-capture-status";
+import { useNativeHistoryPresentation } from "@/components/agent/native-history-presentation";
+import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 import { aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, describeAgentPkmCapture, isAgentPkmCaptureRunning, isAgentPkmProcessingReady, shouldPresentAgentPkmCapture, shouldPublishAgentPkmCapture, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
 import {
@@ -2662,6 +2664,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [conversations, setConversations] = useState<AgentChatConversation[]>(
     [],
   );
+  const historyListOwner = useRef<{ auth: NonNullable<ReturnType<typeof snapshotValidatedAuthSessionOwner>>; epoch: number } | null>(null);
   const puppyHistory = usePuppyConversations(user?.uid ?? null);
   const { conversations: puppyConversations, activeId: puppyConversationId } = puppyHistory;
   const [messages, setMessages] = useState<AgentMessage[]>(() => [
@@ -3764,6 +3767,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setWalletWidgets([]);
     updateConversationId(null, false);
     setConversations([]);
+    historyListOwner.current = null;
     setHistoryActionPendingId(null);
     setMessages([createGreetingMessage()]);
     setPendingAppAction(null);
@@ -4613,11 +4617,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     }
     if (historyLoadKeyRef.current === loadKey) return;
     const restoreEpoch = historyRestoreEpochRef.current;
+    const historyOwner = snapshotValidatedAuthSessionOwner();
+    const historyVaultEpoch = snapshotVaultSessionEpoch();
     let cancelled = false;
     const cached = peekAgentChatHistoryCache(user.uid);
 
     const applySnapshot = async (snapshot: NonNullable<typeof cached>) => {
-      if (cancelled || restoreEpoch !== historyRestoreEpochRef.current) return;
+      if (cancelled || restoreEpoch !== historyRestoreEpochRef.current || !historyOwner || historyOwner.userId !== user.uid ||
+          !isValidatedAuthSessionOwnerCurrent(historyOwner) || !isVaultSessionEpochCurrent(historyVaultEpoch)) return;
+      historyListOwner.current = { auth: historyOwner, epoch: historyVaultEpoch };
       setConversations(snapshot.conversations);
       const selectedId = selectedInAppChat(user.uid);
       // A first turn the person left may not be in a cached list yet; its
@@ -4954,11 +4962,22 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     });
   }, [clearPreparedDriveChatRecovery, isPuppySurface, prepareDriveChatRecovery]);
 
+  const historyListRequest = useRef(0);
+  const historyActionRequest = useRef(new Map<string, number>());
   const loadConversationList = useCallback(
     async (force = false) => {
       if (!user?.uid) return [];
+      const owner = snapshotValidatedAuthSessionOwner();
+      if (!owner || owner.userId !== user.uid) return [];
+      const epoch = snapshotVaultSessionEpoch();
       const token = getVaultOwnerToken();
       if (!token) return [];
+      const request = ++historyListRequest.current;
+      const stillCurrent = () => historyListRequest.current === request &&
+        workspaceOwnerIdRef.current === owner.userId && isValidatedAuthSessionOwnerCurrent(owner) &&
+        isVaultSessionEpochCurrent(epoch) && getVaultOwnerToken() === token &&
+        !pkmCaptureReadinessRef.current.authLoading && !pkmCaptureReadinessRef.current.sessionVerificationRequired &&
+        pkmCaptureReadinessRef.current.isVaultUnlocked;
       setIsLoadingHistory(true);
       try {
         const next = await warmAgentChatHistoryCache({
@@ -4967,10 +4986,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           vaultKey: vaultKeyRef.current ?? "",
           force,
         });
+        if (!stillCurrent()) return [];
+        historyListOwner.current = { auth: owner, epoch };
         setConversations(next.conversations);
         return next.conversations;
       } finally {
-        setIsLoadingHistory(false);
+        if (stillCurrent()) setIsLoadingHistory(false);
       }
     },
     [getVaultOwnerToken, user?.uid],
@@ -5067,11 +5088,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
   const handleRenameConversation = useCallback(
     async (targetConversationId: string, title: string) => {
+      const owner = snapshotValidatedAuthSessionOwner();
+      const epoch = snapshotVaultSessionEpoch();
       const token = getVaultOwnerToken();
-      if (!token) {
+      if (!token || !owner || workspaceOwnerIdRef.current !== owner.userId) {
         toast.error("Vault access expired. Unlock again to continue.");
         throw new Error("VAULT_ACCESS_EXPIRED");
       }
+      const request = (historyActionRequest.current.get(targetConversationId) ?? 0) + 1;
+      historyActionRequest.current.set(targetConversationId, request);
+      const stillCurrent = () => request === historyActionRequest.current.get(targetConversationId) &&
+        workspaceOwnerIdRef.current === owner.userId && isValidatedAuthSessionOwnerCurrent(owner) &&
+        isVaultSessionEpochCurrent(epoch) && getVaultOwnerToken() === token;
       setHistoryActionPendingId(targetConversationId);
       try {
         const renamed = await renameAgentChatConversation({
@@ -5080,6 +5108,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           vaultOwnerToken: token,
           vaultKey: vaultKeyRef.current ?? "",
         });
+        if (!stillCurrent()) return;
         setConversations((current) =>
           current.map((conversation) =>
             conversation.id === targetConversationId ? renamed : conversation,
@@ -5088,10 +5117,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         void loadConversationList(true).catch(() => undefined);
         toast.success("Agent chat renamed.");
       } catch {
-        toast.error("Could not rename Agent chat.");
+        if (stillCurrent()) toast.error("Could not rename Agent chat.");
         throw new Error("CHAT_RENAME_FAILED");
       } finally {
-        setHistoryActionPendingId(null);
+        if (stillCurrent()) setHistoryActionPendingId(current => current === targetConversationId ? null : current);
       }
     },
     [getVaultOwnerToken, loadConversationList],
@@ -5099,13 +5128,20 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
   const handleDeleteConversation = useCallback(
     async (targetConversationId: string) => {
-      if (historyInteractionDisabled) return;
+      if (historyInteractionDisabled) throw new Error("CHAT_ACTION_UNAVAILABLE");
       const token = getVaultOwnerToken();
-      if (!token || !user?.uid) {
+      const owner = snapshotValidatedAuthSessionOwner();
+      const epoch = snapshotVaultSessionEpoch();
+      if (!token || !owner || workspaceOwnerIdRef.current !== owner.userId) {
         toast.error("Vault access expired. Unlock again to continue.");
-        return;
+        throw new Error("VAULT_ACCESS_EXPIRED");
       }
-      if (conversationId === targetConversationId) {
+      const stillCurrent = () => workspaceOwnerIdRef.current === owner.userId &&
+        isValidatedAuthSessionOwnerCurrent(owner) && isVaultSessionEpochCurrent(epoch) && getVaultOwnerToken() === token;
+      // Empty chats switch immediately. Never discard unsent text/attachments
+      // before the server commits a deletion; a failure leaves that draft intact.
+      const hasDraft = currentDraftRef.current.input.length > 0 || currentDraftRef.current.attachment !== null;
+      if (conversationIdRef.current === targetConversationId && !hasDraft) {
         handleHistoryDrawerOpenChange(false);
         handleCreateNewChat();
       }
@@ -5114,25 +5150,26 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         conversationId: targetConversationId,
         vaultOwnerToken: token,
       });
-      toast.promise(deletion, {
-        loading: "Deleting chat…",
-        success: "Chat deleted.",
-        error: "Could not delete chat.",
-      });
       try {
         await deletion;
-        if (getVaultOwnerToken() !== token) return;
+        if (!stillCurrent()) return;
+        if (conversationIdRef.current === targetConversationId) {
+          handleHistoryDrawerOpenChange(false);
+          handleCreateNewChat();
+        }
         setConversations((current) => current.filter((item) => item.id !== targetConversationId));
+        toast.success("Chat deleted.");
         void warmAgentChatHistoryCache({
-          userId: user.uid,
+          userId: owner.userId,
           vaultOwnerToken: token,
           vaultKey: vaultKeyRef.current ?? "",
           force: true,
         }).catch(() => undefined);
       } catch {
-        // The promise toast reports the failed server operation. Keep the row.
+        if (stillCurrent()) toast.error("Could not delete chat.");
+        throw new Error("CHAT_DELETE_FAILED");
       } finally {
-        if (getVaultOwnerToken() === token) setHistoryActionPendingId(null);
+        if (stillCurrent()) setHistoryActionPendingId(current => current === targetConversationId ? null : current);
       }
     },
     [
@@ -8605,6 +8642,22 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       onDeleteConversation={isPuppySurface ? handleDeletePuppyConversation : handleDeleteConversation}
     />
   );
+  const nativeHistoryRenderer = useNativeHistoryPresentation({
+    owner: renderedWorkspaceOwnerId, vaultEpoch: vaultSessionEpoch,
+    ready: isCanonicalChatRoute && hasChatAccess && !authLoading && !sessionVerificationRequired && isVaultUnlocked,
+    disabled: !isPuppySurface && historyInteractionDisabled,
+    open: isHistoryDrawerOpen, surface: agentSurface,
+    conversations: isPuppySurface ? puppyConversations : historyListOwner.current &&
+      isValidatedAuthSessionOwnerCurrent(historyListOwner.current.auth) && isVaultSessionEpochCurrent(historyListOwner.current.epoch)
+      ? conversations : [],
+    selected: isPuppySurface ? puppyConversationId : conversationId,
+    pending: historyActionPendingId,
+    loading: !isPuppySurface && isLoadingHistory && conversations.length === 0,
+    create: handleSidebarCreateNewChat, select: handleSidebarSelectConversation,
+    rename: isPuppySurface ? handleRenamePuppyConversation : handleRenameConversation,
+    remove: isPuppySurface ? handleDeletePuppyConversation : handleDeleteConversation,
+    setOpen: handleHistoryDrawerOpenChange,
+  });
   const getEmailDeliveryAuth = async () => {
     if (!user || !isVaultUnlocked || !tokenIsFresh) return null;
     const currentVaultOwnerToken = getVaultOwnerToken();
@@ -8784,6 +8837,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         )}
       >
         <AgentConnectionsDrawer
+          historyRenderer={nativeHistoryRenderer}
           presentationKey={`${pathname}:${renderedWorkspaceOwnerId}:${agentSurface}:${isVaultUnlocked}`}
           gestureSurfaceRef={transcriptRef}
           gestureEnabled={isCanonicalChatRoute && hasChatAccess && !isPuppySurface}

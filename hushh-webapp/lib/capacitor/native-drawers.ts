@@ -13,6 +13,8 @@ export type NativeDrawerRow = {
   destructive?: boolean;
   selected?: boolean;
   pending?: boolean;
+  renameActionId?: string;
+  deleteActionId?: string;
 };
 export type NativeDrawerSection = { id: string; title?: string; rows: readonly NativeDrawerRow[] };
 export type NativeDrawerIdentity = {
@@ -30,6 +32,8 @@ export type NativeDrawerProjection = NativeDrawerIdentity & NativeControlAppeara
   open: boolean;
   enabled: boolean;
   backEnabled: boolean;
+  searchable?: boolean;
+  loading?: boolean;
 };
 export type NativeDrawerReceipt = NativeDrawerIdentity & {
   updateSequence: number;
@@ -43,12 +47,14 @@ export type NativeDrawerChoice = NativeDrawerIdentity & {
   interactionGeneration: number;
   action: "row" | "back" | "close" | "open";
   rowId?: string;
+  text?: string;
 };
 export type NativeDrawerIsolation = { generation: number; isolated: boolean };
 export interface HushhNativeDrawersPlugin {
-  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean }>;
+  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean }>;
   apply(options: NativeDrawerProjection): Promise<NativeDrawerReceipt>;
   confirmChoice(options: NativeDrawerChoice): Promise<{ valid: boolean }>;
+  settleChoice?(options: NativeDrawerIdentity & { sequence: number; privacyGeneration: number; success: boolean }): Promise<{ valid: boolean }>;
   retire(options: NativeDrawerIdentity): Promise<NativeDrawerReceipt>;
   addListener(eventName: "choice", listener: (event: NativeDrawerChoice) => void): Promise<PluginListenerHandle>;
   addListener(eventName: "isolationChanged", listener: (event: NativeDrawerIsolation) => void): Promise<PluginListenerHandle>;
@@ -130,12 +136,13 @@ function closedShape(value: object, keys: readonly string[]): boolean {
  * arbitrary view tree, provider payload or action transport in this contract. */
 export function validNativeDrawerProjection(value: NativeDrawerProjection): boolean {
   if (!value || !closedShape(value, ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "appearance", "accentHex", "foregroundHex",
-      "updateSequence", "privacyGeneration", "title", "sections", "open", "enabled", "backEnabled"]) ||
+      "updateSequence", "privacyGeneration", "title", "sections", "open", "enabled", "backEnabled", "searchable", "loading"]) ||
       !validIdentifier(value.documentId) || !validIdentifier(value.ownerEpoch) ||
       !validSequence(value.ownerGeneration) || !validSequence(value.revision) || !validSequence(value.updateSequence) ||
       !["history", "profile"].includes(value.family) ||
       !Number.isSafeInteger(value.privacyGeneration) || value.privacyGeneration < 0 ||
       ![value.open, value.enabled, value.backEnabled].every(item => typeof item === "boolean") ||
+      [value.searchable, value.loading].some(item => item !== undefined && typeof item !== "boolean") ||
       !["light", "dark"].includes(value.appearance) ||
       ![value.accentHex, value.foregroundHex].every(color => /^#(?:[\da-f]{3}|[\da-f]{6}|[\da-f]{8})$/i.test(color)) ||
       !validText(value.title, 256) || !Array.isArray(value.sections) || value.sections.length > 32) return false;
@@ -147,12 +154,17 @@ export function validNativeDrawerProjection(value: NativeDrawerProjection): bool
         !Array.isArray(section.rows)) return false;
     ids.add(section.id);
     for (const row of section.rows) {
-      if (++rows > 500 || !row || !closedShape(row, ["id", "label", "detail", "symbol", "enabled", "destructive", "selected", "pending"]) ||
+      if (++rows > 500 || !row || !closedShape(row, ["id", "label", "detail", "symbol", "enabled", "destructive", "selected", "pending", "renameActionId", "deleteActionId"]) ||
           !validIdentifier(row.id) || ids.has(row.id) ||
           !validText(row.label, 4096) || (row.detail !== undefined && !validText(row.detail, 4096)) ||
           (row.symbol !== undefined && !validIdentifier(row.symbol)) || typeof row.enabled !== "boolean" ||
           [row.destructive, row.selected, row.pending].some(item => item !== undefined && typeof item !== "boolean")) return false;
       ids.add(row.id);
+      for (const action of [row.renameActionId, row.deleteActionId]) {
+        if (action === undefined) continue;
+        if (!validIdentifier(action) || ids.has(action)) return false;
+        ids.add(action);
+      }
     }
   }
   return true;
@@ -162,12 +174,15 @@ export function nativeDrawerChoiceAllowed(choice: NativeDrawerChoice, state: Nat
   if (!choice || !sameNativeDrawer(choice, state) || !validSequence(choice.sequence) || !validSequence(choice.interactionGeneration) ||
       choice.updateSequence !== state.updateSequence || choice.privacyGeneration !== state.privacyGeneration ||
       !state.enabled) return false;
+  if (choice.action !== "row" && choice.text !== undefined) return false;
   if (choice.action === "open") return !state.open && choice.rowId === undefined;
   if (!state.open) return false;
   if (choice.action === "close") return choice.rowId === undefined;
   if (choice.action === "back") return state.backEnabled && choice.rowId === undefined;
   if (choice.action !== "row" || !validIdentifier(choice.rowId)) return false;
-  return state.sections.some(section => section.rows.some(row => row.id === choice.rowId && row.enabled && !row.pending));
+  return state.sections.some(section => section.rows.some(row => row.enabled && !row.pending &&
+    (row.renameActionId === choice.rowId ? typeof choice.text === "string" && choice.text.trim().length > 0 && choice.text.length <= 160 :
+      (row.id === choice.rowId || row.deleteActionId === choice.rowId) && choice.text === undefined)));
 }
 
 /** The native receipt is not permission to call an operation later. Revalidate
@@ -204,5 +219,7 @@ export class NativeDrawerChoiceFence {
 /** Unsupported platforms decide their renderer before surface reveal. Product
  * admission is separate from this private contract and remains qualification-gated. */
 export function nativeDrawersPlatformEligible(): boolean {
-  return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios";
+  if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios" || typeof window === "undefined") return false;
+  const bootstrap = (window as Window & { __HUSHH_NATIVE_DRAWER_BOOTSTRAP__?: { contractVersion: number; enabled: boolean } }).__HUSHH_NATIVE_DRAWER_BOOTSTRAP__;
+  return bootstrap?.contractVersion === 1 && bootstrap.enabled === true;
 }

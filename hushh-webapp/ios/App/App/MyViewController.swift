@@ -102,6 +102,21 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         HushhNativeRouter()
     }
 
+    override open func webViewConfiguration(for instanceConfiguration: InstanceConfiguration) -> WKWebViewConfiguration {
+        let configuration = super.webViewConfiguration(for: instanceConfiguration)
+        let eligible: Bool
+        if #available(iOS 26.0, *) {
+            eligible = NativeDrawerQualificationPolicy.enabled && UIDevice.current.userInterfaceIdiom == .phone
+        } else { eligible = false }
+        // Renderer choice is public bootstrap metadata, installed before the
+        // first document script. Capability/owner/privacy checks still admit
+        // every presentation; this is not operation or information authority.
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: "Object.defineProperty(window, '__HUSHH_NATIVE_DRAWER_BOOTSTRAP__', {value:Object.freeze({contractVersion:1,enabled:\(eligible ? "true" : "false")})});",
+            injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        return configuration
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         (bridge?.plugin(withName: "HushhNativeNavigation") as? HushhNativeNavigationPlugin)?.layoutTabBar()

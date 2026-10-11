@@ -17,14 +17,23 @@ function Detail() {
   </>;
 }
 
-function Harness() {
+function Harness({ renderer = "web" }: { renderer?: "web" | "preparing" | "native" | "blocked" }) {
   const [open, setOpen] = useState(true);
   const triggerRef = useRef<HTMLButtonElement>(null);
   return <AgentConnectionsDrawer open={open} onOpenChange={setOpen} mode="chats"
-    externalModalOpen={false} chats={<Detail />} connections={null} triggerRef={triggerRef} />;
+    externalModalOpen={false} chats={<Detail />} connections={null} triggerRef={triggerRef} historyRenderer={renderer} />;
 }
 
 describe("chat drawer dialog layering", () => {
+  it("never mounts an interactive web History during native preparation, admission or uncertain retirement", () => {
+    const view = render(<Harness renderer="preparing" />);
+    for (const renderer of ["preparing", "native", "blocked"] as const) {
+      view.rerender(<Harness renderer={renderer} />);
+      expect(screen.queryByRole("button", { name: "View Drive update" })).toBeNull();
+    }
+    view.rerender(<Harness renderer="web" />);
+    expect(screen.getByRole("button", { name: "View Drive update" })).toBeVisible();
+  });
   it("keeps the mobile chat drawer open when Escape closes a Drive detail", async () => {
     render(<Harness />);
     fireEvent.click(await screen.findByRole("button", { name: "View Drive update" }));

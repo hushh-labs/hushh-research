@@ -5,13 +5,37 @@ import UIKit
 final class NativeDrawerModel: ObservableObject {
     @Published private(set) var projection: NativeDrawerProjection
     @Published var interactionEnabled = false
-    var choose: ((String, String?) -> Bool)?
+    @Published var search = ""
+    @Published var detailRow: String?
+    @Published var detailMode = "actions"
+    @Published var renameDraft = ""
+    @Published var choicePending = false
+    var pendingSequence: Int?
+    var choose: ((String, String?, String?) -> Bool)?
     var close: (() -> Void)?
     init(_ projection: NativeDrawerProjection) { self.projection = projection }
-    func update(_ projection: NativeDrawerProjection) { self.projection = projection }
-    @discardableResult func choice(_ action: String, row: String? = nil) -> Bool {
-        guard projection.allows(action: action, row: row) else { return false }
-        return choose?(action, row) == true
+    func update(_ projection: NativeDrawerProjection) {
+        self.projection = projection
+        if !projection.open || !projection.enabled || detailRow.map({ id in !projection.sections.contains { $0.rows.contains { $0.id == id } } }) == true {
+            clearDetails()
+        }
+        if !projection.enabled { search = "" }
+    }
+    func clearDetails() { detailRow = nil; renameDraft = ""; detailMode = "actions"; pendingSequence = nil; choicePending = false }
+    func settle(sequence: Int, success: Bool) {
+        guard pendingSequence == sequence else { return }
+        pendingSequence = nil; choicePending = false
+        if success { clearDetails() }
+    }
+    func details(_ row: NativeDrawerRow) {
+        guard interactionEnabled, !choicePending, row.enabled, row.pending != true else { return }
+        detailRow = row.id; detailMode = "actions"; renameDraft = row.label
+    }
+    @discardableResult func choice(_ action: String, row: String? = nil, text: String? = nil) -> Bool {
+        guard projection.allows(action: action, row: row, text: text) else { return false }
+        guard (action != "row" || !choicePending), choose?(action, row, text) == true else { return false }
+        if action == "row" { choicePending = true }
+        return true
     }
 }
 
@@ -72,19 +96,25 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         guard !motion.retired else { return }
         let changed = lastSize != view.bounds.size
         if changed {
-            let open = lastSize == .zero ? motion.committedOpen : model.projection.open
-            let generation = motion.begin(at: open ? 1 : 0)
+            let initial = lastSize == .zero
+            let previousWidth = max(1, host.view.bounds.width)
+            let transform = host.view.layer.presentation()?.affineTransform() ?? host.view.transform
+            let visible = initial ? motion.progress : min(1, max(0, 1 - abs(transform.tx) / previousWidth))
+            _ = motion.begin(at: visible)
             invalidateInteractions?()
             intentTimeout?.cancel(); intentTimeout = nil
             dragging = false
             intentPending = false
             animator?.stopAnimation(true); animator = nil
-            _ = motion.commit(open: open, generation: generation)
             lastSize = view.bounds.size
             host.view.transform = .identity
-            let width = min(420, view.bounds.width)
+            let width = min(360, view.bounds.width * 0.88)
             host.view.frame = CGRect(x: direction > 0 ? view.bounds.width - width : 0,
                 y: 0, width: width, height: view.bounds.height)
+            pose(visible)
+            // Invalidating geometry cancels a drag without committing its
+            // unconfirmed intent or snapping the visible edge to an endpoint.
+            if !initial { settle(open: model.projection.open, userIntent: false) }
         }
         scrim.frame = view.bounds
         // Compatible theme/content layouts never rewind an active drag/settle.
@@ -99,7 +129,9 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         intentTimeout?.cancel(); intentTimeout = nil
         awaitingReadmission = false
         applyAppearance()
-        if changedOpen || intentPending || withdrawn { intentPending = false; settle(open: projection.open, userIntent: false) }
+        if intentPending && projection.open == motion.committedOpen && animator == nil {
+            intentPending = false; pose(motion.progress)
+        } else if changedOpen || intentPending || withdrawn { intentPending = false; settle(open: projection.open, userIntent: false) }
         else { reconcileIsolation() }
     }
     func activateInitialPresentation() {
@@ -208,9 +240,9 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         if model.interactionEnabled != interactive { model.interactionEnabled = interactive }
         isolation?(covered)
     }
-    func allowsInteraction(_ action: String, row: String?) -> Bool {
+    func allowsInteraction(_ action: String, row: String?, text: String? = nil) -> Bool {
         guard !motion.retired, !awaitingReadmission, !dragging, animator == nil,
-              model.projection.allows(action: action, row: row) else { return false }
+              model.projection.allows(action: action, row: row, text: text) else { return false }
         return !intentPending || action == "open" || action == "close"
     }
     private func boundTerminalIntent(_ generation: Int) {
@@ -235,6 +267,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         view.endEditing(true)
         model.choose = nil
         model.close = nil
+        model.search = ""; model.clearDetails()
         invalidateInteractions = nil
         model.update(model.projection.cleared)
         model.interactionEnabled = false
@@ -258,24 +291,47 @@ private final class NativeDrawerHitSurface: UIView {
 
 struct NativeDrawerContent: View {
     @ObservedObject var model: NativeDrawerModel
+    private var detailedRow: NativeDrawerRow? {
+        model.projection.sections.flatMap(\.rows).first { $0.id == model.detailRow }
+    }
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                if model.projection.backEnabled {
+                if model.detailRow != nil {
+                    control("arrow.left", "Back") { model.clearDetails() }
+                } else if model.projection.backEnabled {
                     control("arrow.left", "Back") { model.choice("back") }
                 }
                 Text(model.projection.title).font(.title2.bold()).frame(maxWidth: .infinity, alignment: .leading)
-                control("xmark", "Close") { model.close?() }
+                control("xmark", model.projection.family == "history" ? "Close chat history" : "Close Profile") { model.close?() }
             }.padding(.horizontal, 16).padding(.vertical, 12)
-            List {
+            if let row = detailedRow {
+                details(row)
+            } else {
+                if model.projection.searchable == true {
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+                        TextField("Search chats", text: $model.search)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .accessibilityIdentifier("native-history-search")
+                        if !model.search.isEmpty {
+                            Button { model.search = "" } label: { Image(systemName: "xmark.circle.fill") }
+                                .frame(width: 44, height: 44).accessibilityLabel("Clear chat search")
+                        }
+                    }.padding(.horizontal, 16).frame(minHeight: 44)
+                        .disabled(!model.interactionEnabled)
+                }
+                if model.projection.loading == true { ProgressView("Loading chats").padding() }
+                List {
                 ForEach(model.projection.sections) { section in
                     Section {
-                        ForEach(section.rows) { row in
+                        ForEach(section.rows.filter { row in model.search.isEmpty || row.renameActionId == nil || row.label.localizedCaseInsensitiveContains(model.search) }) { row in
+                          HStack(spacing: 0) {
                             Button { model.choice("row", row: row.id) } label: {
                                 HStack(spacing: 12) {
                                     if let symbol = row.symbol { Image(systemName: symbol).frame(width: 24).accessibilityHidden(true) }
                                     VStack(alignment: .leading, spacing: 4) {
-                                        Text(row.label).foregroundStyle(row.destructive == true ? Color.red : Color.primary)
+                                        Text(row.label).foregroundStyle(row.destructive == true ? Color.red : Color.primary).lineLimit(2)
                                         if let detail = row.detail { Text(detail).font(.subheadline).foregroundStyle(.secondary) }
                                     }
                                     Spacer(minLength: 8)
@@ -284,11 +340,38 @@ struct NativeDrawerContent: View {
                                 }.frame(minHeight: 44).contentShape(Rectangle())
                             }.disabled(!row.enabled || row.pending == true || !model.interactionEnabled)
                                 .accessibilityAddTraits(row.selected == true ? .isSelected : [])
+                            if row.renameActionId != nil || row.deleteActionId != nil {
+                                Button { model.details(row) } label: { Image(systemName: "ellipsis") }
+                                    .frame(width: 44, height: 44).accessibilityLabel("Open actions for \(row.label)")
+                                    .disabled(!row.enabled || row.pending == true || !model.interactionEnabled)
+                            }
+                          }
                         }
                     } header: { if let title = section.title { Text(title) } }
                 }
-            }.listStyle(.insetGrouped)
+                }.listStyle(.insetGrouped)
+            }
         }.background(Color(uiColor: .systemBackground))
+    }
+    private func details(_ row: NativeDrawerRow) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(row.label).font(.headline).lineLimit(3)
+            if model.detailMode == "rename", let action = row.renameActionId {
+                TextField("Chat name", text: $model.renameDraft).textFieldStyle(.roundedBorder)
+                    .accessibilityLabel("Rename chat").accessibilityIdentifier("native-history-rename")
+                Button("Save chat name") { _ = model.choice("row", row: action, text: model.renameDraft) }
+                    .disabled(model.renameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.renameDraft.utf16.count > 160)
+            } else if model.detailMode == "delete", let action = row.deleteActionId {
+                Text("This chat will be removed from your history.").foregroundStyle(.secondary)
+            Button("Delete chat", role: .destructive) { _ = model.choice("row", row: action) }
+            } else {
+                if row.renameActionId != nil { Button("Rename") { model.detailMode = "rename" } }
+                if row.deleteActionId != nil { Button("Delete", role: .destructive) { model.detailMode = "delete" } }
+            }
+            Button("Cancel") { model.clearDetails() }
+            Spacer(minLength: 0)
+        }.buttonStyle(.borderless).padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading).disabled(!model.interactionEnabled || model.choicePending || !row.enabled || row.pending == true)
     }
     @ViewBuilder private func control(_ symbol: String, _ label: String, action: @escaping () -> Void) -> some View {
         if #available(iOS 26.0, *) {

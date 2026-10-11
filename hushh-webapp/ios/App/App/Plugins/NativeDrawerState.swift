@@ -25,6 +25,8 @@ struct NativeDrawerRow: Codable, Identifiable {
     let destructive: Bool?
     let selected: Bool?
     let pending: Bool?
+    var renameActionId: String? = nil
+    var deleteActionId: String? = nil
 }
 
 struct NativeDrawerSection: Codable, Identifiable {
@@ -49,17 +51,19 @@ struct NativeDrawerProjection: Codable {
     let open: Bool
     let enabled: Bool
     let backEnabled: Bool
+    var searchable: Bool? = nil
+    var loading: Bool? = nil
     var identity: NativeDrawerIdentity {
         NativeDrawerIdentity(documentId: documentId, ownerEpoch: ownerEpoch, ownerGeneration: ownerGeneration, revision: revision, family: family)
     }
     static func hasClosedShape(_ options: [String: Any]) -> Bool {
         let keys: Set<String> = ["documentId", "ownerEpoch", "ownerGeneration", "revision", "family", "updateSequence", "privacyGeneration",
-            "appearance", "accentHex", "foregroundHex", "title", "sections", "open", "enabled", "backEnabled"]
+            "appearance", "accentHex", "foregroundHex", "title", "sections", "open", "enabled", "backEnabled", "searchable", "loading"]
         guard Set(options.keys).isSubset(of: keys), let sections = options["sections"] as? [[String: Any]] else { return false }
         for section in sections {
             guard Set(section.keys).isSubset(of: ["id", "title", "rows"]), let rows = section["rows"] as? [[String: Any]] else { return false }
             for row in rows {
-                guard Set(row.keys).isSubset(of: ["id", "label", "detail", "symbol", "enabled", "destructive", "selected", "pending"]) else { return false }
+                guard Set(row.keys).isSubset(of: ["id", "label", "detail", "symbol", "enabled", "destructive", "selected", "pending", "renameActionId", "deleteActionId"]) else { return false }
             }
         }
         return true
@@ -80,6 +84,9 @@ struct NativeDrawerProjection: Codable {
                 guard count <= 500, NativeDrawerIdentity.identifier(row.id), ids.insert(row.id).inserted,
                       Self.text(row.label, 4096), row.detail == nil || Self.text(row.detail!, 4096),
                       row.symbol == nil || NativeDrawerIdentity.identifier(row.symbol!) else { return false }
+                for action in [row.renameActionId, row.deleteActionId].compactMap({ $0 }) {
+                    guard NativeDrawerIdentity.identifier(action), ids.insert(action).inserted else { return false }
+                }
             }
         }
         return true
@@ -90,14 +97,21 @@ struct NativeDrawerProjection: Codable {
             updateSequence: updateSequence, privacyGeneration: privacyGeneration, appearance: appearance,
             accentHex: accentHex, foregroundHex: foregroundHex, title: "", sections: [], open: false, enabled: false, backEnabled: false)
     }
-    func allows(action: String, row: String?) -> Bool {
+    func allows(action: String, row: String?, text: String? = nil) -> Bool {
         guard enabled else { return false }
+        guard action == "row" || text == nil else { return false }
         if action == "open" { return !open && row == nil }
         guard open else { return false }
         if action == "close" { return row == nil }
         if action == "back" { return backEnabled && row == nil }
         guard action == "row", let row else { return false }
-        return sections.contains { $0.rows.contains { $0.id == row && $0.enabled && $0.pending != true } }
+        return sections.contains { $0.rows.contains {
+            guard $0.enabled, $0.pending != true else { return false }
+            if $0.renameActionId == row {
+                return text.map { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.utf16.count <= 160 } == true
+            }
+            return ($0.id == row || $0.deleteActionId == row) && text == nil
+        } }
     }
 }
 
@@ -131,7 +145,8 @@ struct NativeDrawerMotion {
     mutating func retire() { generation += 1; retired = true }
 }
 
-/// Retains only admission metadata for emitted choices, never titles or bodies.
+/// Bounded, volatile choice snapshots, including exact rename text until
+/// confirmation. No credentials, persistence, diagnostics or provider bodies.
 struct NativeDrawerLease {
     private(set) var identity: NativeDrawerIdentity?
     private(set) var retiredIdentity: NativeDrawerIdentity?
@@ -142,8 +157,9 @@ struct NativeDrawerLease {
     private var document: String?
     private var retiredDocuments = Set<String>()
     private var consumed = 0
+    private var pendingSettlements = Set<Int>()
     private(set) var interactionGeneration = 1
-    private var emitted: [Int: (update: Int, interaction: Int, action: String, row: String?)] = [:]
+    private var emitted: [Int: (update: Int, interaction: Int, action: String, row: String?, text: String?)] = [:]
 
     mutating func apply(_ projection: NativeDrawerProjection) -> Bool {
         guard projection.valid, !retiredDocuments.contains(projection.documentId) else { return false }
@@ -156,7 +172,7 @@ struct NativeDrawerLease {
             latestRevision = projection.revision
             document = projection.documentId
             identity = projection.identity
-            sequence = 0; updateSequence = 0; consumed = 0; emitted.removeAll()
+            sequence = 0; updateSequence = 0; consumed = 0; emitted.removeAll(); pendingSettlements.removeAll()
         }
         guard projection.updateSequence > updateSequence else { return false }
         updateSequence = projection.updateSequence
@@ -167,23 +183,37 @@ struct NativeDrawerLease {
         interactionGeneration += 1
         emitted.removeAll()
     }
-    mutating func emit(action: String, row: String?, state: NativeDrawerProjection) -> Int? {
-        guard identity == state.identity, updateSequence == state.updateSequence, state.allows(action: action, row: row),
+    mutating func emit(action: String, row: String?, state: NativeDrawerProjection, text: String? = nil) -> Int? {
+        guard identity == state.identity, updateSequence == state.updateSequence, state.allows(action: action, row: row, text: text),
+              action != "row" || pendingSettlements.count < 128,
               sequence < HushhSessionPrivacyState.maximumJavaScriptSafeGeneration else { return nil }
         sequence += 1
-        emitted[sequence] = (updateSequence, interactionGeneration, action, row)
+        emitted[sequence] = (updateSequence, interactionGeneration, action, row, text)
         emitted.removeValue(forKey: sequence - 128)
         return sequence
     }
     mutating func confirm(identity: NativeDrawerIdentity, update: Int, privacy: Int, sequence: Int, interaction: Int,
-                          action: String, row: String?, allowed: Bool) -> Bool {
+                          action: String, row: String?, allowed: Bool, text: String? = nil) -> Bool {
         guard allowed, identity == self.identity, update == updateSequence, privacy == privacyGeneration,
               interaction == interactionGeneration,
               sequence > consumed, let choice = emitted[sequence], choice.update == update,
               choice.interaction == interaction,
-              choice.action == action, choice.row == row else { return false }
+              choice.action == action, choice.row == row, choice.text == text else { return false }
         consumed = sequence
+        if action == "row" { pendingSettlements.insert(sequence) }
         emitted = emitted.filter { $0.key > sequence }
+        return true
+    }
+    func acceptsSettlement(identity: NativeDrawerIdentity, privacy: Int, sequence: Int) -> Bool {
+        self.identity == identity && privacyGeneration == privacy && pendingSettlements.contains(sequence)
+    }
+    mutating func settle(identity: NativeDrawerIdentity, privacy: Int, sequence: Int, success: Bool) -> Bool {
+        guard self.identity == identity, privacyGeneration == privacy else { return false }
+        let confirmed = pendingSettlements.contains(sequence)
+        let unconfirmedRow = emitted[sequence]?.action == "row"
+        guard confirmed || !success && unconfirmedRow else { return false }
+        pendingSettlements.remove(sequence)
+        emitted.removeValue(forKey: sequence)
         return true
     }
     @discardableResult mutating func retire(_ identity: NativeDrawerIdentity) -> Bool {
@@ -201,6 +231,7 @@ struct NativeDrawerLease {
         self.identity = nil
         retiredIdentity = identity
         emitted.removeAll()
+        pendingSettlements.removeAll()
         return true
     }
 }

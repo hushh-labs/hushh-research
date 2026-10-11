@@ -55,6 +55,7 @@ export function AgentConnectionsDrawer({
   presentationKey,
   onGestureOpen,
   onRestoreHistoryFocus,
+  historyRenderer = "web",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -70,6 +71,7 @@ export function AgentConnectionsDrawer({
   onGestureOpen?: () => void;
   /** Owning Chat chrome handles native/DOM return exactly once. */
   onRestoreHistoryFocus?: () => void;
+  historyRenderer?: "web" | "preparing" | "native" | "blocked";
 }) {
   const drawer = useRef<HTMLDivElement>(null);
   const scrim = useRef<HTMLDivElement>(null);
@@ -89,7 +91,7 @@ export function AgentConnectionsDrawer({
   const attachConnectorHost = useCallback((node: HTMLDivElement | null) => {
     if (node && connectorHost) node.appendChild(connectorHost);
   }, [connectorHost]);
-  const historyOpen = open && mode === "chats";
+  const historyOpen = open && mode === "chats" && historyRenderer === "web";
   const historyReady = useNativeFullWindowOverlayReady(historyOpen);
   const historyDisplayed = historyOpen && historyReady;
   const attachNativePanel = useNativePanelPresentation("history", presentationKey ?? null, drawer, historyOpen);
@@ -123,7 +125,7 @@ export function AgentConnectionsDrawer({
     modeAtOpen.current = mode;
   }, [mode]);
   useLayoutEffect(() => {
-    if (!open) return;
+    if (!open || historyRenderer !== "web") return;
     wasHistoryOpen.current = modeAtOpen.current === "chats";
     // WebKit pointer activation doesn't focus buttons; an explicit trigger
     // reference restores focus reliably for both pointer and keyboard users.
@@ -131,7 +133,7 @@ export function AgentConnectionsDrawer({
     // The transcript becomes inert in this commit. Move focus now so an
     // immediate Escape cannot land on the old, inert trigger before a RAF.
     if (modeAtOpen.current === "chats") focused()[0]?.focus({ preventScroll: true });
-  }, [open, triggerRef]);
+  }, [open, triggerRef, historyRenderer]);
   useEffect(() => {
     if (open) return;
     if (modeAtOpen.current === "chats" && onRestoreHistoryFocus) {
@@ -234,7 +236,7 @@ export function AgentConnectionsDrawer({
   return (
     <>
       {gestureSurfaceRef ? <AppChatHistoryEdgeGesture
-        enabled={presentationReady && gestureEnabled && mode === "chats" && !externalModalOpen}
+        enabled={historyRenderer === "web" && presentationReady && gestureEnabled && mode === "chats" && !externalModalOpen}
         open={historyOpen}
         presentationKey={presentationKey}
         surfaceRef={gestureSurfaceRef} drawerRef={drawer} motionRef={drawer} scrimRef={scrim}
@@ -317,7 +319,7 @@ export function AgentConnectionsDrawer({
               inert={mode !== "chats"}
               className="pointer-events-auto h-full min-h-0"
             >
-              {chats}
+              {historyRenderer === "web" ? chats : null}
             </div>
           </div>
         </>,

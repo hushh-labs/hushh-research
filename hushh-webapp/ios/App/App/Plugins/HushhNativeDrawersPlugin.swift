@@ -21,6 +21,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "getCapabilities", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "apply", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "confirmChoice", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "settleChoice", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "retire", returnType: CAPPluginReturnPromise),
     ]
     private var leases = [String: NativeDrawerLease]()
@@ -60,6 +61,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func getCapabilities(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
             call.resolve(["contractVersion": 1, "supported": self?.supported == true, "wholePresentation": self?.supported == true,
+                "historyActions": self?.supported == true,
                 "generation": self?.container?.isolationGeneration ?? 0, "isolated": self?.container?.interactionIsolated == true])
         }
     }
@@ -115,7 +117,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
                     }
                     self.container?.isolateForOwnedDrawer(covered || anotherCovered)
                 }
-                controller.model.choose = { [weak self] action, row in self?.emit(next.family, action: action, row: row) == true }
+                controller.model.choose = { [weak self] action, row, text in self?.emit(next.family, action: action, row: row, text: text) == true }
                 controller.invalidateInteractions = { [weak self] in self?.leases[next.family]?.invalidateInteractions() }
                 self.controllers[next.family] = controller
                 controller.activateInitialPresentation()
@@ -123,19 +125,21 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             call.resolve(self.receipt(next, phase: "active"))
         }
     }
-    @MainActor private func emit(_ family: String, action: String, row: String?) -> Bool {
+    @MainActor private func emit(_ family: String, action: String, row: String?, text: String?) -> Bool {
         guard let controller = controllers[family], var lease = leases[family],
-              controller.allowsInteraction(action, row: row) else { return false }
+              controller.allowsInteraction(action, row: row, text: text) else { return false }
         let state = controller.model.projection
         let privacy = HushhSessionPrivacyShield.shared.snapshot()
         guard sessionFence.contains(state.identity), privacy.appIsActive, !privacy.shielded, state.privacyGeneration == privacy.generation,
-              let sequence = lease.emit(action: action, row: row, state: state) else { return false }
+              let sequence = lease.emit(action: action, row: row, state: state, text: text) else { return false }
         leases[family] = lease
+        if action == "row" { controller.model.pendingSequence = sequence }
         var event = receipt(state, phase: "active")
         event.removeValue(forKey: "phase")
         event["sequence"] = sequence; event["action"] = action
         event["interactionGeneration"] = lease.interactionGeneration
         if let row { event["rowId"] = row }
+        if let text { event["text"] = text }
         notifyListeners("choice", data: event, retainUntilConsumed: false)
         return true
     }
@@ -146,15 +150,35 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             let privacy = HushhSessionPrivacyShield.shared.snapshot()
             let action = call.getString("action") ?? ""
             let row = call.getString("rowId")
+            let text = call.getString("text")
             let state = controller.model.projection
             let allowed = self.supported && self.sessionFence.contains(identity) && privacy.appIsActive && !privacy.shielded &&
-                state.privacyGeneration == privacy.generation && controller.allowsInteraction(action, row: row)
+                state.privacyGeneration == privacy.generation && controller.allowsInteraction(action, row: row, text: text)
             let valid = lease.confirm(identity: identity, update: call.getInt("updateSequence") ?? -1,
                 privacy: call.getInt("privacyGeneration") ?? -1, sequence: call.getInt("sequence") ?? -1,
                 interaction: call.getInt("interactionGeneration") ?? -1,
-                action: action, row: row, allowed: allowed)
+                action: action, row: row, allowed: allowed, text: text)
             self.leases[identity.family] = lease
             call.resolve(["valid": valid])
+        }
+    }
+    @objc func settleChoice(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.supported, let identity = self.identity(call),
+                  let controller = self.controllers[identity.family], var lease = self.leases[identity.family],
+                  let sequence = call.getInt("sequence"), let success = call.getBool("success") else {
+                call.resolve(["valid": false]); return
+            }
+            let privacy = HushhSessionPrivacyShield.shared.snapshot()
+            guard privacy.appIsActive, !privacy.shielded, self.sessionFence.contains(identity),
+                  privacy.generation == call.getInt("privacyGeneration"),
+                  lease.settle(identity: identity, privacy: privacy.generation, sequence: sequence, success: success) else {
+                call.resolve(["valid": false]); return
+            }
+            self.leases[identity.family] = lease
+            // A late completion cannot clear a reopened editor or a newer choice.
+            controller.model.settle(sequence: sequence, success: success)
+            call.resolve(["valid": true])
         }
     }
     @objc func retire(_ call: CAPPluginCall) {

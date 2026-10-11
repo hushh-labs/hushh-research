@@ -30,14 +30,31 @@ The first reversible boundary is implemented on top of `e5ad899659`:
 | Covered base controls | Remain mounted/materially visible; touch and accessibility isolated locally | Pending Chrome/Dock/Nav choices are invalidated across isolation cycles, including every post-await dispatch; uncover requests fresh same-host admission |
 | Failure/privacy retirement | Immediate targeted withdrawal, cancelled-admission tombstones and confirmed absence | Private snapshots/callbacks clear; listener cleanup cannot delay withdrawal; uncertain operations never replay; public-only isolation observer survives uncertain withdrawal until document retirement |
 | Product authority identity | Existing validated Auth owner and vault epoch; opaque shared owner ID and monotonically increasing family leases | No account ID, token, key or route-derived authority is sent as owner metadata |
-| Actual History and Profile ports | Not connected yet | Search/rename/delete confirmation, Drive nested review, Profile settings/forms and protected nested layers remain unimplemented in the new presenter |
+| Actual History port | Existing workspace callbacks, owner-bound rows, activity grouping, search, inline rename and deletion confirmation | Debug qualification only; Drive nested review, footer handoff and closed-body opening gesture remain parity gaps |
+| Actual Profile port | Not connected yet | Settings/forms and protected nested layers remain in the coherent React pane |
 
 The new boundary is **qualification-only**, using a separate Debug composition
 switch. Normal builds keep the stable recovery; old experimental custom-control
 flags remain rejected. The new switch must not be treated as complete product
 parity: it currently prepares action rows, not the entire Profile feature set.
-No replacement product was installed for this boundary. The existing iPhone
-recovery identity below is unchanged; iPad remains unqualified.
+Installation and physical qualification are recorded separately below; this
+source boundary alone changes no installed product. iPad remains unqualified.
+
+History handles are stable across activity reordering and scoped by agent surface.
+Admission compares the validated auth UID with the feature owner; loaded rows
+retain their originating auth/vault epoch. Unchanged semantic projections refresh
+callbacks in memory without replacing hosts or invalidating a confirmed action.
+Row operations settle explicitly by confirmed sequence and privacy generation;
+refreshing a label is not completion. Failed renames preserve their draft, stale
+settlements cannot clear a newer editor, and no operation is automatically retried.
+Deletion retains unsent text/attachments until server commitment; empty chats
+still switch immediately. Completion signals and row changes remain owner-fenced.
+
+The wrapper installs public qualification metadata at document start using
+Capacitor's supported `webViewConfiguration` hook. Normal/older wrappers choose
+React before discovery, rather than briefly withholding the web History while
+waiting for an unsupported capability receipt. This metadata is only renderer
+selection; native capability, owner, lease and privacy checks remain mandatory.
 
 Focused verification: 148 bridge/navigation tests, 57 host-native support tests,
 typecheck, Debug test compilation, Release simulator build, native plugin/static

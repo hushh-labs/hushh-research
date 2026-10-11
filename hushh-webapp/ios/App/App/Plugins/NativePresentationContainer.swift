@@ -266,6 +266,11 @@ final class NativePresentationContainer: UIView {
         underlay.isUserInteractionEnabled = !covered
         underlay.accessibilityElementsHidden = covered
         if covered {
+            // Touch/AX exclusion does not resign a retained first responder.
+            // Complete IME editing through UIKit before the modal owns input;
+            // never let hardware keys continue into the covered composer.
+            webView.endEditing(true)
+            underlay.endEditing(true)
             for id in Array(controls.keys) { setAdmission(id, admitted: false) }
         }
         NotificationCenter.default.post(name: Self.isolationDidChange, object: self)

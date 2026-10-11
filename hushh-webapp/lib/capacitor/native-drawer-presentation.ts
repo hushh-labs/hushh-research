@@ -8,7 +8,7 @@ import {
 } from "./native-drawers";
 
 export type NativeDrawerActions = {
-  rows: ReadonlyMap<string, () => void | Promise<void>>;
+  rows: ReadonlyMap<string, (choice: NativeDrawerChoice) => void | Promise<void>>;
   open: () => void;
   close: () => void;
   back?: () => void;
@@ -82,7 +82,8 @@ export class NativeDrawerPresentation {
   publish(state: NativeDrawerProjection, actions: NativeDrawerActions): boolean {
     if (this.disposed || this.phase === "quarantined" || !this.handle || !this.isolationHandle) return false;
     if (!this.ownerIsCurrent() || !validNativeDrawerProjection(state) || !sameNativeDrawer(this.identity, state) ||
-        state.sections.some(section => section.rows.some(row => !actions.rows.has(row.id))) ||
+        state.sections.some(section => section.rows.some(row => [row.id, row.renameActionId, row.deleteActionId]
+          .some(id => id !== undefined && !actions.rows.has(id)))) ||
         state.backEnabled && !actions.back) { this.quarantine(); return false; }
     // Callers own their product state. Retain a bounded, immutable snapshot so
     // a later render cannot mutate a pending private projection in place.
@@ -94,6 +95,12 @@ export class NativeDrawerPresentation {
     this.pending = snapshot;
     this.pump();
     return true;
+  }
+
+  refreshActions(actions: NativeDrawerActions): void {
+    if (!this.disposed && this.current && this.ownerIsCurrent()) {
+      this.current.actions = { ...actions, rows: new Map(actions.rows) };
+    }
   }
 
   private pump() {
@@ -125,26 +132,56 @@ export class NativeDrawerPresentation {
 
   private async choose(event: NativeDrawerChoice): Promise<void> {
     if (!this.disposed && !this.ownerIsCurrent()) { this.quarantine(); return; }
-    if (this.disposed || !this.current || !nativeDrawerChoiceAllowed(event, this.current.state) || event.sequence <= this.seenChoice) return;
+    if (this.disposed || !this.current || event.sequence <= this.seenChoice) return;
+    if (!nativeDrawerChoiceAllowed(event, this.current.state)) {
+      // Cancel the exact unconfirmed intent, never replay it against new rows.
+      if (event.action === "row" && Number.isSafeInteger(event.sequence) && sameNativeDrawer(event, this.identity) && event.updateSequence < this.current.state.updateSequence) {
+        this.seenChoice = event.sequence;
+        await this.settle(event, false);
+      }
+      return;
+    }
     this.seenChoice = event.sequence;
     // A terminal intent can outrun its apply receipt. Await that one dispatch;
     // do not drop it and strand a locally closed native drawer in isolation.
     await this.inFlight;
     const current = this.current;
     if (this.disposed || this.phase !== "active" || !current || this.applied !== current.state.updateSequence ||
-        !nativeDrawerChoiceAllowed(event, current.state)) return;
+        !nativeDrawerChoiceAllowed(event, current.state)) {
+      if (!this.disposed && current && event.action === "row" && sameNativeDrawer(event, this.identity)) await this.settle(event, false);
+      return;
+    }
     const action = event.action === "row" ? current.actions.rows.get(event.rowId ?? "") : current.actions[event.action];
     if (!action) return;
     let invoked = false;
     try {
       const accepted = await this.fence.consume(event, () => acknowledged(this.plugin.confirmChoice(event)),
         () => !this.disposed && this.phase === "active" && this.current === current && this.ownerIsCurrent(),
-        () => { invoked = true; return action(); });
+        () => {
+          const latest = event.action === "row" ? current.actions.rows.get(event.rowId ?? "") : current.actions[event.action];
+          if (!latest) return;
+          invoked = true; return latest(event);
+        });
+      if (invoked) await this.settle(event, true);
+      else if (!accepted && event.action === "row") await this.settle(event, false);
       if (!accepted && (event.action === "close" || event.action === "open") && this.current === current) this.quarantine();
     } catch {
+      if (invoked) await this.settle(event, false);
       if (!invoked && !this.disposed && this.current === current) this.quarantine();
       // The owning feature reports operation failures. No raw provider error,
       // private text or automatic retry belongs in this presentation adapter.
+    }
+  }
+
+  private async settle(event: NativeDrawerChoice, success: boolean): Promise<void> {
+    if (event.action !== "row" || !this.plugin.settleChoice || this.disposed || !this.ownerIsCurrent()) return;
+    try {
+      const result = await acknowledged(this.plugin.settleChoice({ ...this.identity,
+        sequence: event.sequence, privacyGeneration: event.privacyGeneration, success }));
+      if (!result.valid && !this.disposed && this.ownerIsCurrent()) this.quarantine();
+    } catch {
+      // An uncertain completion retires the presentation; it never repeats the operation.
+      if (!this.disposed && this.ownerIsCurrent()) this.quarantine();
     }
   }
 

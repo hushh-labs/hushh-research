@@ -80,7 +80,7 @@ type AgentHistorySidebarProps = {
   onDeleteConversation: (conversationId: string) => Promise<void> | void;
 };
 
-function normalizeTitle(title: string): string {
+export function normalizeTitle(title: string): string {
   return title.trim().replace(/\s+/g, " ");
 }
 
@@ -89,7 +89,7 @@ function conversationLabel(conversation: AgentChatConversation): string {
   return title || "New chat";
 }
 
-function displayConversationLabel(conversation: AgentChatConversation): string {
+export function displayConversationLabel(conversation: AgentChatConversation): string {
   const label = conversationLabel(conversation)
     .replace(/\bpkm\b/giu, "personal details")
     .replace(/\s+/g, " ")
@@ -98,7 +98,7 @@ function displayConversationLabel(conversation: AgentChatConversation): string {
   return label ? `${label.slice(0, 1).toUpperCase()}${label.slice(1)}` : "New chat";
 }
 
-function conversationTimestamp(conversation: AgentChatConversation): number {
+export function conversationTimestamp(conversation: AgentChatConversation): number {
   // ADK session times are epoch seconds; `Date.parse` read them as NaN, so
   // every chat grouped as "Older" with no time beside it.
   const candidate =
@@ -109,7 +109,7 @@ function conversationTimestamp(conversation: AgentChatConversation): number {
   return parseChatTimestamp(candidate)?.getTime() ?? 0;
 }
 
-function formatRelativeTime(timestamp: number): string {
+export function formatRelativeTime(timestamp: number): string {
   if (!timestamp) return "";
   const now = Date.now();
   const diffMs = now - timestamp;
@@ -130,7 +130,7 @@ function formatRelativeTime(timestamp: number): string {
 
 type ConversationGroupKey = "today" | "yesterday" | "previous7" | "previous30" | "earlier";
 
-const GROUP_LABELS: Record<ConversationGroupKey, string> = {
+export const GROUP_LABELS: Record<ConversationGroupKey, string> = {
   today: "Today",
   yesterday: "Yesterday",
   previous7: "Last 7 days",
@@ -138,7 +138,7 @@ const GROUP_LABELS: Record<ConversationGroupKey, string> = {
   earlier: "Older",
 };
 
-const GROUP_ORDER: ConversationGroupKey[] = [
+export const GROUP_ORDER: ConversationGroupKey[] = [
   "today",
   "yesterday",
   "previous7",
@@ -146,7 +146,7 @@ const GROUP_ORDER: ConversationGroupKey[] = [
   "earlier",
 ];
 
-function conversationGroupKey(
+export function conversationGroupKey(
   timestamp: number,
   now: number,
 ): ConversationGroupKey {

@@ -12,6 +12,7 @@ import { isCurrentNativeControlAppearance } from "@/lib/capacitor/native-control
 import { DockEventFence, type DockEvent, type DockState } from "@/lib/capacitor/native-dock";
 import { NativeDrawerChoiceFence, validNativeDrawerProjection, nativeDrawerIsolation, subscribeNativeDrawerIsolation, type NativeDrawerProjection, type NativeDrawerChoice, type NativeDrawerIsolation, type HushhNativeDrawersPlugin } from "@/lib/capacitor/native-drawers";
 import { NativeDrawerPresentation } from "@/lib/capacitor/native-drawer-presentation";
+import { nativeDrawerChoiceAllowed, nativeDrawersPlatformEligible } from "@/lib/capacitor/native-drawers";
 import { createNativeDrawerIdentity, nativeDrawerOwnerIsCurrent } from "@/lib/capacitor/native-drawer-owner";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -68,6 +69,25 @@ vi.mock("@/lib/capacitor/session-privacy", () => ({ nativeDocumentId: () => brid
   } }));
 vi.mock("@/lib/voice/voice-surface-metadata", () => ({ useVoiceSurfaceMetadata: () => null, getVoiceSurfaceMetadata: () => null }));
 describe("private native drawer action boundary", () => {
+  it("selects recovery before discovery unless the wrapper explicitly bootstraps qualification", () => {
+    const key = "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__";
+    const original = Object.getOwnPropertyDescriptor(window, key);
+    const platform = bridge.platform;
+    try {
+      bridge.platform = "ios";
+      Reflect.deleteProperty(window, key);
+      expect(nativeDrawersPlatformEligible()).toBe(false);
+      Object.defineProperty(window, key, { configurable: true, value: { contractVersion: 1, enabled: false } });
+      expect(nativeDrawersPlatformEligible()).toBe(false);
+      Object.defineProperty(window, key, { configurable: true, value: { contractVersion: 1, enabled: true } });
+      expect(nativeDrawersPlatformEligible()).toBe(true);
+      bridge.platform = "android";
+      expect(nativeDrawersPlatformEligible()).toBe(false);
+    } finally {
+      bridge.platform = platform;
+      if (original) Object.defineProperty(window, key, original); else Reflect.deleteProperty(window, key);
+    }
+  });
   const state = (): NativeDrawerProjection => ({ documentId: "public-document", ownerEpoch: "opaque-owner", ownerGeneration: 1, revision: 1,
     family: "history", updateSequence: 1, privacyGeneration: 0, title: "Public samples", open: true,
     enabled: true, backEnabled: false, appearance: "light", accentHex: "#007aff", foregroundHex: "#000000",
@@ -95,6 +115,21 @@ describe("private native drawer action boundary", () => {
     publishValidatedAuthSessionOwner(null);
     expect(createNativeDrawerIdentity("profile")).toBeNull();
     expect(nativeDrawerOwnerIsCurrent(changed)).toBe(false);
+  });
+
+  it("admits only authored rename snapshots and rejects text on other actions", () => {
+    const projection = state();
+    projection.sections = [{ id: "history", rows: [{ id: "select", label: "Public chat", enabled: true,
+      renameActionId: "rename", deleteActionId: "delete" }] }];
+    expect(validNativeDrawerProjection(projection)).toBe(true);
+    expect(nativeDrawerChoiceAllowed({ ...choice(), rowId: "rename", text: "Public revised title" }, projection)).toBe(true);
+    for (const text of [undefined, " ", "a".repeat(161)]) {
+      expect(nativeDrawerChoiceAllowed({ ...choice(), rowId: "rename", text }, projection)).toBe(false);
+    }
+    expect(nativeDrawerChoiceAllowed({ ...choice(), rowId: "delete", text: "not admitted" }, projection)).toBe(false);
+    expect(nativeDrawerChoiceAllowed({ ...choice(), rowId: "select", text: "not admitted" }, projection)).toBe(false);
+    const duplicate = { ...projection, sections: [{ id: "history", rows: [{ ...projection.sections[0].rows[0], renameActionId: "select" }] }] };
+    expect(validNativeDrawerProjection(duplicate)).toBe(false);
   });
 
   it("requires current authority after awaited confirmation and consumes one operation once", async () => {
@@ -157,6 +192,27 @@ describe("private native drawer action boundary", () => {
         if (notify) isolationListeners.forEach(callback => callback(isolation));
       } };
   }
+
+  it.each([true, false])("settles a committed row once with explicit success=%s and never repeats the operation", async success => {
+    const bridge = presentationBridge();
+    bridge.plugin.settleChoice = vi.fn(async () => ({ valid: true }));
+    const pending = deferred<void>();
+    const operation = vi.fn(() => pending.promise);
+    const phases = vi.fn();
+    const presentation = new NativeDrawerPresentation(state(), bridge.plugin, () => true, phases);
+    await presentation.listen();
+    presentation.publish(state(), { rows: new Map([["row-handle", operation]]), open: vi.fn(), close: vi.fn() });
+    await waitFor(() => expect(phases).toHaveBeenCalledWith("active"));
+    bridge.emit(choice());
+    await waitFor(() => expect(operation).toHaveBeenCalledOnce());
+    expect(bridge.plugin.settleChoice).not.toHaveBeenCalled();
+    bridge.emit(choice());
+    if (success) pending.resolve(); else pending.reject(new Error("Synthetic operation failure"));
+    await waitFor(() => expect(bridge.plugin.settleChoice).toHaveBeenCalledWith({ ...presentation.identity, sequence: 1, privacyGeneration: 0, success }));
+    expect(operation).toHaveBeenCalledOnce();
+    expect(bridge.plugin.settleChoice).toHaveBeenCalledOnce();
+    await presentation.retire();
+  });
 
   it.each(["accepted", "rejected"] as const)("waits for latest admission and fences a replaced callback after %s obsolete confirmation", async outcome => {
     const bridge = presentationBridge();
