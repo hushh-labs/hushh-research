@@ -139,11 +139,19 @@ def project_directory_response(
     for row in payload["candidates"]:
         if not isinstance(row, dict) or row.get("ownership_verified") is not False:
             raise DirectoryUnavailable()
+        # Never turn an upstream demo marker into our synthetic:false promise.
+        if (
+            row.get("synthetic", False) is not False
+            or row.get("is_test_profile", False) is not False
+        ):
+            raise DirectoryUnavailable()
         vertical = row.get("vertical")
         if vertical not in _IDENTITIES:
             raise DirectoryUnavailable()
         table, keys = _IDENTITIES[vertical]
         identity = row.get("native_identity")
+        if isinstance(identity, dict) and identity.get("source") in {"uat_fixture", "uat_test"}:
+            raise DirectoryUnavailable()
         draft = row.get("draft")
         name = row.get("name")
         if (
