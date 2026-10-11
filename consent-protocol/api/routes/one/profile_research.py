@@ -7,11 +7,10 @@ from fastapi.responses import JSONResponse
 
 from api.middlewares.chat_key import require_vault_owner_chat_key
 from api.middlewares.rate_limit import limiter
+from api.utils.private_no_store import PrivateNoStoreRoute
 from hushh_mcp.services.profile_research_service import offer_profile_research
 
-from .business_suggestions import _PrivateSuggestionRoute
-
-router = APIRouter(prefix="/api/one", tags=["Agent One"], route_class=_PrivateSuggestionRoute)
+router = APIRouter(prefix="/api/one", tags=["Agent One"], route_class=PrivateNoStoreRoute)
 
 
 @router.post("/profile-research")
