@@ -71,6 +71,27 @@ def test_passkey_rp_origin_must_be_a_bare_http_origin():
         module._canonical_passkey_allowed_rp_ids("https://uat.one.hushh.ai/login")
 
 
+@pytest.mark.parametrize("origin", ["https://one.hussh.ai", "https://uat.one.hussh.ai"])
+def test_oauth_preparation_derives_both_callbacks_from_one_origin(monkeypatch, origin):
+    module = _module()
+    writes = {}
+    monkeypatch.setattr(
+        module,
+        "_upsert_secret",
+        lambda project, name, value: writes.update({name: value}),
+    )
+    names = module._sync_oauth_redirects("synthetic-project", origin)
+    assert names == ["GMAIL_OAUTH_REDIRECT_URI", "GOOGLE_OAUTH_REDIRECT_URI"]
+    assert writes == {
+        "GMAIL_OAUTH_REDIRECT_URI": f"{origin}/one/profile/gmail/oauth/return",
+        "GOOGLE_OAUTH_REDIRECT_URI": f"{origin}/one/profile/google/oauth/return",
+    }
+    writes.clear()
+    with pytest.raises(ValueError, match=r"canonical HTTP\(S\) origin"):
+        module._sync_oauth_redirects("synthetic-project", f"{origin}/login")
+    assert writes == {}
+
+
 def test_generator_and_runtime_hydrate_every_hushh_tech_policy_key(monkeypatch):
     module = _module()
     args = argparse.Namespace(

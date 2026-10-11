@@ -3,7 +3,7 @@ name: Release iOS to App Store
 # Public App Store release for Hushh One iOS. Cuts a build from an exact green
 # `main` SHA and builds the Capacitor app against the backend chosen by
 # `backend_target` (default `uat`; `production` for a store binary that talks
-# to one.hushh.ai) + the shared Firebase authority (hushh-pda; config stored in
+# to one.hussh.ai) + the shared Firebase authority (hushh-pda; config stored in
 # hushh-pda-uat Secret Manager), signs with Apple-managed signing via an App Store
 # Connect API key using the production APNs entitlement (AppRelease.entitlements,
 # required for any store binary), uploads to App Store Connect, sets the required
@@ -62,7 +62,7 @@ on:
         required: false
         type: string
       backend_target:
-        description: "Backend the binary talks to. uat = historical default; production = one.hushh.ai and the production API."
+        description: "Backend the binary talks to. uat = historical default; production = one.hussh.ai and the production API."
         required: false
         default: uat
         type: choice
@@ -229,7 +229,7 @@ jobs:
 
           PROD_BACKEND_URL="$(get BACKEND_URL)";                                require BACKEND_URL "$PROD_BACKEND_URL"
           PROD_APP_URL="$(get APP_FRONTEND_ORIGIN)"
-          [ -n "$PROD_APP_URL" ] || PROD_APP_URL="https://one.hushh.ai"
+          [ -n "$PROD_APP_URL" ] || PROD_APP_URL="https://one.hussh.ai"
           PROD_FB_PROJECT_ID="$(get NEXT_PUBLIC_FIREBASE_PROJECT_ID)";           require NEXT_PUBLIC_FIREBASE_PROJECT_ID "$PROD_FB_PROJECT_ID"
           PROD_FB_APP_ID="$(get NEXT_PUBLIC_FIREBASE_APP_ID)";                   require NEXT_PUBLIC_FIREBASE_APP_ID "$PROD_FB_APP_ID"
           PROD_FB_STORAGE="$(get NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET)";          require NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET "$PROD_FB_STORAGE"
@@ -359,7 +359,7 @@ jobs:
                 ;;
             esac
             APP_URL="$(get APP_FRONTEND_ORIGIN)"
-            [ -n "$APP_URL" ] || APP_URL="https://uat.one.hushh.ai"
+            [ -n "$APP_URL" ] || APP_URL="https://uat.one.hussh.ai"
             RUNTIME_PROFILE="uat"
             APP_ENV="uat"
           fi
@@ -773,7 +773,7 @@ jobs:
             echo "| Build | ${{ steps.build_number.outputs.next_build }} |"
             echo "| Bundle | ${IOS_BUNDLE_ID} |"
             if [ "${BACKEND_TARGET}" = "production" ]; then
-              echo "| Backend | production (hushh-pda, one.hushh.ai) |"
+              echo "| Backend | production (hushh-pda, one.hussh.ai) |"
             else
               echo "| Backend | UAT (hushh-pda-uat) |"
             fi

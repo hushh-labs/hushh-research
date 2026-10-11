@@ -133,10 +133,17 @@ fi
 
 for hosted_rp_id in \
   'dev.one.hushh.ai' \
-  'uat.one.hushh.ai' \
-  'one.hushh.ai'; do
+  'uat.one.hussh.ai' \
+  'one.hussh.ai'; do
   if ! grep -q "expected_passkey_rp_id=\"${hosted_rp_id}\"" "$frontend_cloudbuild"; then
     echo "frontend Cloud Build must validate the hosted passkey RP ID ${hosted_rp_id}."
+    exit 1
+  fi
+done
+
+for compatibility_rp_id in 'uat.one.hushh.ai' 'one.hushh.ai'; do
+  if ! grep -q "legacy_passkey_rp_id=\"${compatibility_rp_id}\"" "$frontend_cloudbuild"; then
+    echo "frontend Cloud Build must retain exact environment-scoped legacy app domains."
     exit 1
   fi
 done

@@ -826,6 +826,14 @@ The approved canonical app origins are `https://one.hussh.ai` (production) and
 `https://uat.one.hussh.ai` (UAT). The `hushh.ai` app hosts remain compatibility
 aliases, not interchangeable OAuth return origins. Backend/API and email domains
 are outside this app-origin change; do not rename them by global substitution.
+Governed deployment and native-build defaults use these app origins. Explicit
+Secret Manager/private-profile values still take precedence and require separate
+rollout verification. Backend preparation derives both Mail and Calendar return
+URIs together; frontend build admission accepts only the same-environment
+canonical/legacy pair. Stored credential RPs and the native legacy RP defaults
+are unchanged, and the legacy association verification remains required.
+Before distributing a native build, verify its effective bundled app origin,
+not only the backend: a changed fallback cannot supersede an explicit old value.
 
 For each environment migration, register the exact new Mail, Calendar and
 connector callback paths with their providers first. Align `APP_FRONTEND_ORIGIN`,
@@ -848,6 +856,9 @@ Public authorization-entry probes for the four new Mail/Calendar callbacks
 reached Google's sign-in entry without exchanging a code; these are not proof of
 provider registration or owner-authenticated completion. The read-only check did
 not change secrets, runtime configuration, provider registrations or traffic.
+Firebase Admin configuration inspection on the same date confirmed that both
+canonical app hosts and both legacy app hosts are authorized domains. This
+configuration check does not establish an authenticated OAuth or native journey.
 
 ### Passkeys across the domain transition
 

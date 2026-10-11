@@ -74,12 +74,13 @@ steps:
           exit 1
         fi
         expected_passkey_rp_id=""
+        legacy_passkey_rp_id=""
         case "${_DEPLOY_ENV}" in
           dev) expected_passkey_rp_id="dev.one.hushh.ai" ;;
-          uat) expected_passkey_rp_id="uat.one.hushh.ai" ;;
-          production) expected_passkey_rp_id="one.hushh.ai" ;;
+          uat) expected_passkey_rp_id="uat.one.hussh.ai"; legacy_passkey_rp_id="uat.one.hushh.ai" ;;
+          production) expected_passkey_rp_id="one.hussh.ai"; legacy_passkey_rp_id="one.hushh.ai" ;;
         esac
-        if [[ -n "$${expected_passkey_rp_id}" && "$${PASSKEY_RP_ID_VAL}" != "$${expected_passkey_rp_id}" ]]; then
+        if [[ -n "$${expected_passkey_rp_id}" && "$${PASSKEY_RP_ID_VAL}" != "$${expected_passkey_rp_id}" && "$${PASSKEY_RP_ID_VAL}" != "$${legacy_passkey_rp_id}" ]]; then
           echo "APP_FRONTEND_ORIGIN host does not match the ${_DEPLOY_ENV} frontend domain."
           exit 1
         fi

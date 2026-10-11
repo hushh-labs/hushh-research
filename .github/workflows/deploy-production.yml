@@ -70,7 +70,7 @@ env:
   BACKEND_SERVICE: consent-protocol
   RUNTIME_SERVICE_ACCOUNT: consent-protocol-runtime@hushh-pda.iam.gserviceaccount.com
   FRONTEND_SERVICE: hushh-webapp
-  APP_FRONTEND_ORIGIN: https://one.hushh.ai
+  APP_FRONTEND_ORIGIN: https://one.hussh.ai
   CONSENT_API_PUBLIC_ORIGIN: https://api.hushh.ai
   BACKEND_REVISION_RETENTION: "2"
   FRONTEND_REVISION_RETENTION: "10"

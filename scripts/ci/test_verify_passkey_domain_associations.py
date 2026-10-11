@@ -59,7 +59,9 @@ def test_aasa_accepts_authorized_app_and_paths() -> None:
 
 def test_required_paths_match_served_aasa_without_retired_alpaca_returns() -> None:
     source = (WEB_APP / ".well-known/apple-app-site-association/route.ts").read_text()
-    declared = source.split("UNIVERSAL_LINK_PATHS = [", 1)[1].split("] as const;", 1)[0]
+    # Invitation claims are independently gated; the rollout verifier requires
+    # the always-served OAuth family, not a spread-only combined declaration.
+    declared = source.split("const OAUTH_LINK_PATHS = [", 1)[1].split("] as const;", 1)[0]
     served_paths = set(re.findall(r'"(/[^"]+)"', declared))
     assert set(MODULE.UNIVERSAL_LINK_PATHS) == served_paths
     assert not any("/alpaca/" in path for path in served_paths)
