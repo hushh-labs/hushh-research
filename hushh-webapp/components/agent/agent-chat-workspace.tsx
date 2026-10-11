@@ -1654,19 +1654,17 @@ function useAnimatedAssistantText(targetText: string, active: boolean) {
   const targetTextRef = useRef(targetText);
 
   useEffect(() => {
-    displayedTextRef.current = displayedText;
-  }, [displayedText]);
-
-  useEffect(() => {
     targetTextRef.current = targetText;
 
-    if (!active && !targetText.startsWith(displayedTextRef.current)) {
+    // Completed answers must remain readable when a background tab suspends frames.
+    if (!active) {
       displayedTextRef.current = targetText;
       setDisplayedText(targetText);
     }
   }, [active, targetText]);
 
   useEffect(() => {
+    if (!active) return;
     let frame = 0;
     let lastPaintAt = 0;
 
@@ -1725,8 +1723,8 @@ function useAnimatedAssistantText(targetText: string, active: boolean) {
   }, [active, targetText]);
 
   return {
-    displayedText,
-    isAnimating: active || displayedText.length < targetText.length,
+    displayedText: active ? displayedText : targetText,
+    isAnimating: active,
   };
 }
 
