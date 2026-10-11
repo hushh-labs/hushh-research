@@ -17,3 +17,10 @@
 .hintGesture svg { position:relative; width:70px; height:70px; filter:drop-shadow(0 2px 4px #0005); animation:swipe 3.2s ease-in-out 2; }
 @keyframes swipe { 0%,100% { transform:translateX(34px) rotate(10deg); opacity:0; } 15%,25% { transform:translateX(34px) rotate(10deg); opacity:1; } 65% { transform:translateX(-34px) rotate(-12deg); opacity:1; } 85% { transform:translateX(-34px) rotate(-12deg); opacity:0; } }
 @media(prefers-reduced-motion:reduce) { .hintGesture svg { animation:none; } .slidingCard { transition:none; } }
+
+/* Preserve compact card geometry while sharing Profile typography. */
+.controls { padding: 8px !important; gap: 4px !important; }
+
+@layer base {
+  .controlHeader :global(.ui-text-row-label) { font-family: var(--font-app-body); font-size: 13px !important; line-height: 1.22 !important; font-weight: 500 !important; }
+}

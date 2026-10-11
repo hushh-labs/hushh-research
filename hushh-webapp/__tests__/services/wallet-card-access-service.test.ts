@@ -35,3 +35,13 @@ describe("temporary manual card access boundary", () => {
     expect(cardAccessReference("[wallet-access:javascript:bad]")).toBeNull();
   });
 });
+
+it("forwards cancellation for superseded connection searches", async () => {
+  const controller = new AbortController();
+  await WalletCardAccessService.recipients(context, "test", controller.signal);
+  expect(mocks.fetch.mock.calls[0][1].signal).toBe(controller.signal);
+});
+it("reports service unavailability without exposing backend diagnostics", async () => {
+  mocks.fetch.mockResolvedValue(new Response("internal diagnostic", { status: 503 }));
+  await expect(WalletCardAccessService.state(context, "card_1")).rejects.toThrow("Card sharing is temporarily unavailable.");
+});

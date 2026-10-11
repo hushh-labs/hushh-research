@@ -210,3 +210,21 @@ describe("Wallet card controls", () => {
     expect(face.closest("[data-controls-open]")).toHaveAttribute("data-controls-open", "false");
   });
 });
+
+it("closes with a short right swipe beginning on revealed details", () => {
+  render(<WalletCardSwipe card={cards[0]} disabled={false} onOpen={vi.fn()} hint={false} dismissHint={vi.fn()}>
+    <button type="button">Test card</button>
+  </WalletCardSwipe>);
+  const face = screen.getByRole("button", { name: "Test card" });
+  const surface = face.closest("[data-controls-open]")!;
+  fireEvent.keyDown(face, { key: "ArrowLeft" });
+  const details = surface.querySelector("[data-card-controls]")!;
+  const pointer = (name: string, x: number) => {
+    const event = new Event(name, { bubbles: true });
+    Object.assign(event, { clientX: x, clientY: 100, pointerId: 1, isPrimary: true, button: 0 });
+    fireEvent(details, event);
+  };
+  Object.assign(surface, { setPointerCapture: vi.fn() });
+  pointer("pointerdown", 100); pointer("pointermove", 155); pointer("pointerup", 155);
+  expect(surface).toHaveAttribute("data-controls-open", "false");
+});
