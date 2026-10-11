@@ -6287,7 +6287,18 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/profile/payouts",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fpayouts",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/payouts",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -7107,7 +7118,18 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/profile/request-pricing",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Frequest-pricing",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/request-pricing",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -7742,7 +7764,19 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/referrals",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Freferrals",
+        "expectedMarker": "native-route-one-referrals",
+        "expectedRoute": "/one/referrals",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "unavailable-valid"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -8776,7 +8810,20 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/todos",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Ftodos",
+        "expectedMarker": "native-route-one-todos",
+        "expectedRoute": "/one/todos",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -10472,5 +10519,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "a4780dd3e09bd56efc1adc2f1bc6a526a480bdb27f3aae6185c065f239ef07c2"
+  "content_sha256": "e0cb356a6493378c29ab78d4421a14c9fdac841c998e275712a21ef95dbfa53a"
 }
