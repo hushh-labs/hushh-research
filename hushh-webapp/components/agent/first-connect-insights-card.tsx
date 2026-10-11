@@ -18,6 +18,7 @@ import {
   type FirstConnectInsight,
   type FirstConnectInsightsOffer,
 } from "@/lib/agent/first-connect-insights";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 
 type ItemState = "open" | "saving" | "kept" | "confirm_sharing" | "error" | "already_saved" | "nothing_to_save";
 
@@ -54,7 +55,7 @@ export function FirstConnectInsightsCard({
 
   // Ask once per owner per mount. The server offers each source at most once.
   useEffect(() => {
-    if (!enabled || !ownerId || !vaultKey || !vaultOwnerToken) return undefined;
+    if (shouldSkipReviewerBackgroundWritesForAutomation() || !enabled || !ownerId || !vaultKey || !vaultOwnerToken) return undefined;
     if (askedForOwnerRef.current === ownerId) return undefined;
     askedForOwnerRef.current = ownerId;
     const controller = new AbortController();
