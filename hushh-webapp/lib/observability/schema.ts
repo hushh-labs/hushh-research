@@ -65,6 +65,7 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
   ria_workspace_opened: [...BASE_ALLOWED_KEYS, "result", "status_bucket"],
   mcp_ria_read_tool_called: [...BASE_ALLOWED_KEYS, "action", "result"],
   profile_method_switch_result: [...BASE_ALLOWED_KEYS, "result"],
+  vault_unlock_result: [...BASE_ALLOWED_KEYS, "method", "result", "error_class"],
   account_delete_requested: [...BASE_ALLOWED_KEYS, "result"],
   account_delete_completed: [...BASE_ALLOWED_KEYS, "result", "status_bucket"],
   account_reset_requested: [...BASE_ALLOWED_KEYS, "result"],

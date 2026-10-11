@@ -12,7 +12,7 @@ let script: string;
 let css: string;
 test.beforeEach(async ({ page }) => {
   await page.route("**/api/one/answer-requests/availability", (route) =>
-    route.fulfill({ contentType: "application/json", body: '{"enabled":true}' }),
+    route.fulfill({ contentType: "application/json", body: '{"enabled":true,"requests":true,"payments":true,"payouts":true}' }),
   );
   await page.route("**/api/connectors", (route) =>
     route.fulfill({

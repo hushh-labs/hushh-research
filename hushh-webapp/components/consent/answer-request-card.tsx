@@ -59,6 +59,11 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
   const loadSequence = useRef(0);
   const [pending, setPending] = useState<PendingAnswerRequest | null>(null);
   const [payment, setPayment] = useState<AnswerPaymentView | null>(null);
+  // Payments are a separate rollout gate from request intake, so an approved
+  // and priced request can exist in a deployment that cannot charge for it.
+  // Offering Pay there is a dead control: checkout 503s. Tri-state keeps
+  // "paused" distinct from "we could not ask", which need different words.
+  const [payments, setPayments] = useState<"unknown" | "on" | "off">("unknown");
   const [answer, setAnswer] = useState<{
     userId: string;
     epoch: number;
@@ -83,15 +88,19 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
       if (!token) throw new Error("Sign in to open this request.");
       // The owner's copy and the requester's copy are different endpoints;
       // whichever answers is the role this person actually holds.
-      const [inbox, paid, requestState] = await Promise.all([
+      const [inbox, paid, requestState, gates] = await Promise.all([
         AnswerRequestService.inbox(token).catch(() => []),
         AnswerRequestService.payment(token, requestId).catch(() => null),
         AnswerRequestService.state(token, requestId),
+        // Swallowed on purpose: an unreadable gate must not take down the
+        // owner's review of a question, which needs no payment lane at all.
+        AnswerRequestService.gates(token).catch(() => null),
       ]);
       if (!valid()) return;
       setState(requestState);
       setPending(inbox.find((entry) => entry.requestId === requestId) ?? null);
       setPayment(paid);
+      setPayments(gates === null ? "unknown" : gates.payments ? "on" : "off");
     } catch (cause) {
       if (valid())
         setError(
@@ -257,21 +266,34 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
             <BodyText>
               {money(payment.amountCents)} to answer this question.
             </BodyText>
-            {/* The wait is disclosed BEFORE checkout, not after. */}
-            <HelperText as="p">
-              The answer is produced on their device, so it may wait until they
-              choose Write answer after unlocking. If it is not answered within{" "}
-              {payment.answerDeadlineHours} hours, you are refunded in full. You
-              can cancel for a full refund any time before it arrives.
-            </HelperText>
-            <Button
-              type="button"
-              size="prominent"
-              disabled={busy}
-              onClick={() => void openCheckout()}
-            >
-              {busy ? "Opening…" : `Pay ${money(payment.amountCents)}`}
-            </Button>
+            {payments === "on" ? (
+              <>
+                {/* The wait is disclosed BEFORE checkout, not after. */}
+                <HelperText as="p">
+                  The answer is produced on their device, so it may wait until
+                  they choose Write answer after unlocking. If it is not
+                  answered within {payment.answerDeadlineHours} hours, you are
+                  refunded in full. You can cancel for a full refund any time
+                  before it arrives.
+                </HelperText>
+                <Button
+                  type="button"
+                  size="prominent"
+                  disabled={busy}
+                  onClick={() => void openCheckout()}
+                >
+                  {busy ? "Opening…" : `Pay ${money(payment.amountCents)}`}
+                </Button>
+              </>
+            ) : (
+              // The price stands and the request is intact; only paying is
+              // unavailable. No Pay control, because checkout would 503.
+              <HelperText as="p" role="status">
+                {payments === "off"
+                  ? "Paying for answers is not switched on here yet, so this cannot be paid for or answered. You have not been charged, and you can cancel this request."
+                  : "Payment availability could not be checked just now. You have not been charged. Reopen this request to try again."}
+              </HelperText>
+            )}
           </>
         ) : null}
 

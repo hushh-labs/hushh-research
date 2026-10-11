@@ -65,7 +65,7 @@ consent flow; missing pricing means free and still requires approval.
   starts, unused-time refunds retain actual nonreturned processing costs against
   consumer earnings.
 
-The [migration](../../db/migrations/307_consumer_scope_commerce.sql) owns tariff,
+The [migration](../../db/migrations/313_consumer_scope_commerce.sql) owns tariff,
 quote, purchase, wallet, funding-lot, reservation, immutable journal/posting,
 provider-operation and financial-obligation tables. These are financial/workflow
 metadata, not another PKM store. SQLite/offline behavior is not accounting proof.
@@ -382,7 +382,7 @@ Pause new admission with `SCOPE_COMMERCE_ENABLED=false` and
 `SCOPE_COMMERCE_PROVIDER_ENABLED=false`, while retaining account/country/cost,
 OIDC drain policy and provider secrets so refunds/payouts/recovery can finish. Account
 returns `managed_balances` and retains existing funds controls during rollback.
-[Schema rollback](../../db/migrations/rollback/307_consumer_scope_commerce.rollback.sql)
+[Schema rollback](../../db/migrations/rollback/313_consumer_scope_commerce.rollback.sql)
 refuses to discard posted journals, obligations or provider operations; after
 financial use, preserve the schema and roll back compatible application behavior.
 
@@ -2247,9 +2247,13 @@ The infrastructure branch integrated main `1ee136eb` and then the newer
 `5d756e38`, `14a052a8`, `5685d52f`, `d532367c` and `e4c9e8e2` sources through normal merges on the same
 branch. No history rewrite,
 new delivery branch, migration baseline or database receipt relabeling is part
-of this synchronization. Main 299–305 keep their identities; unchanged branch
-SQL is registered as 306–311. The exact prior manifest, six SQL bodies and
-rollbacks remain under `db/legacy/scope-commerce-infrastructure-f0517d5f/`.
+of this synchronization. The subsequent main `86b5d11f` intake preserves main
+299–306 and relocates the unchanged pending branch suffix to 312–317. Exact
+prior manifests, SQL bodies and rollbacks remain in the `f0517d5f` and
+`6fee7dba` infrastructure lineage archives under `db/legacy/`. Shared Dev
+readback at 2026-10-11T14:10:29Z found no accepted 306–317 receipts or baseline;
+no database or financial history was rewritten. Release manifest/schema checks
+verify the combined head 317; deployment remains a separate evidence gate.
 
 Consent integration preserves both tolerant read-only UI reads and strict
 complete source inventory. Either mode reads existing identities without

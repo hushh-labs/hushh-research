@@ -26,6 +26,7 @@ REQUIRED_COLUMNS = {
         "recovery_salt",
         "recovery_iv",
         "one_runtime_setup_choice",
+        "one_business_profile_saved",
         "created_at",
         "updated_at",
     },

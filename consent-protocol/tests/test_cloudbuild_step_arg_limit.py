@@ -49,7 +49,9 @@ config -- put it in Secret Manager and pass the reference.
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -274,4 +276,33 @@ def test_every_substitution_the_deploy_script_reads_is_fed_through_the_step_env(
     assert not missing, (
         "backend-deploy.sh reads these substitutions, but the deploy-backend step does "
         f"not pass them, so Cloud Build leaves them empty: {missing}"
+    )
+
+
+@pytest.mark.parametrize("value", ["", "true", "false", "invalid"])
+def test_independent_answer_intake_reaches_the_extracted_deploy(value: str) -> None:
+    config = _load("deploy/backend.cloudbuild.yaml")
+    step = next(s for s in config["steps"] if s.get("id") == "deploy-backend")
+    packed = next(e for e in step["env"] if e.startswith("_DRIVE_WORK_DRAIN_SETTINGS="))
+    defaults = {**config["substitutions"], "_PKM_ANSWER_REQUESTS_ENABLED": value}
+    rendered = re.sub(r"\$\{(_[A-Z0-9_]+)\}", lambda m: defaults[m[1]], packed)
+    script = (REPO_ROOT / "scripts/deploy/backend-deploy.sh").read_text()
+    start = script.index("IFS=',' read -r -a _drive_work_pairs")
+    parser = script[start : script.index("# Every added control", start)]
+    result = subprocess.run(  # noqa: S603 - fixed repository parser; provider calls excluded
+        ["bash", "-c", parser + "\n" + 'printf "%s" "${_PKM_ANSWER_REQUESTS_ENABLED}"'],
+        env={**os.environ, "_DRIVE_WORK_DRAIN_SETTINGS": rendered.split("=", 1)[1]},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if value == "invalid":
+        assert result.returncode != 0
+        assert result.stdout == ""
+    else:
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == value
+    assert (
+        'append_optional_env "PKM_ANSWER_REQUESTS_ENABLED" "${_PKM_ANSWER_REQUESTS_ENABLED}"'
+        in script
     )

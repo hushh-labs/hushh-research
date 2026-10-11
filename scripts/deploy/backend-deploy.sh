@@ -128,6 +128,7 @@ for _pair in "${_drive_work_pairs[@]}"; do
     connect_mode) _STRIPE_CONNECT_MODE="${_value}" ;;
     hashcoins_enabled) _DRIVE_REQUEST_HASHCOINS_ENABLED="${_value}" ;;
     hashcoins_live_enabled) _DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED="${_value}" ;;
+    answer_requests) _PKM_ANSWER_REQUESTS_ENABLED="${_value}" ;;
     answer_payments) _PKM_ANSWER_PAYMENTS_ENABLED="${_value}" ;;
     answer_composer) _PKM_ANSWER_COMPOSER_ENABLED="${_value}" ;;
     answer_live_provider_reviewed) _PKM_ANSWER_LIVE_PROVIDER_REVIEWED="${_value}" ;;
@@ -137,11 +138,15 @@ for _pair in "${_drive_work_pairs[@]}"; do
     *) echo "Drive work-drain settings carry an unknown key." >&2; exit 1 ;;
   esac
 done
-if [[ "${#_drive_work_pairs[@]}" -ne 16 ]] ||
+if [[ "${#_drive_work_pairs[@]}" -ne 17 ]] ||
   [[ "${_DRIVE_WORK_DRAIN_ENABLED:-}" != "true" && "${_DRIVE_WORK_DRAIN_ENABLED:-}" != "false" ]] ||
   [[ "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED:-}" != "true" && "${_DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED:-}" != "false" ]] ||
   [[ "${_DRIVE_REQUEST_PAYMENTS_ENABLED:-}" != "true" && "${_DRIVE_REQUEST_PAYMENTS_ENABLED:-}" != "false" ]]; then
-  echo "Drive work-drain settings require sixteen keys and explicit rollout booleans." >&2; exit 1
+  echo "Drive work-drain settings require seventeen keys and explicit rollout booleans." >&2; exit 1
+fi
+if ! declare -p _PKM_ANSWER_REQUESTS_ENABLED >/dev/null 2>&1 ||
+  [[ -n "${_PKM_ANSWER_REQUESTS_ENABLED}" && "${_PKM_ANSWER_REQUESTS_ENABLED}" != "true" && "${_PKM_ANSWER_REQUESTS_ENABLED}" != "false" ]]; then
+  echo "Answer request admission must be empty, true or false." >&2; exit 1
 fi
 if [[ -n "${_STRIPE_MODE}" && "${_STRIPE_MODE}" != "test" && "${_STRIPE_MODE}" != "live" ]]; then
   echo "Stripe mode must be test or live." >&2; exit 1
@@ -422,6 +427,7 @@ append_optional_env "STRIPE_MODE" "${_STRIPE_MODE}"
 append_optional_env "STRIPE_CONNECT_MODE" "${_STRIPE_CONNECT_MODE}"
 append_optional_env "DRIVE_REQUEST_HASHCOINS_ENABLED" "${_DRIVE_REQUEST_HASHCOINS_ENABLED}"
 append_optional_env "DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED" "${_DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED}"
+append_optional_env "PKM_ANSWER_REQUESTS_ENABLED" "${_PKM_ANSWER_REQUESTS_ENABLED}"
 append_optional_env "PKM_ANSWER_PAYMENTS_ENABLED" "${_PKM_ANSWER_PAYMENTS_ENABLED}"
 append_optional_env "PKM_ANSWER_COMPOSER_ENABLED" "${_PKM_ANSWER_COMPOSER_ENABLED}"
 append_optional_env "PKM_ANSWER_LIVE_PROVIDER_REVIEWED" "${_PKM_ANSWER_LIVE_PROVIDER_REVIEWED}"

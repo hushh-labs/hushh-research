@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { beforeEach, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ fetch: vi.fn(), write: vi.fn() }));
@@ -18,6 +19,7 @@ vi.mock("@/lib/profile/pkm-agent-lab-capture", () => ({ loadPkmAgentLabContext: 
   metadata: { domains: [{ key: "professional" }] }, manifests: {},
 }) }));
 import { prepareConnectorMemoryReview } from "@/lib/agent/connector-memory-review";
+import { businessDraftMessage, type BusinessCandidate } from "@/lib/agent/business-profile-review";
 
 const fields = { name: "Portfolio Hotel", website: "https://example.test/",
   state: "TX ", description: "1. Business description with **literal** formatting" };
@@ -48,6 +50,40 @@ it("runs the real HTTP normalizer, coverage and connector validators without cha
   const [url, options] = mocks.fetch.mock.lastCall!;
   expect(url).toBe("/api/pkm/memory/proposals");
   expect(JSON.parse(options.body)).toMatchObject({ message: input.message, memory_profile: "business_directory_v1" });
+  expect(mocks.write).not.toHaveBeenCalled();
+});
+
+it("prepares screenshot-shaped listing details with a bare edited website and waits for confirmation", async () => {
+  const sourceKey = JSON.stringify({ source: "public_registry", source_key: "commerce-business-v1" });
+  const candidate: BusinessCandidate = {
+    businessUid: `urn:hushh:business:directory:business:${createHash("sha256").update(sourceKey).digest("hex")}`,
+    synthetic: false,
+    sourceIdentity: { source: "directory", sourceKey, vertical: "business" },
+    matchEvidence: [{ kind: "verified_email_domain", domain: "hushh.ai" }],
+    draft: { name: "Commerce Studio — Operations", category: "Commerce operations · Growth systems",
+      formatted_address: "520 Commerce Avenue, San Francisco, CA 94107", website: "hushh.ai" },
+    ownershipVerified: false, claimCreated: false, verificationRequired: ["business_authority"],
+  };
+  const message = businessDraftMessage(candidate, candidate.draft.name, " hushh.ai ");
+  const supplied = { ...candidate.draft, website: "https://hushh.ai/" };
+  expect(JSON.parse(message)).toEqual(supplied);
+  mocks.fetch.mockImplementation(async (_url, options: { body: string }) => {
+    const request = JSON.parse(options.body);
+    const payload = response();
+    return { ok: true, json: async () => ({ ...payload, preview_cards: [{ ...payload.preview_cards[0]!,
+      source_text: request.message,
+      candidate_payload: { businesses: { entities: { commerce_business: JSON.parse(request.message) } } },
+    }] }) };
+  });
+
+  const result = await prepareConnectorMemoryReview({ ...input, businessUid: candidate.businessUid, message });
+  expect(result.incomplete).toBe(false);
+  expect(result.alreadySaved).toBe(false);
+  expect(result.cards).toHaveLength(1);
+  expect(result.cards[0]!.write_mode).toBe("confirm_first");
+  expect(result.cards[0]!.candidate_payload).toEqual({ businesses: { entities: { commerce_business: supplied } } });
+  expect(mocks.fetch).toHaveBeenCalledTimes(1);
+  expect(JSON.parse(mocks.fetch.mock.lastCall![1].body)).toMatchObject({ message, memory_profile: "business_directory_v1" });
   expect(mocks.write).not.toHaveBeenCalled();
 });
 

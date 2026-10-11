@@ -43,6 +43,19 @@ export interface AnswerRequestTerms {
   periodEnd?: string | null;
 }
 
+/**
+ * The lane's rollout gates, read once per surface.
+ *
+ * Independent on purpose: `payments` false with `requests` true is the
+ * supported state where questions are accepted and nothing can be charged.
+ */
+export interface AnswerLaneGates {
+  requests: boolean;
+  payments: boolean;
+  /** Payout setup reachability; its own Connect-mode rule, not `payments`. */
+  payouts: boolean;
+}
+
 export interface AnswerPaymentView {
   requestStatus: AnswerRequestStatus;
   orderStatus: AnswerOrderStatus | null;
@@ -152,29 +165,38 @@ export interface AnswerableWork {
 
 export class AnswerRequestService {
   /**
-   * Whether this environment offers paid answers.
+   * The lane's two independent gates.
    *
-   * The lane ships disabled, so the Request scope CTA asks before it appears
-   * rather than rendering a button that 503s on submit.
+   * `requests` admits the question form and the owner's review; `payments`
+   * admits checkout. They are separate because asking a connected person a
+   * question moves no money: a deployment with payments still paused can
+   * take questions, and reading one flag for both is what previously hid the
+   * form behind the paywall.
+   *
+   * Throws rather than returning all-false on a transport or HTTP failure.
+   * "We could not ask" and "the answer was no" need different words on
+   * screen, and collapsing them told people a feature was switched off when
+   * their connection had simply dropped. Both gates still fail closed: an
+   * absent or non-boolean field is `false`, so an older backend that reports
+   * only `enabled` never reads as permission.
    */
-  static async available(firebaseIdToken: string): Promise<boolean> {
-    if (!firebaseIdToken) return false;
-    try {
-      const response = await ApiService.apiFetch(
-        "/api/one/answer-requests/availability",
-        {
-          method: "GET",
-          cache: "no-store",
-          headers: { Authorization: `Bearer ${firebaseIdToken}` },
-        },
-      );
-      if (!response.ok) return false;
-      const value = await readJson(response);
-      return value.enabled === true;
-    } catch {
-      // Unreachable means unavailable. Never assume on.
-      return false;
-    }
+  static async gates(firebaseIdToken: string): Promise<AnswerLaneGates> {
+    if (!firebaseIdToken) throw new Error("Sign in to send this request.");
+    const response = await ApiService.apiFetch(
+      "/api/one/answer-requests/availability",
+      {
+        method: "GET",
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${firebaseIdToken}` },
+      },
+    );
+    if (!response.ok) throw new Error("Could not check whether this can be sent.");
+    const value = await readJson(response);
+    return {
+      requests: value.requests === true,
+      payments: value.payments === true,
+      payouts: value.payouts === true,
+    };
   }
 
   static async payoutAccount(

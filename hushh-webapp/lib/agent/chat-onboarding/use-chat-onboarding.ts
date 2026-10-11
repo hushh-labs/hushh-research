@@ -160,6 +160,8 @@ export function runChatOnboardingEvent(
 }
 
 export type ChatOnboardingController = {
+  /** Owner progress is loaded and personality onboarding is finished or not due. */
+  resolved: boolean;
   /** Onboarding turns to render (empty when there is nothing to show). */
   turns: readonly ChatOnboardingTurn[];
   /** The one assistant turn whose chips are live, if any. */
@@ -316,6 +318,9 @@ export function useChatOnboarding(input: {
     input.conversationId !== session.homeConversationId;
   const visible = ready && !finishedElsewhere ? session.machine : null;
   return {
+    resolved: ready && session.durable !== undefined && (session.machine
+      ? session.machine.step === "done"
+      : session.durable?.status === "completed" || (session.durable === null && !input.startSignal)),
     turns: visible?.turns ?? [],
     activeChipTurnId: activeChipTurnId(visible),
     shownTurns: session.shownTurns,

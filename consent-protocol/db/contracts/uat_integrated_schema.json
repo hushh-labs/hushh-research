@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 311,
+  "expected_migration_version": 317,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -3257,7 +3257,8 @@
       "updated_at",
       "user_id",
       "vault_key_hash",
-      "vault_status"
+      "vault_status",
+      "one_business_profile_saved"
     ],
     "wallet_card_access_audit": [
       "id",

@@ -170,6 +170,28 @@ See the [stream implementation](../streaming/streaming-implementation-guide.md#d
 
 ## Route Categories
 
+### One business suggestion completion
+
+`GET /api/one/business/suggestion` and `POST /api/one/business/suggestion/complete`
+require `VAULT_OWNER`; the authenticated subject is the sole account authority.
+Completion accepts `{commits:[{domain,plan_id}]}` (1–64 distinct receipts). The
+server verifies every owner-bound mutation commit and matching confirmed
+`business_profile_review` content-write event before setting the permanent
+`vault_keys.one_business_profile_saved` flag. It returns `{saved:true}`; uncommitted
+receipts return 409 and unavailable storage returns retryable 503. Repeat
+completion is idempotent. Responses are private and non-cacheable.
+
+After completion, discovery returns its existing empty `no_match` envelope
+before accessing Firebase or the directory. Review, Later, failed and partial
+saves never set the flag. A lost completion response retains the acknowledged
+encrypted review job so retry marks completion without replaying PKM writes.
+This is UI progress only, independent of personality onboarding and Magic
+Intelligence; it does not verify business ownership. Migration
+`306_one_business_profile_saved.sql` must precede application rollout. There is
+no historical event-only backfill, because one event can represent a partial
+multi-card review. Web uses the existing One catch-all proxy; iOS and Android
+use the same endpoint through the existing platform API transport.
+
 ### Hussh Coins earnings and sandbox redemption
 
 Owner-only `VAULT_OWNER` endpoints under `/api/one/payouts`:
@@ -1046,9 +1068,7 @@ for the current implementation boundary and release checks.
 ### B2B profile suggestion — directory discovery, review and confirmation
 
 Real mode is independently default-off: `ONE_BUSINESS_DIRECTORY_ENABLED=true`
-(runtime JSON key `one_business_directory_enabled`). It takes precedence over
-the fixture and never falls back to synthetic information. It returns
-`b2b-profile-suggestion.v2`; v1 remains the synthetic UAT contract below.
+(runtime JSON key `one_business_directory_enabled`). It returns `b2b-profile-suggestion.v2` in every state and never falls back to synthetic information. The retired team fixture is rejected by the frontend, including when an older backend still returns it.
 Fresh primary Firebase email control and Firebase/account-OTP verified phone
 control supply independent lookup signals, never caller query parameters or
 unverified profile fields. Consumer email domains and non-US phones are omitted,
@@ -1116,12 +1136,9 @@ For a localhost-only rehearsal, `ONE_BUSINESS_LOCAL_REHEARSAL_ENABLED=true`
 is a process-only maintainer override. It additionally requires review mode,
 the exact canonical `REVIEWER_UID`, an actual loopback request peer (not a
 forwarded header), the `development`/`local` runtime, no hosted-runtime markers,
-and the exact UAT Cloud SQL instance with a loopback database host. It never
-relaxes the verified primary `hushh.ai` email or completed-vault checks. A
-reviewer outside that domain receives no fixture; do not alter that identity
-or waive the domain check to manufacture a passing rehearsal. Shared reviewer
-PKM writes still require explicit operator approval. This does not enable the
-fixture in production or implement real directory matching.
+and the exact UAT Cloud SQL instance with a loopback database host. It uses the same verified-contact directory lookup and v2 response as hosted discovery.
+It cannot manufacture a team profile. Shared reviewer PKM writes still require
+explicit operator approval.
 
 `GET /api/one/business/suggestion` requires the existing `VAULT_OWNER`
 capability. The owner is derived from its validated token; query/body email,
@@ -1129,42 +1146,37 @@ phone and user IDs cannot select a claimant. Responses, including auth errors,
 are private/no-store. Requests are bounded to 10/minute per existing limiter
 key (process-local unless a shared limiter backend is configured).
 
-`b2b-profile-suggestion.v1` returns `scope: "b2b"`, `status` (`disabled`,
-`no_match`, or `suggestion_available`), `candidates` (zero or one), and
-`pkm_written: false`. A provider outage is `503 BUSINESS_IDENTITY_UNAVAILABLE`,
-not `no_match`. A fresh Firebase primary email must be verified and its exact
-domain must be `hushh.ai`; a cached identity, alias or client assertion cannot
-establish eligibility. Disabled or mismatched Firebase identities fail closed.
-The canonical `vault_keys` row must also have `setup_completed=true` and an
-active vault; this read neither creates a placeholder nor updates login state.
-Failed setup reads are unavailable, not an empty candidate list.
+The retired `ONE_BUSINESS_UAT_FIXTURE_ENABLED` switch is no longer read by the
+runtime. The frontend accepts empty v1 envelopes for compatibility with older
+disabled backends, but rejects every v1 candidate and any `synthetic:true` or
+`uat_fixture` candidate under v2. There is no local synthetic preview builder.
+Only real public directory candidates can be displayed, prepared, or saved.
+The backend rejects upstream `synthetic` or `is_test_profile` markers and the
+reserved `uat_fixture` and `uat_test` native sources rather than relabeling them as real.
+An arbitrary unmarked upstream seed is not proof of real information.
 
-The default-off server switch `ONE_BUSINESS_UAT_FIXTURE_ENABLED=true` maps from
-`one_business_uat_fixture_enabled` in `BACKEND_RUNTIME_CONFIG_JSON`. Admission
-also requires explicit `ENVIRONMENT=uat`; any supplied `HUSHH_DEPLOY_ENV` or
-`APP_RUNTIME_PROFILE` must be `uat`. Missing runtime identity, production,
-hosted dev and conflicting labels return `disabled` before provider access,
-even if the switch is on. This change does not enable or deploy the switch.
-
-The sole candidate is `Hushh — UAT Test Business`, explicitly `synthetic`,
-with website `https://hushh.ai`, source `uat_fixture`, source key `hushh.ai:v1`,
-and stable `business_uid: urn:hushh:business:uat:hushh.ai:v1`. This test business
-UID is not the user UID and is not a production directory identity. There are
-no fabricated phone/address facts. Domain evidence grants no ownership:
-`ownership_verified` and `claim_created` remain false, and business authority
-still requires verification.
-
+Encrypted review keys and idempotency scopes are unchanged. An old synthetic
+checkpoint cannot authorize a new PKM write, but an already acknowledged
+mutation receipt can still be reconciled without replaying the writer or
+requiring a current listing. Previously confirmed saved PKM is not deleted by
+disabling discovery.
 The typed `BusinessSuggestionService` uses `apiJson` with no-store and caller
 owner authority, through the existing One Next proxy on web and `ApiService`
 Capacitor HTTP on native. No new screen or native plugin is introduced in this
 slice; physical-device acceptance is not claimed. The service rejects unknown
 versions and inconsistent candidate/status shapes. Consumers must call after
-setup resolves and the vault unlocks. Ordinary suggestion responses stay in memory.
+setup resolves and the vault unlocks. Ordinary suggestion responses stay in memory. Both business and Magic Intelligence
+cards wait for loaded owner progress and finished personality onboarding; they
+do not mount or request discovery while questions, confirmation, saving or
+failed-save recovery are active. Follow-up cards render after the final
+personality turn, including when ordinary chat messages interrupt onboarding.
 
 The main chat workspace mounts `BusinessProfileSuggestion` after current auth
 and unlocked-vault admission, requiring known, unexpired owner authority.
-It opens a labelled synthetic suggestion with Review, Later and Not my business.
-Editing a name/HTTPS website invalidates prior proposals. Review uses the existing
+It opens an unverified real directory suggestion with Review, Later and Not my business.
+Editing a name or website invalidates prior proposals. A scheme-less website domain
+is normalized to HTTPS before preparation; explicit HTTP(S) URLs remain supported,
+and unsafe protocols or embedded credentials are rejected. Review uses the existing
 private-agent memory preparation and exact-card selection; it does not save.
 Business review additionally exposes the proposed entity's individual fields,
 including nested object leaves. Arrays and synthesized summaries are visible,
@@ -1311,19 +1323,19 @@ separate work; a static export or native compile is not sign-in proof.
 
 The Request scope dialog contains a recipient, one labelled question field and Cancel / Send request. Dates are optional throughout this lane. Periods written in the question remain part of the exact approved question; historical explicit date ranges remain visible and constrain the approved projection. Drive retains its own required date form.
 
-`/api/one/answer-requests` uses Firebase participant authentication and an active connection, without Trusted circle membership or connector setup. Feed and Consent Center use the same answer review card and participant status. The owner approves the exact question, narrowed scopes and whole-dollar price with explicit model-processing consent; approval never creates a standing grant.
+`/api/one/answer-requests` uses Firebase participant authentication and an active connection, without Trusted circle membership or connector setup. Request intake and owner review are gated only by `PKM_ANSWER_REQUESTS_ENABLED` and never by the payment or composer flags: asking a connected person a question, and that person approving scopes and setting a price, move no money. Checkout, the composer and the owner work queue keep their own payment gate. Reading an already delivered answer is ungated, because entitlement is enforced by the delivery row and the requester-scoped read rather than by a rollout flag. Feed and Consent Center use the same answer review card and participant status. The owner approves the exact question, narrowed scopes and whole-dollar price with explicit model-processing consent; approval never creates a standing grant.
 
 | Method | Path under `/api/one/answer-requests` | Contract |
 | --- | --- | --- |
-| GET | `/availability` | Configuration and independent composer/payment admission gates; unavailable profiles open an explanation without a send control. |
+| GET | `/availability` | Three independent gates: `requests` admits intake and owner review, `payments` admits checkout and additionally requires usable answer credentials, `payouts` reports owner payout reachability. Legacy `payments`-meaning `enabled` is retained so an older client fails closed. Each field is absent-is-false; a surface whose gate is off opens an explanation instead of a control, and a check that could not be made is reported as retryable rather than as a disabled lane. |
 | POST | `/` | Create a connected-person question and resolve eligible scopes through the existing resolver. `periodStart` and `periodEnd` may be omitted or null; a supplied range must contain two real ISO calendar dates in order. |
 | GET | `/inbox`, `/{id}/state` | Owner review queue or exact participant state; unrelated users cannot read the question. |
-| POST | `/{id}/approve`, `/{id}/decline`, `/{id}/cancel` | Exact terms and model-processing consent, refusal or withdrawal; paid cancellation owes a full refund. |
+| POST | `/{id}/approve`, `/{id}/decline`, `/{id}/cancel` | Exact terms and model-processing consent, refusal or withdrawal; paid cancellation owes a full refund. Approval is admitted by the request gate and records a price without charging; with payments paused the requester sees that price and no pay control. |
 | GET / POST | `/{id}/payment`, `/{id}/payment/checkout` | Quote/status and mode-bound hosted Checkout with durable overlapping-session recovery. |
 | POST | `/api/payments/stripe/webhook` (shared endpoint) | Raw signed provider event; exact attempt, terms, currency, amount and mode verification. |
 | GET | `/answerable` | Paid, approved owner work with requester recipient public key and bounded leases. |
 | POST | `/{id}/compose`, `/{id}/deliver` | Separate default-off transient composer, then requester-only encrypted envelope delivery; no backend PKM decryption or key transfer. |
-| GET | `/{id}/answer` | Ciphertext to its requester only. |
+| GET | `/{id}/answer` | Ciphertext to its requester only; ungated, so pausing payments never strands an answer already paid for. |
 | GET / POST | `/payout-account`, `/payout-account/{action}` | Verified mode-specific owner account, onboarding or bank-management link; Drive resumption is excluded. |
 
 Answers remain manual while unlocked. Exact approved plaintext reaches the backend composer and Google Vertex AI for one call, with application NO_CONTENT telemetry and no plaintext persistence. Live mode additionally requires provider-retention review attestation; it does not establish provider zero retention. Payments retain Drive's 3% platform fee, actual Stripe fee, full refund and owner-earnings rules. The separate authenticated answer drain handles deadlines, refunds and settlement even when admission is paused. Historical unbound modes and approvals without consent require explicit reconciliation. See [enablement steps](../operations/env-and-secrets.md#request-scope-enablement-follow-up-2026-10-11) and [memory/runtime boundary](./living-memory-freshness-adr.md).

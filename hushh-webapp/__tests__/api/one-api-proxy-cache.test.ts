@@ -12,6 +12,23 @@ describe("One API proxy cache policy", () => {
     vi.unstubAllGlobals();
   });
 
+  it("forwards business completion receipts and owner auth without caching", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ saved: true }), {
+      headers: { "Content-Type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const body = JSON.stringify({ commits: [{ domain: "professional", plan_id: "plan_1" }] });
+    const response = await POST(new NextRequest("http://localhost/api/one/business/suggestion/complete", {
+      method: "POST", headers: { Authorization: "Bearer owner-token", "Content-Type": "application/json" }, body,
+    }), { params: Promise.resolve({ path: ["business", "suggestion", "complete"] }) });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://backend.example/api/one/business/suggestion/complete");
+    const forwarded = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(new Headers(forwarded.headers).get("authorization")).toBe("Bearer owner-token");
+    expect(forwarded.body).toBe(body);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(await response.json()).toEqual({ saved: true });
+  });
+
   it("enforces private no-store even when an upstream response is cacheable", async () => {
     vi.stubGlobal(
       "fetch",

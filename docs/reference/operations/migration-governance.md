@@ -382,3 +382,14 @@ The current release manifest owns the combined head. Shared Dev's 59 parked
 receipts and absent canonical baseline permit source registration; they do not
 prove canonical application or authorize receipt relabeling. Revalidate the target
 ledger, existing deferral, recovery and schema gates before deployment.
+
+### Infrastructure integration lineage (2026-10-11)
+
+Main `86b5d11f` registers Business Profile at 306. The pending infrastructure
+suffix moves from 306–311 to 312–317 with identical SQL and rollback bytes.
+The prior `6fee7dba` manifest and original files remain under
+`db/legacy/scope-commerce-infrastructure-6fee7dba/`; the earlier f051 archive
+remains unchanged. Shared Dev readback at 14:10:29Z shows 59 historical
+receipts, no baseline and no accepted 306–317 receipts. This permits source
+registration, not receipt relabeling. Refresh target-specific lineage, recovery
+and schema evidence before rollout. No UAT or production deployment is implied.

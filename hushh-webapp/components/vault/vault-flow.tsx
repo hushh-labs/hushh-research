@@ -55,6 +55,7 @@ import {
 import { resolvePasskeyRpId } from "@/lib/vault/passkey-rp";
 import { checkPrfSupport } from "@/lib/vault/prf-auth";
 import { copyToClipboard } from "@/lib/utils/clipboard";
+import { trackEvent } from "@/lib/observability/client";
 import {
   toInvestorLoading,
   toInvestorMessage,
@@ -971,6 +972,7 @@ export function VaultFlow({
 
       if (decryptedKey) {
         if (!isCurrentAttempt(attempt)) return;
+        trackEvent("vault_unlock_result", { method: "passphrase", result: "success" });
         if (enableGeneratedDefault) {
           try {
           const capability = await VaultMethodService.getCapabilityMatrix();
@@ -1004,6 +1006,11 @@ export function VaultFlow({
         await finalizeUnlock(decryptedKey, attempt);
       } else {
         if (!isCurrentAttempt(attempt)) return;
+        trackEvent("vault_unlock_result", {
+          method: "passphrase",
+          result: "expected_error",
+          error_class: "no_match",
+        });
         const message = "That passphrase did not match. Please try again.";
         setError(message);
         toast.error(message);
@@ -1015,6 +1022,11 @@ export function VaultFlow({
         setError(null);
         return;
       }
+      trackEvent("vault_unlock_result", {
+        method: "passphrase",
+        result: "error",
+        error_class: err?.name ?? "unknown",
+      });
       const message = toInvestorVaultUnlockError(err);
       setError(message);
       toast.error(message);
@@ -1840,6 +1852,9 @@ export function VaultFlow({
                       onChange={(e) => setPassphrase(e.target.value)}
                       autoFocus
                       autoComplete="new-password"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
                       className={VAULT_INPUT_CONTROL_CLASS}
                     />
                     <button
@@ -1871,6 +1886,9 @@ export function VaultFlow({
                       value={confirmPassphrase}
                       onChange={(e) => setConfirmPassphrase(e.target.value)}
                       autoComplete="new-password"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
                       className={VAULT_INPUT_CONTROL_CLASS}
                     />
                     <button
@@ -1999,6 +2017,9 @@ export function VaultFlow({
                       }
                       autoFocus
                       autoComplete="current-password"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
                       className={VAULT_INPUT_CONTROL_CLASS}
                     />
                     <button
