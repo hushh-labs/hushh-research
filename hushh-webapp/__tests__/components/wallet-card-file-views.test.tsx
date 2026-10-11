@@ -2,12 +2,13 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ read: vi.fn(), open: vi.fn(), prepare: vi.fn(), share: vi.fn(), state: vi.fn(), directory: vi.fn(), success: vi.fn(), error: vi.fn(), origin: vi.fn() }));
 vi.mock("@/lib/wallet/wallet-card-file", () => ({ readEncryptedCardFile: mocks.read, openEncryptedCardFile: mocks.open }));
-vi.mock("@/lib/services/wallet-card-access-service", () => ({ WalletCardAccessService: { state: mocks.state, recipients: mocks.directory, share: mocks.share } }));
+vi.mock("@/lib/services/wallet-card-access-service", () => ({ CardAccessUnavailableError: class CardAccessUnavailableError extends Error {}, WalletCardAccessService: { state: mocks.state, recipients: mocks.directory, share: mocks.share } }));
 vi.mock("@/lib/services/wallet-service", () => ({ WalletService: { prepareCardSharing: mocks.prepare, listCardShareReceipts: async () => [] } }));
 vi.mock("@/lib/share/app-origin", () => ({ resolveShareableAppOrigin: mocks.origin }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { success: mocks.success, error: mocks.error } }));
 vi.mock("@/components/app-ui/native-test-beacon", () => ({ NativeTestBeacon: () => null }));
 import { WalletEncryptedCardViewer } from "@/components/wallet/wallet-encrypted-card-viewer";
+import { CardAccessUnavailableError } from "@/lib/services/wallet-card-access-service";
 import { WalletSavedCardSharing } from "@/components/wallet/wallet-saved-card-sharing";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 const card = { pan: "4111111111111111", cardholderName: "Synthetic Person", brand: "visa" as const, expiryMonth: 4, expiryYear: 2030, issuingRegion: "US" };
@@ -26,10 +27,29 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 async function selectRecipient() {
   render(<WalletSavedCardSharing card={summary} getContext={getContext} disabled={false} />);
+  await waitFor(() => expect(screen.getByRole("button", { name: /Share card/ })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: /Share card/ }));
   fireEvent.click(await screen.findByRole("checkbox", { name: "Share with Bob" }));
 }
 describe("temporary card access", () => {
+  it("blocks sharing during an outage and recovers after a successful retry", async () => {
+    mocks.state.mockRejectedValueOnce(new CardAccessUnavailableError());
+    render(<WalletSavedCardSharing card={summary} getContext={getContext} disabled={false} />);
+    await screen.findByText("Card sharing is temporarily unavailable.");
+    expect(screen.getByRole("button", { name: /Share card/ })).toBeDisabled();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.share).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /Retry/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Share card/ })).toBeEnabled());
+  });
+  it("reports a service outage without presenting it as an uncertain delivery", async () => {
+    mocks.share.mockRejectedValueOnce(new CardAccessUnavailableError());
+    await selectRecipient();
+    fireEvent.click(screen.getByRole("button", { name: "Share with 1", exact: true }));
+    await waitFor(() => expect(mocks.error).toHaveBeenCalledWith("Card sharing is temporarily unavailable. Try again later."));
+    expect(mocks.success).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /Share card/ })).toBeDisabled();
+  });
   it("refreshes an existing card without a verification prompt and preserves the request ID on retry", async () => {
     mocks.share.mockRejectedValueOnce(new Error("Response lost"));
     await selectRecipient();

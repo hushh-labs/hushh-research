@@ -81,3 +81,26 @@ def test_the_pems_stay_optional_so_the_deploy_survives_their_absence() -> None:
 
     for env_name in PEM_ENV_NAMES:
         assert f"{env_name}=${{_{env_name}_SECRET}}:latest" not in cloudbuild
+
+
+def test_temporary_card_sharing_flag_reaches_runtime_and_defaults_off() -> None:
+    cloudbuild = _read(CLOUDBUILD)
+    assert any(
+        "WALLET_CARD_ACCESS_ENABLED" in names.split()
+        for names in re.findall(r"for n in (.+); do", cloudbuild)
+    )
+    assert '"_WALLET_CARD_ACCESS_ENABLED=${_WALLET_CARD_ACCESS_ENABLED}"' in cloudbuild
+    assert '  _WALLET_CARD_ACCESS_ENABLED: "false"' in cloudbuild
+
+
+def test_uat_enables_temporary_card_sharing_with_its_encryption_key() -> None:
+    workflow = _read(REPO_ROOT / ".github/workflows/deploy-uat.yml")
+    assert (
+        "##_WALLET_CARD_ACCESS_ENABLED=${{ vars.WALLET_CARD_ACCESS_UAT_ENABLED || 'true' }}"
+        in workflow
+    )
+    assert "##_DIRECT_MESSAGE_ENCRYPTION_KEY_V1_SECRET=DIRECT_MESSAGE_ENCRYPTION_KEY_V1" in workflow
+    manifest = _read(REPO_ROOT / "consent-protocol/db/release_migration_manifest.json")
+    assert '"302_wallet_temporary_card_access.sql"' in manifest
+    production = _read(REPO_ROOT / ".github/workflows/deploy-production.yml")
+    assert "_WALLET_CARD_ACCESS_ENABLED=true" not in production

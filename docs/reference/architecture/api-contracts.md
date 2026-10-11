@@ -180,6 +180,16 @@ verification; ordinary connection mirror records do not grant this exemption.
 
 Rollout requires migration `302_wallet_temporary_card_access.sql`, the existing
 direct-message encryption key and `WALLET_CARD_ACCESS_ENABLED=true` (default off).
+The backend Cloud Build substitution `_WALLET_CARD_ACCESS_ENABLED` explicitly
+binds this flag so replacement environment deployments preserve its setting.
+The UAT workflow enables it with the existing UAT encryption-key binding;
+`WALLET_CARD_ACCESS_UAT_ENABLED=false` is the UAT rollback switch. Other deploy
+lanes retain the default-off setting until their own prerequisites are provisioned.
+After these changes land on green `main`, dispatch **Deploy to UAT** with scope
+`auto` and that exact commit SHA; confirm the resolved scope includes both the
+backend flag and the Wallet readiness UI. Verify sharing readiness, creation, recipient access and revocation
+with an owner-added card and an authorized test connection. Changing the rollback
+variable takes effect on the next backend deployment, not immediately.
 The PKM commit derives an encrypted sharing projection from validated card
 summaries after client metadata normalization. It binds each envelope to the
 owner and card ID; activation additionally requires the current committed
