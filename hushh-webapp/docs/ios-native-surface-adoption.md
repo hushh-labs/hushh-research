@@ -40,9 +40,25 @@ fails on the previous voice-owner replacement. The existing layout regression
 also failed on the unguarded lift; after correction, three runs in each of
 WebKit and Chromium retain the same frame within 0.5 CSS px at 320/393/768px,
 with bounded multiline editing, 16px icons, 44px targets and keyboard return.
-Physical acceptance is pending
-installation of this source; prior installed-device evidence below applies only
-to its recorded candidate. No native-family or release readiness is inferred.
+Canonical core passes at `0d5e472e6c`, including the packed MCP smoke, without
+changing timeouts or weakening gates. The signed Debug iPhone and simulator
+builds compile the new warm-session Chat continuity test. The iPhone 16e has
+the `90936adc0f` product/runner installed in place as `com.hushh.app` 1.4.0 (69),
+bundled UAT; the later commit changes layout tests only. Executable SHA-256:
+`d05aa1c2ff2815f1f422853df6b8e5f67b0700218a5fb31aab65d2e9e313f461`.
+The runtime contract remains
+`aa822769e2547459e63e38784b039f3b80ed905c1d426cb7834606fab1fc3f69`.
+
+Installation, signature/assets verification and authenticated wireless transport
+pass. Three attach-only physical admissions stop before test execution with
+`AUTOMATION_AUTHORIZATION_TIMEOUT` and `RUNNER_CONNECTION_FAILED`; vault unlock
+is not attempted. Simulator XCTest admission passes, but the simulator is on
+the guest screen, so it is not authenticated Chat evidence. The canonical UAT
+reviewer preflight also passes; this does not establish native unlock or OS test
+authorization. No reset, account substitution or deployment is used to bypass
+these boundaries. Earlier device evidence below applies only to its recorded
+candidate. Physical visual, accessibility and performance acceptance, exact-head
+CI and full native-family qualification remain unproven.
 
 ### Whole native drawer migration boundary — 2026-10-11
 
