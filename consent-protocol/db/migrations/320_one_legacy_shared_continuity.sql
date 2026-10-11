@@ -2,7 +2,7 @@
 -- Main's onboarding used connections, not the branch-only cloud capability.
 -- Missing placement is still NOT a default for new or incomplete accounts.
 --
--- Canonical rollout preparation: apply 311 reader foundations and 309 choices
+-- Canonical rollout preparation: apply 303 reader foundations and 301 choices
 -- before this one-time snapshot and before new application traffic.
 -- Do not change applied 955 or relocate any applied parked migration.
 BEGIN;

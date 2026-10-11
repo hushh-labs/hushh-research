@@ -28,7 +28,9 @@ Declaration required by the boundary doc's "new semantic surface" section:
                     (requestability, owner catalog, limit) which can only
                     remove
   live eval phase   required before PKM_ANSWER_PAYMENTS_ENABLED is turned on
-                    in any environment; the lane ships disabled
+                    in any environment; that payment lane ships disabled.
+                    PKM_ANSWER_REQUESTS_ENABLED independently defaults open;
+                    source/tests do not establish authenticated intake eval.
 """
 
 from __future__ import annotations

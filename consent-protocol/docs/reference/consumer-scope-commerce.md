@@ -2469,6 +2469,24 @@ The existing cold-challenge mock now implements the passphrase-alternative
 locator used by the current harness; its owner and memory-only assertions remain.
 These are source checks, not successful Checkout or refund receipts.
 
+The concurrent root integration at `10c301cac9` is preserved in the combined
+candidate. Main owns migrations through 314; the six pending private migrations
+now occupy 315–320, including scope commerce at 316. All twelve SQL/rollback
+bodies match the frozen infrastructure lineage after restoring one altered
+comment; current continuity prerequisites are reader 319 and hosting choice 317.
+The manifest and three schema contracts agree on head 320. Request intake now
+defaults open independently of the closed payment/composer lanes; authenticated
+intake evaluation remains runtime evidence to collect. UAT's incoming profile
+research defaults admit its verified phase-one pilot, while private placement
+guards remain; this Dev task does not deploy UAT or claim private research support.
+
+Independent review also records an existing production older-source rollback
+dependency gap: the retained runtime-secret synchronizer requires adjacent
+`scope_commerce_runtime_policy.py`, which that retention step omits. Current-source
+shared Dev includes the helper. The repo-operations production workflow must
+retain/restore it and exercise the copied CLI before an older-source production
+rollback; this continuation neither dispatches production nor claims that proof.
+
 Primary private Azure setup, normally encrypted synthetic scope fixtures, both
 reviewer Connect/Checkout journeys, accepted quotes, real-time delivery and
 refund/payout receipts, and One's authenticated MCP reads remain acceptance work.
