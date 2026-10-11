@@ -102,6 +102,11 @@ vi.mock("@/lib/utils/browser-navigation", () => ({
   reloadWindow: vi.fn(),
 }));
 
+const trackEventMock = vi.fn();
+vi.mock("@/lib/observability/client", () => ({
+  trackEvent: (...args: unknown[]) => trackEventMock(...args),
+}));
+
 type TestVaultWrapper = {
   method: string;
   encryptedVaultKey: string;
@@ -389,6 +394,18 @@ describe("VaultFlow create validation", () => {
     expect(document.querySelector("[data-vault-flow-icon]")).toHaveClass(
       "bg-[color:var(--app-accent-tint)]",
     );
+  });
+
+  it("hardens the create/confirm passphrase fields against iOS smart-punctuation substitution", async () => {
+    render(<VaultFlow user={user} onSuccess={vi.fn()} />);
+
+    const passphraseInput = await screen.findByLabelText("Passphrase");
+    const confirmInput = screen.getByLabelText("Confirm passphrase");
+    for (const input of [passphraseInput, confirmInput]) {
+      expect(input).toHaveAttribute("autocorrect", "off");
+      expect(input).toHaveAttribute("autocapitalize", "off");
+      expect(input).toHaveAttribute("spellcheck", "false");
+    }
   });
 
   it("defers new vault creation until the root setup completion boundary", async () => {
@@ -867,6 +884,69 @@ describe("VaultFlow create validation", () => {
     fireEvent.change(await screen.findByLabelText("Vault passphrase"), { target: { value: "fixture-passphrase" } });
     fireEvent.click(screen.getByRole("button", { name: "Unlock", exact: true }));
     await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
+  });
+
+  it("hardens the unlock passphrase field against iOS smart-punctuation substitution", async () => {
+    checkVaultMock.mockResolvedValue(true);
+    getVaultStateMock.mockResolvedValue(vaultState("passphrase", [passphraseWrapper]));
+    render(<VaultFlow user={user} onSuccess={vi.fn()} />);
+
+    const unlockInput = await screen.findByLabelText("Vault passphrase");
+    expect(unlockInput).toHaveAttribute("autocorrect", "off");
+    expect(unlockInput).toHaveAttribute("autocapitalize", "off");
+    expect(unlockInput).toHaveAttribute("spellcheck", "false");
+  });
+
+  it("reports a successful passphrase unlock to observability", async () => {
+    checkVaultMock.mockResolvedValue(true);
+    getVaultStateMock.mockResolvedValue(vaultState("passphrase", [passphraseWrapper]));
+    unlockWithMethodMock.mockResolvedValue("verified-fixture-key");
+    getCapabilityMatrixMock.mockResolvedValue({ recommendedMethod: "passphrase" });
+    render(<VaultFlow user={{ uid: "observability-success" } as typeof user} onSuccess={vi.fn()} />);
+    fireEvent.change(await screen.findByLabelText("Vault passphrase"), { target: { value: "fixture-passphrase" } });
+    fireEvent.click(screen.getByRole("button", { name: "Unlock", exact: true }));
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith("vault_unlock_result", {
+        method: "passphrase",
+        result: "success",
+      }),
+    );
+  });
+
+  it("reports a non-matching passphrase unlock to observability without crashing the UI", async () => {
+    checkVaultMock.mockResolvedValue(true);
+    getVaultStateMock.mockResolvedValue(vaultState("passphrase", [passphraseWrapper]));
+    unlockWithMethodMock.mockResolvedValue("");
+    render(<VaultFlow user={{ uid: "observability-no-match" } as typeof user} onSuccess={vi.fn()} />);
+    fireEvent.change(await screen.findByLabelText("Vault passphrase"), { target: { value: "wrong-passphrase" } });
+    fireEvent.click(screen.getByRole("button", { name: "Unlock", exact: true }));
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith("vault_unlock_result", {
+        method: "passphrase",
+        result: "expected_error",
+        error_class: "no_match",
+      }),
+    );
+    expect(await screen.findByText("That passphrase did not match. Please try again.")).toBeTruthy();
+  });
+
+  it("reports a thrown unlock error to observability with its error class", async () => {
+    checkVaultMock.mockResolvedValue(true);
+    getVaultStateMock.mockResolvedValue(vaultState("passphrase", [passphraseWrapper]));
+    unlockWithMethodMock.mockRejectedValue(new Error("Vault is temporarily unavailable"));
+    render(<VaultFlow user={{ uid: "observability-thrown-error" } as typeof user} onSuccess={vi.fn()} />);
+    fireEvent.change(await screen.findByLabelText("Vault passphrase"), { target: { value: "fixture-passphrase" } });
+    fireEvent.click(screen.getByRole("button", { name: "Unlock", exact: true }));
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith("vault_unlock_result", {
+        method: "passphrase",
+        result: "error",
+        error_class: "Error",
+      }),
+    );
   });
 
   it("offers Face ID and reachable fallbacks; a late cancelled result cannot unlock", async () => {
