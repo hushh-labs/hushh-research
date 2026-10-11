@@ -81,7 +81,7 @@ export function WalletSavedCardSharing({ card, getContext, disabled }: {
   const send = async () => {
     const base = getContext(card.cardId);
     const refs = Object.keys(selected).sort();
-    if (!base || !refs.length || sending.current) return;
+    if (!base || !refs.length || sending.current || stateFailed || !state) return;
     const requestGeneration = generation.current;
     const context = { ...base, isCurrent: () => requestGeneration === generation.current && base.isCurrent() };
     const fingerprint = JSON.stringify([base.userId, card.cardId, refs, duration]);
@@ -94,7 +94,16 @@ export function WalletSavedCardSharing({ card, getContext, disabled }: {
       if (!context.isCurrent()) return;
       attempt.current = null; close(); setRevision(value => value + 1);
       morphyToast.success("Card shared.");
-    } catch { if (context.isCurrent()) morphyToast.error("Could not confirm sharing. Retry to check the same request."); }
+    } catch (error) {
+      if (context.isCurrent()) {
+        if (error instanceof CardAccessUnavailableError) {
+          close(); setState(null); setStateFailed(true); setUnavailable(true);
+          morphyToast.error("Card sharing is temporarily unavailable. Try again later.");
+        } else {
+          morphyToast.error("Could not confirm sharing. Retry to check the same request.");
+        }
+      }
+    }
     finally { sending.current = false; if (context.isCurrent()) setBusy(false); }
   };
   const revoke = async (id: string) => {
@@ -112,7 +121,7 @@ export function WalletSavedCardSharing({ card, getContext, disabled }: {
       <SettingsGroup title="Sharing">
         <SettingsRow icon={ProfilePaneInviteIcon} iconTone="transparent" title="Share card"
           description="Temporary access for your connections."
-          chevron onClick={() => setOpen(true)} disabled={disabled || busy} />
+          chevron onClick={() => setOpen(true)} disabled={disabled || busy || stateFailed || !state} />
         {stateFailed ? <SettingsRow title="Retry" description={unavailable ? "Card sharing is temporarily unavailable." : "Could not load sharing. Check your connection."} onClick={() => setRevision(value => value + 1)} /> : null}
       </SettingsGroup>
       <SettingsGroup title="Shared with">
@@ -127,7 +136,7 @@ export function WalletSavedCardSharing({ card, getContext, disabled }: {
       </SettingsGroup> : null}
       <SettingsDetailPanel open={open} onOpenChange={value => { if (!value) close(); }} title="Share card" description="Share masked card details with your connections."
         mobilePresentation="sheet" desktopMaxWidth="580px" desktopMaxWidthClassName="sm:!max-w-[580px]" surfaceClassName={styles.accessSurface} bodyClassName={styles.accessBody}
-        footer={<Button className="w-full" disabled={busy || !Object.keys(selected).length} onClick={() => void send()}>{busy ? "Sharing…" : `Share with ${Object.keys(selected).length}`}</Button>}>
+        footer={<Button className="w-full" disabled={busy || stateFailed || !state || !Object.keys(selected).length} onClick={() => void send()}>{busy ? "Sharing…" : `Share with ${Object.keys(selected).length}`}</Button>}>
         <div className="space-y-4">
           <Input aria-label="Search connections" placeholder="Search connections" value={query} disabled={busy} onChange={event => setQuery(event.target.value)} />
           <div className="max-h-64 overflow-y-auto" aria-label="Connections">
