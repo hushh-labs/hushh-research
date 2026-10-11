@@ -32,6 +32,7 @@ import { CARD_BRANDS, detectBrand, validateCardForRegion, type CardBrand } from 
 import { COUNTRY_PHONE_OPTIONS } from "@/lib/constants/country-phone-options";
 import type { WalletCardInput } from "@/lib/services/wallet-service";
 
+import { WalletCardScanner } from "./wallet-card-scanner";
 import styles from "./secure-card-add-form.module.css";
 
 const ERROR_COPY: Record<string, string> = {
@@ -55,8 +56,9 @@ export interface SecureCardAddFormProps {
   onSubmit: (card: WalletCardInput) => Promise<void>;
   onCancel?: () => void;
   compact?: boolean;
-  /** @deprecated Manual entry is the sole add-card path. Kept for older hosts. */
+  /** Read a physical card locally, then review before saving. */
   scanEnabled?: boolean;
+  scanInToolbar?: boolean;
   /** Mask entered details when a mounted draft is in an inactive tab. */
   active?: boolean;
   /** Compatibility label supplied by a chat offer; never asks for it again. */
@@ -65,7 +67,7 @@ export interface SecureCardAddFormProps {
   initialPan?: string;
 }
 
-export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, initialNickname, initialPan }: SecureCardAddFormProps) {
+export function SecureCardAddForm({ onSubmit, onCancel, compact, scanEnabled = true, scanInToolbar = false, active = true, initialNickname, initialPan }: SecureCardAddFormProps) {
   const id = useId();
   const saving = useRef(false);
   const errorsRef = useRef<HTMLUListElement>(null);
@@ -79,6 +81,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
   const [revealSecrets, setRevealSecrets] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [scanning, setScanning] = useState(false);
   useEffect(() => {
     if (!active) setRevealSecrets(false);
   }, [active]);
@@ -98,7 +101,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (saving.current || !active) return;
+    if (saving.current || scanning || !active) return;
     const match = expiry.trim().match(/^(\d{1,2})\s*\/\s*(\d{2}|\d{4})$/);
     const rawYear = Number(match?.[2] ?? 0);
     const card: WalletCardInput = {
@@ -140,19 +143,29 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
     }
   };
 
+  const scanner = scanEnabled ? <WalletCardScanner active={active} disabled={submitting} onBusyChange={setScanning} onRead={(fields) => {
+        setPan(fields.pan);
+        setExpiry(fields.expiry ?? "");
+        setCardholderName(fields.cardholderName ?? "");
+        setNetwork(""); setCvv(""); setPin(""); setRevealSecrets(false); setErrors([]);
+      }} /> : null;
+
   return (
+    <>
+    {scanInToolbar ? <div className="mb-3.5">{scanner}</div> : null}
     <form
       className={cn(styles.form, compact && styles.compact)}
       data-testid="secure-card-add-form"
       onSubmit={handleSubmit}
       noValidate
-      aria-busy={submitting}
+      aria-busy={submitting || scanning}
     >
       {!compact ? <div className={styles.heading}>
         <h2 className={TYPOGRAPHY_CLASSNAMES.sectionTitle}>Add your card</h2>
         <p>Enter the details printed on your card.</p>
       </div> : null}
-      <fieldset disabled={submitting || !active} className={styles.fields}>
+      {!scanInToolbar ? scanner : null}
+      <fieldset disabled={submitting || scanning || !active} className={styles.fields}>
         <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Encrypted on this device. Never enters chat.</p>
         <div className={cn(styles.field, styles.number)}>
           <Label htmlFor={`${id}-number`}><ProfilePaneCardIcon className={styles.fieldIcon} />Card number</Label>
@@ -185,7 +198,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
           </div>
           <div className={styles.field}>
             <Label htmlFor={`${id}-network`}><ProfilePaneCardNetworkIcon className={styles.fieldIcon} />Card network (optional)</Label>
-            <Select value={network || "auto"} onValueChange={(value) => setNetwork(value === "auto" ? "" : value as CardBrand)} disabled={submitting || !active}>
+            <Select value={network || "auto"} onValueChange={(value) => setNetwork(value === "auto" ? "" : value as CardBrand)} disabled={submitting || scanning || !active}>
               <SelectTrigger id={`${id}-network`} className={styles.selectTrigger} data-testid="secure-card-network-select" {...fieldErrors("brand_invalid")}>
                 <SelectValue />
               </SelectTrigger>
@@ -256,7 +269,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
           </div>
           <div className={styles.field}>
             <Label htmlFor={`${id}-region`}><ProfilePaneGlobeIcon className={styles.fieldIcon} />Issuing region (optional)</Label>
-            <Select value={issuingRegion || "none"} onValueChange={(value) => setIssuingRegion(value === "none" ? "" : value)} disabled={submitting || !active}>
+            <Select value={issuingRegion || "none"} onValueChange={(value) => setIssuingRegion(value === "none" ? "" : value)} disabled={submitting || scanning || !active}>
               <SelectTrigger id={`${id}-region`} className={styles.selectTrigger} data-testid="secure-card-region-select" {...fieldErrors("issuing_region_invalid", "brand_region_mismatch")}>
                 <SelectValue />
               </SelectTrigger>
@@ -275,9 +288,10 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
       ) : null}
       <FlowActionGroup
         stacked
-        primary={<Button type="submit" size="prominent" disabled={submitting || !active} data-testid="secure-card-save">{submitting ? "Saving…" : "Save card"}</Button>}
+        primary={<Button type="submit" size="prominent" disabled={submitting || scanning || !active} data-testid="secure-card-save">{submitting ? "Saving…" : "Save card"}</Button>}
         secondary={onCancel ? <Button type="button" variant="secondary" size="prominent" onClick={onCancel} disabled={submitting}>Cancel</Button> : undefined}
       />
     </form>
+    </>
   );
 }

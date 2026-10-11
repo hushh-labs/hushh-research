@@ -174,7 +174,9 @@ class RetentionSafetyTest(unittest.TestCase):
         self.assertTrue({serving, rollback, candidate, good}.issubset(plan.protected))
 
     def test_exact_rollback_anchor_counts_toward_retention_after_failed_candidate(self):
-        rollback, failed, serving = (revision(n)["metadata"]["name"] for n in range(1, 4))
+        rollback, failed, serving = (
+            revision(n)["metadata"]["name"] for n in range(1, 4)
+        )
         state = service({"revisionName": serving, "percent": 100})
         state["status"]["latestReadyRevisionName"] = serving
         state["status"]["latestCreatedRevisionName"] = serving
@@ -453,16 +455,58 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                                 "org/repo", "123", pathlib.Path(temporary)
                             )
 
-    def test_scheduled_source_is_authorized_before_any_cloud_access(self):
-        for actor in ("ankitkumarsingh1702", "unapproved-actor"):
-            with self.subTest(actor=actor), tempfile.TemporaryDirectory() as temporary:
+    def test_source_is_authorized_before_any_cloud_access(self):
+        cases = (
+            ("uat", "ankitkumarsingh1702", "", "deploy-uat.yml", "org/repo", True),
+            ("uat", "unapproved-actor", "", "deploy-uat.yml", "org/repo", False),
+            (
+                "production",
+                "kushaltrivedi5",
+                "123",
+                "deploy-production.yml",
+                "org/repo",
+                True,
+            ),
+            (
+                "production",
+                "Roopmann30",
+                "123",
+                "deploy-production.yml",
+                "org/repo",
+                False,
+            ),
+            ("production", "kushaltrivedi5", "123", "untrusted.yml", "org/repo", False),
+            (
+                "production",
+                "kushaltrivedi5",
+                "123",
+                "deploy-production.yml",
+                "fork/repo",
+                False,
+            ),
+        )
+        for environment, actor, requested, workflow, repository, allowed in cases:
+            with (
+                self.subTest(
+                    environment=environment,
+                    actor=actor,
+                    workflow=workflow,
+                    repository=repository,
+                ),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
                 directory = pathlib.Path(temporary)
                 output = directory / "output"
-                run = {**self.trusted_source(123), "actor": {"login": actor}}
+                run = {
+                    **self.trusted_source(123, workflow),
+                    "actor": {"login": actor},
+                    "head_repository": {"full_name": repository},
+                }
 
                 def download(_repository, _run_id, _name, target):
                     target.mkdir(parents=True)
-                    (target / "uat-release-status.json").write_text(
+                    prefix = "prod" if environment == "production" else "uat"
+                    (target / f"{prefix}-release-status.json").write_text(
                         json.dumps(
                             {
                                 "status": "healthy",
@@ -474,50 +518,70 @@ class MaintenanceAuthorityTest(unittest.TestCase):
                         )
                     )
 
-                with (
-                    mock.patch.dict(
-                        "os.environ",
-                        {"GITHUB_REPOSITORY": "org/repo", "GITHUB_OUTPUT": str(output)},
-                    ),
-                    mock.patch.object(
-                        sys,
-                        "argv",
-                        [
-                            "maintenance",
-                            "--verify-source-only",
-                            "--state-dir",
-                            str(directory / "state"),
-                        ],
-                    ),
-                    mock.patch.object(
-                        MAINTENANCE, "api", return_value={"workflow_runs": [run]}
-                    ),
-                    mock.patch.object(
-                        MAINTENANCE, "artifact_exists", return_value=True
-                    ),
-                    mock.patch.object(MAINTENANCE, "download", side_effect=download),
-                    mock.patch.object(
-                        MAINTENANCE.retention,
-                        "service_state",
-                        side_effect=AssertionError(
-                            "source verification must not access cloud"
+                for artifact_available in (True, False) if allowed else (True,):
+                    with (
+                        self.subTest(artifact_available=artifact_available),
+                        mock.patch.dict(
+                            "os.environ",
+                            {
+                                "GITHUB_REPOSITORY": "org/repo",
+                                "GITHUB_OUTPUT": str(output),
+                            },
                         ),
-                    ),
-                    mock.patch.object(
-                        MAINTENANCE.subprocess,
-                        "run",
-                        side_effect=AssertionError(
-                            "source verification must not mutate"
+                        mock.patch.object(
+                            sys,
+                            "argv",
+                            [
+                                "maintenance",
+                                "--environment",
+                                environment,
+                                "--release-run-id",
+                                requested,
+                                "--verify-source-only",
+                                "--state-dir",
+                                str(directory / "state"),
+                            ],
                         ),
-                    ),
-                ):
-                    if actor == "unapproved-actor":
-                        with self.assertRaises(MAINTENANCE.retention.UnsafeState):
-                            MAINTENANCE.main()
-                        self.assertFalse(output.exists())
-                    else:
-                        self.assertEqual(MAINTENANCE.main(), 0)
-                        self.assertEqual(output.read_text(), "cleanup_ready=true\n")
+                        mock.patch.object(
+                            MAINTENANCE,
+                            "api",
+                            return_value=run if requested else {"workflow_runs": [run]},
+                        ),
+                        mock.patch.object(
+                            MAINTENANCE,
+                            "artifact_exists",
+                            return_value=artifact_available,
+                        ),
+                        mock.patch.object(
+                            MAINTENANCE, "download", side_effect=download
+                        ),
+                        mock.patch.object(
+                            MAINTENANCE.retention,
+                            "service_state",
+                            side_effect=AssertionError(
+                                "source verification must not access cloud"
+                            ),
+                        ),
+                        mock.patch.object(
+                            MAINTENANCE.subprocess,
+                            "run",
+                            side_effect=AssertionError(
+                                "source verification must not mutate"
+                            ),
+                        ),
+                    ):
+                        if output.exists():
+                            output.unlink()
+                        if not allowed:
+                            with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+                                MAINTENANCE.main()
+                            self.assertFalse(output.exists())
+                        else:
+                            self.assertEqual(MAINTENANCE.main(), 0)
+                            self.assertEqual(
+                                output.read_text(),
+                                f"cleanup_ready={str(artifact_available).lower()}\n",
+                            )
 
     def test_schedule_finds_older_healthy_release_matching_rollback(self):
         def download(_repository, run_id, _name, directory):
@@ -583,19 +647,33 @@ class MaintenanceAuthorityTest(unittest.TestCase):
 
                 with (
                     mock.patch.object(
-                        MAINTENANCE, "api", return_value={"workflow_runs": runs}
+                        MAINTENANCE,
+                        "api",
+                        side_effect=lambda _repo, endpoint: (
+                            {
+                                "artifacts": [
+                                    {
+                                        "name": MAINTENANCE.STATE_ARTIFACT,
+                                        "expired": False,
+                                        "workflow_run": {"id": run["id"]},
+                                    }
+                                    for run in runs
+                                ]
+                            }
+                            if endpoint.startswith("artifacts?")
+                            else next(
+                                run for run in runs if endpoint == f"runs/{run['id']}"
+                            )
+                        ),
                     ),
-                    mock.patch.object(
-                        MAINTENANCE, "artifact_exists", return_value=True
-                    ) as exists,
                     mock.patch.object(
                         MAINTENANCE, "download", side_effect=download
                     ) as fetch,
                 ):
                     destination = pathlib.Path(temporary)
                     MAINTENANCE.restore_state("org/repo", destination)
-                    exists.assert_called_once_with(
-                        "org/repo", 10, MAINTENANCE.STATE_ARTIFACT
+                    fetch.assert_called_once_with(
+                        "org/repo", 10, MAINTENANCE.STATE_ARTIFACT, mock.ANY
                     )
                     self.assertEqual(fetch.call_count, 1)
                     self.assertEqual(
@@ -667,22 +745,240 @@ class MaintenanceAuthorityTest(unittest.TestCase):
 
     def test_release_workflow_cannot_reintroduce_inline_retention(self):
         root = SCRIPT.parents[2]
-        source = (root / ".github/workflows/deploy-uat.yml").read_text()
 
-        def assert_separate(workflow):
+        def assert_separate(workflow, label):
             for command in workflow.replace("\\\n", "").splitlines():
                 if "bash scripts/ci/cloudrun-retention.sh" in command:
                     self.assertIn("--tags-only", command)
             self.assertIn(
-                "Fail workflow when UAT release did not end healthy", workflow
+                f"Fail workflow when {label} release did not end healthy", workflow
             )
 
-        assert_separate(source)
-        with self.assertRaises(AssertionError):
-            assert_separate(
-                source
-                + "\n      - run: bash scripts/ci/cloudrun-retention.sh backend --apply --healthy\n"
+        for file, label in (
+            ("deploy-uat.yml", "UAT"),
+            ("deploy-production.yml", "production"),
+        ):
+            with self.subTest(environment=label):
+                source = (root / ".github/workflows" / file).read_text()
+                assert_separate(source, label)
+                with self.assertRaises(AssertionError):
+                    assert_separate(source.replace("--tags-only", ""), label)
+
+    def test_production_release_rejects_uat_source_and_uat_only_actor(self):
+        good = {
+            **self.trusted_source(123, "deploy-production.yml"),
+            "actor": {"login": "kushaltrivedi5"},
+        }
+        healthy = {
+            "status": "healthy",
+            "final": {
+                "backend_revision": revision(3)["metadata"]["name"],
+                "frontend_revision": "hushh-webapp-00003-abc",
+            },
+        }
+        for run in (
+            self.trusted_source(123),
+            {**good, "actor": {"login": "Roopmann30"}},
+            good,
+        ):
+            with self.subTest(run=run), tempfile.TemporaryDirectory() as temporary:
+
+                def download(_repo, _run, name, directory):
+                    self.assertEqual(name, "prod-release-123")
+                    directory.mkdir(parents=True)
+                    (directory / "prod-release-status.json").write_text(
+                        json.dumps(healthy)
+                    )
+
+                with (
+                    mock.patch.object(MAINTENANCE, "api", return_value=run),
+                    mock.patch.object(
+                        MAINTENANCE, "artifact_exists", return_value=True
+                    ),
+                    mock.patch.object(
+                        MAINTENANCE, "download", side_effect=download
+                    ) as fetch,
+                ):
+                    if run != good:
+                        with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+                            MAINTENANCE.find_release(
+                                "org/repo",
+                                "123",
+                                pathlib.Path(temporary),
+                                environment="production",
+                            )
+                        fetch.assert_not_called()
+                    else:
+                        self.assertEqual(
+                            MAINTENANCE.find_release(
+                                "org/repo",
+                                "123",
+                                pathlib.Path(temporary),
+                                environment="production",
+                            ),
+                            (123, healthy),
+                        )
+
+    def test_production_live_check_and_rollback_stay_in_production(self):
+        release = {
+            "final": {
+                "backend_revision": "consent-protocol-00003-abc",
+                "frontend_revision": "hushh-webapp-00003-abc",
+            }
+        }
+
+        def state(name, project, region):
+            self.assertEqual((project, region), ("hushh-pda", "us-central1"))
+            self.assertIn(name, {"consent-protocol", "hushh-webapp"})
+            lane = "backend" if name == "consent-protocol" else "frontend"
+            return {
+                "status": {
+                    "conditions": [{"type": "Ready", "status": "True"}],
+                    "traffic": [
+                        {
+                            "revisionName": release["final"][lane + "_revision"],
+                            "percent": 100,
+                        }
+                    ],
+                }
+            }
+
+        with mock.patch.object(
+            MAINTENANCE.retention, "service_state", side_effect=state
+        ) as reads:
+            self.assertTrue(
+                MAINTENANCE.live_release_matches(release, environment="production")
             )
+            self.assertEqual(reads.call_count, 2)
+        with mock.patch.object(
+            MAINTENANCE, "command", return_value="consent-protocol-00002-abc"
+        ) as command:
+            flags = MAINTENANCE.release_protection_flags(
+                "consent-protocol", "backend", release, environment="production"
+            )
+            command.assert_called_once_with(
+                "bash", "scripts/ci/resolve-rollback-target.sh", "production", "backend"
+            )
+            self.assertEqual(flags[-1], "consent-protocol-00002-abc")
+
+    def test_production_schedule_skips_settled_or_not_due_but_retries_missing_receipts(
+        self,
+    ):
+        receipt = {
+            "schema_version": 1,
+            "environment": "production",
+            "project": "hushh-pda",
+            "observed_run_id": 10,
+            "release_run_id": 9,
+        }
+        pending = {
+            "project": "hushh-pda",
+            "region": "us-central1",
+            "service": "consent-protocol",
+            "release_run_id": "9",
+            "not_before": 13660,
+        }
+        cases = [
+            (receipt, None, 10, False),
+            (receipt, pending, 10, False),
+            (receipt, {**pending, "not_before": 10000}, 10, True),
+            (None, None, 10, True),
+            (receipt, None, 11, True),
+            ({**receipt, "project": "hushh-pda-uat"}, None, 10, "unsafe"),
+            (receipt, {**pending, "project": "hushh-pda-uat"}, 10, "unsafe"),
+        ]
+        for completed, state, observed, expected in cases:
+            with (
+                self.subTest(case=(completed, state, observed)),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                directory = pathlib.Path(temporary)
+                if completed is not None:
+                    (directory / "completed.json").write_text(json.dumps(completed))
+                if state is not None:
+                    (directory / "consent-protocol.json").write_text(json.dumps(state))
+                with (
+                    mock.patch.object(
+                        MAINTENANCE, "latest_deploy_observation", return_value=observed
+                    ),
+                    mock.patch.object(MAINTENANCE, "restore_state") as restore,
+                    mock.patch.object(MAINTENANCE.time, "time", return_value=10000),
+                    mock.patch.object(
+                        MAINTENANCE.retention,
+                        "service_state",
+                        side_effect=AssertionError("source-only cannot read cloud"),
+                    ),
+                ):
+                    if expected == "unsafe":
+                        with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+                            MAINTENANCE.production_maintenance_due(
+                                "org/repo", directory
+                            )
+                    else:
+                        self.assertEqual(
+                            MAINTENANCE.production_maintenance_due(
+                                "org/repo", directory
+                            ),
+                            expected,
+                        )
+                    restore.assert_called_once_with(
+                        "org/repo", directory, environment="production"
+                    )
+
+    def test_production_pass_defers_only_its_services_and_commits_completion_last(self):
+        release = {"status": "healthy"}
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = pathlib.Path(temporary)
+            with (
+                mock.patch.dict("os.environ", {"GITHUB_REPOSITORY": "org/repo"}),
+                mock.patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "maintenance",
+                        "--environment",
+                        "production",
+                        "--state-dir",
+                        str(directory),
+                        "--apply",
+                    ],
+                ),
+                mock.patch.object(
+                    MAINTENANCE, "find_release", return_value=(123, release)
+                ),
+                mock.patch.object(
+                    MAINTENANCE, "live_release_matches", return_value=True
+                ),
+                mock.patch.object(MAINTENANCE, "restore_state") as restore,
+                mock.patch.object(
+                    MAINTENANCE, "release_protection_flags", return_value=["protected"]
+                ),
+                mock.patch.object(
+                    MAINTENANCE, "latest_deploy_observation", return_value=123
+                ),
+                mock.patch.object(MAINTENANCE.subprocess, "run") as run,
+            ):
+                self.assertEqual(MAINTENANCE.main(), 0)
+                restore.assert_called_once_with(
+                    "org/repo", directory, environment="production"
+                )
+                self.assertEqual(run.call_count, 2)
+                for call in run.call_args_list:
+                    command = call.args[0]
+                    self.assertIn(command[2], {"consent-protocol", "hushh-webapp"})
+                    self.assertIn("--defer-state", command)
+                    self.assertEqual(command[-2:], ["--project", "hushh-pda"])
+                self.assertEqual(
+                    json.loads((directory / "completed.json").read_text())[
+                        "release_run_id"
+                    ],
+                    123,
+                )
+                (directory / "completed.json").unlink()
+                run.side_effect = RuntimeError("provider read failed")
+                with self.assertRaises(RuntimeError):
+                    MAINTENANCE.main()
+                self.assertFalse((directory / "completed.json").exists())
 
 
 if __name__ == "__main__":

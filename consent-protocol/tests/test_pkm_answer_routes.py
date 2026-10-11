@@ -74,6 +74,41 @@ def test_answer_payout_setup_uses_answer_credentials_and_no_drive_wake(monkeypat
     )
 
 
+@pytest.mark.parametrize(
+    ("enabled", "answer_mode", "allowed"),
+    [
+        ("false", "test", False),  # UAT: paused sandbox answers beside live Connect
+        ("false", "invalid", False),
+        ("true", "test", True),
+        ("false", "live", True),
+    ],
+)
+async def test_paused_answer_lane_never_opens_payout_account_in_another_mode(
+    monkeypatch, enabled, answer_mode, allowed
+):
+    monkeypatch.setenv("PKM_ANSWER_PAYMENTS_ENABLED", enabled)
+    monkeypatch.setenv("PKM_ANSWER_STRIPE_MODE", answer_mode)
+    monkeypatch.setenv("STRIPE_CONNECT_MODE", "live")
+    service = Mock(
+        account_status=AsyncMock(return_value={"account": None, "stripeMode": answer_mode}),
+        onboarding_link=AsyncMock(return_value={"url": "https://connect.stripe.com/setup/x"}),
+    )
+    payouts = Mock(return_value=service)
+    monkeypatch.setattr(routes, "_payouts", payouts)
+    for call in (
+        lambda: routes.answer_payout_account(Response(), "owner"),
+        lambda: routes.answer_payout_link("onboarding", Response(), "owner"),
+    ):
+        if allowed:
+            await call()
+            continue
+        with pytest.raises(HTTPException) as error:
+            await call()
+        assert error.value.status_code == 404
+        assert error.value.headers == {"Cache-Control": "no-store"}
+    assert payouts.call_count == (2 if allowed else 0)
+
+
 async def test_public_person_reference_resolves_before_active_connection_admission(monkeypatch):
     public_ref = str(uuid4())
     identity = Mock(get_relationship_target=Mock(return_value=("owner", {"status": "connected"})))

@@ -17,25 +17,53 @@ flowchart LR
   Payout -->|failure| Repair[Stripe-hosted bank repair]
 ```
 
-## Hussh Coins and payout sandbox
+## Hussh Coins cash-out
 
-New Hussh Coins-settled document orders earn without bank setup. Profile → Payouts
-shows real Hussh Coins above a separate sandbox balance and redemption flow.
-Sandbox redemption consumes only test coins. Legacy direct transfers continue
-under their recorded payment mode. Real coin redemption remains disabled until
-live activation and its separate acceptance contract are complete.
+New Hussh Coins-settled document orders earn without bank setup. Legacy direct
+transfers continue under their recorded payment mode.
+
+UAT runs live Checkout (`STRIPE_UAT_MODE=live`), live Connect
+(`STRIPE_CONNECT_UAT_MODE=live`) and live cash-out
+(`DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED=true`). Profile → Payouts links a real
+bank and cashes out real coins. The sandbox balance appears only while Connect
+runs in test mode, and it never spends real coins.
+
+To stop cash-out, set `DRIVE_REQUEST_HASHCOINS_LIVE_UAT_ENABLED=false` and run the
+governed UAT release, which redeploys the API and Drive worker. New withdrawals
+stop and reserved ones wait; accepted transfers and refund reversals keep
+reconciling. This is the only rollback. Never switch Connect back to test while
+live redemptions exist: the worker reconciles only the current Connect mode, so
+live transfers and refunds would go unreconciled. The deploy check refuses test
+Checkout with live Connect.
 
 `STRIPE_MODE` and `STRIPE_SECRET_KEY` continue to own Checkout, refunds and actual
 fee retrieval. `STRIPE_CONNECT_MODE` and `STRIPE_CONNECT_SECRET_KEY` independently
-select the document bank setup and sandbox redemption client. UAT uses live
-Checkout and test Connect. Never set the payment key to test to enable sandbox
-bank linking. Account mappings remain isolated by `(user_id,stripe_mode)`.
+select the document bank setup and redemption client. Never set the payment key
+to test to enable sandbox bank linking. Account mappings remain isolated by
+`(user_id,stripe_mode)`.
+
+While the answers lane is off, answer payout setup refuses a Stripe mode that
+differs from Connect. Before enabling answers in UAT, set
+`PKM_ANSWER_STRIPE_UAT_MODE=live` so they share the owner's live Connect account.
 
 The existing `/api/one/payouts/connect/webhook` and signing secret retain legacy
 payment-mode event handling. `/api/one/payouts/connect/sandbox-webhook` accepts
 only test events verified with `STRIPE_CONNECT_TEST_WEBHOOK_SECRET`. Live/test
 account identifiers, signatures and payment sources cannot cross this boundary.
-Both API and Drive worker receive the sandbox key for durable redemption retry.
+Both API and Drive worker receive the Connect key for durable redemption retry.
+
+### Live Dashboard settings
+
+Cash-out depends on these live Stripe settings. Record any change here.
+
+- **Connect → Payouts → External accounts:** bank accounts only, with debit cards
+  off. The app recognizes only a default US bank account, so a card default
+  blocks cash-out. Whether owners may keep several banks is set by **Collect
+  multiple external accounts per currency** (see Bank management).
+- **Settings → Payment methods** for document Checkout: card-based methods only
+  (cards, Apple Pay, Google Pay, Link with a card). Checkout offers the methods
+  enabled there, and cash-out can only draw on earnings paid through a card
+  charge (`ch_`). Coins from any other method cannot be cashed out.
 
 ## UAT and production setup
 

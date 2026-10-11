@@ -44,6 +44,7 @@ from .people import public_router as public_people_router
 from .people import router as people_router
 from .pkm_packets import router as pkm_packets_router
 from .places import router as places_router
+from .profile_research import router as profile_research_router
 from .referrals import router as referrals_router
 from .retired_voice import router as retired_voice_router
 from .runtime import router as runtime_router
@@ -73,6 +74,7 @@ router.include_router(gmail_information_requests_router)
 router.include_router(google_router)
 router.include_router(feed_router)
 router.include_router(first_connect_insights_router)
+router.include_router(profile_research_router)
 router.include_router(models_router)
 router.include_router(agent_feedback_router)
 router.include_router(business_suggestions_router)

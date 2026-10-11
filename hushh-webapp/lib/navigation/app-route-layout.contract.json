@@ -28,7 +28,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Chat actions complete only after the correlated browser or capability settlement succeeds.",
+      "completionBoundary": "Chat actions complete only after the correlated browser or capability settlement succeeds. The onboarding public-profile card stays a draft until the owner confirms the exact memory preview; Edit and Review unwind locally on Back.",
       "nextRoute": "/",
       "returnPolicy": "resolve_root",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."

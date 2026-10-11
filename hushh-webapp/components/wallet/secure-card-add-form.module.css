@@ -42,10 +42,10 @@
 @container wallet-form (min-width: 460px) { .row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (min-width: 640px) { .form { padding: 28px; } }
 
-/* Retained for the standalone scanner; Add Card no longer mounts it. */
+/* Scan into a reviewable draft above the manual fields. */
 .scanner { display: flex; flex-direction: column; gap: 10px; }
-.scanActions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.scanActions button { padding-inline: 8px; }
+.scanActions { display: flex; justify-content: flex-end; }
+.scanActions .scanAction { background: transparent !important; box-shadow: none !important; border-color: transparent; font-size: 13px; }
 .scanHint,.scanProgress { font-size: 13px; line-height: 1.5; color: var(--muted-foreground); }
 .scanProgress { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 

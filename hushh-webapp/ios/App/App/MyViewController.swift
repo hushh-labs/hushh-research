@@ -86,6 +86,8 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
     private var nativeTestPollInFlight = false
     private var launchCover: UIView?
     private var launchCoverObservation: NSKeyValueObservation?
+    private var safeAreaObservation: NSKeyValueObservation?
+    private var lastPublishedSafeAreaTop: CGFloat?
     private static let launchCoverSafetyTimeout: TimeInterval = 4
     private static let launchCoverFadeDuration: TimeInterval = 0.12
 
@@ -95,8 +97,25 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        publishSafeAreaTop()
         (bridge?.plugin(withName: "HushhNativeNavigation") as? HushhNativeNavigationPlugin)?.layoutTabBar()
         (bridge?.plugin(withName: "HushhNativeChrome") as? HushhNativeChromePlugin)?.layoutControls()
+    }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        publishSafeAreaTop()
+    }
+
+    /// Presentation geometry only. UIKit remains authoritative when WebKit's
+    /// CSS env inset is temporarily zero during navigation or keyboard changes.
+    private func publishSafeAreaTop() {
+        guard isViewLoaded, let webView = webView, view.window != nil else { return }
+        let webTop = webView.convert(webView.bounds, to: view).minY
+        let inset = max(0, view.safeAreaInsets.top - webTop)
+        guard inset.isFinite, inset != lastPublishedSafeAreaTop else { return }
+        lastPublishedSafeAreaTop = inset
+        webView.evaluateJavaScript("document.documentElement.style.setProperty('--app-native-safe-area-top', '\(Double(inset))px')", completionHandler: nil)
     }
 
     deinit {
@@ -110,6 +129,13 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
 
         if let webView = self.webView {
             installLaunchCover(over: webView)
+            safeAreaObservation = webView.observe(\.isLoading, options: [.new]) { [weak self] webView, _ in
+                guard !webView.isLoading else { return }
+                DispatchQueue.main.async {
+                    self?.lastPublishedSafeAreaTop = nil
+                    self?.publishSafeAreaTop()
+                }
+            }
         }
 
         // A fresh process starts unshielded. After an inactive transition this

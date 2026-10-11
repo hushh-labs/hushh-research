@@ -51,7 +51,7 @@ env:
   BACKEND_SERVICE: consent-protocol
   RUNTIME_SERVICE_ACCOUNT: consent-protocol-runtime@hushh-pda-dev.iam.gserviceaccount.com
   FRONTEND_SERVICE: hushh-webapp
-  APP_FRONTEND_ORIGIN: https://dev.one.hushh.ai
+  APP_FRONTEND_ORIGIN: https://dev.one.hussh.ai
   DEV_CLOUDSQL_INSTANCE: hushh-pda-dev:us-central1:hushh-dev-pg
   DEV_DB_UNIX_SOCKET: /cloudsql/hushh-pda-dev:us-central1:hushh-dev-pg
   # One Email KYC runs in dev via topic fanout: dev consumes the SAME UAT

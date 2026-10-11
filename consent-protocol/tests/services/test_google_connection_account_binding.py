@@ -198,6 +198,42 @@ async def test_complete_read_and_manage_permissions_remain_supported(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_full_calendar_grant_preserves_management_capability(monkeypatch):
+    db = _Db()
+    service = _service(monkeypatch, db)
+    await _store(
+        service,
+        level="manage",
+        token={
+            "access_token": "synthetic-access",
+            "refresh_token": "synthetic-refresh",
+            "scope": "https://www.googleapis.com/auth/calendar",
+        },
+    )
+    grant = next(params for sql, params in db.calls if "INSERT INTO google_service_grants" in sql)
+    assert grant["access_level"] == "manage"
+
+
+@pytest.mark.asyncio
+async def test_management_request_cannot_silently_finish_with_read_only_consent(monkeypatch):
+    db = _Db()
+    service = _service(monkeypatch, db)
+    with pytest.raises(GoogleConnectionError) as error:
+        await _store(
+            service,
+            level="manage",
+            token={
+                "access_token": "synthetic-access",
+                "refresh_token": "synthetic-refresh",
+                "scope": "https://www.googleapis.com/auth/calendar.readonly",
+            },
+        )
+    assert error.value.status_code == 403
+    assert error.value.reason_code == "google_permission_required"
+    assert not any("INSERT" in sql for sql, _ in db.calls)
+
+
+@pytest.mark.asyncio
 async def test_declined_service_scopes_do_not_create_connection_or_grant(monkeypatch):
     db = _Db()
     service = _service(monkeypatch, db)

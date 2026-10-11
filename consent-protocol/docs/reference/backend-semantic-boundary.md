@@ -198,6 +198,61 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
 - Live eval before promotion: none yet. Mocked contract tests only; extraction
   quality on real mailboxes and calendars is unmeasured.
 
+### Declared: Magic Intelligence
+
+- Owning agent: `agent_one`, bounded task `one_profile_research`; its existing
+  `google_search` child supplies public evidence. No new top-level router.
+  Magic Intelligence researches the owner's public personal profile after
+  onboarding; business information is optional.
+- Manifest path: `consent-protocol/hushh_mcp/agents/one/agent.yaml`.
+- Structured output: `ProfileReport` in `hushh_mcp/one_adk/profile_research.py`;
+  match status, name, concise summary, up to four sections and eight facts per
+  section, each with confidence and HTTPS source links.
+- Search strategy: the authored task starts with the public name, using an
+  organizational email domain only as a hint. It keeps full email/phone as
+  private matching context, without requiring a public contact match. At most
+  one broader name-only follow-up fits the existing five-call/30-second budget.
+  Search calls run sequentially so each attempt carries only its own receipts;
+  the host rejects parallel tool calls and more than two Search attempts.
+  The tool result exposes whether Search execution was observed; a refusal
+  cannot be treated as proof that a profile does not exist.
+- Validator rejects unknown fields, duplicate sections, unsupported URLs and
+  incoherent no-match results. Every cited URL must have a Search grounding
+  receipt. A no-match report also needs Search execution evidence; an offline
+  answer or refusal is unavailable, not proof of absence. Empty results show
+  an explanation and Skip, without preparing memory. Failed research can retry.
+  Host policy does not rewrite facts or choose their meaning.
+- Admission: current first-party owner/chat key, completed account setup,
+  fresh Firebase identity plus the canonical onboarding name when Firebase's
+  name is absent, verified contact identifiers, bounded owner checks and
+  `ONE_PROFILE_RESEARCH_ENABLED` (default off). Drafts use turn-local storage,
+  private no-store responses and a session-only chat card; they bypass transcript
+  persistence and automatic memory capture.
+- Independence: personal research has its own flag and generic owner/setup
+  admission and private-response utilities. It never requires Business
+  Intelligence, a company record, or company ownership. Career, education and
+  public personal findings can form a complete card; business is optional.
+- Wire boundary: `POST /api/one/profile-research` takes no identity body;
+  owner identity is selected at ingress. It returns `status`, `pkm_written:false`
+  and, when offered, `report` plus bounded Google Search suggestions. The
+  platform-aware One API transport supports both web and native callers.
+  Three requests/hour and a 40-second deadline bound background work. No
+  provider error text is returned.
+- Saving: checked/edited statements go through the existing semantic PKM
+  preview. Only final confirmation writes ciphertext. Reconciliation includes
+  relevant existing personal and business entities. A known business keeps its
+  pinned UID, including retargeted scopes; the writer rechecks current origin
+  on conflict retries. Stable review scopes use owner-bound commit receipts to
+  recover lost responses. New public business facts can be kept through this
+  same review; they do not mint directory provenance or assert verified
+  ownership. Sharing changes require acknowledgement.
+- Licensed use: the operator confirmed the Google agreement permits these
+  owner-reviewed research findings to be saved in PKM.
+- Live eval before promotion: synthetic installed-ADK and host boundary tests
+  only. Before enabling the flag, evaluate owner-consented public profiles,
+  common-name/no-match/conflicting evidence, citation attribution, and exact
+  web/native review/save flows. No live quality or device proof is claimed.
+
 ### Declared: explicit memory save from chat
 
 - Owning agents: `agent_one` decides that the person asked to save (tool `add_to_pkm`,
