@@ -57,8 +57,14 @@ describe("lost vault deletion", () => {
     mocks.options.mockResolvedValue({ phone_available: false, phone_hint: null, providers: ["google.com"] });
     render(<LostVaultDeletePanel user={user} onBack={vi.fn()} />);
 
+    expect(await screen.findByRole("heading", { name: "Verify it’s you" })).toBeVisible();
+    expect(screen.getByText("Sign in again to continue.")).toBeVisible();
+    expect(screen.getByText(/This permanently deletes your account/)).toBeVisible();
     fireEvent.click(await screen.findByRole("button", { name: "Continue with Google" }));
     await screen.findByRole("button", { name: "Permanently delete account" });
+    expect(screen.getByRole("heading", { name: "Delete account" })).toBeVisible();
+    expect(screen.getByRole("checkbox", { name: "I understand this can’t be undone." })).toBeVisible();
+    expect(screen.queryByText(/Your vault, memories, chats/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Permanently delete account" })).toBeDisabled();
     expect(mocks.deleteAccount).not.toHaveBeenCalled();
 
