@@ -34,7 +34,7 @@ on the new origin after correcting the standalone relay's certificate trust setu
 ## Main readiness — October 11
 
 **Hold the application merge and BYOC rollout.** The integrated candidate freezes
-main `f690840323e35`, retains the reviewed ADK presentation delta `5c86617f2c`
+main `f74922bf20005`, retains the reviewed ADK presentation delta `5c86617f2c`
 and preserves active worktrees. [PR 7555](https://github.com/hushh-labs/hushh-research/pull/7555)
 requires review and exact combined-SHA validation. Prior
 [23-check validation](https://github.com/hushh-labs/hushh-research/actions/runs/38132031368)
@@ -58,12 +58,21 @@ stale helper-location assertion was corrected by the concurrent session and
 its canonical integration stage passed on replay. Original failed receipts are
 retained. Exact-SHA hosted validation remains the final source gate.
 
-Main owns migration 306 for business-profile completion. The six unapplied pod
-migrations move from 306–311 to 307–312 in original order, with rollback, fixture
+The later main `f690840323e3` delta passes 531 backend cases and all 438 Back
+cases across the original run and the isolated Location rerun. The frozen
+`f74922bf20005` delta passes 317 backend cases and 82 frontend cases; four
+deployment-fixture failures are retained separately and corrected to exercise
+the actual packed parser and its validation. Generated UI checks pass. The
+real Chromium Back/Forward case passes, and removing its direction guard fails
+the same case. These are affected-surface receipts, not a replacement claim of
+complete hosted CI.
+
+Main owns migration 306 for Business, 313 for Feed and 314 for Magic completion.
+The six unapplied pod migrations occupy 315–320 in original order, with rollback, fixture
 and schema references reconciled. Read-only ADC filename-ledger checks found none
 recorded in dev or UAT; production has no migration ledger, which is recorded as
 an evidence limit. Existing applied and parked migration checksums are unchanged.
-Incoming Feed migration 313 is appended without changing 306–312; schema head is 313. Request intake now defaults open, while payments/composition and exact scope approval remain separately gated. Destructive history migration 249 remains deferred.
+Schema head is 320. Frozen historical SQL and manifests remain archived; no applied receipt is renamed. Request intake defaults open, while payments/composition and exact scope approval remain separately gated. Research preserves the Shared content gate; completion verifies only authenticated owner-bound receipts. Destructive history migration 249 remains deferred.
 
 No main merge, UAT/production deployment, stable publication or owner installation
 was performed in this readiness pass. Source readiness does not clear the live
@@ -81,7 +90,7 @@ gates above.
 | Personal Azure pod | Exact Settings-approved Dev 15 digest `cdcf8dc27204c1386fa5cec076df81c7ffded8fbb953c8f5345faa510ed24839`; revision `uda1b8418f88e`, verified at 06:28:58 UTC on October 11 | Operation `op_00cc5a864dd045c095fa998339d5073d` completed once. Identity, scale, ingress and secret-reference hashes match the predecessor; environment values are unchanged. Same service, min 0/max 1, 0.5 vCPU/1 GiB, HTTP threshold 8 and queue scaler retained. Settings shows the verified installed version; no resize. Active-work drain is not proved. |
 | Update repair | Null scaler normalization and durable pre-dispatch replacement intent are source-backed; bounded legacy continuation requires exact owner/operation/resource/readback evidence | The original pre-replacement failure remains recorded. Normal owner Microsoft continuation completed the same operation; no lease reset, duplicate approval or reinstallation. Dev 13 is published but not installed and is not qualified for this predecessor. |
 | Files interface | Correction verified atop `c3fc60c2cb`: shared Files top bar and reading-width explorer; inline rename, hierarchical Back, secondary Activity/settings, observed retention and requested usage | Local source only: 38 focused frontend cases pass, including dialog closure on vault lock, safe failure feedback and retained transfer recovery hints; 28 Files route/job cases pass across two focused runs, including authority/integrity refusal after upload. TypeScript/lint and architecture ratchet pass. Actual components/CSS at 390/768/1440 px: 0 px list/search gutter mismatch or refresh shift, no overflow, p95 frames 9 ms, zero frames over 50 ms. Synthetic layout ports do not prove cloud behavior. The Files correction commit `3a443` is contained in serving source `1d88a25b7e47`; deployed responsive readback remains separate from the local measurements. |
-| Migration lineage | Canonical 249/289–298 preserved; pending enrollment 299, commerce 300, Shared choice 301, profile bridge 302, placement-reader foundation 303 and evidenced legacy Shared continuity 304 | Read-only dev ledger has no canonical 290–304 entries; recorded parked checksums match. Pending files were renumbered without changing applied history. Destructive 249 remains deferred; no production migration is claimed. |
+| Migration lineage | Canonical 249/289–298 preserved; pending enrollment 315, commerce 316, Shared choice 317, profile bridge 318, placement-reader foundation 319 and evidenced legacy Shared continuity 320 | Read-only dev/UAT ledger has no accepted pending private suffix entries; recorded parked checksums match. Pending files were renumbered without changing applied history. Destructive 249 remains deferred; no production migration is claimed. |
 | Retained resources | Personal GCP pod matches the current Azure owner's explicit detached-placement snapshot; inspected personal/reviewer pods remain claimed. Apparent unused image leaves are OCI index dependencies | No confirmed owner orphan was found. Report-only source correction preserves detached/standby/erasure claims and holds incomplete migration evidence; 106 nearest cases pass and the original-code negative control fails. No owner pod or image was deleted. Other environments and unavailable projects remain unverified. |
 
 ## Acceptance matrix
@@ -131,7 +140,7 @@ The [governed architecture baseline](./architecture-fitness-baseline.json) recor
 inherited debt, exact occurrence-ranked spans, parent revisions, reviewer reasons
 and source hashes. Historical synchronization and extraction receipts remain
 there and in Git history. The earlier `b80` integration admitted nine reviewed
-slots. Frozen main `f690840323e35` adds 34 independently reviewed slots
+slots. Frozen main `f690840323e3` adds 34 independently reviewed slots
 (18 backend, 16 frontend): Feed/payout authority and cache races, SMS identity,
 historical replay repair, presentation boundaries and the extracted Back graph.
 Existing scheduler identity and checksum guards survive the merge. The real
@@ -139,6 +148,14 @@ Chromium check proves Back correction and native Forward preservation; the
 stream proxy preserves downstream cancellation and upstream cleanup.
 Budgets (500/250/80), scanner, exclusions and unrelated
 allowances are unchanged. Baseline acceptance is not deployment acceptance.
+
+Frozen main `f74922bf20005` adds eleven exact independently reviewed slots for
+Magic completion, cohort gating and runtime configuration. One restores the
+identical 777-line PostgreSQL fixture ceiling already reviewed on `7e30e828`;
+the remainder pin inherited or composed source hashes. Research keeps the
+Shared content guard; completion reconciles authenticated owner receipts for
+both Shared and BYOC without accepting profile contents. An erroneous Shared-only
+completion dependency is rejected by the owning negative control.
 
 The subsequent main `86b5d11f` integration reviews eleven exact finding slots
 under `main_intake_and_migration_collision_20261011`: inherited owner-profile
@@ -183,7 +200,7 @@ The former branch-only profile bridge was pending canonical 302 in that historic
 deferred in shared-dev pending separate cutover evidence. Current acceptance belongs to the
 matrix above; Git history retains the chronology.
 
-The final main-readiness integration freezes main `f690840323e35` and carries
+The final main-readiness integration freezes main `f74922bf20005` and carries
 the 13-path ADK retained-dock delta `5c86617f2c`, preserving private Puppy,
 voice readiness and ongoing ADK edits. Incoming request intake remains independent
 of payment admission; composition retains both private-content and paid-lane

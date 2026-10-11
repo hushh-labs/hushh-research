@@ -1136,6 +1136,9 @@ tests/test_scheduled_mail_drain_routes.py
 tests/test_scheduled_mail_scheduler_contract.py
 tests/test_business_suggestions.py
 tests/test_one_profile_research.py
+tests/test_magic_intelligence_admission.py
+tests/test_magic_intelligence_completion.py
+tests/test_insurance_agents_runtime_config_wiring.py
 tests/test_hushh_adk_turn.py
 tests/test_business_runtime_reliability.py
 tests/test_consent_listener_asyncio.py

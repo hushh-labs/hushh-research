@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 313,
+  "expected_migration_version": 320,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -77,11 +77,11 @@
     "remove_wallet_card_registrations",
     "guard_wallet_card_access_grant",
     "notify_pkm_answer_changed",
+    "notify_feed_changed",
     "scope_commerce_immutable",
     "scope_commerce_balanced",
     "scope_commerce_posting_admission",
-    "scope_commerce_queue_continuous_refresh_v1",
-    "notify_feed_changed"
+    "scope_commerce_queue_continuous_refresh_v1"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -3247,6 +3247,7 @@
       "one_runtime_setup_choice",
       "one_chat_onboarding",
       "one_business_profile_saved",
+      "one_magic_intelligence_saved",
       "onboarding_journey_version",
       "onboarding_phase",
       "onboarding_active_capability",
@@ -3255,7 +3256,10 @@
       "onboarding_callback_attempt_id",
       "onboarding_journey_updated_at",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "one_hosting_choice",
+      "one_hosting_choice_at",
+      "one_hosting_legacy_shared_at"
     ],
     "wallet_card_access_audit": [
       "id",

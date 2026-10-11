@@ -58,13 +58,16 @@ export function BusinessProfileSuggestion(props: Props) {
       return next;
     });
   }, []);
-  const visible = visibleIds.size > 0;
+  const { ownerId, vaultKey, vaultOwnerToken, enabled, tokenExpiresAt } = props;
+  const currentDiscovery = enabled && !!ownerId && !!vaultKey && !!vaultOwnerToken &&
+    tokenExpiresAt !== null && Date.now() < tokenExpiresAt && completedOwner !== ownerId &&
+    discovery?.ownerId === ownerId && discovery.token === vaultOwnerToken && discovery.key === vaultKey;
+  const visible = currentDiscovery && visibleIds.size > 0;
   const { onVisibleChange } = props;
   useEffect(() => {
     onVisibleChange?.(visible);
     return () => onVisibleChange?.(false);
   }, [onVisibleChange, visible]);
-  const { ownerId, vaultKey, vaultOwnerToken, enabled, tokenExpiresAt } = props;
   useEffect(() => {
     const abort = new AbortController();
     setDiscovery(null);
@@ -83,9 +86,7 @@ export function BusinessProfileSuggestion(props: Props) {
     })();
     return () => abort.abort();
   }, [ownerId, vaultKey, vaultOwnerToken, enabled, tokenExpiresAt]);
-  if (!enabled || !ownerId || !vaultKey || !vaultOwnerToken || tokenExpiresAt === null || Date.now() >= tokenExpiresAt ||
-    completedOwner === ownerId ||
-    discovery?.ownerId !== ownerId || discovery.token !== vaultOwnerToken || discovery.key !== vaultKey) return null;
+  if (!currentDiscovery) return null;
   const candidates = discovery.candidates.filter(candidate => candidate.synthetic === false &&
     candidate.sourceIdentity.source === "directory" && !isDemoBusinessSource(candidate.sourceIdentity.sourceKey) &&
     !props.dismissedBusinessUids?.has(candidate.businessUid));

@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2402,
+  "finding_count": 2404,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -4550,7 +4550,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/business_suggestion_service.py",
       "symbol": "get_business_suggestion",
-      "value": 84
+      "value": 98
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -12749,7 +12749,7 @@
       "limit": 80,
       "path": "scripts/ops/sync_backend_runtime_secrets.py",
       "symbol": "_build_backend_runtime_config",
-      "value": 86
+      "value": 95
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -12758,7 +12758,7 @@
       "limit": 80,
       "path": "scripts/ops/sync_backend_runtime_secrets.py",
       "symbol": "main",
-      "value": 244
+      "value": 251
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -14207,7 +14207,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/runtime_settings.py",
       "symbol": null,
-      "value": 1259
+      "value": 1275
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16565,7 +16565,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_pkm_answer_requests_postgres.py",
       "symbol": null,
-      "value": 760
+      "value": 777
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16682,7 +16682,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_business_suggestions.py",
       "symbol": null,
-      "value": 700
+      "value": 819
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17285,7 +17285,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_one_profile_research.py",
       "symbol": null,
-      "value": 747
+      "value": 935
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18221,7 +18221,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/profile-research-card.test.tsx",
       "symbol": null,
-      "value": 701
+      "value": 979
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21578,7 +21578,7 @@
       "limit": 500,
       "path": "scripts/ops/sync_backend_runtime_secrets.py",
       "symbol": null,
-      "value": 687
+      "value": 703
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21625,6 +21625,24 @@
       "path": "consent-protocol/tests/services/test_pkm_answer_requests_postgres.py",
       "symbol": "test_two_accounts_ask_approve_pay_answer_and_fetch",
       "value": 82
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_magic_intelligence_completion.py|test_isolated_postgres_receipt_authority_and_forward_rollback|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_magic_intelligence_completion.py",
+      "symbol": "test_isolated_postgres_receipt_authority_and_forward_rollback",
+      "value": 143
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/profile_research_service.py|offer_profile_research|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/profile_research_service.py",
+      "symbol": "offer_profile_research",
+      "value": 81
     }
   ],
   "inspected_files": 6625,
@@ -32349,6 +32367,106 @@
         "sync_client_review"
       ],
       "source_revision": "6476c9c746f0af80dac62d98ea8b22dad0dbb664"
+    },
+    "main_f749_magic_completion_20261011": {
+      "parent_revision": "4a82bab098a8d6f181d6fb8d47f87cc33ad84775",
+      "main_revision": "f74922bf20005eb7df77f74cacc17fac74ebd08f",
+      "reviewed_at": "2026-10-11",
+      "reviewers": [
+        "adk_authority_review",
+        "main_ui_fitness_review"
+      ],
+      "evidence": "docs/reference/quality/adk-orchestration-docs-audit.md#reviewed-integration-debt",
+      "slots": [
+        {
+          "key": "function_size|scripts/ops/sync_backend_runtime_secrets.py|main|function exceeds the advisory gene budget",
+          "path": "scripts/ops/sync_backend_runtime_secrets.py",
+          "before": 244,
+          "after": 251,
+          "source_sha256": "c2c9a0663ad8cfddfb9bf437e405a12ff6a3de7087496ad292f02561801f461e",
+          "reason": "Inherited frozen main Magic completion/cohort authority and exact owner receipt coverage; independently reviewed with the existing content-placement guard retained."
+        },
+        {
+          "key": "function_size|consent-protocol/tests/test_magic_intelligence_completion.py|test_isolated_postgres_receipt_authority_and_forward_rollback|function exceeds the advisory gene budget",
+          "path": "consent-protocol/tests/test_magic_intelligence_completion.py",
+          "before": null,
+          "after": 143,
+          "source_sha256": "2eb5480f06d3f8d8a74b869e2c30b9c5a5782c748cb4d8158467e852221a6480",
+          "reason": "Inherited frozen main Magic completion/cohort authority and exact owner receipt coverage; independently reviewed with the existing content-placement guard retained."
+        },
+        {
+          "key": "function_size|consent-protocol/hushh_mcp/services/business_suggestion_service.py|get_business_suggestion|function exceeds the advisory gene budget",
+          "path": "consent-protocol/hushh_mcp/services/business_suggestion_service.py",
+          "before": 84,
+          "after": 98,
+          "source_sha256": "a83b797d929b52a20c6ada09dceed9ee71b113dfc8c6ac00ab3058b6fe95ce30",
+          "reason": "Inherited frozen main Magic completion/cohort authority and exact owner receipt coverage; independently reviewed with the existing content-placement guard retained."
+        },
+        {
+          "key": "function_size|scripts/ops/sync_backend_runtime_secrets.py|_build_backend_runtime_config|function exceeds the advisory gene budget",
+          "path": "scripts/ops/sync_backend_runtime_secrets.py",
+          "before": 86,
+          "after": 95,
+          "source_sha256": "c2c9a0663ad8cfddfb9bf437e405a12ff6a3de7087496ad292f02561801f461e",
+          "reason": "Inherited frozen main Magic completion/cohort authority and exact owner receipt coverage; independently reviewed with the existing content-placement guard retained."
+        },
+        {
+          "key": "function_size|consent-protocol/hushh_mcp/services/profile_research_service.py|offer_profile_research|function exceeds the advisory gene budget",
+          "path": "consent-protocol/hushh_mcp/services/profile_research_service.py",
+          "before": null,
+          "after": 81,
+          "source_sha256": "29b84919b0a171f28f343e2f3c766fed04bed50c9f10bfc4dd1dbc360478e558",
+          "reason": "Inherited frozen main Magic completion/cohort authority and exact owner receipt coverage; independently reviewed with the existing content-placement guard retained."
+        },
+        {
+          "key": "module_size|consent-protocol/hushh_mcp/runtime_settings.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/hushh_mcp/runtime_settings.py",
+          "before": 1259,
+          "after": 1275,
+          "source_sha256": "ee293562a8c441898af321d5532699596df3239aaf70fa2a92fe44d0b74c5534",
+          "reason": "Inherited frozen main Magic completion/cohort authority and exact owner receipt coverage; independently reviewed with the existing content-placement guard retained."
+        },
+        {
+          "key": "module_size|hushh-webapp/__tests__/components/profile-research-card.test.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/__tests__/components/profile-research-card.test.tsx",
+          "before": 701,
+          "after": 979,
+          "source_sha256": "de2e9c151783032b7eabd349ab593dba6598bb97f5ec6d4f5cbfdd0446325903",
+          "reason": "Inherited frozen main Magic completion/cohort authority and exact owner receipt coverage; independently reviewed with the existing content-placement guard retained."
+        },
+        {
+          "key": "module_size|consent-protocol/tests/test_one_profile_research.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/test_one_profile_research.py",
+          "before": 747,
+          "after": 935,
+          "source_sha256": "90a28c12bc2303efd2d91c7b60d56608cafd2e7babda379aa1d74dbcfa21d005",
+          "reason": "Inherited frozen main Magic completion/cohort authority and exact owner receipt coverage; independently reviewed with the existing content-placement guard retained."
+        },
+        {
+          "key": "module_size|consent-protocol/tests/test_business_suggestions.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/test_business_suggestions.py",
+          "before": 700,
+          "after": 819,
+          "source_sha256": "db0a1a299576b893ae5fb269de8eee43df9823bf4232c5ceb55feef769d69f7b",
+          "reason": "Inherited frozen main Magic completion/cohort authority and exact owner receipt coverage; independently reviewed with the existing content-placement guard retained."
+        },
+        {
+          "key": "module_size|consent-protocol/tests/services/test_pkm_answer_requests_postgres.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/services/test_pkm_answer_requests_postgres.py",
+          "before": 760,
+          "after": 777,
+          "source_sha256": "ed95c04a33854ef240567d844b9f53fb49d41c8d3a6e67f39bb31723f0fbd39d",
+          "reason": "Restore the identical previously reviewed root 7e30 ceiling after baseline composition; source SHA256 unchanged."
+        },
+        {
+          "key": "module_size|scripts/ops/sync_backend_runtime_secrets.py||module exceeds the advisory operon budget",
+          "path": "scripts/ops/sync_backend_runtime_secrets.py",
+          "before": 687,
+          "after": 703,
+          "source_sha256": "c2c9a0663ad8cfddfb9bf437e405a12ff6a3de7087496ad292f02561801f461e",
+          "reason": "Inherited frozen main Magic completion/cohort authority and exact owner receipt coverage; independently reviewed with the existing content-placement guard retained."
+        }
+      ]
     }
   },
   "status": "advisory"

@@ -278,13 +278,14 @@
     "304_connect_bank_payout_reconciliation.sql",
     "305_pkm_answer_payment_recovery.sql",
     "306_one_business_profile_saved.sql",
+    "313_feed_realtime_changes.sql",
+    "314_one_magic_intelligence_saved.sql",
     "315_vault_environment_enrollment.sql",
     "316_consumer_scope_commerce.sql",
     "317_one_shared_hosting_choice.sql",
     "318_public_profile_bridge.sql",
     "319_one_placement_reader_foundation.sql",
-    "320_one_legacy_shared_continuity.sql",
-    "313_feed_realtime_changes.sql"
+    "320_one_legacy_shared_continuity.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -596,6 +597,7 @@
     "319_one_placement_reader_foundation.sql": "rollback/319_one_placement_reader_foundation.rollback.sql",
     "320_one_legacy_shared_continuity.sql": "rollback/320_one_legacy_shared_continuity.rollback.sql",
     "306_one_business_profile_saved.sql": "rollback/306_one_business_profile_saved.rollback.sql",
-    "313_feed_realtime_changes.sql": "rollback/313_feed_realtime_changes.rollback.sql"
+    "313_feed_realtime_changes.sql": "rollback/313_feed_realtime_changes.rollback.sql",
+    "314_one_magic_intelligence_saved.sql": "rollback/314_one_magic_intelligence_saved.rollback.sql"
   }
 }

@@ -287,8 +287,12 @@ def test_independent_answer_intake_reaches_the_extracted_deploy(value: str) -> N
     defaults = {**config["substitutions"], "_PKM_ANSWER_REQUESTS_ENABLED": value}
     rendered = re.sub(r"\$\{(_[A-Z0-9_]+)\}", lambda m: defaults[m[1]], packed)
     script = (REPO_ROOT / "scripts/deploy/backend-deploy.sh").read_text()
-    start = script.index("IFS=',' read -r -a _drive_work_pairs")
+    start = script.index('_PKM_ANSWER_REQUESTS_ENABLED=""')
     parser = script[start : script.index("# Every added control", start)]
+    validation_start = script.index('case "${_PKM_ANSWER_REQUESTS_ENABLED:-}" in', start)
+    # Exercise the actual answer-intake validation without invoking cloud operations
+    # or unrelated payment-secret checks from the deployment script.
+    parser += script[validation_start : script.index("esac", validation_start) + 4]
     result = subprocess.run(  # noqa: S603 - fixed repository parser; provider calls excluded
         ["bash", "-c", parser + "\n" + 'printf "%s" "${_PKM_ANSWER_REQUESTS_ENABLED}"'],
         env={**os.environ, "_DRIVE_WORK_DRAIN_SETTINGS": rendered.split("=", 1)[1]},
@@ -303,6 +307,6 @@ def test_independent_answer_intake_reaches_the_extracted_deploy(value: str) -> N
         assert result.returncode == 0, result.stderr
         assert result.stdout == value
     assert (
-        'append_optional_env "PKM_ANSWER_REQUESTS_ENABLED" "${_PKM_ANSWER_REQUESTS_ENABLED}"'
+        'append_optional_env "PKM_ANSWER_REQUESTS_ENABLED" "${_PKM_ANSWER_REQUESTS_ENABLED:-}"'
         in script
     )

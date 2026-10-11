@@ -37,6 +37,7 @@ const deferred = <T,>() => { let resolve!: (value: T) => void; const promise = n
 beforeEach(() => {
   vi.clearAllMocks(); publishValidatedAuthSessionOwner("owner");
   useOneConversationSession.getState().clearSession();
+  mocks.research.mockResolvedValue({ status: "disabled", pkm_written: false });
   mocks.get.mockResolvedValue({ candidates: [candidate] }); mocks.load.mockResolvedValue(null);
   mocks.prepare.mockResolvedValue({ cards, incomplete: false, alreadySaved: false });
   mocks.save.mockResolvedValue({ saved: 1, remaining: 0 }); mocks.decide.mockResolvedValue(true);
