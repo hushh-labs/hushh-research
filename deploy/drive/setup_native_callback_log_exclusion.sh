@@ -4,12 +4,13 @@ set -euo pipefail
 # Native Google callbacks use GET query parameters for OAuth codes, signed
 # state and Picker file IDs. Cloud Run ingress logs request URLs before the
 # application can redact them, so retain structured app outcome telemetry but
-# drop only those two fixed request-log paths at the UAT project boundary.
+# drop only the fixed native and web callback paths at their project boundary.
 #
-# This helper is intentionally UAT-only and idempotent. It never changes a
+# This helper is limited to UAT and production and is idempotent. It never changes a
 # sink, IAM policy, service, feature flag, or a customer connection.
 
 readonly UAT_PROJECT_ID="hushh-pda-uat"
+readonly PROD_PROJECT_ID="hushh-pda"
 readonly UAT_BACKEND_SERVICE="consent-protocol"
 readonly UAT_EXCLUSION_NAME="drive-native-callback-query-material"
 
@@ -17,8 +18,15 @@ PROJECT_ID="${PROJECT_ID:-${UAT_PROJECT_ID}}"
 BACKEND_SERVICE="${BACKEND_SERVICE:-${UAT_BACKEND_SERVICE}}"
 EXCLUSION_NAME="${EXCLUSION_NAME:-${UAT_EXCLUSION_NAME}}"
 
-if [[ "${PROJECT_ID}" != "${UAT_PROJECT_ID}" ]]; then
-  echo "This callback log guard is limited to ${UAT_PROJECT_ID}" >&2
+if [[ "${PROJECT_ID}" != "${UAT_PROJECT_ID}" && "${PROJECT_ID}" != "${PROD_PROJECT_ID}" ]]; then
+  echo "This callback log guard is limited to ${UAT_PROJECT_ID} and ${PROD_PROJECT_ID}" >&2
+  exit 1
+fi
+VERIFY_ONLY=false
+if [[ "${1:-}" == "--verify-only" && "$#" == 1 ]]; then
+  VERIFY_ONLY=true
+elif [[ "$#" != 0 ]]; then
+  echo "Usage: setup_native_callback_log_exclusion.sh [--verify-only]" >&2
   exit 1
 fi
 if [[ "${BACKEND_SERVICE}" != "${UAT_BACKEND_SERVICE}" ]]; then
@@ -39,10 +47,10 @@ if ! command -v curl >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; th
 fi
 
 # No wildcard service or generic OAuth matching: only Cloud Run ingress
-# request logs for the two server-owned callbacks are excluded. Application
+# request logs for the three server-owned callbacks are excluded. Application
 # request.summary logs retain their safe route-template/outcome telemetry.
-LOG_FILTER="resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${BACKEND_SERVICE}\" AND logName=\"projects/${PROJECT_ID}/logs/run.googleapis.com%2Frequests\" AND httpRequest.requestUrl=~\"/api/connectors/(oauth/native/callback|google_drive/picker/native/callback)(\\?.*)?$\""
-DESCRIPTION="UAT-only: exclude native Google OAuth and Picker callback query material; structured route/outcome logs remain enabled."
+LOG_FILTER="resource.type=\"cloud_run_revision\" AND logName=\"projects/${PROJECT_ID}/logs/run.googleapis.com%2Frequests\" AND ((resource.labels.service_name=\"${BACKEND_SERVICE}\" AND httpRequest.requestUrl=~\"^https?://[^/]+/api/connectors/(oauth/native/callback|google_drive/picker/native/callback)(\\?.*)?$\") OR (resource.labels.service_name=\"hushh-webapp\" AND httpRequest.requestUrl=~\"^https?://[^/]+/one/profile/connectors/oauth/return(\\?.*)?$\"))"
+DESCRIPTION="Exclude fixed Google OAuth and Picker callback query material; structured route/outcome logs remain enabled."
 RESOURCE="projects/${PROJECT_ID}/exclusions/${EXCLUSION_NAME}"
 BASE_URL="https://logging.googleapis.com/v2"
 TMP_DIR="$(mktemp -d)"
@@ -95,13 +103,21 @@ call_logging() {
 get_status="$(call_logging GET "${BASE_URL}/${RESOURCE}" "" "${TMP_DIR}/get.json")"
 case "${get_status}" in
   200)
-    update_status="$(call_logging PATCH "${BASE_URL}/${RESOURCE}?updateMask=filter%2Cdescription%2Cdisabled" "$(request_payload false)" "${TMP_DIR}/update.json")"
-    [[ "${update_status}" == "200" ]] || {
-      echo "Unable to update native callback log exclusion" >&2
-      exit 1
-    }
+    if [[ "${VERIFY_ONLY}" == true ]]; then
+      cp "${TMP_DIR}/get.json" "${TMP_DIR}/verify.json"
+    else
+      update_status="$(call_logging PATCH "${BASE_URL}/${RESOURCE}?updateMask=filter%2Cdescription%2Cdisabled" "$(request_payload false)" "${TMP_DIR}/update.json")"
+      [[ "${update_status}" == "200" ]] || {
+        echo "Unable to update native callback log exclusion" >&2
+        exit 1
+      }
+    fi
     ;;
   404)
+    if [[ "${VERIFY_ONLY}" == true ]]; then
+      echo "Required callback log exclusion is missing" >&2
+      exit 1
+    fi
     create_status="$(call_logging POST "${BASE_URL}/projects/${PROJECT_ID}/exclusions" "$(request_payload true)" "${TMP_DIR}/create.json")"
     [[ "${create_status}" == "200" ]] || {
       echo "Unable to create native callback log exclusion" >&2
@@ -114,10 +130,12 @@ case "${get_status}" in
     ;;
 esac
 
-verify_status="$(call_logging GET "${BASE_URL}/${RESOURCE}" "" "${TMP_DIR}/verify.json")"
-if [[ "${verify_status}" != "200" ]]; then
-  echo "Unable to verify native callback log exclusion" >&2
-  exit 1
+if [[ "${VERIFY_ONLY}" != true ]]; then
+  verify_status="$(call_logging GET "${BASE_URL}/${RESOURCE}" "" "${TMP_DIR}/verify.json")"
+  if [[ "${verify_status}" != "200" ]]; then
+    echo "Unable to verify native callback log exclusion" >&2
+    exit 1
+  fi
 fi
 if ! EXPECTED_FILTER="${LOG_FILTER}" python3 - "${TMP_DIR}/verify.json" <<'PY'
 import json
@@ -136,4 +154,4 @@ then
   exit 1
 fi
 
-echo "Configured and verified UAT native callback log exclusion ${EXCLUSION_NAME} (request logs only)"
+echo "Verified ${PROJECT_ID} callback log exclusion ${EXCLUSION_NAME} (request logs only)"
