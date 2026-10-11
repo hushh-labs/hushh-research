@@ -12,12 +12,12 @@ import base64
 import binascii
 import json
 import subprocess
-from urllib.parse import urlsplit
 
 PROJECT = "hushh-pda"
 RUNTIME_ACCOUNT = "consent-protocol-runtime@hushh-pda.iam.gserviceaccount.com"
 SCHEDULER_ACCOUNT = "drive-work-drain-sched@hushh-pda.iam.gserviceaccount.com"
-PICKER_KEY_NAME = "Hussh Drive Picker (UAT + prod)"
+PICKER_KEY_NAME = "Hussh Drive Picker (Production)"
+PICKER_REFERRERS = {"https://one.hushh.ai/*", "https://one.hussh.ai/*"}
 SECRETS = (
     "GOOGLE_DRIVE_OAUTH_CLIENT_ID",
     "GOOGLE_DRIVE_OAUTH_CLIENT_SECRET",
@@ -63,9 +63,7 @@ def _secret(name: str) -> str:
             f"--project={PROJECT}",
         ).strip()
     except (json.JSONDecodeError, PrerequisiteError) as exc:
-        raise PrerequisiteError(
-            f"Production Drive secret {name} is unavailable"
-        ) from exc
+        raise PrerequisiteError(f"Production Drive secret {name} is unavailable") from exc
     if not value:
         raise PrerequisiteError(f"Production Drive secret {name} is empty")
     return value
@@ -77,9 +75,7 @@ def _key_bytes(value: str, *, urlsafe: bool) -> bytes:
             return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
         return base64.b64decode(value, validate=True)
     except (binascii.Error, ValueError) as exc:
-        raise PrerequisiteError(
-            "Production Drive encryption key has invalid encoding"
-        ) from exc
+        raise PrerequisiteError("Production Drive encryption key has invalid encoding") from exc
 
 
 def verify(*, oauth_attested: bool) -> None:
@@ -88,9 +84,7 @@ def verify(*, oauth_attested: bool) -> None:
             "Production Google Auth Platform Drive scope and exact callback attestation is missing"
         )
     values = {name: _secret(name) for name in SECRETS}
-    if not values["GOOGLE_DRIVE_OAUTH_CLIENT_ID"].endswith(
-        ".apps.googleusercontent.com"
-    ):
+    if not values["GOOGLE_DRIVE_OAUTH_CLIENT_ID"].endswith(".apps.googleusercontent.com"):
         raise PrerequisiteError("Production Drive OAuth client ID is malformed")
     document_key = _key_bytes(values["DRIVE_DOCUMENT_KEY_V1"], urlsafe=False)
     sharing_key = _key_bytes(values["DRIVE_SHARING_KEY_V1"], urlsafe=False)
@@ -99,20 +93,22 @@ def verify(*, oauth_attested: bool) -> None:
     if len(sharing_key) != 32:
         raise PrerequisiteError("Production Drive sharing key must be 32 bytes")
     if document_key == sharing_key:
-        raise PrerequisiteError(
-            "Production Drive document and sharing keys must be distinct"
-        )
+        raise PrerequisiteError("Production Drive document and sharing keys must be distinct")
     connector_key = values["EXTERNAL_CONNECTOR_CREDENTIAL_KEY"]
     try:
         decoded_connector_key = _key_bytes(connector_key, urlsafe=True)
     except PrerequisiteError:
         decoded_connector_key = b""
-    if len(decoded_connector_key) not in {16, 24, 32} and len(
-        connector_key.encode()
-    ) not in {16, 24, 32}:
-        raise PrerequisiteError(
-            "Production connector credential key has invalid length"
-        )
+    if len(decoded_connector_key) not in {16, 24, 32} and len(connector_key.encode()) not in {
+        16,
+        24,
+        32,
+    }:
+        raise PrerequisiteError("Production connector credential key has invalid length")
+    if len(decoded_connector_key) not in {16, 24, 32}:
+        decoded_connector_key = connector_key.encode()
+    if decoded_connector_key in {document_key, sharing_key}:
+        raise PrerequisiteError("Production Drive encryption keys must be distinct")
 
     keys = json.loads(
         _gcloud("services", "api-keys", "list", f"--project={PROJECT}", "--format=json")
@@ -123,15 +119,13 @@ def verify(*, oauth_attested: bool) -> None:
     key = matching[0]
     restrictions = key.get("restrictions") or {}
     targets = restrictions.get("apiTargets") or []
-    referrers = (restrictions.get("browserKeyRestrictions") or {}).get(
-        "allowedReferrers"
-    ) or []
-    if {target.get("service") for target in targets} != {
-        "picker.googleapis.com"
-    } or not any(urlsplit(ref).hostname == "one.hushh.ai" for ref in referrers):
-        raise PrerequisiteError(
-            "Production Drive Picker API key restrictions are incomplete"
-        )
+    referrers = (restrictions.get("browserKeyRestrictions") or {}).get("allowedReferrers") or []
+    if (
+        {target.get("service") for target in targets} != {"picker.googleapis.com"}
+        or set(referrers) != PICKER_REFERRERS
+        or any(target.get("methods") for target in targets)
+    ):
+        raise PrerequisiteError("Production Drive Picker API key restrictions are incomplete")
     key_string = json.loads(
         _gcloud(
             "services",
@@ -157,9 +151,7 @@ def verify(*, oauth_attested: bool) -> None:
         and not item.get("condition")
         for item in policy.get("bindings", [])
     ):
-        raise PrerequisiteError(
-            "Production Drive prompt-wake Scheduler run grant is missing"
-        )
+        raise PrerequisiteError("Production Drive prompt-wake Scheduler run grant is missing")
 
 
 def main() -> int:
@@ -173,9 +165,7 @@ def main() -> int:
         verify(oauth_attested=args.oauth_attested)
     except (KeyError, TypeError, ValueError, PrerequisiteError) as exc:
         parser.exit(1, f"Production Drive preflight blocked: {exc}\n")
-    print(
-        "Production Drive credentials, Picker restrictions and scheduler identities verified"
-    )
+    print("Production Drive credentials, Picker restrictions and scheduler identities verified")
     return 0
 
 
