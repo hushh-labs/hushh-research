@@ -249,6 +249,7 @@ def test_every_substitution_the_deploy_script_reads_is_fed_through_the_step_env(
     """
     root = Path(__file__).resolve().parents[2]
     script = (root / "scripts" / "deploy" / "backend-deploy.sh").read_text(encoding="utf-8")
+    script += (root / "scripts/deploy/backend-model-settings.sh").read_text(encoding="utf-8")
     config = _load("deploy/backend.cloudbuild.yaml")
     assert config is not None
     step = next(s for s in config["steps"] if s.get("id") == "deploy-backend")
