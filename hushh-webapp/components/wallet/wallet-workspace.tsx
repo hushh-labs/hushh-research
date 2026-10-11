@@ -799,10 +799,9 @@ export function WalletWorkspace() {
             actionsInlineMobile
             titleRole="agent"
             className="[&>div:first-child]:!gap-2.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center"
-            // Match Location's 31px switch + 4px gap + 18px status row.
-            // Reserve it even without an action so loading never shifts tabs.
+            // Keep the same action track across tabs and loading states.
             actions={
-              <span className="flex h-[53px] items-center" data-slot="wallet-header-action">
+              <span className="flex h-11 items-center sm:h-[53px]" data-slot="wallet-header-action">
                 {headerAction}
               </span>
             }
@@ -853,7 +852,7 @@ export function WalletWorkspace() {
             heightMode="active"
             holdHeightDuringTransition={false}
           >
-          <div className="space-y-3.5 px-[var(--page-inline-gutter-standard)]">
+          <div className="space-y-2 px-[var(--page-inline-gutter-standard)] sm:space-y-3.5">
           {view.kind === "disabled" ? (
             <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Wallet is not available here yet.</p>
           ) : null}
