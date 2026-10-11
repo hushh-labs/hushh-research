@@ -75,6 +75,9 @@ export function useNativeHistoryPresentation(port: HistoryPort): "web" | "prepar
   current.current = { port, theme };
   const privacyRef = useRef(privacy);
   privacyRef.current = privacy;
+  const privacyGeneration = privacy?.generation;
+  const privacyShielded = privacy?.shielded;
+  const appIsActive = privacy?.appIsActive;
   const replica = useRef<{ presentation: NativeDrawerPresentation; update: number; privacy: number; owner: string; epoch: number;
     handles: Map<string, string>; fingerprint: string | null } | null>(null);
   const publish = () => {
@@ -113,7 +116,7 @@ export function useNativeHistoryPresentation(port: HistoryPort): "web" | "prepar
     return () => { active = false; void observer?.remove(); };
   }, []);
   useEffect(() => {
-    if (!supported || !port.ready || !port.owner || snapshotValidatedAuthSessionOwner()?.userId !== port.owner || !privacy || privacy.shielded || !privacy.appIsActive) return;
+    if (!supported || !port.ready || !port.owner || snapshotValidatedAuthSessionOwner()?.userId !== port.owner || privacyGeneration === undefined || privacyShielded || !appIsActive) return;
     const identity = createNativeDrawerIdentity("history");
     if (!identity) return;
     const owner = port.owner, epoch = port.vaultEpoch;
@@ -121,13 +124,13 @@ export function useNativeHistoryPresentation(port: HistoryPort): "web" | "prepar
     let active = true;
     const isCurrent = () => active && current.current.port.ready && current.current.port.owner === owner &&
       snapshotValidatedAuthSessionOwner()?.userId === owner &&
-      current.current.port.vaultEpoch === epoch && current.current.port.surface === surface && privacyRef.current?.generation === privacy.generation &&
+      current.current.port.vaultEpoch === epoch && current.current.port.surface === surface && privacyRef.current?.generation === privacyGeneration &&
       !privacyRef.current.shielded && privacyRef.current.appIsActive && nativeDrawerOwnerIsCurrent(identity);
     const presentation = new NativeDrawerPresentation(identity, nativeDrawers, isCurrent, next => {
       if (!active) return;
       setPhase(next === "active" ? "native" : next === "retired" ? "web" : next === "quarantined" ? "blocked" : "preparing");
     });
-    const instance = { presentation, update: 0, privacy: privacy.generation, owner, epoch, handles: new Map<string, string>(), fingerprint: null as string | null };
+    const instance = { presentation, update: 0, privacy: privacyGeneration, owner, epoch, handles: new Map<string, string>(), fingerprint: null as string | null };
     replica.current = instance;
     setPhase("preparing");
     void (async () => {
@@ -138,7 +141,7 @@ export function useNativeHistoryPresentation(port: HistoryPort): "web" | "prepar
       if (replica.current === instance) replica.current = null;
       void presentation.retire();
     };
-  }, [supported, port.ready, port.owner, port.vaultEpoch, port.surface, privacy?.generation, privacy?.shielded, privacy?.appIsActive]);
+  }, [supported, port.ready, port.owner, port.vaultEpoch, port.surface, privacyGeneration, privacyShielded, appIsActive]);
   useLayoutEffect(() => { publish(); });
   return supported === false ? "web" : phase;
 }

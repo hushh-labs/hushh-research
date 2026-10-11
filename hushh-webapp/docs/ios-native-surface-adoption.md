@@ -112,6 +112,16 @@ frame, draft preservation and continued vault admission. These are functional an
 sampled-geometry checks, not exact JavaScript/editor object identity or a rendered
 transition recording. No rename/deletion or other fixture mutation was inferred.
 
+The same installed candidate also passed the warm Mail pager/software-keyboard,
+native bottom-tab/overlay and seven-screen nested Profile Back journeys. Profile
+coverage includes Account, Preferences, Vault methods, Trusted devices, Connectors,
+Referrals and Support; the three Support choices returned to their original state
+without submitting a report. A final credential-free admission check returned to
+unlocked Chat. These are real React/native parity journeys, not a native Profile
+port. Private result bundles were erased; the phone was left in its warm session.
+Capacitor bridge logging is disabled in both source and packaged configuration,
+including Debug, so private titles and edit choices are not console diagnostics.
+
 The separate public Release study at `ddded99038` (runner `3bba249eea`) passed
 composition/editor and four-state appearance/accessibility checks on this phone.
 Its executable was `cc30d9066c2655a16f34f518c26ed168d7c1a6c78f0fbb94a331b2e7d5b76fde`.

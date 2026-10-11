@@ -5173,12 +5173,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }
     },
     [
-      conversationId,
       getVaultOwnerToken,
       handleCreateNewChat,
       handleHistoryDrawerOpenChange,
       historyInteractionDisabled,
-      user?.uid,
     ],
   );
 
