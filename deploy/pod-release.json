@@ -1,12 +1,13 @@
 {
-  "version": "2026.10-dev.14",
+  "version": "2026.10-dev.15",
   "channel": "dev",
-  "summary": "More reliable private conversations and Puppy controls.",
+  "summary": "Qualified recovery and reliable Puppy controls for existing private agents.",
   "notes": {
     "improvements": [
       "Conversation loading avoids a repeated storage read.",
       "Encrypted checkpoints preserve the existing recovery path.",
-      "Private-agent startup skips unrelated shared-service route initialization."
+      "Private-agent startup skips unrelated shared-service route initialization.",
+      "Existing supported private agents can install this release after exact owner approval."
     ],
     "fixes": [
       "Stopping Puppy confirms cancellation even when the stream closes first.",
@@ -20,5 +21,7 @@
       "Computer Use remains disabled until its cloud isolation gates pass."
     ]
   },
-  "supportedUpgradeDigests": []
+  "supportedUpgradeDigests": [
+    "sha256:e213acf2468179177371709fb2651eb622439ec8c2a2df3d11394d23867ffa1e"
+  ]
 }
