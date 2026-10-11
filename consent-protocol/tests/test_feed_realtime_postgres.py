@@ -25,6 +25,8 @@ async def feed_db():
     source = os.getenv("ONE_COMMAND_TEST_DATABASE_URL")
     if not source:
         pytest.skip("Requires explicit local disposable PostgreSQL server")
+    # CI shares a SQLAlchemy DSN; asyncpg requires the plain PostgreSQL scheme.
+    source = source.replace("postgresql+psycopg2://", "postgresql://", 1)
     parts = urlsplit(source)
     if parts.hostname not in {"localhost", "127.0.0.1", "::1"}:
         pytest.fail("Feed migration proof requires a local disposable server")
