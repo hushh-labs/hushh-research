@@ -6,6 +6,33 @@ import os
 from urllib.parse import urlsplit, urlunsplit
 
 
+def validated_frontend_callback(origin: str, callback_path: str) -> str:
+    """Build Gmail's callback only from a complete, environment-owned origin."""
+    parsed = urlsplit(origin)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.netloc
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in {"", "/"}
+    ):
+        return ""
+    normalized_origin = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
+    return f"{normalized_origin}{callback_path}"
+
+
+def google_compatibility_callback(origin: str, callback_path: str, legacy_redirect: str) -> str:
+    """Derive Google's distinct callback before using the retained Gmail fallback.
+
+    The configured Google callback wins in the service before this builder is
+    called. Preserve Google's existing origin concatenation independently of
+    Gmail's stricter origin validation.
+    """
+    return f"{origin}{callback_path}" if origin else legacy_redirect
+
+
 def allowed_oauth_callback_uris(configured: str) -> frozenset[str]:
     """Keep the configured callback and its admitted, same-environment spelling.
 

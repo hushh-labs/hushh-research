@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any, Literal
-from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.parse import urlencode
 
 import httpx
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -65,7 +65,10 @@ from hushh_mcp.services.gmail_receipt_cutover import (
 )
 from hushh_mcp.services.kyc_debug_log import message_ref as kyc_message_ref
 from hushh_mcp.services.kyc_debug_log import trace as trace_kyc_debug
-from hushh_mcp.services.oauth_redirect_policy import allowed_oauth_callback_uris
+from hushh_mcp.services.oauth_redirect_policy import (
+    allowed_oauth_callback_uris,
+    validated_frontend_callback,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -365,27 +368,9 @@ class GmailReceiptsService:
         return _clean_text(os.getenv("GMAIL_OAUTH_REDIRECT_URI"))
 
     def _expected_oauth_redirect_uri(self) -> str:
-        """Build the canonical web callback this backend may use for Gmail OAuth.
-
-        The browser may report its callback as part of the connect/complete
-        request, but it is not an authority for choosing a redirect host. The
-        deployed environment owns that boundary through APP_FRONTEND_ORIGIN.
-        """
-
-        origin = get_app_runtime_settings().app_frontend_origin
-        parsed = urlsplit(origin)
-        if (
-            parsed.scheme not in {"http", "https"}
-            or not parsed.netloc
-            or parsed.username
-            or parsed.password
-            or parsed.query
-            or parsed.fragment
-            or parsed.path not in {"", "/"}
-        ):
-            return ""
-        normalized_origin = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
-        return f"{normalized_origin}{_GMAIL_OAUTH_RETURN_PATH}"
+        return validated_frontend_callback(
+            get_app_runtime_settings().app_frontend_origin, _GMAIL_OAUTH_RETURN_PATH
+        )
 
     def _resolve_oauth_redirect_uri(self, requested_redirect_uri: str | None) -> str:
         """Validate the caller echo against this environment's callback policy.
