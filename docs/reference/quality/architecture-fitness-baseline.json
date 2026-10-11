@@ -725,7 +725,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/google_connection_service.py",
       "symbol": "GoogleConnectionService",
-      "value": 1063
+      "value": 1074
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -6386,7 +6386,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/google_connection_service.py",
       "symbol": "_store_authorized_connection",
-      "value": 164
+      "value": 176
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -14441,7 +14441,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/google_connection_service.py",
       "symbol": null,
-      "value": 1177
+      "value": 1189
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15953,7 +15953,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_google_connection_account_binding.py",
       "symbol": null,
-      "value": 768
+      "value": 804
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21011,7 +21011,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/wallet_card_access_service.py",
       "symbol": "WalletCardAccessService",
-      "value": 393
+      "value": 395
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -28958,6 +28958,45 @@
           "before": 1473,
           "after": 1474,
           "source_sha256": "46a9e4b18ec19279ef47d3ead7b59c5082cc176760535f3052302277d13e6196"
+        }
+      ]
+    },
+    "current_main_native_calendar_wallet_20261011": {
+      "incoming_main": "c8a6c1bac00a65d8fda826e9dd23debac5ba6d15",
+      "source_revision": "1b3d7eaebb1657d274dfa56d41717dfbbdcea5a7",
+      "review": "Independent read-only backend/client review and parent inspection accept exactly five incoming integration spans. Management Calendar attempts reject downgraded grants before persistence; Wallet recipient discovery remains owner/connection/block scoped while granting stays rollout gated. Branch transition publication/revocation and account binding defenses are preserved. Two nearest tests add 36 lines. Google class baseline1063 and actual source-parent1062 are recorded separately. No budget, scanner, exclusion, other slot or future-growth enforcement changes.",
+      "verification": "50 backend boundary cases, 6 actual isolated PostgreSQL card cases, 422 Back cases, generated UI parity and 10 Chromium/WebKit overlay geometry cases pass. Native compilation and physical device delivery remain separate.",
+      "changes": [
+        {
+          "key": "class_size|consent-protocol/hushh_mcp/services/google_connection_service.py|GoogleConnectionService|class exceeds the advisory operon budget",
+          "before": 1063,
+          "after": 1074,
+          "source_sha256": "489b5f7f9b30950f421c7dfad653181069175e0a44b932ff9200d827520929f6",
+          "source_parent_value": 1062
+        },
+        {
+          "key": "class_size|consent-protocol/hushh_mcp/services/wallet_card_access_service.py|WalletCardAccessService|class exceeds the advisory operon budget",
+          "before": 393,
+          "after": 395,
+          "source_sha256": "fc73b23f6e80c67e11889f55569c9d3fcd6c12e52df47300a4eea72a43011f07"
+        },
+        {
+          "key": "function_size|consent-protocol/hushh_mcp/services/google_connection_service.py|_store_authorized_connection|function exceeds the advisory gene budget",
+          "before": 164,
+          "after": 176,
+          "source_sha256": "489b5f7f9b30950f421c7dfad653181069175e0a44b932ff9200d827520929f6"
+        },
+        {
+          "key": "module_size|consent-protocol/hushh_mcp/services/google_connection_service.py||module exceeds the advisory operon budget",
+          "before": 1177,
+          "after": 1189,
+          "source_sha256": "489b5f7f9b30950f421c7dfad653181069175e0a44b932ff9200d827520929f6"
+        },
+        {
+          "key": "module_size|consent-protocol/tests/services/test_google_connection_account_binding.py||module exceeds the advisory operon budget",
+          "before": 768,
+          "after": 804,
+          "source_sha256": "a8ca20bec99a30ee56528615dbf51a035bb5138b0f1955127d393004b89c869c"
         }
       ]
     }

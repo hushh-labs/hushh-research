@@ -2366,3 +2366,16 @@ Exact-candidate core/hosted CI remain release gates. No financial transaction,
 fresh deployment, physical
 device acceptance or authenticated Stripe MCP read is established by this
 source evidence.
+
+Main subsequently advanced to `c8a6c1bac0`. Merge `1b3d7eaebb` integrates its
+Calendar permission, Wallet recipient-discovery and native safe-area changes,
+preserving the existing branch and unrelated work. Owner/connection/block
+checks remain mandatory; recipient discovery cannot grant access while rollout
+is disabled. Management Calendar requests reject read-only grants before
+persistence. Branch transition and account-binding defenses remain intact.
+The combined source passes 50 backend cases, six actual isolated PostgreSQL
+card-access cases, 422 Back cases and ten Chromium/WebKit overlay geometry
+cases. Database shutdown/removal is verified. Exact reviewed integration spans
+and source hashes remain in the architecture baseline, with unchanged budgets,
+scanner and future-growth enforcement. These checks do not prove physical
+UIKit delivery, provider settlement or the two-reviewer paid-scope lifecycle.
