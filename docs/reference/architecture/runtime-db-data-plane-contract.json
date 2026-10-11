@@ -105,10 +105,10 @@
         "vault_keys",
         "vault_key_wrappers"
       ],
-      "primary_access_path": "vault setup, unlock-status, wrapper selection, and account deletion services",
+      "primary_access_path": "vault setup, unlock-status, wrapper selection, account deletion, and owner-bound One review completion services",
       "retention_policy": "Retain while account exists; delete on account deletion or explicit vault reset flow.",
       "deletion_behavior": "Hard-delete with account deletion after dependent personal data is purged.",
-      "trust_boundary": "Vault key material and wrappers remain encrypted or hashed; raw vault keys never persist server-side.",
+      "trust_boundary": "Vault key material and wrappers remain encrypted or hashed; raw vault keys never persist server-side. Narrow vault_keys UI metadata exceptions one_business_profile_saved and one_magic_intelligence_saved are monotonic booleans set only after owner-confirmed PKM receipts; no research findings or profile facts are stored in these flags.",
       "plaintext_posture": "ciphertext_or_hash_only",
       "expected_row_growth": "low_per_user"
     },
@@ -1410,7 +1410,7 @@
         "feed_events",
         "feed_event_counterparts"
       ],
-      "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking. Counterpart identity uses audit primary keys, indexed grant IDs, or indexed owner/recipient event candidates with exact source and audience checks; current photos join the identity cache. Closed agent outcomes also project canonical provider proposal/connection/job and Circle relationship transitions (migration269).",
+      "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking. Counterpart identity uses audit primary keys, indexed grant IDs, or indexed owner/recipient event candidates with exact source and audience checks; current photos join the identity cache. Closed agent outcomes also project canonical provider proposal/connection/job and Circle relationship transitions (migration269). Migration313 emits a committed owner-only feed_changed hint after every changed Feed row, including read state and deletion; the shared backend listener fans out to authenticated owner streams. Hints contain no row contents and have no replay authority: connect, listener recovery and overflow reset require a snapshot. A future broker may replace NOTIFY behind this same invalidation contract.",
       "retention_policy": "Retain while the account exists; presentation-only, not a domain audit authority.",
       "deletion_behavior": "Hard-delete owned Feed with account deletion; derived counterpart links cascade when either the Feed event or counterpart account is deleted. No copied photos.",
       "trust_boundary": "The companion table holds server-only counterpart identity references resolved from viewer-authorized source records. They never enter the browser DTO. Presentation-only fan-out from each domain's own audit/event tables (consent, location, connected systems, and the Drive sharing/question outboxes drive_share_events and drive_query_events, projected as connected_systems rows carrying only the closed type, request id, status word and counterpart label) or from a domain's completion point (Kai, KYC, connections). Never stores ciphertext, vault content, or full domain payloads; only bounded, non-sensitive metadata used to render a feed line. Migration269 additionally consumes reviewed Drive directive settlements and standalone bulk-effect/recipient receipts. Only closed outcomes, opaque review IDs, bounded Circle names and authorized connector catalog display names are presented; dedupe identities remain server-only. Queries, filenames, account labels, mailbox IDs, credentials, provider errors and result payloads are excluded.",

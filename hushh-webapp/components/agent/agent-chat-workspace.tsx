@@ -8102,7 +8102,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // not in a dashboard after every subsequent reply. Keep public suggestions
   // session-only: they must not enter chat history or the model's context.
   const backgroundCardsEnabled = hasChatAccess && !isPuppySurface && !sessionVerificationRequired && chatOnboarding.resolved;
-  const [businessSuggestionVisible, setBusinessSuggestionVisible] = useState(false);
+  const [magicIntelligenceVisible, setMagicIntelligenceVisible] = useState(false);
   const [dismissedBusinessSuggestionIds, setDismissedBusinessSuggestionIds] = useState<Set<string>>(() => new Set());
   const dismissBusinessSuggestion = useCallback((businessUid: string) => {
     setDismissedBusinessSuggestionIds(current => {
@@ -8132,7 +8132,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         ownerId={user?.uid ?? null} vaultKey={vaultKey ?? null}
         vaultOwnerToken={vaultOwnerToken ?? null} tokenExpiresAt={tokenExpiresAt ?? null}
         enabled={backgroundCardsEnabled} pathname={pathname}
-        onBusinessVisibleChange={setBusinessSuggestionVisible}
+        onVisibleChange={setMagicIntelligenceVisible}
         dismissedBusinessUids={dismissedBusinessSuggestionIds}
         onBusinessSaved={dismissBusinessSuggestion}
         renderMessage={(id, text, card) => <AgentBubble
@@ -9179,7 +9179,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               {chatOnboarding.turns.length ? (
                 renderChatOnboarding({ kind: "top" })
               ) : !hasStartedConversation && !voiceActive ? (
-                businessSuggestionVisible ? null : (
+                magicIntelligenceVisible ? null : (
                 <>
                   <AgentWelcomePanel
                     name={displayName}

@@ -108,8 +108,9 @@ After completion, discovery returns its existing empty `no_match` envelope
 before accessing Firebase or the directory. Review, Later, failed and partial
 saves never set the flag. A lost completion response retains the acknowledged
 encrypted review job so retry marks completion without replaying PKM writes.
-This is UI progress only, independent of personality onboarding and Magic
-Intelligence; it does not verify business ownership. Migration
+This is UI progress for Magic Intelligence's optional Business subsection,
+independent of personality progress and personal-profile saves; it does not
+verify business ownership. Migration
 `306_one_business_profile_saved.sql` must precede application rollout. There is
 no historical event-only backfill, because one event can represent a partial
 multi-card review. Web uses the existing One catch-all proxy; iOS and Android
@@ -1050,15 +1051,82 @@ owner authority, through the existing One Next proxy on web and `ApiService`
 Capacitor HTTP on native. No new screen or native plugin is introduced in this
 slice; physical-device acceptance is not claimed. The service rejects unknown
 versions and inconsistent candidate/status shapes. Consumers must call after
-setup resolves and the vault unlocks. Ordinary suggestion responses stay in memory. Both business and Magic Intelligence
-cards wait for loaded owner progress and finished personality onboarding; they
+setup resolves and the vault unlocks. Ordinary suggestion responses stay in memory. Magic Intelligence's personal research and optional Business lookup
+wait for loaded owner progress and finished personality onboarding; they
 do not mount or request discovery while questions, confirmation, saving or
-failed-save recovery are active. Follow-up cards render after the final
+failed-save recovery are active. The single Magic offer renders after the final
 personality turn, including when ordinary chat messages interrupt onboarding.
+Already-onboarded owners use the same discovery path once their loaded
+personality progress is resolved and their vault is unlocked. No onboarding
+reset or new-user marker is required. One authority-bound attempt per mounted
+controller prevents duplicate requests under StrictMode or marker consumption;
+only an explicit retry retries an unsaved report within that controller.
 
-The main chat workspace mounts `BusinessProfileSuggestion` after current auth
-and unlocked-vault admission, requiring known, unexpired owner authority.
-It opens an unverified real directory suggestion with Review, Later and Not my business.
+Personal completion is independent of Business completion. A successful review
+calls `POST /api/one/profile-research/complete` with 1–64 unique domain/plan
+receipts using the same VAULT_OWNER + derived chat-key authority. The server
+locks the owner's vault row and checks all acknowledged PKM mutation receipts,
+content revisions and confirmed `profile_research_review` provenance before
+setting the monotonic `one_magic_intelligence_saved` flag. Failed or partial
+saves never complete it; retries retain pinned scopes and reconcile existing
+receipts before retrying completion. Opening, Later and research alone never
+set it. Saved owners receive `{status: "saved", pkm_written: false}` before any
+paid research; an in-flight result is also suppressed if another device saves.
+Personal completion hides the whole automatic Magic offer, including an unsaved
+optional Business suggestion. It does not mark that Business review saved or
+erase its independent receipt/recovery state.
+The completion route remains available during rollout withdrawal for recovery.
+Migration 314 adds only this boolean UI metadata, with no profile facts; normal
+application rollback retains it and all approved Memory. The explicit down
+migration removes suppression history and must only be used for schema rollback.
+The flag is authoritative in Postgres across workers and devices. A future
+Redis/Memorystore read cache must be invalidated by the confirmed completion
+transaction and must never replace receipt verification or the monotonic flag.
+
+The main chat workspace mounts one compact Magic Intelligence offer: a short
+notice that One found more information and a Review details action. Opening it
+only reveals drafts; it never prepares or saves memory. Public career, education
+and personal findings are primary. Public business findings and real directory
+listings share one optional Business subsection; business findings start unchecked.
+`BusinessProfileSuggestion` is an embedded review controller with known,
+unexpired owner authority, not a separate chat identity or outer card. Its
+lookup, preparation or save can fail or remain pending without blocking a
+personal review. Directory reviews retain their own exact receipts and
+permanent completion flag; a personal save never completes an unsaved Business
+review. Controllers remain mounted while details collapse, retaining approved
+recovery jobs. Back unwinds a nested edit/review or Business subsection before
+collapsing Magic and then reaching route navigation; busy mutations consume Back.
+Both discovery services share a server-owned cumulative Magic rollout. Phase 0
+is off; phase 1 admits only `parth.mawai.12@gmail.com`; phase 2 adds the four
+inner-team accounts; phase 3 adds four senior-team accounts; phase 4 adds QA.
+Admission uses fresh Firebase UID, enabled state and verified primary email,
+with only case/outer whitespace normalization. Client input, phone identity,
+shadow records, aliases and token email claims cannot select a rollout account.
+Missing, malformed, duplicated, overlapping or incomplete promoted cohorts
+close discovery. Independent profile/Business switches still apply; Business
+never blocks personal research. Both services recheck current identity and their
+worker's policy before returning provider results. Initial pending, denied,
+malformed and failed personal discoveries never reveal a card; admitted
+`no_match` reports can still explain that no reliable match was found.
+
+The UAT deploy defaults to phase 1 with personal research enabled. Production
+and other unconfigured lanes default to phase 0 with research off. Promote
+explicitly using `ONE_MAGIC_INTELLIGENCE_PHASE_UAT` (1–4) and exact CSV repository
+variables `ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS_UAT` (Sharu, Roopmann, Divya,
+Smirthika; four accounts), `ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS_UAT` (Ankit,
+Akshat, Neelesh, Kushal; four accounts), and `ONE_MAGIC_INTELLIGENCE_QA_EMAILS_UAT`
+(Jhumma; one account). These feed the corresponding lowercase structured
+runtime-config keys and uppercase backend environment names. Unconfirmed
+inner-team addresses remain empty, so phase 2+ stays closed until supplied.
+For rollback, set phase to 0, or set `ONE_PROFILE_RESEARCH_ENABLED_UAT=false`
+and `ONE_BUSINESS_DIRECTORY_ENABLED_UAT=false`, then deploy a new backend
+revision and retire old traffic. Secret/variable edits alone do not update
+existing workers or withdraw their in-flight requests. Already confirmed PKM
+and commit-receipt recovery remain available. The strict localhost Business
+reviewer exception remains local-only and rechecks identity and its full
+environment boundary before releasing a result.
+
+An unverified real directory listing retains Review, Later and Not my business.
 Editing a name or website invalidates prior proposals. A scheme-less website domain
 is normalized to HTTPS before preparation; explicit HTTP(S) URLs remain supported,
 and unsafe protocols or embedded credentials are rejected. Review uses the existing
@@ -1196,7 +1264,7 @@ separate work; a static export or native compile is not sign-in proof.
 
 The Request scope dialog contains a recipient, one labelled question field and Cancel / Send request. Dates are optional throughout this lane. Periods written in the question remain part of the exact approved question; historical explicit date ranges remain visible and constrain the approved projection. Drive retains its own required date form.
 
-`/api/one/answer-requests` uses Firebase participant authentication and an active connection, without Trusted circle membership or connector setup. Request intake and owner review are gated only by `PKM_ANSWER_REQUESTS_ENABLED` and never by the payment or composer flags: asking a connected person a question, and that person approving scopes and setting a price, move no money. Checkout, the composer and the owner work queue keep their own payment gate. Reading an already delivered answer is ungated, because entitlement is enforced by the delivery row and the requester-scoped read rather than by a rollout flag. Feed and Consent Center use the same answer review card and participant status. The owner approves the exact question, narrowed scopes and whole-dollar price with explicit model-processing consent; approval never creates a standing grant.
+`/api/one/answer-requests` uses Firebase participant authentication and an active connection, without Trusted circle membership or connector setup. Request intake and owner review are gated only by `PKM_ANSWER_REQUESTS_ENABLED`, which is open unless explicitly set to `false`, and never by the payment or composer flags: asking a connected person a question, and that person approving scopes and setting a price, move no money. Checkout, the composer and the owner work queue keep their own payment gate. Reading an already delivered answer is ungated, because entitlement is enforced by the delivery row and the requester-scoped read rather than by a rollout flag. Feed and Consent Center use the same answer review card and participant status. The owner approves the exact question, narrowed scopes and whole-dollar price with explicit model-processing consent; approval never creates a standing grant.
 
 | Method | Path under `/api/one/answer-requests` | Contract |
 | --- | --- | --- |
@@ -1367,7 +1435,8 @@ not the product owner for live location.
 | ------ | ---- | ---- | ----------- |
 | GET | `/api/one/location/state` | VAULT_OWNER Bearer | Read-only projection of eligible recipients, named Circle summaries, incoming targeted Circle invitations, owner grants, received grants, pending requests, referrals, and the current server-owned automatic-approval preference (`enabled`, scope, server `enabledAt`, and monotonic `ruleVersion`) for the authenticated user. Due expiries are projected without mutating rows or sending push; the bounded retention maintenance route owns expiry settlement and notification fan-out. A preference read failure fails the state request instead of displaying a live rule as off |
 | PATCH | `/api/one/location/auto-approve-preference` | VAULT_OWNER Bearer | Enable a server-timestamped standing rule for `all_contacts` or one active, person-created Circle owned by the caller, or disable it and clear its scope. Every change increments `ruleVersion` and writes metadata-only audit evidence |
-| POST | `/api/one/location/sms-contacts` | VAULT_OWNER Bearer | Idempotently add an active, location-ready connection or named-Circle co-member to the authenticated owner's Save My Soul contacts; Circle eligibility and selection are committed under the same membership locks |
+| GET | `/api/one/location/sms-contacts` | VAULT_OWNER Bearer | Return the complete owner-scoped `{smsContactUserIds, recipients}` roster, independent of the ranked recipient picker limit. Refresh incomplete identity shadows through the canonical verified-phone service before projecting readiness; bounded provider failures leave final phone/key/membership gates intact. Response is `private, no-store`; the recipient projection is additive for older clients |
+| POST | `/api/one/location/sms-contacts` | VAULT_OWNER Bearer | Idempotently add an active, location-ready connection or named-Circle co-member to the authenticated owner's Save My Soul contacts; refresh an eligible recipient's incomplete identity shadow before validation. Circle eligibility and selection are committed under the same membership locks |
 | DELETE | `/api/one/location/sms-contacts/{recipient_user_id}` | VAULT_OWNER Bearer | Idempotently remove one owner-scoped Save My Soul contact without changing the underlying connection |
 | GET | `/api/one/location/recipients` | VAULT_OWNER Bearer | With no query parameters, preserve the legacy bounded `{recipients}` picker response. Supplying `page`, `limit<=100`, or `query` returns `{items,page,hasMore,totalCount}` from the identical connection/shared-Circle eligibility predicate, with stable filtering/ordering and page-local key/contact-provenance annotation. Search covers only the displayed safe-name/email-handle ladder and displayed masked phone suffix; hidden email domains and full phones are not searchable. Relationship eligibility never itself grants location. |
 | POST | `/api/one/location/recipient-keys` | VAULT_OWNER Bearer | Register/rotate the authenticated user's recipient public key under the recipient-key transaction lock; private key remains device-local, a key id cannot be rebound to different material, and active grants bound to replaced keys are revoked atomically |

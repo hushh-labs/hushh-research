@@ -14,6 +14,12 @@ vi.mock("@/app/api/_utils/backend", () => ({
   getPythonApiUrl: () => "http://backend.test",
 }));
 
+function authenticatedGET(path: string, params: Record<string, string>) {
+  const request = createMockGET(path, params);
+  request.headers.set("Authorization", "Bearer test-token");
+  return request;
+}
+
 let eventsRoute: { GET: (req: NextRequest, ctx: { params: Promise<{ userId: string }> }) => Promise<Response> };
 
 beforeEach(async () => {
@@ -23,7 +29,7 @@ beforeEach(async () => {
 
 describe("GET /api/consent/events/[userId]", () => {
   it("returns 400 when userId is missing", async () => {
-    const req = createMockGET("/api/consent/events/", {});
+    const req = authenticatedGET("/api/consent/events/", {});
     const res = await eventsRoute.GET(req, {
       params: Promise.resolve({ userId: "" }),
     });
@@ -46,14 +52,14 @@ describe("GET /api/consent/events/[userId]", () => {
       })
     );
 
-    const req = createMockGET("/api/consent/events/user_123", {});
+    const req = authenticatedGET("/api/consent/events/user_123", {});
     const res = await eventsRoute.GET(req, {
       params: Promise.resolve({ userId: "user_123" }),
     });
 
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("text/event-stream");
-    expect(res.headers.get("Cache-Control")).toBe("no-cache");
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store");
     expect(res.headers.get("Connection")).toBe("keep-alive");
     expect(res.headers.get("X-Accel-Buffering")).toBe("no");
 
@@ -76,7 +82,7 @@ describe("GET /api/consent/events/[userId]", () => {
       new Response("backend error", { status: 503 })
     );
 
-    const req = createMockGET("/api/consent/events/user_123", {});
+    const req = authenticatedGET("/api/consent/events/user_123", {});
     const res = await eventsRoute.GET(req, {
       params: Promise.resolve({ userId: "user_123" }),
     });
@@ -91,7 +97,7 @@ describe("GET /api/consent/events/[userId]", () => {
       new Response(null, { status: 200, body: null })
     );
 
-    const req = createMockGET("/api/consent/events/user_123", {});
+    const req = authenticatedGET("/api/consent/events/user_123", {});
     const res = await eventsRoute.GET(req, {
       params: Promise.resolve({ userId: "user_123" }),
     });
@@ -100,4 +106,60 @@ describe("GET /api/consent/events/[userId]", () => {
     const data = await res.json();
     expect(data.error).toMatch(/No stream body/i);
   });
+});
+
+describe("stream proxy security", () => {
+  it.each(["..", "../one/payouts", "a/b", "a\\b", "%2e%2e", "name?path=other", "name#fragment", "a\u0000b"])(
+    "rejects an unsafe owner path before contacting the backend: %s", async (userId) => {
+      const upstream = vi.spyOn(globalThis, "fetch");
+      const response = await eventsRoute.GET(authenticatedGET("/api/consent/events/owner", {}), {
+        params: Promise.resolve({ userId }),
+      });
+      expect(response.status).toBe(400);
+      expect(upstream).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects missing authorization before opening a stream", async () => {
+    const upstream = vi.spyOn(globalThis, "fetch");
+    const request = new NextRequest("http://localhost/api/consent/events/owner");
+    const response = await eventsRoute.GET(request, { params: Promise.resolve({ userId: "owner" }) });
+    expect(response.status).toBe(401);
+    expect(upstream).not.toHaveBeenCalled();
+  });
+
+  it("forwards cancellation, refuses redirects and never reflects provider errors", async () => {
+    const upstream = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("private upstream sentinel", { status: 503 }),
+    );
+    const request = authenticatedGET("/api/consent/events/owner", {});
+    const response = await eventsRoute.GET(request, { params: Promise.resolve({ userId: "owner" }) });
+    expect(upstream).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      signal: request.signal, redirect: "error", cache: "no-store",
+    }));
+    expect(await response.text()).not.toContain("private upstream sentinel");
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+  });
+
+  it("rejects successful non-stream responses", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("login page", {
+      headers: { "Content-Type": "text/html" },
+    }));
+    const response = await eventsRoute.GET(authenticatedGET("/api/consent/events/owner", {}), {
+      params: Promise.resolve({ userId: "owner" }),
+    });
+    expect(response.status).toBe(502);
+  });
+});
+
+it("opens the document Feed stream through its own fixed web route", async () => {
+  const { GET } = await import("../../../app/api/consent/document-feed/[userId]/route");
+  const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("event: feed_reset\ndata: {}\n\n", {
+    headers: { "Content-Type": "text/event-stream" },
+  }));
+  const response = await GET(authenticatedGET("/api/consent/document-feed/owner", {}), {
+    params: Promise.resolve({ userId: "owner" }),
+  });
+  expect(response.status).toBe(200);
+  expect(fetcher).toHaveBeenCalledWith("http://backend.test/api/consent/document-feed/owner", expect.any(Object));
 });

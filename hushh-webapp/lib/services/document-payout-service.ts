@@ -214,8 +214,8 @@ export class DocumentPayoutService {
     return this.redeem(vaultOwnerToken, amountCoins, clientRequestId, "live");
   }
 
-  static async account(vaultOwnerToken: string): Promise<DocumentPayoutAccountResponse> {
-    const body = object(await apiJson<unknown>("/api/one/payouts/account", {
+  static async account(vaultOwnerToken: string, options?: { fresh?: boolean }): Promise<DocumentPayoutAccountResponse> {
+    const body = object(await apiJson<unknown>(`/api/one/payouts/account${options?.fresh ? "?fresh=true" : ""}`, {
       headers: authHeaders(vaultOwnerToken), cache: "no-store",
     }));
     const mode = stripeMode(body);

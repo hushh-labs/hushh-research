@@ -36,6 +36,7 @@ import {
 import { useDeepLinkReturn } from "@/lib/navigation/use-deep-link-return";
 import { useAndroidBack } from "@/lib/navigation/android-back";
 import { ConsentNotificationProvider } from "@/components/consent/notification-provider";
+import { AuthenticatedFeedStream } from "@/components/feed/authenticated-feed-stream";
 import { GlobalVoiceActionHandlers } from "@/components/agent/global-voice-action-handlers";
 import { ProfileIdentityVoiceRefresh } from "@/components/profile/profile-identity-voice-refresh";
 import { GlobalConsentActionHandlers } from "@/components/agent/global-consent-action-handlers";
@@ -84,6 +85,7 @@ import {
 } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { recordDestinationEntry } from "@/lib/navigation/section-back-origin";
+import { useWebHistoryBack } from "@/lib/navigation/web-history-back";
 import { isFocusedConnectCircleTask } from "@/lib/navigation/connect-routes";
 import { isFocusedLocationBottomTask } from "@/lib/navigation/location-routes";
 import {
@@ -179,6 +181,11 @@ function AppShellFrame({ children }: ProvidersProps) {
     const base = pathname || "/";
     recordDestinationEntry(search ? `${base}?${search}` : base);
   }, [pathname, search]);
+  // Native browser back (web only -- iOS/Android have their own handlers,
+  // see components/app-ui/app-edge-back-gesture.tsx and
+  // lib/navigation/android-back.ts) must resolve through the same shared
+  // Back contract those two already use.
+  useWebHistoryBack(pathname || "/", search);
   const isPublicKnowledgeWorkspace =
     pathname === ROUTES.WELCOME &&
     ["research", "blog", "developers"].includes(searchParams?.get("tab") ?? "");
@@ -839,6 +846,7 @@ export function Providers({ children }: ProvidersProps) {
         {/* Step-based progress bar at top of viewport */}
         <StepProgressBar />
         <AuthProvider>
+          <AuthenticatedFeedStream />
           <ObservabilityRouteObserver />
           {/* Session-scoped voice actions ("log me out") live here rather than
               on Profile: a local handler is only offered while it is mounted,

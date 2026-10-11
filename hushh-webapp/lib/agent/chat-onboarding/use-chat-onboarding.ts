@@ -293,7 +293,7 @@ export function useChatOnboarding(input: {
   const captureComposerText = useCallback(
     (text: string) => {
       if (!isAwaitingTypedName(useChatOnboardingSession.getState().machine)) return false;
-      return dispatch({ type: "typed_answer", text, anchor: anchor() }) === true;
+      return dispatch({ type: "typed_answer", text, anchor: anchor(), today: localCalendarDate() }) === true;
     },
     [anchor, dispatch],
   );

@@ -55,6 +55,7 @@ import {
 } from "@/lib/onboarding/one-capabilities";
 import { DASHBOARD_AGENT_ICON_STYLE_BY_ID } from "@/lib/design/home-icon-palette";
 import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
+import { compareOneRosterDisplayOrder } from "@/lib/onboarding/roster-display-order";
 import { ROUTES } from "@/lib/navigation/routes";
 import styles from "./guest-preview.module.css";
 import welcomeStyles from "./IntroStep.module.css";
@@ -96,9 +97,8 @@ const CIRCLES = [
 ] as const;
 const CAPABILITIES = ONE_CAPABILITIES.filter(
   (capability) =>
-    capability.isVisibleOnRoster !== false &&
-    isOneCapabilityEnabled(capability),
-);
+    capability.isVisibleOnRoster !== false && isOneCapabilityEnabled(capability),
+).sort(compareOneRosterDisplayOrder);
 const PALETTE = DASHBOARD_AGENT_ICON_STYLE_BY_ID;
 const PREVIEW_CYCLE_MS = 2500;
 // Presentation only. Calendar illustrates a connected calendar's free slots;

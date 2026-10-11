@@ -183,6 +183,17 @@ The explicit profile is canonical. Receivers also recognize
 `type=location_share_created` plus `share_kind=sos` so an older queued payload
 still receives emergency presentation.
 
+`alerted: true` in the location API means at least one registered device's push
+was queued for dispatch. It does not confirm provider acceptance or device
+receipt. A failed executor submission returns `false`. The sender reports
+saved shares and requested device notifications separately, and attempts every
+ready SMS contact even if another contact fails.
+
+Feed persistence and live emergency presentation use separate deduplication
+keys. Silent reconciliation may save the Feed row without consuming the one
+live emergency popup. A subsequent push can still present that popup once;
+duplicate pushes, already-opened shares and unwatched shares remain suppressed.
+
 | Surface | Emergency behavior |
 | ------- | ------------------ |
 | Visible web app | Assertive red emergency card, three-pulse Web Audio alarm, supported-device vibration, and a 30-second presentation window |

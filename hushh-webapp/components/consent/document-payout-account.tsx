@@ -65,9 +65,12 @@ function payoutErrorCopy(error: unknown, fallback: string): string {
 /** Coalesces live invalidations and fences every response to its vault session. */
 export function usePayoutSnapshot<T>(load: (token: string) => Promise<T>, {
   active = true, refreshKey = "", bankOnly = false, refreshOnFeedChange = true, ignoreReadyEvent = false,
-}: { active?: boolean; refreshKey?: string; bankOnly?: boolean; refreshOnFeedChange?: boolean; ignoreReadyEvent?: boolean } = {}) {
+  freshLoad,
+}: { active?: boolean; refreshKey?: string; bankOnly?: boolean; refreshOnFeedChange?: boolean; ignoreReadyEvent?: boolean;
+  freshLoad?: (token: string) => Promise<T> } = {}) {
   const { vaultOwnerToken } = useVault();
-  const scope = useMemo(() => ({ token: vaultOwnerToken, active }), [vaultOwnerToken, active]);
+  const sessionEpoch = snapshotVaultSessionEpoch();
+  const scope = useMemo(() => ({ token: vaultOwnerToken, active, epoch: sessionEpoch }), [vaultOwnerToken, active, sessionEpoch]);
   const liveScope = useRef<typeof scope | null>(null);
   const [snapshot, setSnapshot] = useState<{ scope: typeof scope; value: T } | null>(null);
   const [error, setError] = useState<{ scope: typeof scope; cause: unknown } | null>(null);
@@ -79,23 +82,27 @@ export function usePayoutSnapshot<T>(load: (token: string) => Promise<T>, {
     let cancelled = false;
     let pending = false;
     let queued = false;
+    let queuedFresh = false;
     let resumedAt = -Infinity;
-    const current = () => !cancelled && isVaultSessionEpochCurrent(epoch);
-    const refresh = async () => {
+    const current = () => !cancelled && liveScope.current === scope && isVaultSessionEpochCurrent(epoch);
+    const refresh = async (fresh = false) => {
       if (!current()) return;
-      if (pending) { queued = true; return; }
+      if (pending) { queued = true; queuedFresh ||= fresh; return; }
       pending = true;
       try {
-        const value = await load(vaultOwnerToken);
+        const value = await (fresh && freshLoad ? freshLoad : load)(vaultOwnerToken);
         if (current()) { setSnapshot({ scope, value }); setError(null); }
       } catch (cause) {
         if (current()) setError({ scope, cause });
       } finally {
         pending = false;
-        if (queued && current()) { queued = false; void refresh(); }
+        if (queued && current()) {
+          const force = queuedFresh;
+          queued = false; queuedFresh = false; void refresh(force);
+        }
       }
     };
-    void refresh();
+    void refresh(refreshKey === "done" || retry > 0);
     // SSE is the fast path. A bounded visible-page read repairs a missed
     // notification while Payouts remains open, without polling in background.
     const poll = window.setInterval(() => {
@@ -106,12 +113,11 @@ export function usePayoutSnapshot<T>(load: (token: string) => Promise<T>, {
       if ((ignoreReadyEvent && detail?.source === PAYOUT_READY_SOURCE) || (bankOnly && detail?.requestId)) return;
       void refresh();
     };
-    // One read per return to the tab. A read already in flight is fresh
-    // enough, so a return never queues another behind it.
+    // A bank return bypasses display cache; the focus/visibility pair shares one read.
     const onResume = () => {
-      if (document.hidden || pending || Date.now() - resumedAt < RESUME_REFRESH_GAP_MS) return;
+      if (document.hidden || (pending && !freshLoad) || Date.now() - resumedAt < RESUME_REFRESH_GAP_MS) return;
       resumedAt = Date.now();
-      void refresh();
+      void refresh(true);
     };
     if (refreshOnFeedChange) window.addEventListener(CONSENT_STATE_CHANGED_EVENT, onChange);
     window.addEventListener("focus", onResume);
@@ -124,14 +130,16 @@ export function usePayoutSnapshot<T>(load: (token: string) => Promise<T>, {
       window.removeEventListener("focus", onResume);
       document.removeEventListener("visibilitychange", onResume);
     };
-  }, [active, vaultOwnerToken, scope, load, refreshKey, retry, bankOnly, refreshOnFeedChange, ignoreReadyEvent]);
+  }, [active, vaultOwnerToken, scope, load, freshLoad, refreshKey, retry, bankOnly, refreshOnFeedChange, ignoreReadyEvent]);
   const data = snapshot?.scope === scope ? snapshot.value : null;
   return { data, failed: error?.scope === scope, loading: data === null && error?.scope !== scope,
     error: error?.scope === scope ? error.cause : null,
     token: vaultOwnerToken, scope,
-    isCurrent: () => liveScope.current === scope,
+    isCurrent: () => liveScope.current === scope && isVaultSessionEpochCurrent(scope.epoch),
     retry: () => setRetry((value) => value + 1) };
 }
+
+const loadFreshPayoutAccount = (token: string) => DocumentPayoutService.account(token, { fresh: true });
 
 /** The card's last bank read, so a screen can gate on it without a second read. */
 export type PayoutAccountState = {
@@ -155,6 +163,7 @@ export function DocumentPayoutAccountCard({
     ? normalizeInternalRouteHref(searchParams.get("from")) : null;
   const resource = usePayoutSnapshot(DocumentPayoutService.account, {
     active, refreshKey: returnState ?? "", bankOnly: true, ignoreReadyEvent: true,
+    freshLoad: loadFreshPayoutAccount,
   });
   const { data, token, scope, loading, failed } = resource;
   const account = data?.account ?? null;
