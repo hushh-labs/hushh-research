@@ -214,16 +214,33 @@ async def test_checksum_drift_fails_before_sql_execution(tmp_path: Path):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("history", ["applied", "baselined"])
-async def test_attachment_replay_repair_preserves_historical_ledger_checksums(history):
+@pytest.mark.parametrize(
+    "version,filename,checksum",
+    [
+        (
+            295,
+            "295_direct_message_attachments.sql",
+            "f76a5e6e71d1979dbcd71d2e3c5ad390c1aa9f018742946bee2dcea3831d4edc",
+        ),
+        (
+            288,
+            "288_drive_request_feed_stream.sql",
+            "b13a15ee0d27a4c78efd99718adb1996ecb8c54254dbf1377a250d8791424ee6",
+        ),
+    ],
+)
+async def test_legacy_replay_repair_preserves_historical_ledger_checksums(
+    history, version, filename, checksum
+):
     entries = build_manifest_entries(
         Path(__file__).resolve().parents[1] / "db/migrations",
-        ("295_direct_message_attachments.sql",),
+        (filename,),
     )
     historical = replace(
         entries[0],
-        checksum_sha256="f76a5e6e71d1979dbcd71d2e3c5ad390c1aa9f018742946bee2dcea3831d4edc",
+        checksum_sha256=checksum,
     )
-    through = 294 if history == "applied" else 295
+    through = version - 1 if history == "applied" else version
     conn = FakeConnection()
     conn.rows[f"baseline:{through}"] = {
         "migration_id": f"baseline:{through}",
@@ -234,8 +251,8 @@ async def test_attachment_replay_repair_preserves_historical_ledger_checksums(hi
         "baseline_through": through,
     }
     if history == "applied":
-        conn.rows["295"] = {
-            "migration_id": "295",
+        conn.rows[str(version)] = {
+            "migration_id": str(version),
             "filename": historical.filename,
             "checksum_sha256": historical.checksum_sha256,
             "status": "applied",
@@ -249,12 +266,15 @@ async def test_attachment_replay_repair_preserves_historical_ledger_checksums(hi
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("drift", ["metadata", "body", "both"])
-async def test_attachment_replay_rejects_unknown_or_forged_source_before_execution(drift):
+@pytest.mark.parametrize(
+    "filename", ["295_direct_message_attachments.sql", "288_drive_request_feed_stream.sql"]
+)
+async def test_legacy_replay_rejects_unknown_or_forged_source_before_execution(drift, filename):
     entry = build_manifest_entries(
         Path(__file__).resolve().parents[1] / "db/migrations",
-        ("295_direct_message_attachments.sql",),
+        (filename,),
     )[0]
-    sql = entry.sql if drift == "metadata" else entry.sql.replace("USING (false)", "USING (true)")
+    sql = entry.sql if drift == "metadata" else entry.sql + "\n-- unknown body"
     checksum = (
         "0" * 64
         if drift == "metadata"

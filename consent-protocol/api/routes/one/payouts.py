@@ -20,7 +20,7 @@ import os
 from typing import Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from api.middleware import require_vault_owner_token
@@ -93,12 +93,14 @@ async def onboard(
 
 @router.get("/account")
 async def get_payout_account(
-    response: Response, token_data: dict = Depends(require_vault_owner_token)
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+    fresh: bool = Query(False),
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "private, no-store"
     try:
         account: dict[str, Any] = await _document_service().account_status(
-            user_id=token_data["user_id"]
+            user_id=token_data["user_id"], force_refresh=fresh
         )
         return account
     except PacketOrderError as exc:

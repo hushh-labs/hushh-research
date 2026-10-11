@@ -432,6 +432,10 @@ describe("Top app bar responsive contract", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
     const back = read("lib/navigation/top-shell-back.ts");
     const breadcrumbs = read("lib/navigation/top-shell-breadcrumbs.ts");
+    // The per-route Back resolution (including Location's no-action breadcrumb
+    // below) lives in the declarative graph top-shell-breadcrumbs.ts walks,
+    // not in top-shell-breadcrumbs.ts itself.
+    const backGraph = read("lib/navigation/back-navigation-graph.ts");
 
     expect(source).toContain("breadcrumb: topShellBreadcrumb");
     // The bar trims the trail through the title-slot resolver, which is the
@@ -443,7 +447,7 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("navigateTopShellBack({");
     expect(back).toContain("navigate: (action: TopShellBackAction) => void;");
     expect(back).toContain("params.navigate(action);");
-    expect(breadcrumbs).toContain(
+    expect(backGraph).toContain(
       'items: [{ label: fromProfile ? "Profile" : "One" }],',
     );
     expect(source).not.toContain("history.back()");

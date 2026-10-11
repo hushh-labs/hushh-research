@@ -17,6 +17,7 @@ import { attachBusinessOrigin, BusinessOriginValidationError, businessCandidateS
 import type { AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
 import { businessReviewFields, businessReviewItems, initialBusinessFieldSelection, selectBusinessReviewFields, type BusinessFieldSelection, type BusinessReviewItem } from "@/lib/agent/business-profile-fields";
 import { withDeadline } from "@/lib/utils/with-deadline";
+import { useBackLayer } from "@/lib/navigation/back-layers";
 
 const BUSINESS_REVIEW_BUDGET_MS = 90_000;
 
@@ -30,6 +31,10 @@ type Props = {
   onSaved?: (businessUid: string) => void;
   /** Candidates already saved in this session stay suppressed if discovery refreshes. */
   dismissedBusinessUids?: ReadonlySet<string>;
+  /** Optional content inside Magic; no separate assistant identity or card chrome. */
+  embedded?: boolean;
+  present?: boolean;
+  pathname?: string;
 };
 type Review = {
   candidate: BusinessCandidate; name: string; website: string; message: string;
@@ -53,13 +58,16 @@ export function BusinessProfileSuggestion(props: Props) {
       return next;
     });
   }, []);
-  const visible = visibleIds.size > 0;
+  const { ownerId, vaultKey, vaultOwnerToken, enabled, tokenExpiresAt } = props;
+  const currentDiscovery = enabled && !!ownerId && !!vaultKey && !!vaultOwnerToken &&
+    tokenExpiresAt !== null && Date.now() < tokenExpiresAt && completedOwner !== ownerId &&
+    discovery?.ownerId === ownerId && discovery.token === vaultOwnerToken && discovery.key === vaultKey;
+  const visible = currentDiscovery && visibleIds.size > 0;
   const { onVisibleChange } = props;
   useEffect(() => {
     onVisibleChange?.(visible);
     return () => onVisibleChange?.(false);
   }, [onVisibleChange, visible]);
-  const { ownerId, vaultKey, vaultOwnerToken, enabled, tokenExpiresAt } = props;
   useEffect(() => {
     const abort = new AbortController();
     setDiscovery(null);
@@ -78,16 +86,14 @@ export function BusinessProfileSuggestion(props: Props) {
     })();
     return () => abort.abort();
   }, [ownerId, vaultKey, vaultOwnerToken, enabled, tokenExpiresAt]);
-  if (!enabled || !ownerId || !vaultKey || !vaultOwnerToken || tokenExpiresAt === null || Date.now() >= tokenExpiresAt ||
-    completedOwner === ownerId ||
-    discovery?.ownerId !== ownerId || discovery.token !== vaultOwnerToken || discovery.key !== vaultKey) return null;
+  if (!currentDiscovery) return null;
   const candidates = discovery.candidates.filter(candidate => candidate.synthetic === false &&
     candidate.sourceIdentity.source === "directory" && !isDemoBusinessSource(candidate.sourceIdentity.sourceKey) &&
     !props.dismissedBusinessUids?.has(candidate.businessUid));
   // Ambient discovery offers a real candidate; an empty lookup is not a chat task.
   if (!candidates.length) return null;
   return <div className="space-y-[var(--app-form-section-gap)]">
-    {candidates.length > 1 && <HelperText>I found several possible businesses. Choose the details you want to review.</HelperText>}
+    {props.present !== false && candidates.length > 1 && <HelperText>I found several possible businesses. Choose the details you want to review.</HelperText>}
     {candidates.map(candidate => <BusinessCandidateReview key={candidate.businessUid} {...props} candidate={candidate}
       onCompleted={() => setCompletedOwner(ownerId)}
       onCandidateVisible={onCandidateVisible} />)}
@@ -115,7 +121,7 @@ function BusinessCandidateReview(props: Props & { candidate: BusinessCandidate;
   const [recoveryAttempt, setRecoveryAttempt] = useState(0);
   const [operation, setOperation] = useState<"refresh" | "later" | "not_me" | null>(null);
   const review = state?.context === context ? state.review : null;
-  const reviewVisible = Boolean(review);
+  const reviewVisible = Boolean(review) || (Boolean(props.embedded) && recoveryError);
   const { onCandidateVisible } = props;
   useEffect(() => {
     onCandidateVisible(props.candidate.businessUid, reviewVisible);
@@ -332,7 +338,16 @@ function BusinessCandidateReview(props: Props & { candidate: BusinessCandidate;
     } catch { if (guard.isCurrent()) morphyToast.error("Your choice could not be saved. Try again."); }
     finally { if (guard.isCurrent()) { busy.current = false; setOperation(null); } }
   };
-
+  useBackLayer(props.pathname || "/", props.embedded && props.present !== false && eligible() && review &&
+    (editing || acknowledging || review.phase !== "offer" || operation !== null) ? 3 : 0, useCallback(() => {
+      if (busy.current) return true;
+      if (acknowledging) { setAcknowledging(false); return true; }
+      if (editing) { setEditing(false); return true; }
+      // Keep an approved recovery job intact when returning to the subsection.
+      if (open) { setOpen(false); return true; }
+      return false;
+    }, [acknowledging, editing, open]));
+  if (props.present === false) return null;
   if (recoveryError && eligible()) return <div role="status" className="space-y-2">
     <HelperText>Your saved business review could not be opened. Nothing has been changed.</HelperText>
     <Button variant="muted" size="standard" onClick={() => setRecoveryAttempt(value => value + 1)}>Retry saved review</Button>
@@ -371,10 +386,10 @@ function BusinessCandidateReview(props: Props & { candidate: BusinessCandidate;
       </span>
     </label>;
   };
-  const card = <section aria-label="Is this your business?"
+  const card = <section aria-label={props.embedded ? "Business details" : "Is this your business?"}
     className="min-w-0 space-y-[var(--app-form-section-gap)]">
     {!open && <Button variant="muted" size="standard" onClick={() => setOpen(true)}>Review business details</Button>}
-    {open && <div className="min-w-0 space-y-5 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-separator)] p-4 sm:p-5">
+    {open && <div className={props.embedded ? "min-w-0 space-y-3" : "min-w-0 space-y-5 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-separator)] p-4 sm:p-5"}>
         <div className="flex min-w-0 items-start justify-between gap-3">
           <div className="min-w-0">
           <h3 className="ui-text-row-title break-words text-foreground">{review.name || review.candidate.draft.name}</h3>
@@ -452,7 +467,7 @@ function BusinessCandidateReview(props: Props & { candidate: BusinessCandidate;
       </AlertDialogFooter></AlertDialogContent>
     </AlertDialog>
   </section>;
-  return props.renderMessage
+  return props.embedded ? card : props.renderMessage
     ? props.renderMessage(review.candidate.businessUid, introduction, card)
     : <div data-message-role="assistant" className="space-y-3"><p>{introduction}</p>{card}</div>;
 }

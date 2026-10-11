@@ -1136,6 +1136,9 @@ tests/test_scheduled_mail_drain_routes.py
 tests/test_scheduled_mail_scheduler_contract.py
 tests/test_business_suggestions.py
 tests/test_one_profile_research.py
+tests/test_magic_intelligence_admission.py
+tests/test_magic_intelligence_completion.py
+tests/test_insurance_agents_runtime_config_wiring.py
 tests/test_hushh_adk_turn.py
 tests/test_business_runtime_reliability.py
 tests/test_consent_listener_asyncio.py
@@ -1174,3 +1177,6 @@ tests/services/test_marketplace_investor_discovery.py
 tests/services/test_pkm_answer_recovery_postgres.py
 tests/test_pkm_answer_config.py
 tests/test_pkm_answer_routes.py
+tests/test_sse_routes.py
+tests/test_feed_realtime_postgres.py
+tests/test_payout_account_refresh_route.py

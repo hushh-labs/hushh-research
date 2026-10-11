@@ -102,6 +102,12 @@ run_full_suite_check() {
 
 ran=0
 
+# Trusted Back/Forward needs a real browser; jsdom cannot synthesize trusted popstate.
+if has_match '^hushh-webapp/(lib/navigation/(web-history-back|profile-pane|back-navigation-graph)\.ts|e2e/navigation\.spec\.ts|__tests__/lib/web-history-back\.test\.ts)'; then
+  run_check "Native browser Back/Forward" npm run test:web-history-boundary
+  ran=1
+fi
+
 # Resolve the existing broad layout pack once. It already includes the agent
 # surface spec in both required browser engines; do not invoke that spec twice.
 layout_contracts_required=0

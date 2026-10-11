@@ -1,18 +1,23 @@
 import { act, renderHook } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   apiFetchStream: vi.fn(),
   onConsentMutated: vi.fn(),
+  onFeedChanged: vi.fn(),
+  dispatchFeedStateChanged: vi.fn(),
   dispatchConsentStateChanged: vi.fn(),
 }));
 
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: { apiFetchStream: mocks.apiFetchStream },
 }));
+vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => false } }));
+vi.mock("@/lib/services/native-sse-fetch", () => ({ nativeStreamFetch: vi.fn() }));
 vi.mock("@/lib/cache/cache-sync-service", () => ({
-  CacheSyncService: { onConsentMutated: mocks.onConsentMutated },
+  CacheSyncService: { onConsentMutated: mocks.onConsentMutated, onFeedChanged: mocks.onFeedChanged },
 }));
+vi.mock("@/lib/feed/feed-events", () => ({ dispatchFeedStateChanged: mocks.dispatchFeedStateChanged }));
 vi.mock("@/lib/consent/consent-events", () => ({
   dispatchConsentStateChanged: mocks.dispatchConsentStateChanged,
 }));
@@ -32,9 +37,11 @@ function stream(frames: string) {
 }
 
 describe("document Feed stream", () => {
+  beforeEach(() => { vi.spyOn(Math, "random").mockReturnValue(0.5); });
   afterEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
+    vi.restoreAllMocks();
   });
 
   it("shares one stream between Feed and Payouts until the last surface closes", async () => {
@@ -86,7 +93,7 @@ describe("document Feed stream", () => {
 
     expect(mocks.apiFetchStream).toHaveBeenCalledWith(
       "/api/consent/document-feed/requester",
-      expect.objectContaining({ headers: { Authorization: "Bearer token" } }),
+      expect.objectContaining({ headers: { Authorization: "Bearer token", Accept: "text/event-stream" } }),
     );
     const targeted = {
       source: "sse_document_feed",
@@ -184,5 +191,102 @@ describe("document Feed stream", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
     expect(mocks.apiFetchStream).toHaveBeenCalledTimes(2);
     result.unmount();
+  });
+
+  it("repairs general Feed changes without inventing a document request or consent mutation", async () => {
+    mocks.apiFetchStream.mockResolvedValue({ ok: true, status: 200, body: stream("event: feed_changed\ndata: {}\n\n") });
+    const view = renderHook(() => useDocumentFeedStream({ uid: "requester", getIdToken: vi.fn().mockResolvedValue("token") }));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(mocks.onFeedChanged).toHaveBeenCalledWith("requester");
+    expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledWith("arrived");
+    expect(mocks.onConsentMutated).not.toHaveBeenCalled();
+    expect(mocks.dispatchConsentStateChanged).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it("settles a hung token lookup and ignores its late result after retry", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    let finishToken!: (value: string) => void;
+    const user = { uid: "requester", getIdToken: vi.fn()
+      .mockImplementationOnce(() => new Promise<string>((resolve) => { finishToken = resolve; }))
+      .mockResolvedValue("new-token") };
+    mocks.apiFetchStream.mockResolvedValue({ ok: true, status: 200, body: stream("") });
+    const view = renderHook(() => useDocumentFeedStream(user));
+    await act(async () => { await vi.advanceTimersByTimeAsync(11_100); });
+    expect(user.getIdToken).toHaveBeenCalledTimes(2);
+    expect(mocks.apiFetchStream).toHaveBeenCalledTimes(1);
+    expect(mocks.apiFetchStream.mock.calls[0][1].headers.Authorization).toBe("Bearer new-token");
+    await act(async () => { finishToken("old-token"); });
+    expect(mocks.apiFetchStream).toHaveBeenCalledTimes(1);
+    view.unmount();
+  });
+
+  it("abandons a silent stream and reconnects with a fresh token lookup", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const cancel = vi.fn();
+    const first = new ReadableStream<Uint8Array>({ cancel });
+    mocks.apiFetchStream.mockResolvedValueOnce({ ok: true, status: 200, body: first })
+      .mockResolvedValueOnce({ ok: true, status: 200, body: stream("event: feed_reset\ndata: {}\n\n") });
+    const user = { uid: "requester", getIdToken: vi.fn().mockResolvedValue("token") };
+    const view = renderHook(() => useDocumentFeedStream(user));
+    await act(async () => { await vi.advanceTimersByTimeAsync(46_100); });
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(mocks.apiFetchStream).toHaveBeenCalledTimes(2);
+    expect(user.getIdToken).toHaveBeenCalledTimes(2);
+    view.unmount();
+  });
+
+  it("cancels a late response after the response-header deadline", async () => {
+    // Keep the wall-clock-aligned 45s repair outside this 16.1s timeout/retry window.
+    vi.useFakeTimers({ now: 0 });
+    let finish!: (value: unknown) => void;
+    mocks.apiFetchStream.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }))
+      .mockResolvedValueOnce({ ok: true, status: 200, body: stream("") });
+    const view = renderHook(() => useDocumentFeedStream({ uid: "requester", getIdToken: vi.fn().mockResolvedValue("token") }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(16_100); });
+    expect(mocks.apiFetchStream).toHaveBeenCalledTimes(2);
+    const body = stream("event: feed_reset\ndata: {}\n\n");
+    const cancel = vi.spyOn(body, "cancel");
+    await act(async () => finish({ ok: true, status: 200, body }));
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(mocks.dispatchConsentStateChanged).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it("switches repeated failures to slow retries instead of reconnecting indefinitely", async () => {
+    vi.useFakeTimers();
+    mocks.apiFetchStream.mockResolvedValue({ ok: false, status: 503, body: null });
+    const view = renderHook(() => useDocumentFeedStream({ uid: "requester", getIdToken: vi.fn().mockResolvedValue("token") }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(92_000); });
+    expect(mocks.apiFetchStream).toHaveBeenCalledTimes(8);
+    await act(async () => { await vi.advanceTimersByTimeAsync(250_000); });
+    expect(mocks.apiFetchStream).toHaveBeenCalledTimes(8);
+    view.unmount();
+  });
+
+  it("aborts hidden work and repairs once when returning to the app", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    mocks.apiFetchStream.mockImplementation(async () => ({ ok: true, status: 200, body: stream("") }));
+    const user = { uid: "requester", getIdToken: vi.fn().mockResolvedValue("token") };
+    const view = renderHook(() => useDocumentFeedStream(user));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    const firstSignal = mocks.apiFetchStream.mock.calls[0][1].signal as AbortSignal;
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+    expect(firstSignal.aborted).toBe(true);
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(mocks.apiFetchStream).toHaveBeenCalledTimes(1);
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("focus"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(mocks.apiFetchStream).toHaveBeenCalledTimes(2);
+    expect(mocks.onFeedChanged).toHaveBeenCalledTimes(1);
+    view.unmount();
   });
 });

@@ -11,9 +11,15 @@ verified email/phone when available. The task uses One's existing public
 Its prompt starts with public name searches, treats an organization domain as
 an optional hint, and allows one broader name-only follow-up in the same budget.
 Contact identifiers are matching context; a public phone match is not required.
-Personal research is independent of Business Intelligence. A person with no
+Magic Intelligence is the single profile feature in One. Business Intelligence
+populates its optional Business subsection, with no separate chat identity.
+Personal research is independent of the optional business lookup. A person with no
 business can review and save career, education and public personal findings.
-Business sections are optional. Search calls run sequentially, with at most one
+The initial offer shows one short notice and Review details, with findings
+revealed only after opening. Business facts start unchecked; public-source
+business facts and directory listings share the Business subsection. Its
+failure, absence or pending lookup does not hold up personal review or saving.
+Search calls run sequentially, with at most one
 follow-up, so an unavailable attempt cannot borrow another attempt's receipts.
 Structured task output and Search grounding receipts form the editable card.
 The report stays outside ordinary transcript persistence and automatic capture.

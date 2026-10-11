@@ -338,6 +338,15 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "one_places_directory_enabled": args.one_places_directory_enabled,
         **_azure_owner_cloud_config(args.project, getattr(args, "app_frontend_origin", "")),
         "one_business_directory_enabled": getattr(args, "one_business_directory_enabled", "false"),
+        "one_profile_research_enabled": getattr(args, "one_profile_research_enabled", "false"),
+        "one_magic_intelligence_phase": getattr(args, "one_magic_intelligence_phase", "0"),
+        "one_magic_intelligence_inner_team_emails": getattr(
+            args, "one_magic_intelligence_inner_team_emails", ""
+        ),
+        "one_magic_intelligence_senior_team_emails": getattr(
+            args, "one_magic_intelligence_senior_team_emails", ""
+        ),
+        "one_magic_intelligence_qa_emails": getattr(args, "one_magic_intelligence_qa_emails", ""),
     }
     return _scope_commerce_runtime_policy()["apply_policy"](_drop_empty(config), getattr(args, "scope_commerce_policy", {}))
 
@@ -540,6 +549,13 @@ def main() -> int:
     parser.add_argument(
         "--one-business-directory-enabled", default="false", choices=["true", "false"]
     )
+    parser.add_argument(
+        "--one-profile-research-enabled", default="false", choices=["true", "false"]
+    )
+    parser.add_argument("--one-magic-intelligence-phase", default="0", choices=list("01234"))
+    parser.add_argument("--one-magic-intelligence-inner-team-emails", default="")
+    parser.add_argument("--one-magic-intelligence-senior-team-emails", default="")
+    parser.add_argument("--one-magic-intelligence-qa-emails", default="")
     parser.add_argument("--insurance-agents-api-key-source-project", default="hushh-tech-prod")
     parser.add_argument(
         "--insurance-agents-api-key-source-secret", default="insurance-agents-api-key"

@@ -4,7 +4,11 @@ import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import type { AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), load: vi.fn(), prepare: vi.fn(), save: vi.fn(), decide: vi.fn(), create: vi.fn(), attach: vi.fn() }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), load: vi.fn(), prepare: vi.fn(), save: vi.fn(), decide: vi.fn(), create: vi.fn(), attach: vi.fn(), research: vi.fn() }));
+vi.mock("@/lib/services/profile-research-service", async original => ({
+  ...(await original<typeof import("@/lib/services/profile-research-service")>()),
+  ProfileResearchService: { research: mocks.research },
+}));
 vi.mock("@/lib/services/business-suggestion-service", () => ({ BusinessSuggestionService: { get: mocks.get } }));
 vi.mock("@/lib/agent/business-profile-review", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/agent/business-profile-review")>()),
@@ -18,6 +22,9 @@ vi.mock("@/lib/agent/connector-memory-review", () => ({ prepareConnectorMemoryRe
   connectorMemorySharingImpact: (cards: AgentPkmPreviewCard[]) => Math.max(0, ...cards.map(card => card.sharing_impact?.active_recipient_count || 0)) }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { error: vi.fn(), success: vi.fn(), promise: vi.fn() } }));
 import { BusinessProfileSuggestion } from "@/components/agent/business-profile-suggestion";
+import { OneBackgroundCards } from "@/components/agent/one-background-cards";
+import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { AgentBubble } from "@/components/agent/agent-chat-workspace";
 const candidate = { businessUid: `urn:hushh:business:directory:business:${"a".repeat(64)}`, synthetic: false,
   sourceIdentity: { source: "directory", sourceKey: '{"id":"1"}', vertical: "business" },
@@ -29,13 +36,67 @@ const props = { ownerId: "owner", vaultKey: "key", vaultOwnerToken: "token", tok
 const deferred = <T,>() => { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; };
 beforeEach(() => {
   vi.clearAllMocks(); publishValidatedAuthSessionOwner("owner");
+  useOneConversationSession.getState().clearSession();
+  mocks.research.mockResolvedValue({ status: "disabled", pkm_written: false });
   mocks.get.mockResolvedValue({ candidates: [candidate] }); mocks.load.mockResolvedValue(null);
   mocks.prepare.mockResolvedValue({ cards, incomplete: false, alreadySaved: false });
   mocks.save.mockResolvedValue({ saved: 1, remaining: 0 }); mocks.decide.mockResolvedValue(true);
   mocks.create.mockImplementation((_owner, _candidate, message, selected) => ({ cards: selected, message, revision: "synthetic" }));
 });
-afterEach(() => { cleanup(); publishValidatedAuthSessionOwner(null); });
+afterEach(() => { cleanup(); publishValidatedAuthSessionOwner(null); useOneConversationSession.getState().clearSession(); });
 describe("post-onboarding business suggestion", () => {
+  it.each(["absent", "pending", "unavailable", "offered"])("reviews Business only inside one compact Magic offer when personal research is %s", async status => {
+    if (status !== "absent") useOneConversationSession.getState().queueProfileResearch("owner");
+    mocks.research.mockImplementation(() => status === "pending" ? new Promise(() => {}) : Promise.resolve(status === "offered" ? {
+      status: "offered", search_suggestions: [], report: { match_status: "matched", name: "Alex Example", summary: "A public personal profile.", sections: [
+        { kind: "career", facts: [{ statement: "I work in engineering.", confidence: "supported", sources: [{ title: "Team", url: "https://example.test/team" }] }] },
+        { kind: "business", facts: [{ statement: "I founded Example.", confidence: "supported", sources: [{ title: "Company", url: "https://example.test/company" }] }] },
+      ] }, pkm_written: false,
+    } : { status: "unavailable", pkm_written: false }));
+    const onVisibleChange = vi.fn();
+    render(<OneBackgroundCards {...props} pathname="/" onVisibleChange={onVisibleChange}
+      renderMessage={(id, text, card) => <article key={id} data-message-role="assistant">{text}{card}</article>} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review details", exact: true }));
+    expect(screen.getAllByTestId("magic-intelligence-card")).toHaveLength(1);
+    expect(screen.queryByText("Is this your business?")).toBeNull();
+    expect(screen.queryByText("Example Business")).toBeNull();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.save).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("button", { name: "Business", exact: true })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Business", exact: true }));
+    await screen.findByRole("region", { name: "Business details" });
+    expect(screen.getByText("Example Business")).toBeVisible();
+    if (status === "offered") {
+      fireEvent.click(screen.getByRole("button", { name: /Public sources/ }));
+      expect(screen.getByRole("checkbox", { name: "Keep I founded Example." })).not.toBeChecked();
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Review details", exact: true }));
+    await screen.findByText("Example company detail");
+    act(() => { expect(unwindBackLayer("/")).toBe(true); });
+    fireEvent.click(screen.getByRole("button", { name: "Review business details" }));
+    expect(mocks.prepare).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByTestId("agent-pkm-review-save"));
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Business details" })).toBeNull());
+    if (status === "offered") expect(screen.getByText("Alex Example")).toBeVisible();
+    if (status === "absent") await waitFor(() => expect(onVisibleChange).toHaveBeenLastCalledWith(false));
+  });
+  it("refuses Business collapse through the toggle or Back while an approved save is pending", async () => {
+    const pending = deferred<{ saved: number; remaining: number }>();
+    mocks.save.mockReturnValueOnce(pending.promise);
+    render(<OneBackgroundCards {...props} pathname="/" renderMessage={(_id, _text, card) => card} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review details", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Business", exact: true }));
+    fireEvent.click(await screen.findByRole("button", { name: "Review details", exact: true }));
+    fireEvent.click(await screen.findByTestId("agent-pkm-review-save"));
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "Business", exact: true }));
+    act(() => { expect(unwindBackLayer("/")).toBe(true); });
+    expect(screen.getByRole("region", { name: "Business details" })).toBeVisible();
+    expect(screen.getByTestId("agent-pkm-review-save")).toBeDisabled();
+    await act(async () => pending.resolve({ saved: 1, remaining: 0 }));
+    await waitFor(() => expect(screen.getByTestId("magic-intelligence-card")).not.toBeVisible());
+  });
   it("stays absent on a new browser session when account discovery is complete", async () => {
     mocks.get.mockResolvedValue({ status: "no_match", candidates: [] });
     const first = render(<BusinessProfileSuggestion {...props} />);

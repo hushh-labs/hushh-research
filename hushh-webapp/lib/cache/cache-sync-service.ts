@@ -746,6 +746,11 @@ export class CacheSyncService {
     this.onFeedReadFailed(userId);
   }
 
+  /** Server activity invalidates both projections and fences older in-flight reads. */
+  static onFeedChanged(userId: string): void {
+    this.onFeedReadFailed(userId);
+  }
+
   /**
    * One-to-One requests can add, revoke, or leave capabilities unchanged.
    * Keep every affected surface on the same invalidation contract rather than

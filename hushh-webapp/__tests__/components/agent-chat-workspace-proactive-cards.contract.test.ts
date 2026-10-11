@@ -29,7 +29,7 @@ describe("Agent One chat workspace wiring contract", () => {
   it("mounts independent background capabilities from ordinary chat readiness", () => {
     const readiness = source.slice(
       source.indexOf("const backgroundCardsEnabled ="),
-      source.indexOf("const [businessSuggestionVisible"),
+      source.indexOf("const [magicIntelligenceVisible"),
     );
     expect(readiness).toContain("hasChatAccess && !isPuppySurface && !sessionVerificationRequired");
     expect(readiness).toContain("chatOnboarding.resolved");
@@ -42,7 +42,7 @@ describe("Agent One chat workspace wiring contract", () => {
     expect(backgroundTurn).toContain("<OneBackgroundCards");
     expect(backgroundTurn).toContain("enabled={backgroundCardsEnabled}");
     expect(backgroundTurn).toContain("ephemeralCard={card}");
-    expect(backgroundTurn).not.toContain("businessSuggestionVisible");
+    expect(backgroundTurn).not.toContain("magicIntelligenceVisible");
     const endSlot = source.slice(source.indexOf('renderChatOnboarding({ kind: "end", visibleMessageIds })'));
     expect(endSlot.indexOf("renderBackgroundCardTurn()")).toBeGreaterThan(0);
     expect(endSlot).toContain("backgroundCardTurnAnchor.afterId === visibleMessageIds.at(-1)");

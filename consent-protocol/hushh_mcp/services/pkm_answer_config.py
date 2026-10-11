@@ -68,15 +68,18 @@ def answer_requests_enabled() -> bool:
     nor the composer: coupling them is what left an intake-ready deployment
     showing a dead control.
 
-    Unset falls back to the payment flag, so a deployment already taking paid
-    answers keeps accepting questions without a new binding. An explicit
-    value wins in both directions and remains the kill switch.
-    """
-    raw = (os.getenv("PKM_ANSWER_REQUESTS_ENABLED") or "").strip().lower()
-    if raw in {"true", "false"}:
-        return raw == "true"
-    # Imported at call time: the payment service imports this module, so a
-    # module-level import here would close the cycle.
-    from hushh_mcp.services.pkm_answer_payment_service import answer_payments_enabled
+    Open unless explicitly switched off. This one does NOT default closed
+    like the paid lane, and the distinction is the whole point: an active
+    connection is already the authorization gate for asking, so a second
+    default-closed rollout flag in front of it only produces a control that
+    explains it cannot be used. An earlier revision defaulted to inheriting
+    `PKM_ANSWER_PAYMENTS_ENABLED`, which quietly rebuilt the payment coupling
+    this function exists to remove and shipped a deployment still showing
+    that dead control.
 
-    return answer_payments_enabled()
+    `PKM_ANSWER_REQUESTS_ENABLED=false` is the kill switch and is the only
+    value that closes intake. Anything else, including unset, is open.
+    Nothing here can move money: checkout, the composer and the owner work
+    queue keep their own default-closed gate.
+    """
+    return (os.getenv("PKM_ANSWER_REQUESTS_ENABLED") or "").strip().lower() != "false"

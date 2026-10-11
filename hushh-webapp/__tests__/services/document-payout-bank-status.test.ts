@@ -156,6 +156,18 @@ const earning = () => ({
 describe("payout account and earnings boundary", () => {
   beforeEach(() => apiJson.mockReset());
 
+  it("requests an uncached provider check only when explicitly refreshing bank status", async () => {
+    apiJson.mockResolvedValue({ account: null });
+    await DocumentPayoutService.account("vault", { fresh: true });
+    expect(apiJson).toHaveBeenLastCalledWith("/api/one/payouts/account?fresh=true", {
+      headers: { Authorization: "Bearer vault" }, cache: "no-store",
+    });
+    await DocumentPayoutService.account("vault");
+    expect(apiJson).toHaveBeenLastCalledWith("/api/one/payouts/account", {
+      headers: { Authorization: "Bearer vault" }, cache: "no-store",
+    });
+  });
+
   it("projects only account readiness and rejects unsupported money links", async () => {
     const account = { detailsSubmitted: true, transfersEnabled: true, payoutsEnabled: true, ready: true, status: "ready" };
     apiJson.mockResolvedValueOnce({ account: { ...account, stripeAccountId: "acct_private" } });

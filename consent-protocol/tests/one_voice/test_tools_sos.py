@@ -107,6 +107,18 @@ class FakeLocationService:
         self._seq = 0
 
     # reads
+    def _identity_row(self, user_id: str) -> dict | None:
+        row = next((row for row in self.recipients if row["userId"] == user_id), None)
+        return (
+            {"phone_verified": row["phoneVerified"], "phone_number": "+15550100001"}
+            if row
+            else None
+        )
+
+    def _is_location_peer_eligible(self, *, owner_user_id: str, other_user_id: str) -> bool:
+        assert owner_user_id == OWNER
+        return any(row["userId"] == other_user_id for row in self.recipients)
+
     def list_sms_contact_ids(self, *, owner_user_id: str) -> list[str]:
         self.calls.append("list_sms_contact_ids")
         if self.roster_error is not None:

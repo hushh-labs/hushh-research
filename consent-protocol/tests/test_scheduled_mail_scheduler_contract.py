@@ -166,8 +166,15 @@ def test_script_is_executable_and_never_mutates_runtime_iam():
     assert "run services update" not in source
 
 
-def test_dry_run_prints_the_exact_oidc_job_without_calling_gcloud(tmp_path: Path):
-    result = _run_scheduler_with(tmp_path, DRY_RUN="1")
+@pytest.mark.parametrize("inherited_setting", [None, "", "false", "TRUE"])
+def test_dry_run_prints_the_exact_oidc_job_without_calling_gcloud(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, inherited_setting: str | None
+):
+    if inherited_setting is None:
+        monkeypatch.delenv("MAIL_SCHEDULED_DRAIN_ENABLED", raising=False)
+    else:
+        monkeypatch.setenv("MAIL_SCHEDULED_DRAIN_ENABLED", inherited_setting)
+    result = _run_scheduler_with(tmp_path, DRY_RUN="1", MAIL_SCHEDULED_DRAIN_ENABLED="true")
 
     assert result.returncode == 0, result.stderr
     assert result.gcloud_calls == ""  # type: ignore[attr-defined]

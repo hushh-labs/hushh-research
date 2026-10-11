@@ -63,7 +63,7 @@ describe("chat onboarding sequence", () => {
     expect(named.state.step).toBe("focus");
     expect(lastAssistant(named.state).text).toBe("Nice to meet you, Kushal. What should I help with first?");
     expect(lastAssistant(named.state).chips?.map((c) => c.label)).toEqual([
-      "Email", "Calendar", "Money", "Memory", "Location", "Just chat", "Skip for now",
+      "Location", "Mail", "Calendar", "Finance", "Advisor", "Wallet", "Consent", "Memory", "Messages", "Skip for now",
     ]);
 
     const focused = chip(named.state, "focus_chat");
@@ -102,31 +102,29 @@ describe("chat onboarding sequence", () => {
 describe("unrelated input never breaks onboarding", () => {
   it("does not take ordinary composer text as an answer unless the person chose to type a name", () => {
     const started = start().state;
-    const idle = run(started, { type: "typed_answer", text: "Kushal", anchor: null });
+    const idle = run(started, { type: "typed_answer", text: "Kushal", anchor: null, today: TODAY });
     expect(idle.consumed).toBe(false);
     expect(idle.state).toBe(started);
   });
 
-  it("sends question-shaped text to One and keeps waiting, then accepts a real name", () => {
-    const typing = chip(start().state, "name_other").state;
-    expect(typing.step).toBe("name_typing");
-
-    const unrelated = run(typing, {
-      type: "typed_answer",
-      text: "What's on my calendar this week?",
-      anchor: "msg-1",
+  it("Something else ends recommendations immediately without capturing the next message as a name", () => {
+    const started = start().state;
+    const dismissed = chip(started, "name_other");
+    expect(dismissed.state.step).toBe("done");
+    expect(dismissed.state.turns.filter((turn) => turn.role === "assistant")).toEqual(
+      started.turns.filter((turn) => turn.role === "assistant"),
+    );
+    expect(dismissed.state.progress.status).toBe("completed");
+    expect(dismissed.effects).toEqual([
+      { type: "persist_progress", progress: dismissed.state.progress }, { type: "focus_composer" },
+    ]);
+    const ordinary = run(dismissed.state, { type: "typed_answer", text: "tell me the news", anchor: "msg-1", today: TODAY });
+    expect(ordinary.consumed).toBe(false);
+    expect(ordinary.state.draft.name).toBeNull();
+    const resumed = run(null, {
+      type: "resume", progress: dismissed.state.progress, firstName: "Kushal", anchor: null, today: TODAY,
     });
-    expect(unrelated.consumed).toBe(false);
-    expect(unrelated.state.step).toBe("name");
-    expect(unrelated.state.turns).toHaveLength(typing.turns.length);
-
-    // Onboarding resumes from where it waited, anchored after the real exchange.
-    const retry = chip(unrelated.state, "name_other", "msg-2").state;
-    const named = run(retry, { type: "typed_answer", text: "  Kush  ", anchor: "msg-2" });
-    expect(named.consumed).toBe(true);
-    expect(named.state.draft.name).toBe("Kush");
-    expect(named.state.step).toBe("focus");
-    expect(named.state.turns.at(-1)?.anchor).toBe("msg-2");
+    expect(resumed.state.turns).toEqual([]);
   });
 });
 
@@ -201,7 +199,7 @@ describe("what to help with first", () => {
     const named = chip(start().state, "name_signin").state;
     const focused = chip(named, "focus_money").state;
     const [user, explanation, tone] = focused.turns.slice(-3);
-    expect(user).toMatchObject({ role: "user", text: "Money" });
+    expect(user).toMatchObject({ role: "user", text: "Finance" });
     expect(explanation?.action).toMatchObject({ kind: "route", href: ROUTES.KAI_PORTFOLIO_SOURCES });
     expect(explanation?.chips).toBeUndefined();
     expect(tone?.text).toBe("Last one. How should I talk with you?");

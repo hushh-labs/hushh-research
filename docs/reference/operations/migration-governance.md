@@ -385,8 +385,10 @@ ledger, existing deferral, recovery and schema gates before deployment.
 
 ### Infrastructure integration lineage (2026-10-11)
 
-Main `86b5d11f` registers Business Profile at 306. The pending infrastructure
-suffix moves from 306–311 to 312–317 with identical SQL and rollback bytes.
+Frozen main `f74922bf` retains Business Profile 306, Feed 313 and Magic 314.
+The pending infrastructure suffix now occupies 315–320; the intermediate
+312–317 mapping is superseded before any recorded deployment. SQL and rollback
+bodies match both parent branches; numbering comments may change.
 The prior `6fee7dba` manifest and original files remain under
 `db/legacy/scope-commerce-infrastructure-6fee7dba/`; the earlier f051 archive
 remains unchanged. Shared Dev readback at 14:10:29Z shows 59 historical
