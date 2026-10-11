@@ -2474,6 +2474,16 @@ route is now classified `AUTHORITY`; no plaintext route or guard is changed.
 All 84 nearest hub-privacy and business-suggestion cases pass. The complete
 canonical core must pass on the corrected candidate before push and deployment.
 
+The acceptance continuation also corrected two rehearsal selectors that still
+expected USD-only labels after the coin denomination shipped. They now match the
+reviewed USD amount in the actual coins/USD purchase and source-refund controls;
+exact quote/source-lot mutation admission and ambiguous-refund refusal remain
+unchanged. The nearest 16 reviewer contracts and 14 mounted payment-panel cases
+pass, including a negative control that rejects the former USD-only selection.
+The existing cold-challenge mock now implements the passphrase-alternative
+locator used by the current harness; its owner and memory-only assertions remain.
+These are source checks, not successful Checkout or refund receipts.
+
 Primary private Azure setup, normally encrypted synthetic scope fixtures, both
 reviewer Connect/Checkout journeys, accepted quotes, real-time delivery and
 refund/payout receipts, and One's authenticated MCP reads remain acceptance work.

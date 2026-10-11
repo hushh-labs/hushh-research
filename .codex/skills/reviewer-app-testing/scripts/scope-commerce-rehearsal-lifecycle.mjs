@@ -1,5 +1,5 @@
 import { commerceEvidence, CommerceRehearsalWait, verifyRequest, verifyQuote, verifyPreparation,
-  unusedCalendarRefund, uuid, opaqueId, COMMERCE_REHEARSAL } from "./scope-commerce-rehearsal-contract.mjs";
+  unusedCalendarRefund, uuid, opaqueId, COMMERCE_REHEARSAL, commerceMoneyButtonName } from "./scope-commerce-rehearsal-contract.mjs";
 import { actionId, recordPurpose } from "./scope-commerce-rehearsal-state.mjs";
 import { checkedCall, commercialResponse, assertNoExport, exactCommerceReadback, coldCommerceRecovery } from "./scope-commerce-rehearsal-browser.mjs";
 
@@ -95,7 +95,7 @@ async function reviewAndConfirm(runtime, record) {
     { durationSeconds: quote.duration_seconds, quoteExpiresAt: quote.expires_at });
   buyer.admission.replace({ type: "purchase", pathname: "/api/scope-commerce/purchases", expected: { quoteId: quote.id } });
   const purchased = commercialResponse(buyer.session.page, runtime.options.appOrigin, "POST", "/api/scope-commerce/purchases");
-  await buyer.session.page.getByRole("button", { name: `Confirm $${(record.priceCents / 100).toFixed(2)} from balance`, exact: true }).click();
+  await buyer.session.page.getByRole("button", { name: commerceMoneyButtonName("purchase", record.priceCents) }).click();
   commerceEvidence((await purchased).ok(), "EXACT_QUOTE_CONFIRMATION_FAILED");
   const reserved = await requestState(runtime, record);
   commerceEvidence(reserved.purchase?.status === "reserved", "FUNDED_RESERVATION_NOT_CONFIRMED");

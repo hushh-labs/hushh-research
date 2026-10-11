@@ -38,6 +38,7 @@ import { MemoryCommerceSummary } from "@/components/profile/memory-commerce-summ
 import { ScopeTariffEditor } from "@/components/consent/scope-tariff-editor";
 import { ScopeCommerceRequestPanel } from "@/components/consent/scope-commerce-request-panel";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { commerceMoneyButtonName } from "../../../.codex/skills/reviewer-app-testing/scripts/scope-commerce-rehearsal-contract.mjs";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -143,7 +144,7 @@ describe("commerce session and review authority", () => {
     expect(screen.getByRole("button", { name: "Confirm 1 Hussh coin ($0.01) from balance" })).toBeDisabled();
     expect(purchase).not.toHaveBeenCalled();
     rerender(<ScopeCommerceBuyerReview quote={quote} balance={1} expired={false} busy={false} enabled purchase={purchase} reviewPrice={reviewPrice} />);
-    fireEvent.click(screen.getByRole("button", { name: "Confirm 1 Hussh coin ($0.01) from balance" }));
+    fireEvent.click(screen.getByRole("button", { name: commerceMoneyButtonName("purchase", 1) }));
     expect(purchase).toHaveBeenCalledOnce();
     rerender(<ScopeCommerceBuyerReview quote={quote} balance={1} expired busy={false} enabled purchase={purchase} reviewPrice={reviewPrice} />);
     expect(screen.getByRole("button", { name: "Confirm 1 Hussh coin ($0.01) from balance" })).toBeDisabled();
@@ -207,7 +208,7 @@ describe("existing Account payment history", () => {
     mocks.account.mockResolvedValueOnce({ ...balanceAccount(), enabled: false, readiness: unavailable(), managed_balances: true,
       earnings: { pending_cents: 0, available_cents: -25, debt_cents: 25 }, funding_lots: [{ id: "existing_lot", refundable_cents: 50 }] });
     render(<ScopeCommerceAccountPanel />);
-    await screen.findByRole("button", { name: "Review refund of 50 Hussh coins ($0.50)" });
+    await screen.findByRole("button", { name: commerceMoneyButtonName("refund", 50) });
     expect(screen.getByText("Unrecovered costs")).toBeVisible();
     expect(screen.getByRole("button", { name: "Review withdrawal" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Continue to secure checkout" })).not.toBeInTheDocument();

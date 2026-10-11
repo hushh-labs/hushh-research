@@ -16,6 +16,17 @@ export function commerceEvidence(condition, code) {
   if (!condition) throw new CommerceRehearsalFailure(code);
 }
 
+/** UI selection only; exact quote and source-lot admission still authorizes money. */
+export function commerceMoneyButtonName(action, cents) {
+  commerceEvidence(["purchase", "refund"].includes(action) &&
+    Number.isSafeInteger(cents) && cents > 0 && cents <= 100_000, "EXACT_MONEY_BUTTON_REQUIRED");
+  const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
+  const escaped = usd.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const prefix = action === "purchase" ? "Confirm" : "Review refund of";
+  const suffix = action === "purchase" ? " from balance" : "";
+  return new RegExp(`^${prefix} [\\d,]+ Hussh coins? \\(${escaped}\\)${suffix}$`);
+}
+
 export function opaqueId(value) {
   return typeof value === "string" && /^[A-Za-z0-9_-]{1,200}$/.test(value);
 }
