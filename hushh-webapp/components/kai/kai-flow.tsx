@@ -735,6 +735,7 @@ export function KaiFlow({
         newState === "importing" ||
         newState === "import_complete"
       ) {
+        if (params.get("stage") === newState) return;
         params.set("stage", newState);
         router.push(pathname + "?" + params.toString(), { scroll: true });
         return;
