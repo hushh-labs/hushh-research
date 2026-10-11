@@ -11,7 +11,10 @@ from starlette.concurrency import run_in_threadpool
 from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
 from hushh_mcp.one_adk.profile_research import ProfileReport, run_profile_research
 from hushh_mcp.runtime_settings import one_profile_research_enabled
-from hushh_mcp.services.business_suggestion_service import _lookup_identity, _setup_resolved
+from hushh_mcp.services.one_owner_admission import (
+    lookup_fresh_owner_identity,
+    owner_setup_resolved,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +25,8 @@ async def offer_profile_research(
     consent_token: str,
     researcher=run_profile_research,
     owner_check=validate_first_party_owner_token,
-    identity_lookup=_lookup_identity,
-    setup_check=_setup_resolved,
+    identity_lookup=lookup_fresh_owner_identity,
+    setup_check=owner_setup_resolved,
 ) -> dict[str, Any]:
     async def require_access() -> None:
         if await owner_check(user_id, consent_token) is None:

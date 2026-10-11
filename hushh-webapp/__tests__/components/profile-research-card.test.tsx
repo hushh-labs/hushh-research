@@ -62,6 +62,7 @@ vi.mock("@/lib/agent/agent-pkm-context-store", () => ({
 }));
 
 import { ProfileResearchCard } from "@/components/agent/profile-research-card";
+import { OneBackgroundCards } from "@/components/agent/one-background-cards";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import {
@@ -167,6 +168,70 @@ afterEach(() => {
 });
 
 describe("onboarding profile draft and owner confirmation", () => {
+  it.each(["disabled", "unavailable", "pending"])(
+    "researches and saves personal-only Magic Intelligence when Business Intelligence is %s",
+    async (businessStatus) => {
+      mocks.apiFetch.mockImplementation((path: string) => {
+        if (path === "/api/one/business/suggestion") {
+          if (businessStatus === "pending") return new Promise(() => {});
+          return Promise.resolve(
+            respond({
+              contract_version: "b2b-profile-suggestion.v2",
+              scope: "b2b",
+              status: businessStatus,
+              candidates: [],
+              pkm_written: false,
+            }),
+          );
+        }
+        if (path === "/api/one/profile-research")
+          return Promise.resolve(respond(offer()));
+        throw new Error(`Unexpected request: ${path}`);
+      });
+      render(
+        <OneBackgroundCards
+          {...props}
+          tokenExpiresAt={Date.now() + 60_000}
+          renderMessage={(id, text, card) => (
+            <article key={id} aria-label={text}>
+              {card}
+            </article>
+          )}
+        />,
+      );
+      await screen.findByText("Alex Example");
+      expect(screen.getByText("Magic Intelligence")).toBeVisible();
+      expect(mocks.apiFetch.mock.calls.map(([path]) => path)).toEqual(
+        expect.arrayContaining([
+          "/api/one/business/suggestion",
+          "/api/one/profile-research",
+        ]),
+      );
+      expect(mocks.prepare).not.toHaveBeenCalled();
+      expect(mocks.addToPKM).not.toHaveBeenCalled();
+
+      fireEvent.click(
+        screen.getByRole("button", { name: "Review and save" }),
+      );
+      await screen.findByTestId("agent-pkm-review-save");
+      expect(mocks.addToPKM).not.toHaveBeenCalled();
+      fireEvent.click(
+        screen.getByRole("button", { name: "Confirm and save" }),
+      );
+      await screen.findByText("Your Magic Intelligence details are saved.");
+      expect(mocks.prepare).toHaveBeenCalledTimes(1);
+      expect(mocks.addToPKM).toHaveBeenCalledTimes(1);
+      expect(mocks.addToPKM.mock.calls[0][0]).toMatchObject({
+        source: "profile_research_review",
+        confirmation: { confirmedByUser: true, surface: "chat" },
+      });
+      expect(mocks.addToPKM.mock.calls[0][0].businessOrigin).toBeUndefined();
+      expect(mocks.addToPKM.mock.calls[0][0].cards[0].candidate_payload).toEqual({
+        career: { entities: { alex: { summary: FACT } } },
+      });
+    },
+  );
+
   it.each(["no_match", "unavailable"])(
     "never prepares or saves %s; failed research can retry and empty research can be skipped",
     async (status) => {
@@ -194,7 +259,7 @@ describe("onboarding profile draft and owner confirmation", () => {
           useOneConversationSession.getState().pendingProfileResearch,
         ).toBeNull();
       } else {
-        await screen.findByText("Your profile could not be researched yet.");
+        await screen.findByText("Magic Intelligence is unavailable right now.");
         fireEvent.click(screen.getByRole("button", { name: "Try again" }));
         await screen.findByText("Alex Example");
         expect(mocks.apiFetch).toHaveBeenCalledTimes(2);
@@ -239,7 +304,7 @@ describe("onboarding profile draft and owner confirmation", () => {
     expect(message).not.toContain(FACT);
     expect(mocks.addToPKM).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Confirm and save" }));
-    await screen.findByText("Your reviewed details are saved.");
+    await screen.findByText("Your Magic Intelligence details are saved.");
     expect(mocks.prepare).toHaveBeenCalledTimes(1);
     expect(mocks.addToPKM.mock.calls[0][0]).toMatchObject({
       source: "profile_research_review",
@@ -295,7 +360,7 @@ describe("onboarding profile draft and owner confirmation", () => {
     fireEvent.click(
       screen.getAllByRole("button", { name: "Confirm and save" }).at(-1)!,
     );
-    await screen.findByText("Your reviewed details are saved.");
+    await screen.findByText("Your Magic Intelligence details are saved.");
     expect(mocks.prepare).toHaveBeenCalledTimes(1);
     expect(
       mocks.addToPKM.mock.calls[0][0].confirmation.sharingImpactAcknowledged,

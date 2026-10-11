@@ -288,12 +288,12 @@ export function ProfileResearchCard({
           return outcome;
         })();
         morphyToast.promise(saving, {
-          loading: "Saving your reviewed details…",
-          success: "Details saved privately.",
+          loading: "Saving your reviewed Magic Intelligence details…",
+          success: "Magic Intelligence saved privately.",
           error: (error) =>
             error instanceof Error
               ? error.message
-              : "Couldn’t save. Please try again.",
+              : "Couldn’t save Magic Intelligence. Please try again.",
         });
         await saving;
       } catch {
@@ -320,17 +320,18 @@ export function ProfileResearchCard({
     >
       <CardHeader className="p-4 pb-2">
         <CardTitle className="text-base">
-          {report?.name || "Your profile"}
+          Magic Intelligence
         </CardTitle>
+        {report?.name && <HelperText>{report.name}</HelperText>}
         <HelperText>
           {phase === "loading"
-            ? "One is finding your public profile…"
+            ? "One is building your Magic Intelligence profile…"
             : phase === "failed"
-              ? "Your profile could not be researched yet."
+              ? "Magic Intelligence is unavailable right now."
               : phase === "saved"
-                ? "Your reviewed details are saved."
+                ? "Your Magic Intelligence details are saved."
                 : report?.match_status === "no_match"
-                  ? "One couldn’t find a reliable public profile for you. You can skip this and tell One about yourself in chat."
+                  ? "Magic Intelligence couldn’t find a reliable public profile for you. You can skip this and tell One about yourself in chat."
                   : report?.summary}
         </HelperText>
         {report?.match_status === "uncertain" && (
