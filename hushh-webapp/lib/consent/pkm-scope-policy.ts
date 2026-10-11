@@ -40,9 +40,26 @@ export function isPrivatePkmExportScope(scope: string): boolean {
     .split(".")
     .map((part) => part.trim().toLowerCase())
     .filter(Boolean);
+  if (
+    parts[0] === "attr" &&
+    ["one_living_sources", "one_todos"].includes(parts[1] || "")
+  )
+    return true;
   if (parts[0] !== "attr" || parts[1] !== "financial") return false;
   const path = parts.slice(2).filter((part) => part !== "*");
   if (path.length === 0) return true;
   if (PRIVATE_FINANCIAL_PREFIXES.has(path[0] ?? "")) return true;
   return path.some((part) => PRIVATE_ARTIFACT_PARTS.has(part));
+}
+
+/** Root legacy exports cannot route around a domain's private boundary. */
+export function excludePrivatePkmDomains(
+  fullBlob: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(fullBlob).filter(
+      ([domain]) =>
+        !["one_living_sources", "one_todos"].includes(domain.toLowerCase()),
+    ),
+  );
 }

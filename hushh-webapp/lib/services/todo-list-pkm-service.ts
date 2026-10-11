@@ -41,6 +41,7 @@ export type TodoItem = {
   updatedAt: string;
   completedAt: string | null;
   deletedAt: string | null;
+  revision?: number;
 };
 
 export type CreateTodoInput = {
@@ -146,7 +147,7 @@ function privateTodoData(
 function normalizeItem(value: unknown): TodoItem | null {
   if (!isRecord(value)) return null;
   const id = text(value.id, 240);
-  const title = text(value.title, 240);
+  const title = String(value.title ?? "");
   const createdAt = text(value.createdAt, 64);
   const updatedAt = text(value.updatedAt, 64);
   if (!id || !title || !createdAt || !updatedAt) return null;
@@ -165,7 +166,11 @@ function normalizeItem(value: unknown): TodoItem | null {
     sourceAgent: normalizeSource(value.sourceAgent ?? value.source, type),
     sourceId: text(value.sourceId ?? value.calendarEventId, 240) || null,
     link: normalizeLink(value.link),
-    notes: text(value.notes, 1_200) || null,
+    notes: value.notes ? String(value.notes) : null,
+    revision:
+      Number.isSafeInteger(value.revision) && Number(value.revision) >= 0
+        ? Number(value.revision)
+        : 0,
     createdAt,
     updatedAt,
     completedAt,
@@ -183,7 +188,7 @@ function privateDomainData(
     ...current,
     _private: {
       ...privateData,
-      tasks: tasks.slice(0, 250),
+      tasks,
       updatedAt,
     },
   };
@@ -328,9 +333,9 @@ export function readTodoListState(
     : [];
 
   return {
-    tasks: tasks
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-      .slice(0, 250),
+    tasks: tasks.sort((left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt),
+    ),
   };
 }
 
@@ -354,7 +359,12 @@ async function write(
       >;
       const state = readTodoListState(currentDomain);
       const updatedAt = new Date().toISOString();
-      const tasks = update(state).slice(0, 250);
+      const tasks = update(state).map((task) => {
+        const previous = state.tasks.find((item) => item.id === task.id);
+        if (previous && JSON.stringify(previous) === JSON.stringify(task))
+          return task;
+        return { ...task, revision: (previous?.revision ?? 0) + 1 };
+      });
       const completedCount = tasks.filter(
         (task) => task.status === "done",
       ).length;
@@ -475,8 +485,12 @@ export const TodoListPkmService = {
       "one_todo_list_owner_confirmed_status",
       `one_todo_list:status:${params.task.id}:${params.status}:${updatedAt}`,
       (current) => {
+        const latest =
+          current.tasks.find((task) => task.id === params.task.id) ??
+          (params.task.type === "automatic" ? params.task : null);
+        if (!latest || latest.status === "deleted") return current.tasks;
         const next = {
-          ...params.task,
+          ...latest,
           status: params.status,
           completedAt: params.status === "done" ? updatedAt : null,
           deletedAt: null,
@@ -514,18 +528,16 @@ export const TodoListPkmService = {
         return current.tasks.flatMap((task) => {
           if (task.id !== params.task.id) return [task];
           // A provider-backed automatic row needs a private tombstone or it
-          // would reappear on the next Calendar refresh. A manual task can be
-          // removed entirely.
-          return task.type === "automatic"
-            ? [
-                {
-                  ...task,
-                  status: "deleted" as const,
-                  deletedAt: updatedAt,
-                  updatedAt,
-                },
-              ]
-            : [];
+          // would reappear on the next Calendar refresh. Manual rows retain
+          // the same deletion receipt for memory freshness.
+          return [
+            {
+              ...task,
+              status: "deleted" as const,
+              deletedAt: updatedAt,
+              updatedAt,
+            },
+          ];
         });
       },
     );

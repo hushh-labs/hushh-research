@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 304,
+  "expected_migration_version": 305,
   "migration_version_policy": "minimum",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -72,7 +72,8 @@
     "guard_hashcoin_redemption",
     "activate_reserved_wallet_cards",
     "remove_wallet_card_registrations",
-    "guard_wallet_card_access_grant"
+    "guard_wallet_card_access_grant",
+    "notify_pkm_answer_changed"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -1655,7 +1656,8 @@
       "finalized_at",
       "transferred_at",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "first_dispatch_at"
     ],
     "pkm_answer_payment_obligations": [
       "request_id",
@@ -1672,7 +1674,8 @@
       "delivery_confirmed_at_erasure",
       "delivery_unsettled_at_erasure",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "stripe_mode"
     ],
     "pkm_answer_payment_orders": [
       "request_id",
@@ -1699,7 +1702,8 @@
       "stripe_transfer_id",
       "transferred_at",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "stripe_mode"
     ],
     "pkm_answer_payment_refunds": [
       "request_id",
@@ -1747,7 +1751,10 @@
       "cancelled_at",
       "expires_at",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "composer_consent_at",
+      "composer_consent_version",
+      "composer_consent_digest"
     ],
     "pkm_blobs": [
       "user_id",

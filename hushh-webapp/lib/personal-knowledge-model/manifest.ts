@@ -1,3 +1,4 @@
+import { pkmStorageSegmentId } from "./segmentation";
 import { sensitiveTopicLabel, valueIsIdentifierShaped } from "@/lib/consent/field-sensitivity";
 import { isInternalManifestPath } from "@/lib/pkm/internal-path-keys";
 import {
@@ -40,6 +41,36 @@ export class PkmMetadataReviewRequired extends Error {
     super("Memory metadata needs review before saving.");
     this.name = "PkmMetadataReviewRequired";
   }
+}
+
+function storageSegmentsForDomain(domainData: Record<string, unknown>): Map<string, string> {
+  const segments = new Map<string, string>();
+  for (const [key, value] of Object.entries(domainData)) {
+    const path = normalizePathSegment(key);
+    const segment = pkmStorageSegmentId(key, value);
+    const previous = segments.get(path);
+    if (previous && previous !== segment) throw new PkmMetadataReviewRequired();
+    segments.set(path, segment);
+  }
+  return segments;
+}
+
+/** Bind optional storage routing without changing labels or scope authority. */
+export function bindPkmManifestStorageRouting(
+  domainData: Record<string, unknown>, manifest: DomainManifest
+): DomainManifest {
+  const segments = storageSegmentsForDomain(domainData);
+  const paths = (manifest.paths || []).map((descriptor) => {
+    const expected = segments.get(normalizePathSegment(descriptor.json_path.split(".")[0]!));
+    if (!expected) return descriptor; // Fixed unmaterialized branches are valid.
+    if (descriptor.segment_id && descriptor.segment_id !== expected) {
+      throw new PkmMetadataReviewRequired();
+    }
+    return { ...descriptor, segment_id: expected };
+  });
+  return { ...manifest, paths, segment_ids: [...new Set([
+    ...(manifest.segment_ids || []), ...paths.map((path) => path.segment_id || "root")
+  ])] };
 }
 
 export type StructureDecision = {
@@ -572,6 +603,12 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
   const sensitivitySeen = new Map<string, string>();
   for (const { target, label } of sensitivityBySource.values()) {
     applyMetadata(target, "sensitivity_label", label, sensitivitySeen);
+  }
+
+  // The manifest routes encrypted reads; use the writer's exact partition.
+  const storageSegments = storageSegmentsForDomain(params.domainData);
+  for (const descriptor of descriptors.values()) {
+    descriptor.segment_id = storageSegments.get(descriptor.json_path.split(".")[0]!) || "root";
   }
 
   const paths = [...descriptors.values()].sort((a, b) =>

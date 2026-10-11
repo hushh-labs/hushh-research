@@ -1,5 +1,7 @@
 "use client";
 
+import { LivingMemoryBridge } from "@/components/profile/living-memory-bridge";
+
 /**
  * Unified Client Providers
  *
@@ -390,7 +392,10 @@ function AppShellFrame({ children }: ProvidersProps) {
   // the scroll-hide driver for ordinary signed-in navigation only.
   const nativeNavigationInstalled = useNativeNavigationInstalled();
   // Native tabs and the web voice slot stay pinned together; no per-frame bridge traffic.
-  const pinnedBottomChrome = isRiaRoute(pathname) || foundationVoiceOnlyChrome || nativeNavigationInstalled;
+  const pinnedBottomChrome =
+    isRiaRoute(pathname) ||
+    foundationVoiceOnlyChrome ||
+    nativeNavigationInstalled;
   // Stable identity: AppShellFrame re-renders on every pathname and query
   // change, and a fresh model object each time re-rendered the whole bottom
   // chrome (navbar, agent bar, masks) on every tab switch.
@@ -497,12 +502,7 @@ function AppShellFrame({ children }: ProvidersProps) {
         handleProfilePaneOpen,
       );
     };
-  }, [
-    pathname,
-    profilePaneEnabled,
-    profilePaneUrlState.open,
-    searchParams,
-  ]);
+  }, [pathname, profilePaneEnabled, profilePaneUrlState.open, searchParams]);
 
   const profilePaneIsOpen = profilePaneUrlState.open;
   const handleProfilePaneOpenChange = useCallback(
@@ -612,181 +612,187 @@ function AppShellFrame({ children }: ProvidersProps) {
               <OneVoiceReadinessProvider>
                 <AgentOwnerGate>
                   <AgentDockProvider>
-                  <SiriOneVoiceHandoff />
-                  <SiriOneRequestHandoff />
-                  <SiriOneActionHandoff />
-                  <SiriOneEntityIndexPublisher />
-                  {/* Proof for the boot surface that the route tree has
+                    <SiriOneVoiceHandoff />
+                    <SiriOneRequestHandoff />
+                    <SiriOneActionHandoff />
+                    <SiriOneEntityIndexPublisher />
+                    {/* Proof for the boot surface that the route tree has
                       committed: after it, an empty set of guard claims means
                       there is nothing left to wait for. */}
-                  <BootRouteCommitted />
-                  <NativeTestRouter />
-                  <NativeTestBootstrap />
-                  <NativeTestRouteStatus />
-                  <InteractionRuntime />
-                  {/* One turns outlive the screen that started them: reattach,
+                    <BootRouteCommitted />
+                    <NativeTestRouter />
+                    <NativeTestBootstrap />
+                    <NativeTestRouteStatus />
+                    <InteractionRuntime />
+                    {/* One turns outlive the screen that started them: reattach,
                       and say "One replied" when the person is elsewhere. */}
-                  <AgentChatTurnNotifier />
-                  {/* A request sent from chat continues once it is answered. */}
-                  <AgentConsentContinuationNotifier />
-                  <AgentFeedAttentionNotifier />
-                  <RenderPerfProbe />
-                  <FoundationPublicAmbient />
-                  {!hidesPersistentChrome ? (
-                    <AmbientChromeController enabled={ambientChromeEnabled} />
-                  ) : null}
-                  {/* Voice chrome is hoisted ABOVE the page Suspense boundary so it
+                    <AgentChatTurnNotifier />
+                    {/* A request sent from chat continues once it is answered. */}
+                    <AgentConsentContinuationNotifier />
+                    <AgentFeedAttentionNotifier />
+                    <RenderPerfProbe />
+                    <FoundationPublicAmbient />
+                    {!hidesPersistentChrome ? (
+                      <AmbientChromeController enabled={ambientChromeEnabled} />
+                    ) : null}
+                    {/* Voice chrome is hoisted ABOVE the page Suspense boundary so it
                 mounts exactly once and survives client-side route transitions.
                 Inside the boundary it would remount whenever a navigation
                 suspends (fallback tree <-> resolved tree swap), cancelling an
                 active command capture during a route switch. Both are fixed
                 overlays, so position is unaffected. */}
-                  {!hidesPersistentChrome ? <AgentVoiceEdgeGlow /> : null}
-                  {!hidesPersistentChrome ? <AppEdgeBackGesture /> : null}
-                  <AppProfileEdgeGesture enabled={profilePaneEnabled} />
-                  <AppBottomShell model={bottomShellModel} />
-                  <ProfilePane
-                    open={profilePaneOpen}
-                    onOpenChange={handleProfilePaneOpenChange}
-                  />
-                  {/* This bridge owns one post-unlock reconciliation for the whole
+                    {!hidesPersistentChrome ? <AgentVoiceEdgeGlow /> : null}
+                    {!hidesPersistentChrome ? <AppEdgeBackGesture /> : null}
+                    <AppProfileEdgeGesture enabled={profilePaneEnabled} />
+                    <AppBottomShell model={bottomShellModel} />
+                    <ProfilePane
+                      open={profilePaneOpen}
+                      onOpenChange={handleProfilePaneOpenChange}
+                    />
+                    {/* This bridge owns one post-unlock reconciliation for the whole
                 app. Keeping it outside the route Suspense boundary prevents
                 fallback/resolved remounts from launching the same sync twice. */}
-                  <PostAuthOnboardingSyncBridge />
-                  <WalletProfileBootstrap />
-                  <LocationBusAccountBridge />
-                  <ContactInvitationSessionProvider>
-                    {/* Keep persistent top chrome outside the route Suspense
+                    <PostAuthOnboardingSyncBridge />
+                    <WalletProfileBootstrap />
+                    <LocationBusAccountBridge />
+                    <ContactInvitationSessionProvider>
+                      {/* Keep persistent top chrome outside the route Suspense
                         boundary. Route data may suspend during a transition,
                         but the Profile affordance and its measured animation
                         state must not remount with the fallback tree. */}
-                    <div
-                      className="flex flex-col flex-1 min-h-0"
-                      style={topShellRouteStyle}
-                      data-top-shell-profile={topShellRouteProfile.id}
-                      data-app-shell-root="true"
-                      data-app-shell-offset-mode={
-                        signedInShellContentOffset.mode
-                      }
-                    >
-                      {!hidesPersistentChrome && !isCanonicalChatRoute ? (
-                        <AppTopShell model={topShellModel} />
-                      ) : null}
-                      {/* Search is requested from bottom navigation even on
-                          Chat; the closed palette adds no idle shell chrome. */}
-                      {!hidesPersistentChrome && !effectiveHideCommandBar ? (
-                        <KaiCommandBarGlobal />
-                      ) : null}
-                      <Suspense
-                        fallback={
-                          <>
-                            {/* Flex container for proper scroll behavior */}
-                            <div className="flex flex-col flex-1 min-h-0">
-                              <div
-                                data-app-scroll-root="true"
-                                data-app-scroll-mode={
-                                  isCanonicalChatRoute
-                                    ? "fullscreen-flow"
-                                    : hideGlobalChrome
-                                      ? "hidden-shell"
-                                      : shouldLockFullscreenRoot
-                                        ? "fullscreen-flow"
-                                        : "standard"
-                                }
-                                className={
-                                  isCanonicalChatRoute
-                                    ? "flex-1 overflow-hidden relative z-10 min-h-0 flex flex-col h-full"
-                                    : hideGlobalChrome
-                                      ? "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none overscroll-y-contain touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--onboarding-agent-bar-clearance))] relative z-10 min-h-0"
-                                      : shouldLockFullscreenRoot
-                                        ? "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y relative z-10 min-h-0"
-                                        : "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--app-bottom-content-clearance))] relative z-10 min-h-0"
-                                }
-                              >
-                                {!hideGlobalChrome &&
-                                !shouldLockFullscreenRoot &&
-                                !isCanonicalChatRoute ? (
-                                  <div
-                                    data-app-shell-top-spacer="true"
-                                    aria-hidden
-                                  />
-                                ) : null}
-                                <div
-                                  data-app-shell-content="true"
-                                  className={
-                                    isCanonicalChatRoute || shouldLockFullscreenRoot
-                                      ? "min-h-0 h-full flex-1 flex flex-col"
-                                      : "min-h-0"
-                                  }
-                                >
-                                  <TopShellRouteSwipe tabSet={routeSwipeTabSet}>
-                                    <OnboardingJourneyGuard>
-                                      {children}
-                                    </OnboardingJourneyGuard>
-                                  </TopShellRouteSwipe>
-                                </div>
-                              </div>
-                            </div>
-                          </>
+                      <div
+                        className="flex flex-col flex-1 min-h-0"
+                        style={topShellRouteStyle}
+                        data-top-shell-profile={topShellRouteProfile.id}
+                        data-app-shell-root="true"
+                        data-app-shell-offset-mode={
+                          signedInShellContentOffset.mode
                         }
                       >
-                        <ConsentNotificationProvider>
-                          <ConsentSheetProvider>
-                            {/* Flex container for proper scroll behavior */}
-                            <div className="flex flex-col flex-1 min-h-0">
-                              {/* Main scroll container: extends under fixed bar so content can scroll behind it; padding clears bar height */}
-                              <div
-                                data-app-scroll-root="true"
-                                data-app-scroll-mode={
-                                  isCanonicalChatRoute
-                                    ? "fullscreen-flow"
-                                    : hideGlobalChrome
-                                      ? "hidden-shell"
-                                      : shouldLockFullscreenRoot
-                                        ? "fullscreen-flow"
-                                        : "standard"
-                                }
-                                className={
-                                  isCanonicalChatRoute
-                                    ? "flex-1 overflow-hidden relative z-10 min-h-0 flex flex-col h-full"
-                                    : hideGlobalChrome
-                                      ? // Landing/onboarding flows retain a scroll tail for the fixed Agent Bar.
-                                        "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none overscroll-y-contain touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--onboarding-agent-bar-clearance))] relative z-10 min-h-0"
-                                      : shouldLockFullscreenRoot
-                                        ? // Fullscreen flows keep chrome contract, but permit y-scroll for small devices.
-                                          "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y relative z-10 min-h-0"
-                                        : "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--app-bottom-content-clearance))] relative z-10 min-h-0"
-                                }
-                              >
-                                {!hideGlobalChrome &&
-                                !shouldLockFullscreenRoot &&
-                                !isCanonicalChatRoute ? (
-                                  <div
-                                    data-app-shell-top-spacer="true"
-                                    aria-hidden
-                                  />
-                                ) : null}
+                        {!hidesPersistentChrome && !isCanonicalChatRoute ? (
+                          <AppTopShell model={topShellModel} />
+                        ) : null}
+                        {/* Search is requested from bottom navigation even on
+                          Chat; the closed palette adds no idle shell chrome. */}
+                        {!hidesPersistentChrome && !effectiveHideCommandBar ? (
+                          <KaiCommandBarGlobal />
+                        ) : null}
+                        <Suspense
+                          fallback={
+                            <>
+                              {/* Flex container for proper scroll behavior */}
+                              <div className="flex flex-col flex-1 min-h-0">
                                 <div
-                                  data-app-shell-content="true"
+                                  data-app-scroll-root="true"
+                                  data-app-scroll-mode={
+                                    isCanonicalChatRoute
+                                      ? "fullscreen-flow"
+                                      : hideGlobalChrome
+                                        ? "hidden-shell"
+                                        : shouldLockFullscreenRoot
+                                          ? "fullscreen-flow"
+                                          : "standard"
+                                  }
                                   className={
-                                    isCanonicalChatRoute || shouldLockFullscreenRoot
-                                      ? "min-h-0 h-full flex-1 flex flex-col"
-                                      : "min-h-0"
+                                    isCanonicalChatRoute
+                                      ? "flex-1 overflow-hidden relative z-10 min-h-0 flex flex-col h-full"
+                                      : hideGlobalChrome
+                                        ? "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none overscroll-y-contain touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--onboarding-agent-bar-clearance))] relative z-10 min-h-0"
+                                        : shouldLockFullscreenRoot
+                                          ? "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y relative z-10 min-h-0"
+                                          : "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--app-bottom-content-clearance))] relative z-10 min-h-0"
                                   }
                                 >
-                                  <TopShellRouteSwipe tabSet={routeSwipeTabSet}>
-                                    <OnboardingJourneyGuard>
-                                      {children}
-                                    </OnboardingJourneyGuard>
-                                  </TopShellRouteSwipe>
+                                  {!hideGlobalChrome &&
+                                  !shouldLockFullscreenRoot &&
+                                  !isCanonicalChatRoute ? (
+                                    <div
+                                      data-app-shell-top-spacer="true"
+                                      aria-hidden
+                                    />
+                                  ) : null}
+                                  <div
+                                    data-app-shell-content="true"
+                                    className={
+                                      isCanonicalChatRoute ||
+                                      shouldLockFullscreenRoot
+                                        ? "min-h-0 h-full flex-1 flex flex-col"
+                                        : "min-h-0"
+                                    }
+                                  >
+                                    <TopShellRouteSwipe
+                                      tabSet={routeSwipeTabSet}
+                                    >
+                                      <OnboardingJourneyGuard>
+                                        {children}
+                                      </OnboardingJourneyGuard>
+                                    </TopShellRouteSwipe>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          </ConsentSheetProvider>
-                        </ConsentNotificationProvider>
-                      </Suspense>
-                    </div>
-                  </ContactInvitationSessionProvider>
+                            </>
+                          }
+                        >
+                          <ConsentNotificationProvider>
+                            <ConsentSheetProvider>
+                              {/* Flex container for proper scroll behavior */}
+                              <div className="flex flex-col flex-1 min-h-0">
+                                {/* Main scroll container: extends under fixed bar so content can scroll behind it; padding clears bar height */}
+                                <div
+                                  data-app-scroll-root="true"
+                                  data-app-scroll-mode={
+                                    isCanonicalChatRoute
+                                      ? "fullscreen-flow"
+                                      : hideGlobalChrome
+                                        ? "hidden-shell"
+                                        : shouldLockFullscreenRoot
+                                          ? "fullscreen-flow"
+                                          : "standard"
+                                  }
+                                  className={
+                                    isCanonicalChatRoute
+                                      ? "flex-1 overflow-hidden relative z-10 min-h-0 flex flex-col h-full"
+                                      : hideGlobalChrome
+                                        ? // Landing/onboarding flows retain a scroll tail for the fixed Agent Bar.
+                                          "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none overscroll-y-contain touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--onboarding-agent-bar-clearance))] relative z-10 min-h-0"
+                                        : shouldLockFullscreenRoot
+                                          ? // Fullscreen flows keep chrome contract, but permit y-scroll for small devices.
+                                            "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y relative z-10 min-h-0"
+                                          : "flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none touch-pan-y pb-[var(--app-scroll-bottom-pad,var(--app-bottom-content-clearance))] relative z-10 min-h-0"
+                                  }
+                                >
+                                  {!hideGlobalChrome &&
+                                  !shouldLockFullscreenRoot &&
+                                  !isCanonicalChatRoute ? (
+                                    <div
+                                      data-app-shell-top-spacer="true"
+                                      aria-hidden
+                                    />
+                                  ) : null}
+                                  <div
+                                    data-app-shell-content="true"
+                                    className={
+                                      isCanonicalChatRoute ||
+                                      shouldLockFullscreenRoot
+                                        ? "min-h-0 h-full flex-1 flex flex-col"
+                                        : "min-h-0"
+                                    }
+                                  >
+                                    <TopShellRouteSwipe
+                                      tabSet={routeSwipeTabSet}
+                                    >
+                                      <OnboardingJourneyGuard>
+                                        {children}
+                                      </OnboardingJourneyGuard>
+                                    </TopShellRouteSwipe>
+                                  </div>
+                                </div>
+                              </div>
+                            </ConsentSheetProvider>
+                          </ConsentNotificationProvider>
+                        </Suspense>
+                      </div>
+                    </ContactInvitationSessionProvider>
                   </AgentDockProvider>
                 </AgentOwnerGate>
               </OneVoiceReadinessProvider>
@@ -803,6 +809,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                   here: it needs the vault-owner token this provider holds and
                   must work from Home, not only with Profile mounted. */}
               <AccountLifecycleStepBridge />
+              <LivingMemoryBridge />
             </AgentRuntimeStateProvider>
           </OneLocationInteractionSurfaceProvider>
         </VaultProvider>

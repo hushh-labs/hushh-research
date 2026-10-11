@@ -1,5 +1,10 @@
 "use client";
 
+import {
+  sourceReceipts,
+  type SourceReceipt,
+} from "@/lib/pkm/living-source-receipts";
+
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { buildPersonalKnowledgeModelStructureArtifacts } from "@/lib/personal-knowledge-model/manifest";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
@@ -26,11 +31,12 @@ export const SAVED_LOCATION_DUPLICATE_RADIUS_METERS = 25;
 
 export type SavedLocationCategory = "home" | "work" | "other";
 
-const SAVED_LOCATION_CATEGORY_PRIORITY: Record<SavedLocationCategory, number> = {
-  home: 0,
-  work: 1,
-  other: 2,
-};
+const SAVED_LOCATION_CATEGORY_PRIORITY: Record<SavedLocationCategory, number> =
+  {
+    home: 0,
+    work: 1,
+    other: 2,
+  };
 
 /**
  * Which label to pre-select when someone saves a place.
@@ -195,7 +201,9 @@ function cleanText(
   value: string | null | undefined,
   maxLength: number,
 ): string | null {
-  const cleaned = String(value || "").trim().slice(0, maxLength);
+  const cleaned = String(value || "")
+    .trim()
+    .slice(0, maxLength);
   return cleaned || null;
 }
 
@@ -240,23 +248,61 @@ async function mutateSavedLocations(params: {
       persistedLocations = params.mutate(
         locationsFromDomain(writeContext.currentDomainData),
       );
-      return savedPlacesWrite(writeContext.currentDomainData, writeContext.currentManifest, persistedLocations, updatedAt);
+      return savedPlacesWrite(
+        writeContext.currentDomainData,
+        writeContext.currentManifest,
+        persistedLocations,
+        updatedAt,
+      );
     },
   });
 
   if (!result.success) {
-    throw new Error(result.message || "Could not save locations to your vault.");
+    throw new Error(
+      result.message || "Could not save locations to your vault.",
+    );
   }
   return persistedLocations;
 }
 
-function savedPlacesWrite(current: Record<string, unknown>, previousManifest: DomainManifest | null, locations: SavedLocation[], updatedAt: string) {
-  const domainData = { ...current, [SAVED_PLACES_KEY]: { ...asRecord(current[SAVED_PLACES_KEY]), ...savedPlacesEnvelope(locations, updatedAt) } };
-  const { manifest } = buildPersonalKnowledgeModelStructureArtifacts({ domain: LOCATION_PKM_DOMAIN, domainData, previousManifest });
+function savedPlacesWrite(
+  current: Record<string, unknown>,
+  previousManifest: DomainManifest | null,
+  locations: SavedLocation[],
+  updatedAt: string,
+) {
+  const previousLocations = locationsFromDomain(current);
+  const receipts = sourceReceipts(
+    (asRecord(current[SAVED_PLACES_KEY]).source_receipts as Record<
+      string,
+      SourceReceipt
+    >) ?? {},
+    Object.fromEntries(previousLocations.map((place) => [place.id, place])),
+    Object.fromEntries(locations.map((place) => [place.id, place])),
+    updatedAt,
+  );
+  const domainData = {
+    ...current,
+    [SAVED_PLACES_KEY]: {
+      ...asRecord(current[SAVED_PLACES_KEY]),
+      ...savedPlacesEnvelope(locations, updatedAt),
+      source_receipts: receipts,
+    },
+  };
+  const { manifest } = buildPersonalKnowledgeModelStructureArtifacts({
+    domain: LOCATION_PKM_DOMAIN,
+    domainData,
+    previousManifest,
+  });
   return {
-    domainData, manifest, scopePath: SAVED_PLACES_KEY,
+    domainData,
+    manifest,
+    scopePath: SAVED_PLACES_KEY,
     // Only non-sensitive inventory metadata leaves encrypted PKM.
-    summary: { saved_places_configured: locations.length > 0, saved_places_count: locations.length },
+    summary: {
+      saved_places_configured: locations.length > 0,
+      saved_places_count: locations.length,
+    },
   };
 }
 
@@ -270,32 +316,63 @@ export async function saveRequestedLocationWorkflowPlace(params: {
 }) {
   requireUnlockedVault(params.context);
   const runId = params.authorization.workflowAuthority.run_id;
-  if (params.finalize.runId !== runId || params.draft.category !== "other" || params.draft.label !== "Current location") {
-    throw new Error("The private Location draft does not match this setup task.");
+  if (
+    params.finalize.runId !== runId ||
+    params.draft.category !== "other" ||
+    params.draft.label !== "Current location"
+  ) {
+    throw new Error(
+      "The private Location draft does not match this setup task.",
+    );
   }
   const entry: SavedLocation = {
-    id: `location_setup_${runId}`, category: "other", label: "Current location",
-    latitude: params.draft.latitude, longitude: params.draft.longitude,
-    address: null, savedAt: params.draft.capturedAt,
+    id: `location_setup_${runId}`,
+    category: "other",
+    label: "Current location",
+    latitude: params.draft.latitude,
+    longitude: params.draft.longitude,
+    address: null,
+    savedAt: params.draft.capturedAt,
   };
-  if (!isValidLocation(entry)) throw new Error("The Location draft is invalid.");
+  if (!isValidLocation(entry))
+    throw new Error("The Location draft is invalid.");
   return PkmWriteCoordinator.saveMergedDomain({
-    userId: params.context.userId, domain: LOCATION_PKM_DOMAIN,
-    vaultKey: params.context.vaultKey, vaultOwnerToken: params.context.vaultOwnerToken,
-    confirmation: params.authorization, locationFinalizeAuthorization: params.finalize,
+    userId: params.context.userId,
+    domain: LOCATION_PKM_DOMAIN,
+    vaultKey: params.context.vaultKey,
+    vaultOwnerToken: params.context.vaultOwnerToken,
+    confirmation: params.authorization,
+    locationFinalizeAuthorization: params.finalize,
     beforeEffect: params.beforeEffect,
     idempotencyScope: `one.location.pre_vault_finalize.v1:${runId}:${params.finalize.draftDigest}`,
     build: (context) => {
-      const stored = asRecord(context.currentDomainData[SAVED_PLACES_KEY]).locations;
-      if (stored !== undefined && (!Array.isArray(stored) || !stored.every(isValidLocation))) {
-        throw new Error("Review your existing saved places before this setup can save. Your records have been preserved.");
+      const stored = asRecord(
+        context.currentDomainData[SAVED_PLACES_KEY],
+      ).locations;
+      if (
+        stored !== undefined &&
+        (!Array.isArray(stored) || !stored.every(isValidLocation))
+      ) {
+        throw new Error(
+          "Review your existing saved places before this setup can save. Your records have been preserved.",
+        );
       }
       // This setup appends one private place. It does not normalize, migrate or
       // silently filter records the owner already saved.
       const existing: SavedLocation[] = stored ?? [];
       // A stable run identity never overwrites Home, Work or an unrelated place.
-      const locations = existing.some((location) => location.id === entry.id) ? existing : [...existing, entry];
-      return { ...savedPlacesWrite(context.currentDomainData, context.currentManifest, locations, entry.savedAt), operation: context.currentManifest ? "merge" : "create" };
+      const locations = existing.some((location) => location.id === entry.id)
+        ? existing
+        : [...existing, entry];
+      return {
+        ...savedPlacesWrite(
+          context.currentDomainData,
+          context.currentManifest,
+          locations,
+          entry.savedAt,
+        ),
+        operation: context.currentManifest ? "merge" : "create",
+      };
     },
   });
 }
@@ -546,7 +623,6 @@ export async function removeSavedLocation(params: {
   context: SavedLocationVaultContext;
   id: string;
 }): Promise<SavedLocation[]> {
-
   return mutateSavedLocations({
     context: params.context,
     source: "one_location_saved_place_remove_confirm",

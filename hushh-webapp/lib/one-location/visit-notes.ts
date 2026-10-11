@@ -1,5 +1,10 @@
 "use client";
 
+import {
+  sourceReceipts,
+  type SourceReceipt,
+} from "@/lib/pkm/living-source-receipts";
+
 /**
  * The note you write about a place you visited, and the private history it
  * builds.
@@ -36,8 +41,7 @@ const VISIT_NOTES_SCHEMA_VERSION = 1;
  *  while typing rather than announced on save, which loses what you wrote. */
 export const VISIT_NOTE_MAX_LENGTH = 280;
 
-/** How many places the private history keeps. Older entries fall off rather
- *  than accumulating an unbounded trail inside the vault. */
+/** Legacy display-page budget. Persistence preserves every saved entry. */
 export const VISIT_NOTES_MAX_ENTRIES = 200;
 
 export type VisitNote = {
@@ -61,13 +65,15 @@ export type VisitNoteVaultContext = {
 export function canWriteVisitNotes(
   context: VisitNoteVaultContext | null | undefined,
 ): boolean {
-  return Boolean(context?.userId && context?.vaultKey && context?.vaultOwnerToken);
+  return Boolean(
+    context?.userId && context?.vaultKey && context?.vaultOwnerToken,
+  );
 }
 
 function cleanNote(value: string | null | undefined): string | null {
   const trimmed = String(value ?? "").trim();
   if (!trimmed) return null;
-  return trimmed.slice(0, VISIT_NOTE_MAX_LENGTH);
+  return trimmed;
 }
 
 function notesFromDomain(domainData: unknown): VisitNote[] {
@@ -130,6 +136,8 @@ export async function recordVisitNote(params: {
     throw new Error("Unlock your vault to keep a note with this rating.");
   }
 
+  if (String(entry.note ?? "").trim().length > VISIT_NOTE_MAX_LENGTH)
+    throw new Error("Visit note is too long.");
   const record: VisitNote = {
     placeId: String(entry.placeId).trim(),
     label: String(entry.label ?? "").trim(),
@@ -140,7 +148,7 @@ export async function recordVisitNote(params: {
   };
 
   let persisted: VisitNote[] = [];
-  await PkmWriteCoordinator.saveMergedDomain({
+  const result = await PkmWriteCoordinator.saveMergedDomain({
     userId: context.userId,
     domain: LOCATION_PKM_DOMAIN,
     vaultKey: context.vaultKey as string,
@@ -154,12 +162,28 @@ export async function recordVisitNote(params: {
       const existing = notesFromDomain(writeContext.currentDomainData).filter(
         (row) => row.placeId !== record.placeId,
       );
-      persisted = [record, ...existing].slice(0, VISIT_NOTES_MAX_ENTRIES);
+      persisted = [record, ...existing];
+      const oldDomain = writeContext.currentDomainData as Record<
+        string,
+        unknown
+      >;
+      const previousEnvelope = (oldDomain[VISIT_NOTES_KEY] ?? {}) as {
+        source_receipts?: Record<string, SourceReceipt>;
+      };
+      const receipts = sourceReceipts(
+        previousEnvelope.source_receipts ?? {},
+        Object.fromEntries(
+          notesFromDomain(oldDomain).map((note) => [note.placeId, note]),
+        ),
+        Object.fromEntries(persisted.map((note) => [note.placeId, note])),
+        new Date().toISOString(),
+      );
       const domainData = {
         ...(writeContext.currentDomainData as Record<string, unknown>),
         [VISIT_NOTES_KEY]: {
           schema_version: VISIT_NOTES_SCHEMA_VERSION,
           visits: persisted,
+          source_receipts: receipts,
           updated_at: record.ratedAt,
         },
       };
@@ -180,6 +204,7 @@ export async function recordVisitNote(params: {
       };
     },
   });
+  if (!result.success) throw new Error("Visit note was not stored.");
   return persisted;
 }
 
@@ -193,7 +218,7 @@ export async function removeVisitNote(params: {
   const placeId = String(params.placeId).trim();
 
   let persisted: VisitNote[] = [];
-  await PkmWriteCoordinator.saveMergedDomain({
+  const result = await PkmWriteCoordinator.saveMergedDomain({
     userId: context.userId,
     domain: LOCATION_PKM_DOMAIN,
     vaultKey: context.vaultKey as string,
@@ -207,11 +232,27 @@ export async function removeVisitNote(params: {
       persisted = notesFromDomain(writeContext.currentDomainData).filter(
         (row) => row.placeId !== placeId,
       );
+      const oldDomain = writeContext.currentDomainData as Record<
+        string,
+        unknown
+      >;
+      const previousEnvelope = (oldDomain[VISIT_NOTES_KEY] ?? {}) as {
+        source_receipts?: Record<string, SourceReceipt>;
+      };
+      const receipts = sourceReceipts(
+        previousEnvelope.source_receipts ?? {},
+        Object.fromEntries(
+          notesFromDomain(oldDomain).map((note) => [note.placeId, note]),
+        ),
+        Object.fromEntries(persisted.map((note) => [note.placeId, note])),
+        new Date().toISOString(),
+      );
       const domainData = {
         ...(writeContext.currentDomainData as Record<string, unknown>),
         [VISIT_NOTES_KEY]: {
           schema_version: VISIT_NOTES_SCHEMA_VERSION,
           visits: persisted,
+          source_receipts: receipts,
           updated_at: new Date().toISOString(),
         },
       };
@@ -231,5 +272,6 @@ export async function removeVisitNote(params: {
       };
     },
   });
+  if (!result.success) throw new Error("Visit note was not stored.");
   return persisted;
 }

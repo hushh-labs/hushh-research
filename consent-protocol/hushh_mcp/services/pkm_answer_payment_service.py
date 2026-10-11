@@ -1,11 +1,8 @@
 """Stripe-hosted Checkout for one paid answer, at its order's approved price.
 
-A sibling of the Drive document lane, not a second payment system: the Stripe
-environment guard, key/live-mode rules, return URLs and the
-construct_event signature check are imported from
-``drive_request_payment_service`` so there is one source of truth for them.
-What differs is the subject (a question, not a document request) and the
-binding (``terms_digest``).
+This lane reuses Drive's amount/refund rules, Checkout duration, return URL
+builder and provider object normalization. Its explicit Stripe mode and secret
+bindings are independent, so live answers cannot change Drive's sandbox mode.
 
 Settlement authority is the database order, never the event. A paid event must
 match that order's amount, currency, session and — uniquely to this lane — its
@@ -30,13 +27,13 @@ from sqlalchemy import text
 from hushh_mcp.services.drive_request_payment_service import (
     CHECKOUT_HOLD_SECONDS,
     _checkout_return_url,
-    _config,
     _stripe_dict,
-    require_payment_configuration,
 )
 from hushh_mcp.services.external_connector_lifecycle_store import (
     ExternalConnectorLifecycleStore,
 )
+from hushh_mcp.services.pkm_answer_config import answer_composer_enabled, answer_stripe_mode
+from hushh_mcp.services.pkm_answer_config import answer_payment_config as _config
 
 #: Registered in the Stripe webhook dispatcher. An unregistered kind would fall
 #: through to the Drive handler, which returns early and reports success to
@@ -93,7 +90,7 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
         row = (
             connection.execute(
                 text(
-                    """SELECT status, paid_at, reconciliation_required, terms_digest
+                    """SELECT status, paid_at, reconciliation_required, terms_digest, stripe_mode
                    FROM pkm_answer_payment_orders
                    WHERE request_id = :request FOR SHARE"""
                 ),
@@ -107,6 +104,7 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             or row["status"] != "paid"
             or row["paid_at"] is None
             or row["reconciliation_required"]
+            or row.get("stripe_mode") != answer_stripe_mode()
         ):
             raise AnswerPaymentError("payment_required")
         # The answer must be produced under the terms that were paid for.
@@ -137,7 +135,9 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             "orderStatus": row["order_status"],
             "amountCents": row["amount_cents"],
             "currency": row["currency"],
-            "checkoutUrl": row["stripe_checkout_url"],
+            "checkoutUrl": row["stripe_checkout_url"]
+            if row["request_status"] == "approved"
+            else None,
             "paidAt": row["paid_at"].isoformat() if row["paid_at"] else None,
             "refundedAt": row["refunded_at"].isoformat() if row["refunded_at"] else None,
             "refundReason": row["refund_reason"],
@@ -201,7 +201,9 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
         """
         if order is None:
             return {"action": "fresh", "stale": None}
-        if order["status"] == "paid":
+        if order.get("stripe_mode") != answer_stripe_mode():
+            raise AnswerPaymentError("payment_mode_mismatch")
+        if order["status"] in {"paid", "refunded"}:
             raise AnswerPaymentError("payment_already_paid")
         if (
             order["status"] == "checkout_open"
@@ -218,6 +220,16 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             # settlement will reject -- the requester pays and the order never
             # settles.
             return {"action": "reuse", "stale": None}
+        if order["status"] == "awaiting_payment" and order["checkout_attempt_id"]:
+            if (
+                order["amount_cents"] != request["amount_cents"]
+                or order["terms_digest"] != request["terms_digest"]
+                or order["stripe_checkout_expires_at"] is None
+                or order["stripe_checkout_expires_at"].timestamp() - CHECKOUT_HOLD_SECONDS
+                < _now().timestamp() - 23 * 3600
+            ):
+                raise AnswerPaymentError("checkout_reconciliation_required")
+            return {"action": "recover", "stale": str(order["checkout_attempt_id"])}
         stale = order["stripe_checkout_session_id"]
         if order["status"] == "checkout_open" and stale:
             # Our own expiry clock is not Stripe's. A session we consider
@@ -227,7 +239,8 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
 
     async def checkout(self, *, requester_user_id: str, request_id: str) -> dict:
         """Open (or reuse) a hosted Checkout session for one approved question."""
-        require_payment_configuration()
+        if not answer_composer_enabled():
+            raise AnswerPaymentError("composer_not_enabled")
         key, _webhook_secret, origin = _config()
 
         def load(connection):
@@ -251,6 +264,11 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                    WHERE request_id = :request FOR UPDATE""",
                 {"request": request_id},
             )
+            from hushh_mcp.services.pkm_answer_request_service import PkmAnswerRequestService
+
+            PkmAnswerRequestService._require_active_connection(
+                connection, request["owner_user_id"], requester_user_id
+            )
             return request, order, self._checkout_decision(request, order)
 
         request, order, decision = await self._transaction(load)
@@ -266,7 +284,9 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             # transaction because it is a network call. Until Stripe confirms
             # the old session is dead the order keeps pointing at it, so every
             # possible webhook still has an order to settle or refund against.
-            verdict = self._retire_session(decision["stale"], key)
+            from fastapi.concurrency import run_in_threadpool
+
+            verdict = await run_in_threadpool(self._retire_session, decision["stale"], key)
             if verdict == "paid":
                 # The requester paid the session we were about to discard.
                 # Leave the order bound to it; the webhook settles it.
@@ -293,22 +313,42 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                    WHERE request_id = :request FOR UPDATE""",
                 {"request": request_id},
             )
+            from hushh_mcp.services.pkm_answer_request_service import PkmAnswerRequestService
+
+            PkmAnswerRequestService._require_active_connection(
+                connection, fresh_request["owner_user_id"], requester_user_id
+            )
             again = self._checkout_decision(fresh_request, fresh_order)
+            if again["action"] == "recover":
+                return {
+                    **fresh_request,
+                    "checkout_attempt_id": str(fresh_order["checkout_attempt_id"]),
+                    "checkout_expires": int(fresh_order["stripe_checkout_expires_at"].timestamp()),
+                }
+            if again["action"] == "reuse":
+                return {**fresh_request, "reuse_url": fresh_order["stripe_checkout_url"]}
             if again != decision:
                 # A concurrent checkout moved the order while we were talking
                 # to Stripe. Refuse rather than act on the stale decision; the
                 # caller retries and re-reads the committed state.
                 raise AnswerPaymentError("checkout_unavailable")
 
+            from hushh_mcp.services.pkm_answer_request_service import PkmAnswerRequestService
+
+            PkmAnswerRequestService._require_active_connection(
+                connection, fresh_request["owner_user_id"], requester_user_id
+            )
             attempt_id = str(uuid4())
+            checkout_expires = int(_now().timestamp()) + CHECKOUT_HOLD_SECONDS
             if again["action"] == "fresh":
                 connection.execute(
                     text(
                         """INSERT INTO pkm_answer_payment_orders
                            (request_id, owner_user_id, requester_user_id, amount_cents,
-                            currency, terms_digest, status, checkout_attempt_id)
+                            currency, terms_digest, status, checkout_attempt_id, stripe_mode,
+                            stripe_checkout_expires_at)
                            VALUES (:request, :owner, :requester, :amount, :currency,
-                                   :digest, 'awaiting_payment', :attempt)"""
+                                   :digest, 'awaiting_payment', :attempt, :stripe_mode, to_timestamp(:expires))"""
                     ),
                     {
                         "request": request_id,
@@ -318,6 +358,8 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                         "currency": fresh_request["currency"],
                         "digest": fresh_request["terms_digest"],
                         "attempt": attempt_id,
+                        "stripe_mode": answer_stripe_mode(),
+                        "expires": checkout_expires,
                     },
                 )
             else:
@@ -329,7 +371,7 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                            SET amount_cents = :amount, terms_digest = :digest,
                                checkout_attempt_id = :attempt, status = 'awaiting_payment',
                                stripe_checkout_session_id = NULL, stripe_checkout_url = NULL,
-                               stripe_checkout_expires_at = NULL,
+                               stripe_checkout_expires_at = to_timestamp(:expires),
                                updated_at = clock_timestamp()
                            WHERE request_id = :request"""
                     ),
@@ -338,18 +380,31 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                         "amount": fresh_request["amount_cents"],
                         "digest": fresh_request["terms_digest"],
                         "attempt": attempt_id,
+                        "stripe_mode": answer_stripe_mode(),
+                        "expires": checkout_expires,
                     },
                 )
-            return {**fresh_request, "checkout_attempt_id": attempt_id}
+            return {
+                **fresh_request,
+                "checkout_attempt_id": attempt_id,
+                "checkout_expires": checkout_expires,
+            }
 
         reserved = await self._transaction(reserve)
 
-        session = self.stripe_api.checkout.Session.create(
+        if "reuse_url" in reserved:
+            return {"checkoutUrl": reserved["reuse_url"], "amountCents": reserved["amount_cents"]}
+
+        from fastapi.concurrency import run_in_threadpool
+
+        session = await run_in_threadpool(
+            self.stripe_api.checkout.Session.create,
             mode="payment",
             client_reference_id=request_id,
             success_url=_checkout_return_url(origin, request_id, "paid"),
             cancel_url=_checkout_return_url(origin, request_id, "cancelled"),
-            expires_at=int(_now().timestamp()) + CHECKOUT_HOLD_SECONDS,
+            expires_at=reserved["checkout_expires"],
+            payment_intent_data={"transfer_group": f"pkm-answer:{request_id}"},
             line_items=[
                 {
                     "quantity": 1,
@@ -373,7 +428,18 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
         created = _stripe_dict(session)
 
         def persist(connection):
-            connection.execute(
+            request = self._row(
+                connection,
+                "SELECT status,owner_user_id,requester_user_id FROM pkm_answer_requests WHERE request_id=:request FOR UPDATE",
+                {"request": request_id},
+            )
+            connected = self._row(
+                connection,
+                """SELECT id FROM connections WHERE status='active'
+                AND ((user_a_id=:owner AND user_b_id=:requester) OR (user_b_id=:owner AND user_a_id=:requester)) FOR SHARE""",
+                {"owner": reserved["owner_user_id"], "requester": requester_user_id},
+            )
+            updated = connection.execute(
                 text(
                     """UPDATE pkm_answer_payment_orders
                        SET status = 'checkout_open',
@@ -381,7 +447,9 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                            stripe_checkout_url = :url,
                            stripe_checkout_expires_at = to_timestamp(:expires),
                            updated_at = clock_timestamp()
-                       WHERE request_id = :request AND checkout_attempt_id = :attempt"""
+                       WHERE request_id = :request AND checkout_attempt_id = :attempt
+                         AND status IN ('awaiting_payment', 'checkout_open')
+                       RETURNING request_id"""
                 ),
                 {
                     "request": request_id,
@@ -390,9 +458,30 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                     "url": created.get("url"),
                     "expires": created.get("expires_at"),
                 },
+            ).first()
+            return updated is not None, bool(
+                request and request["status"] == "approved" and connected
             )
 
-        await self._transaction(persist)
+        persisted, eligible = await self._transaction(persist)
+        if not eligible:
+            from fastapi.concurrency import run_in_threadpool
+
+            await run_in_threadpool(self._retire_session, str(created.get("id")), key)
+            raise AnswerPaymentError("payment_not_ready")
+        if not persisted:
+            # Settlement may have won; never advertise an orphan payable URL.
+            raise AnswerPaymentError("payment_in_flight")
+        if (
+            not created.get("url")
+            or not created.get("id")
+            or not isinstance(created.get("expires_at"), (int, float))
+            or created["expires_at"] <= _now().timestamp()
+            or created.get("status") in {"expired", "complete"}
+        ):
+            # Identity is retained for the next verified retire/reconciliation.
+            # Never advertise Stripe's cached expired recovery response.
+            raise AnswerPaymentError("checkout_unavailable")
         return {"checkoutUrl": created.get("url"), "amountCents": reserved["amount_cents"]}
 
     # --------------------------------------------------------------- webhook
@@ -449,6 +538,12 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             raise AnswerPaymentError("payment_invalid_event")
 
         def settle(connection):
+            connection.execute(
+                text(
+                    "SELECT request_id FROM pkm_answer_requests WHERE request_id=:request FOR UPDATE"
+                ),
+                {"request": request_id},
+            )
             order = self._row(
                 connection,
                 """SELECT * FROM pkm_answer_payment_orders
@@ -458,6 +553,8 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             if order is None:
                 raise AnswerPaymentError("payment_invalid_event")
 
+            if order.get("stripe_mode") != answer_stripe_mode():
+                raise AnswerPaymentError("payment_invalid_event")
             if expired_event:
                 if (
                     order["status"] == "checkout_open"
@@ -477,7 +574,7 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             # Bind the event to this exact order and to the terms that were
             # approved. Any mismatch is a refusal, never a best-effort settle.
             if (
-                order["stripe_checkout_session_id"] != session["id"]
+                (order["stripe_checkout_session_id"] not in {None, session["id"]})
                 or order["checkout_attempt_id"] is None
                 or str(order["checkout_attempt_id"]) != str(metadata.get("checkout_attempt_id"))
                 or order["amount_cents"] != amount_total
@@ -501,7 +598,9 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             if inserted is None:
                 return
 
-            if order["status"] == "paid":
+            if order["status"] in {"paid", "refunded"}:
+                if order["stripe_payment_intent_id"] != session["payment_intent"]:
+                    raise AnswerPaymentError("payment_invalid_event")
                 return
 
             connection.execute(
@@ -509,10 +608,15 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                     """UPDATE pkm_answer_payment_orders
                        SET status = 'paid', paid_at = clock_timestamp(),
                            stripe_payment_intent_id = :intent,
+                           stripe_checkout_session_id = :session,
                            stripe_checkout_url = NULL, updated_at = clock_timestamp()
                        WHERE request_id = :request"""
                 ),
-                {"request": request_id, "intent": session["payment_intent"]},
+                {
+                    "request": request_id,
+                    "intent": session["payment_intent"],
+                    "session": session["id"],
+                },
             )
             # Only now does the owner's device have authorized work to do, and
             # only now does the fulfilment clock start.
@@ -568,21 +672,6 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                     file_refund(connection, request_id, reason)
 
         await self._transaction(settle)
-        self._wake_owner_device(request_id)
-
-    @staticmethod
-    def _wake_owner_device(request_id: str) -> None:
-        """Best effort nudge so a paid answer is not waiting on a poll.
-
-        The database state is the authority; a failed nudge only delays the
-        answer to the owner's next unlock, which is already the contract.
-        """
-        try:
-            from hushh_mcp.services.drive_work_wake import wake_drive_work
-
-            wake_drive_work()
-        except Exception:  # noqa: BLE001 - never fail a settled payment on a nudge
-            pass
 
     # ---------------------------------------------------------------- refund
 
@@ -596,57 +685,27 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
         allowed = {"owner_declined", "requester_cancelled", "answer_timeout", "empty_answer"}
         if reason not in allowed:
             raise AnswerPaymentError("invalid_argument")
-        require_payment_configuration()
-        key, _secret, _origin = _config()
+        from hushh_mcp.services.pkm_answer_work_worker import file_refund
 
-        def claim(connection):
-            order = self._row(
+        def file(connection):
+            request = self._row(
                 connection,
-                """SELECT o.*, d.request_id AS delivered
-                   FROM pkm_answer_payment_orders o
-                   LEFT JOIN pkm_answer_deliveries d ON d.request_id = o.request_id
-                   WHERE o.request_id = :request FOR UPDATE OF o""",
+                "SELECT request_id FROM pkm_answer_requests WHERE request_id=:request FOR UPDATE",
                 {"request": request_id},
             )
-            if order is None:
+            if request is None:
                 raise AnswerPaymentError("request_unavailable")
-            if order["status"] == "refunded":
-                return None  # already refunded; idempotent
-            if order["status"] != "paid":
-                raise AnswerPaymentError("payment_not_ready")
-            # An empty answer is still a delivery row, so it is refundable by
-            # reason while a real answer is not.
-            if order["delivered"] is not None and reason != "empty_answer":
+            delivered = self._row(
+                connection,
+                "SELECT has_content FROM pkm_answer_deliveries WHERE request_id=:request",
+                {"request": request_id},
+            )
+            if delivered and delivered["has_content"]:
                 raise AnswerPaymentError("answer_already_delivered")
-            return order
+            return file_refund(connection, request_id, reason)
 
-        order = await self._transaction(claim)
-        if order is None:
-            return {"refunded": True, "alreadyRefunded": True}
-
-        refund = _stripe_dict(
-            self.stripe_api.Refund.create(
-                payment_intent=order["stripe_payment_intent_id"],
-                api_key=key,
-                # One refund per order, whatever the retry pattern.
-                idempotency_key=f"pkm-answer-refund-{request_id}",
-            )
-        )
-
-        def persist(connection):
-            connection.execute(
-                text(
-                    """UPDATE pkm_answer_payment_orders
-                       SET status = 'refunded', refunded_at = clock_timestamp(),
-                           stripe_refund_id = :refund, refund_reason = :reason,
-                           owner_earning_status = 'void', updated_at = clock_timestamp()
-                       WHERE request_id = :request AND status = 'paid'"""
-                ),
-                {"request": request_id, "refund": refund.get("id"), "reason": reason},
-            )
-
-        await self._transaction(persist)
-        return {"refunded": True, "refundId": refund.get("id")}
+        await self._transaction(file)
+        return {"refundQueued": True}
 
 
 def answer_payments_enabled() -> bool:

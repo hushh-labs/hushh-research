@@ -53,7 +53,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function excluded(audience: MemoryRowAudience, key: string, domain: string, branch: string): boolean {
+function excluded(
+  audience: MemoryRowAudience,
+  key: string,
+  domain: string,
+  branch: string,
+): boolean {
   if (audience === "agent") {
     if (shouldSkipPkmAgentContextKey(key)) return true;
     const entry = reservedEntryFor(domain, branch);
@@ -64,14 +69,17 @@ function excluded(audience: MemoryRowAudience, key: string, domain: string, bran
 }
 
 function humanize(segment: string): string {
-  const text = String(segment || "").replace(/[_-]+/g, " ").trim();
+  const text = String(segment || "")
+    .replace(/[_-]+/g, " ")
+    .trim();
   return text ? text.charAt(0).toUpperCase() + text.slice(1) : segment;
 }
 
 function renderScalar(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
   return JSON.stringify(value);
 }
 
@@ -100,14 +108,44 @@ export function collectDomainRows(params: {
     visits += 1;
 
     if (Array.isArray(node)) {
-      node.forEach((item, index) => walk(item, [...segments, String(index)], depth + 1));
+      node.forEach((item, index) =>
+        walk(item, [...segments, String(index)], depth + 1),
+      );
       return;
     }
     if (isRecord(node)) {
       for (const [key, value] of Object.entries(node)) {
         const branch = [...segments, key].join(".");
+        if (
+          params.audience === "self" &&
+          params.domain === "location" &&
+          key === "source_receipts" &&
+          [
+            "saved_places.source_receipts",
+            "visit_notes.source_receipts",
+          ].includes(branch)
+        ) {
+          walk(value, [...segments, "provenance"], depth + 1);
+          continue;
+        }
         if (excluded(params.audience, key, params.domain, branch)) {
-          withheld.add(branch);
+          if (
+            params.audience === "self" &&
+            [
+              "id",
+              "source_id",
+              "created_at",
+              "updated_at",
+              "revision",
+            ].includes(key) &&
+            (typeof value === "string" || typeof value === "number")
+          ) {
+            rows.push({
+              path: branch,
+              label: `Source › ${branch}`,
+              value: String(value),
+            });
+          } else withheld.add(branch);
           continue;
         }
         walk(value, [...segments, key], depth + 1);
@@ -127,9 +165,106 @@ export function collectDomainRows(params: {
 
   // The domain itself may be withheld outright.
   if (excluded(params.audience, params.domain, params.domain, "")) {
-    return { domain: params.domain, rows: [], withheld: [params.domain], truncated: false };
+    return {
+      domain: params.domain,
+      rows: [],
+      withheld: [params.domain],
+      truncated: false,
+    };
   }
 
+  // Only the owning To-Do schema is eligible here. Other private branches
+  // remain withheld, and no private task values travel in an agent document.
+  if (
+    params.domain === "one_todos" &&
+    params.audience === "self" &&
+    isRecord(params.domainData)
+  ) {
+    const privateData = params.domainData._private;
+    if (isRecord(privateData) && Array.isArray(privateData.tasks)) {
+      const fields = [
+        "id",
+        "sourceId",
+        "revision",
+        "title",
+        "type",
+        "date",
+        "time",
+        "status",
+        "sourceAgent",
+        "link",
+        "notes",
+        "createdAt",
+        "updatedAt",
+        "completedAt",
+        "deletedAt",
+      ];
+      for (const task of privateData.tasks) {
+        if (!isRecord(task) || typeof task.id !== "string") continue;
+        for (const field of fields) {
+          if (
+            task.status === "deleted" &&
+            ![
+              "id",
+              "sourceId",
+              "revision",
+              "status",
+              "createdAt",
+              "updatedAt",
+              "deletedAt",
+            ].includes(field)
+          )
+            continue;
+          const value = renderScalar(task[field]);
+          if (value)
+            rows.push({
+              path: `tasks.${task.id}.${field}`,
+              label: `Task ${task.id} › ${humanize(field)}`,
+              value,
+            });
+        }
+      }
+    }
+  }
+  if (
+    params.domain === "one_living_sources" &&
+    params.audience === "self" &&
+    isRecord(params.domainData)
+  ) {
+    const privateData = params.domainData._private;
+    const inventory = isRecord(privateData) ? privateData.inventory : null;
+    if (isRecord(inventory)) {
+      if (inventory.complete !== true) truncated = true;
+      if (Array.isArray(inventory.records)) {
+        for (const record of inventory.records) {
+          if (!isRecord(record)) {
+            truncated = true;
+            continue;
+          }
+          // The schema has no credentials or raw provider payloads.
+          const key = `${String(record.kind)}:${String(record.id)}`;
+          for (const field of [
+            "kind",
+            "id",
+            "revision",
+            "createdAt",
+            "updatedAt",
+            "capturedAt",
+            "deletedAt",
+            "value",
+          ]) {
+            const value = renderScalar(record[field]);
+            if (value)
+              rows.push({
+                path: `${key}.${field}`,
+                label: `${key} › ${humanize(field)}`,
+                value,
+              });
+          }
+        }
+      }
+    }
+  }
   walk(params.domainData, [], 0);
   rows.sort((a, b) => a.path.localeCompare(b.path));
   return {

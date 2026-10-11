@@ -1,0 +1,87 @@
+"""One participant-scoped answer row per request in both consent surfaces."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from sqlalchemy import text
+
+from hushh_mcp.services.pkm_answer_request_service import PkmAnswerRequestService
+
+BUCKETS = ("incoming_requests", "outgoing_requests", "active_grants", "history", "invites")
+
+
+class PkmAnswerCenterContributor:
+    def __init__(self, requests: PkmAnswerRequestService | None = None) -> None:
+        self.requests = requests or PkmAnswerRequestService()
+
+    async def collect(self, user_id: str) -> dict[str, list[dict[str, Any]]]:
+        def read(connection):
+            rows = (
+                connection.execute(
+                    text("""SELECT r.request_id,r.owner_user_id,r.requester_user_id,
+                r.status,r.created_at,o.status AS payment_status,
+                requester_identity.display_name AS requester_label, owner_identity.display_name AS owner_label,
+                EXISTS(SELECT 1 FROM connections c WHERE c.status='active' AND
+                  ((c.user_a_id=r.owner_user_id AND c.user_b_id=r.requester_user_id) OR
+                   (c.user_b_id=r.owner_user_id AND c.user_a_id=r.requester_user_id))) AS connected
+                FROM pkm_answer_requests r LEFT JOIN pkm_answer_payment_orders o USING(request_id)
+                LEFT JOIN actor_identity_cache requester_identity ON requester_identity.user_id=r.requester_user_id
+                LEFT JOIN actor_identity_cache owner_identity ON owner_identity.user_id=r.owner_user_id
+                WHERE r.owner_user_id=:user OR r.requester_user_id=:user ORDER BY r.created_at DESC"""),
+                    {"user": user_id},
+                )
+                .mappings()
+                .all()
+            )
+            buckets = {key: [] for key in BUCKETS}
+            for row in rows:
+                owner = row["owner_user_id"] == user_id
+                status = row["status"]
+                terminal = (
+                    status in {"answered", "declined", "cancelled", "expired"}
+                    or not row["connected"]
+                )
+                needs = not terminal and (
+                    (owner and status in {"awaiting_owner", "answering"})
+                    or (not owner and status == "approved")
+                )
+                bucket = (
+                    "history" if terminal else "incoming_requests" if needs else "outgoing_requests"
+                )
+                kind = {
+                    "history": "history",
+                    "incoming_requests": "incoming_request",
+                    "outgoing_requests": "outgoing_request",
+                }[bucket]
+                request = str(row["request_id"])
+                buckets[bucket].append(
+                    {
+                        "id": f"answer_request:{request}",
+                        "request_id": request,
+                        "kind": kind,
+                        "status": status if row["connected"] else "connection_revoked",
+                        "action": "ANSWER_REQUEST_REVIEW",
+                        "scope": None,
+                        "scope_description": "Paid answer",
+                        "counterpart_type": "person",
+                        "counterpart_id": row["requester_user_id"]
+                        if owner
+                        else row["owner_user_id"],
+                        "counterpart_label": (
+                            row["requester_label"] if owner else row["owner_label"]
+                        )
+                        or ("The requester" if owner else "The owner"),
+                        "issued_at": int(row["created_at"].timestamp() * 1000),
+                        "metadata": {
+                            "request_source": "answer_request",
+                            "role": "owner" if owner else "requester",
+                            "direction": "incoming" if needs else "outgoing",
+                            "request_status": status,
+                            "payment_status": row["payment_status"],
+                        },
+                    }
+                )
+            return buckets
+
+        return await self.requests._transaction(read)

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Idempotently configure the *UAT-only* bounded paid-answer settlement sweep.
+# Idempotently configure the bounded paid-answer settlement sweep.
 #
 # This lane is deliberately NOT part of the Drive work drain. It has its own
 # scheduler jobs, its own client service account and its own enablement flag,
@@ -10,8 +10,8 @@ set -euo pipefail
 #
 # Landing this script or the API route never enables the feature and never
 # moves money. The route stays unreachable unless ANSWER_WORK_DRAIN_ENABLED is
-# true on the backend, and every worker short-circuits unless
-# PKM_ANSWER_PAYMENTS_ENABLED is true as well. This only gives Cloud Scheduler
+# true on the backend. Workers can continue settling obligations while new
+# payment admission is paused. This only gives Cloud Scheduler
 # an OIDC-authenticated way to invoke the finite operational drain.
 #
 # Three stages, three jobs, so a slow provider on one cannot consume another's
@@ -37,15 +37,21 @@ readonly UAT_SCHEDULER_SERVICE_ACCOUNT_NAME="answer-work-drain-sched"
 # into an OIDC-token sender for an attacker-controlled host.
 readonly UAT_PUBLIC_BACKEND_ORIGIN="https://api.uat.hushh.ai"
 
-PROJECT_ID="${PROJECT_ID:-${UAT_PROJECT_ID}}"
+ENVIRONMENT="${ENVIRONMENT:-uat}"
+case "${ENVIRONMENT}" in
+  uat) EXPECTED_PROJECT="hushh-pda-uat"; EXPECTED_ORIGIN="https://api.uat.hushh.ai" ;;
+  production) EXPECTED_PROJECT="hushh-pda"; EXPECTED_ORIGIN="https://api.hushh.ai" ;;
+  *) echo "ENVIRONMENT must be uat or production" >&2; exit 1 ;;
+esac
+PROJECT_ID="${PROJECT_ID:-${EXPECTED_PROJECT}}"
 SCHEDULER_LOCATION="${SCHEDULER_LOCATION:-${UAT_SCHEDULER_LOCATION}}"
 BACKEND_URL="${BACKEND_URL:-}"
 STAGE="${STAGE:-timeouts}"
-JOB_NAME="${JOB_NAME:-answer-work-${STAGE}-uat}"
+JOB_NAME="${JOB_NAME:-answer-work-${STAGE}-${ENVIRONMENT}}"
 CRON="${CRON:-${UAT_CRON}}"
 TIMEZONE="${TIMEZONE:-${UAT_TIMEZONE}}"
 SCHEDULER_SERVICE_ACCOUNT_NAME="${SCHEDULER_SERVICE_ACCOUNT_NAME:-${UAT_SCHEDULER_SERVICE_ACCOUNT_NAME}}"
-OIDC_AUDIENCE="${UAT_PUBLIC_BACKEND_ORIGIN}"
+OIDC_AUDIENCE="${EXPECTED_ORIGIN}"
 
 case "${STAGE}" in
   timeouts|refunds|payouts) ;;
@@ -55,12 +61,12 @@ case "${STAGE}" in
     ;;
 esac
 
-if [[ "${PROJECT_ID}" != "${UAT_PROJECT_ID}" ]]; then
-  echo "This helper configures the UAT project only" >&2
+if [[ "${PROJECT_ID}" != "${EXPECTED_PROJECT}" ]]; then
+  echo "Project must match the selected environment" >&2
   exit 1
 fi
-if [[ "${BACKEND_URL%/}" != "${UAT_PUBLIC_BACKEND_ORIGIN}" ]]; then
-  echo "BACKEND_URL must be ${UAT_PUBLIC_BACKEND_ORIGIN}" >&2
+if [[ "${BACKEND_URL%/}" != "${EXPECTED_ORIGIN}" ]]; then
+  echo "BACKEND_URL must be ${EXPECTED_ORIGIN}" >&2
   exit 1
 fi
 

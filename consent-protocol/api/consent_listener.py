@@ -53,6 +53,7 @@ def _is_user_state_event_type(event_type: str) -> bool:
         # payload contains only opaque ids; the Feed and Consent Center remain
         # the authorities for the current request state.
         "document_share_feed_changed",
+        "answer_request_changed",
         "bank_payout_changed",
         "location_settings_changed",
         "location_pkm_changed",
@@ -431,7 +432,20 @@ def _user_state_notify_callback(connection, pid, channel, payload: str) -> None:
                 )
 
                 wake_circle_chat_push_worker()
-            task = asyncio.create_task(_push_to_consent_queue(user_id, data))
+
+            async def dispatch_state():
+                await _push_to_consent_queue(user_id, data)
+                if event_type == "answer_request_changed" and data.get("event_id"):
+                    from hashlib import sha256
+
+                    key = (
+                        "answer_doorbell:"
+                        + sha256(f"{user_id}|{data['event_id']}".encode()).hexdigest()
+                    )
+                    if await claim_delivery(key):
+                        await _send_fcm_for_user(user_id, data)
+
+            task = asyncio.create_task(dispatch_state())
             _background_notify_tasks.add(task)
             task.add_done_callback(_background_notify_tasks.discard)
 
@@ -810,6 +824,23 @@ def build_consent_push_content(
     of it before the vault is unlocked. The app loads the details after unlock
     from the owner-scoped pending list (fcm-notifications.md, trust rule).
     """
+    if data.get("type") == "answer_request_changed":
+        request_id = str(data.get("request_id") or "")
+        path = f"/one/consents?requestId=answer_request%3A{request_id}"
+        return (
+            "Request scope updated",
+            "Open the app to review its current status.",
+            {
+                "type": "answer_request_changed",
+                "user_id": user_id,
+                "request_id": request_id,
+                "event_id": str(data.get("event_id") or ""),
+                "request_url": path,
+                "deep_link": path,
+                "notification_tag": f"answer_request:{request_id}",
+            },
+            False,
+        )
     request_id = data.get("request_id", "")
     action = str(data.get("action", "REQUESTED"))
     normalized_action = action.upper()

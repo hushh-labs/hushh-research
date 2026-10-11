@@ -11,9 +11,8 @@ straight back to the device, which seals it to the requester's key.
 This is the same owner-present shape One chat already uses, but it does mean
 approved plaintext transits the backend during that one request. That is a
 security-model property worth stating plainly rather than burying: if it is
-not acceptable for this lane, the rollback is to stop calling the compose
-endpoint, and the sweep delivers the approved projection labelled
-``answer_mode='projection'`` instead.
+not acceptable for this lane, the rollback is to disable admission and composition, retain owed refunds,
+and leave failed written answers available for explicit retry until timeout.
 
 Boundary declaration (backend-semantic-boundary.md, "new semantic surface"):
 
@@ -83,15 +82,18 @@ def _prompt(
         lines += [
             "This person's memory, limited to what they approved for this question.",
             "It opens with who they are, then holds each approved area in full:",
-            memory[:MAX_PROJECTION_CHARS],
+            memory,
             "",
         ]
     if values:
         lines += [
             "The same information structured, so you can cite exact figures:",
-            json.dumps(values, ensure_ascii=False, sort_keys=True)[:MAX_PROJECTION_CHARS],
+            json.dumps(values, ensure_ascii=False, sort_keys=True),
         ]
-    return "\n".join(lines)
+    prompt = "\n".join(lines)
+    if len(prompt) > MAX_PROJECTION_CHARS:
+        raise AnswerComposerError("approved projection exceeds the model bound")
+    return prompt
 
 
 class AnswerComposer:
