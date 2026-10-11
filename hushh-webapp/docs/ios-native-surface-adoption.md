@@ -30,7 +30,7 @@ The first reversible boundary is implemented on top of `e5ad899659`:
 | Covered base controls | Remain mounted/materially visible; touch and accessibility isolated locally | Pending Chrome/Dock/Nav choices are invalidated across isolation cycles, including every post-await dispatch; uncover requests fresh same-host admission |
 | Failure/privacy retirement | Immediate targeted withdrawal, cancelled-admission tombstones and confirmed absence | Private snapshots/callbacks clear; listener cleanup cannot delay withdrawal; uncertain operations never replay; public-only isolation observer survives uncertain withdrawal until document retirement |
 | Product authority identity | Existing validated Auth owner and vault epoch; opaque shared owner ID and monotonically increasing family leases | No account ID, token, key or route-derived authority is sent as owner metadata |
-| Actual History port | Existing workspace callbacks, owner-bound rows, activity grouping, search, inline rename and deletion confirmation | Debug qualification only; Drive nested review, footer handoff and closed-body opening gesture remain parity gaps |
+| Actual History port | Existing workspace callbacks, owner-bound rows, activity grouping, search, inline rename and deletion confirmation | Ten warm native-renderer cycles pass on the physical iPhone at `e396057bd9`; Debug qualification only; Drive nested review, footer handoff and closed-body opening gesture remain parity gaps |
 | Actual Profile port | Not connected yet | Settings/forms and protected nested layers remain in the coherent React pane |
 
 The new boundary is **qualification-only**, using a separate Debug composition
@@ -51,13 +51,21 @@ Deletion retains unsent text/attachments until server commitment; empty chats
 still switch immediately. Completion signals and row changes remain owner-fenced.
 
 The wrapper installs public qualification metadata at document start using
-Capacitor's supported `webViewConfiguration` hook. Normal/older wrappers choose
+Capacitor's supported `webView(with:configuration:)` hook. Normal/older wrappers choose
 React before discovery, rather than briefly withholding the web History while
 waiting for an unsupported capability receipt. This metadata is only renderer
 selection; native capability, owner, lease and privacy checks remain mandatory.
 
-Focused verification: 148 bridge/navigation tests, 57 host-native support tests,
-typecheck, Debug test compilation, Release simulator build, native plugin/static
+The real-app test initially rejected the candidate at `22d806fb75`: History was
+React, not native. The installed Capacitor source replaces `userContentController`
+after `webViewConfiguration`, discarding scripts registered there. The bootstrap
+now targets the final controller before WKWebView creation. The nearest host
+regression fails on the old hook and passes on the corrected hook; the physical
+native-renderer test then passes. A mocked eligibility check alone missed this.
+
+Focused verification: 171 bridge/navigation/sidebar tests, two plugin-checker
+tests, 60 host-native support tests, typecheck, Debug test compilation, signed
+physical Release study build, native plugin/static
 parity and design-system/performance-source checks pass. These are
 functional/contract checks, not physical glass, transition, accessibility or
 frame-performance acceptance. Further source changes require refreshed evidence.
@@ -83,6 +91,42 @@ drift and missing validator mutation-test sources. Surface map, action gateway,
 Siri and route-orchestration checks pass. Resolve that branch/tooling gap without
 weakening the gate before release; canonical core, exact-head CI, Admin SOP,
 deployment and distribution are separate, unproven transitions for this change.
+
+### Installed native History qualification — 2026-10-11
+
+The physical iPhone 16e/iOS 27.2 runs Debug `com.hushh.app` 1.4.0 (69), bundled
+UAT, with the explicit product-drawers qualification switch. Native source:
+`e396057bd9`; exported web: `ddded99038`; UI test body: `3bba249eea`.
+Executable: `2d7b301fddde6318d97be83ddb05020439d666b5e7dc828d696a68a2f7ab9ad5`;
+packaged index: `6ed3867f32cb72ce21a5cdac2a336d0b49d704bea01fded915f6c1547969caa0`;
+runtime contract: `aa822769e2547459e63e38784b039f3b80ed905c1d426cb7834606fab1fc3f69`.
+Installation/signature/assets verification and attach-only testing were separate.
+XCTest ran over authenticated Wi-Fi; no account reset or sign-out was used.
+Normal owner-checked passphrase unlock passed. Credential-run bundles were erased.
+
+`testLocalSessionNativeProductHistoryKeepsOwnerAndSingleHost` completed ten warm
+cycles with zero failures/skips. It requires the native drawer and search field,
+rejects an interactive React duplicate, tests edge taps and held partial closing
+drags, and checks full-height geometry, one identified WebView, unchanged host
+frame, draft preservation and continued vault admission. These are functional and
+sampled-geometry checks, not exact JavaScript/editor object identity or a rendered
+transition recording. No rename/deletion or other fixture mutation was inferred.
+
+The separate public Release study at `ddded99038` (runner `3bba249eea`) passed
+composition/editor and four-state appearance/accessibility checks on this phone.
+Its executable was `cc30d9066c2655a16f34f518c26ed168d7c1a6c78f0fbb94a331b2e7d5b76fde`.
+Public Light/Blue and Dark/Gold captures show readable glass sampling the colored
+backdrop, not painted black controls. A display-link sample recorded 184 callbacks,
+maximum interval 19.525 ms and none above 50 ms. Three XCTest iterations returned
+zero hitches but also zero rendered-frame counts despite positive frame rates;
+those metrics do **not** establish the rendered performance gate. The study does
+not qualify product Dock/Header/Profile, VoiceOver navigation, IME/attachments,
+system transparency settings, iPad, or release distribution.
+
+**Enablement:** native History remains an explicit Debug qualification. The
+normal product keeps its stable React custom controls and native bottom bar.
+Complete overlapping-family parity and physical visual/performance acceptance
+before enabling additional native controls; no historical clipping flag is reopened.
 
 ### Recovery default — 2026-10-09
 
@@ -137,7 +181,7 @@ checks, 51 host-native support cases and the canonical core at `b912ddcf0f`
 pass. Later harness/documentation changes require their own final-head core;
 these results are not exact-head CI or release acceptance.
 
-### Current installed recovery — 2026-10-10
+### Historical installed recovery — 2026-10-10
 
 The exact replacement product was installed separately from its runner and public
 study. Native source is `4524868f66` (compiled from that identical source tree

@@ -60,6 +60,7 @@ for that presentation lifetime. Do not reopen historical Debug flags as adoption
 3. Treat service-layer native/web branching as part of the same contract, not a follow-up.
 4. Separate retained presentation, current action binding, interaction/accessibility eligibility and privacy. Capability/layout receipts are admission evidence, not rendered transition acceptance; use the adoption reference's qualification rules.
 5. Treat keyboard movement as eligibility/geometry, not automatic host retirement. Validate deliberate focus cancellation separately from uncertainty; require fresh system geometry for keyboard acceptance. Refresh compatible admission without replacing unchanged presentation. Fence superseded layout failures as well as receipts; current failures remain fail-closed. Commit initial coverage with its authored pose, and withdraw failed presentation sources immediately.
+6. Characterize renderer bootstrap against the installed SDK's final WebView creation path. Configuration hooks can be overwritten before document creation; use a host regression plus real renderer admission, not merely a mocked eligibility check. See the adoption reference's bootstrap evidence.
 
 ## Handoff Rules
 
