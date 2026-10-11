@@ -67,7 +67,7 @@ def configured_dev_reviewer_phone_transport() -> DevReviewerPhoneTransport | Non
         "HUSHH_DEPLOY_ENV": "dev",
         "HUSHH_DEPLOY_SOURCE": "deploy-dev",
         "APP_REVIEW_MODE": "true",
-        "APP_FRONTEND_ORIGIN": "https://dev.one.hushh.ai",
+        "APP_FRONTEND_ORIGIN": "https://dev.one.hussh.ai",
         "SCOPE_COMMERCE_STRIPE_LIVEMODE": "false",
         "SCOPE_COMMERCE_SANDBOX_POLICY_REQUIRED": "true",
     }

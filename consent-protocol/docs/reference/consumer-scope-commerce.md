@@ -2379,3 +2379,61 @@ cases. Database shutdown/removal is verified. Exact reviewed integration spans
 and source hashes remain in the architecture baseline, with unchanged budgets,
 scanner and future-growth enforcement. These checks do not prove physical
 UIKit delivery, provider settlement or the two-reviewer paid-scope lifecycle.
+
+### Sandbox capital and acceptance continuation — 2026-10-11 UTC
+
+Candidate `14876c2a3b` passed the canonical local core in 1,443 seconds and all
+23 hosted jobs in [CI run 38132031368](https://github.com/hushh-labs/hushh-research/actions/runs/38132031368),
+including browser contracts, the full frontend suite, Python, iOS and Android.
+The main-owned [shared Dev release 38135965675](https://github.com/hushh-labs/hushh-research/actions/runs/38135965675)
+was dispatched for that exact source with both application services and no pod
+image publication. The release failed before traffic promotion at the frontend
+image wait gate. Its rollback receipt and independent readback retain the
+previous `f0517d5f` serving source; all 59 migration receipts are unchanged.
+The clean verification copy was removed after its committed source and results
+were preserved; the original branch and unrelated workspace edits remain intact.
+
+The founder approved an explicitly synthetic US-only Sandbox cost model: zero
+payout and active-account costs, actual receipt-derived funding fees, a $0.50 net
+withdrawal minimum and a 30-day residual-resolution deadline. Its two-field
+runtime overlay was staged and read back without changing unrelated policy or
+live approvals. This model supplies no evidence about live Connect pricing.
+One's owner OAuth and constrained account/balance reads remain required. The
+ChatGPT host connector is optional. Checkout funds buyer purchases; Connect
+establishes consumer payout eligibility.
+
+After exact human confirmation, the canonical bounded operator created one
+tagged $5 test operating-capital Topup. At 10:36:52Z, its available provider
+source, signed processed event, single journal credit and exact-source financial
+event agreed. Liabilities were balanced and fees conserved. This consumes $5 of
+the cumulative $25 capital cap and credits no reviewer purchase balance. At
+10:38:41Z all 17 aggregate monitoring series were present and fresh; attributed
+backing was $5, with zero customer liabilities, shortfall, unresolved work or
+receipt failures. Paid/provider admission and live activity remained disabled.
+Retain this financial history during cleanup and continue reconciliation.
+
+Acceptance preparation identified a temporary phone-verifier origin mismatch:
+the verifier pinned `dev.one.hushh.ai`, while the actual Dev origin secret and
+main-owned workflow use `dev.one.hussh.ai`. The verifier now requires the latter
+exact origin. Its existing authenticated-claim test and deployment-fence suite
+use that origin and reject the retired spelling; the original source fails both
+controls. All 29 phone-route cases pass with the correction. Owner, Sandbox,
+expiry, rotation, production and authentication fences are preserved. This
+source result still requires exact-source CI, deployment and normal browser
+enrollment before it proves the approved phone-binding transfer. Both frontend
+build definitions contained the same retired Dev-host pin. Their exact Dev
+guard now matches the workflow's canonical origin, while UAT, production and
+isolated-preview checks retain their contracts. The existing executable build
+test now consumes the actual Dev workflow origin. A focused retired-origin
+control refuses that host before any secret read; the original build source
+fails this control and three current-origin cases. The combined frontend-build
+and phone-route suites pass all 92 cases. Cloud Build reports a failed first
+configuration step; source execution reproduces the origin refusal, while the
+complete provider step log remains unverified. Requalify this correction before
+the next governed release.
+
+Primary private Azure setup, normally encrypted synthetic scope fixtures, both
+reviewer Connect/Checkout journeys, accepted quotes, real-time delivery and
+refund/payout receipts, and One's authenticated MCP reads remain acceptance work.
+Physical iOS testing is deferred to the independently active device session;
+physical Android remains the agreed follow-up. Keep issue #7587 In Progress.
