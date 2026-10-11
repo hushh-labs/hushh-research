@@ -417,15 +417,15 @@ for (const viewport of [
               ),
             )
             .toEqual([
-              "Messages",
-              "Finance",
-              "Advisor",
-              "Wallet",
               "Location",
               "Mail",
               "Calendar",
-              "Memory",
+              "Finance",
+              "Advisor",
+              "Wallet",
               "Consent",
+              "Memory",
+              "Messages",
             ]);
           // Keep the longest single-word label intact even at 320px in WebKit.
           expect(
@@ -443,8 +443,7 @@ for (const viewport of [
           await expect(
             screen.getByText("Stay ahead of your schedule."),
           ).toBeVisible();
-          // Every auto-tour item must fit, including descriptions longer than
-          // the initially selected Finance copy on short phones.
+          // Every auto-tour item and its description must fit on short phones.
           for (const agent of await screen
             .locator("[data-agent-tour] button")
             .all()) {

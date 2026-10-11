@@ -50,12 +50,12 @@ import {
   getMorphyEaseName,
 } from "@/lib/morphy-ux/gsap-init";
 import {
-  getOneCapability,
+  ONE_CAPABILITIES,
   isOneCapabilityEnabled,
 } from "@/lib/onboarding/one-capabilities";
 import { DASHBOARD_AGENT_ICON_STYLE_BY_ID } from "@/lib/design/home-icon-palette";
 import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
-import { getAgentSections } from "@/lib/navigation/agent-sections";
+import { compareOneRosterDisplayOrder } from "@/lib/onboarding/roster-display-order";
 import { ROUTES } from "@/lib/navigation/routes";
 import styles from "./guest-preview.module.css";
 import welcomeStyles from "./IntroStep.module.css";
@@ -95,14 +95,10 @@ const CIRCLES = [
     description: "Give your work connections a Circle of their own.",
   },
 ] as const;
-// Keep the pre-auth roster aligned with the UAT agent selector rather than
-// maintaining a second, easily divergent capability order.
-const CAPABILITIES = getAgentSections().flatMap((section) => {
-  const capability = getOneCapability(section.id);
-  return capability && capability.isVisibleOnRoster !== false && isOneCapabilityEnabled(capability)
-    ? [capability]
-    : [];
-});
+const CAPABILITIES = ONE_CAPABILITIES.filter(
+  (capability) =>
+    capability.isVisibleOnRoster !== false && isOneCapabilityEnabled(capability),
+).sort(compareOneRosterDisplayOrder);
 const PALETTE = DASHBOARD_AGENT_ICON_STYLE_BY_ID;
 const PREVIEW_CYCLE_MS = 2500;
 // Presentation only. Calendar illustrates a connected calendar's free slots;
