@@ -310,13 +310,16 @@ export function resolveTopShellBreadcrumb(
   // One's Finance tile carries its origin, so Back works before a local setup
   // hint hydrates. A bare first-run setup entry must still retrace to the hub.
   const here = normalizeBreadcrumbPathname(pathname);
-  if (here === ROUTES.ONE_SETUP_FINANCE) {
+  if (here === ROUTES.ONE_SETUP_FINANCE || here === ROUTES.ONE_SETUP_KAI) {
     const backPath = normalizeBreadcrumbPathname(config.backHref);
     if (backPath === ROUTES.ONE_HOME || options?.setupDismissed) {
       return {
         ...config,
         backHref: isOneSetupSurfaceRoute(backPath) ? ROUTES.ONE_HOME : config.backHref,
-        items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Finance" }],
+        // Re-entry can briefly cross this admission route before the Finance
+        // workspace. Keep the same back-only chrome through that handoff.
+        suppressFallbackTitle: true,
+        items: [],
       };
     }
     return config;
@@ -527,14 +530,8 @@ function resolveTopShellBreadcrumbInner(
       };
     }
 
-    return {
-      // Market, Portfolio, and Analysis are peers in one query-tabbed Kai
-      // workspace. Their base route returns to One, not to a different tab.
-      backHref: ROUTES.ONE_HOME,
-      width: "content",
-      align: "center",
-      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Finance" }],
-    };
+    // Base Analysis uses the same root header and origin-aware Back contract
+    // as Market and Portfolio below. Only drill-ins add a compact trail.
   }
 
   if (pathname === KAI_MARKET_PATH) {

@@ -490,9 +490,9 @@ function ConsensusDonut({ result }: { result: DecisionResult }) {
 
   return (
     <ChartPanel title="Consensus" icon={Target} accentClassName="text-amber-700 dark:text-amber-300">
-      <div className="space-y-3">
-        <div className="flex items-end justify-between gap-3">
-          <div>
+      <div className="space-y-3" data-consensus-summary>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-28 flex-1">
             <p className="text-2xl font-semibold tracking-tight text-foreground">{agreePct}%</p>
             <p className="text-xs text-muted-foreground">Agents align with the final call</p>
           </div>
@@ -500,7 +500,7 @@ function ConsensusDonut({ result }: { result: DecisionResult }) {
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-300">
               Split
             </p>
-            <p className="text-sm font-semibold text-foreground">
+            <p className="whitespace-nowrap text-sm font-semibold tabular-nums text-foreground">
               {agreeCount} agree / {dissentCount} dissent
             </p>
           </div>

@@ -5,6 +5,34 @@ import { ImportProgressView } from "@/components/kai/views/import-progress-view"
 import { replaceLiveHoldingPreviewRows } from "@/lib/kai/import/live-holdings-preview";
 
 describe("ImportProgressView", () => {
+  it("retains a waiting stream area when raw events contain only structured payloads", () => {
+    render(<ImportProgressView stage="extracting" isStreaming rawStreamLines={['{"holdings_preview":[]}']} />);
+    expect(screen.getByText("Waiting for stream events...")).toBeVisible();
+  });
+
+  it("keeps the same progress element from unknown through zero, measured and stopped progress", () => {
+    const { rerender } = render(<ImportProgressView stage="extracting" isStreaming />);
+    const bar = screen.getByRole("progressbar", { name: "Import progress" });
+    expect(bar).not.toHaveAttribute("aria-valuenow");
+    rerender(<ImportProgressView stage="extracting" isStreaming progressPct={0} />);
+    expect(screen.getByRole("progressbar")).toBe(bar);
+    expect(bar).toHaveAttribute("aria-valuenow", "0");
+    rerender(<ImportProgressView stage="extracting" isStreaming progressPct={77} />);
+    expect(bar).toHaveAttribute("aria-valuenow", "77");
+    rerender(<ImportProgressView stage="error" progressPct={77} />);
+    expect(screen.getByRole("progressbar")).toBe(bar);
+    expect(bar).toHaveAttribute("aria-valuenow", "77");
+    rerender(<ImportProgressView stage="complete" progressPct={77} />);
+    expect(bar).toHaveAttribute("aria-valuenow", "100");
+  });
+
+  it("never reports completion for a failed import without measured progress", () => {
+    render(<ImportProgressView stage="error" />);
+    expect(screen.getByRole("progressbar")).not.toHaveAttribute("aria-valuenow");
+    expect(screen.getByText("Stopped")).toBeVisible();
+    expect(screen.queryByText("100%")).toBeNull();
+  });
+
   it("keeps a visible AI stream panel during parsing", () => {
     render(
       <ImportProgressView
