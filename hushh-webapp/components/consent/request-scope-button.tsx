@@ -70,11 +70,12 @@ export function RequestScopeButton({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<string | null>(null);
-  // The lane ships disabled. Ask before offering the CTA at all, so an
-  // environment without it never shows a button that refuses on submit.
+  // Every active connection shows the control. Admission stays disabled
+  // until this deployment confirms its configuration and approval.
   const [enabled, setEnabled] = useState(false);
 
   useEffect(() => {
+    setEnabled(false);
     let cancelled = false;
     void (async () => {
       const token = await AuthService.getIdToken().catch(() => null);
@@ -85,7 +86,7 @@ export function RequestScopeButton({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [personRef]);
 
   const periodStart = hasPeriod ? start || null : null;
   const periodEnd = hasPeriod ? end || null : null;
@@ -131,8 +132,6 @@ export function RequestScopeButton({
     }
   };
 
-  if (!enabled) return null;
-
   return (
     <Dialog
       modal
@@ -149,6 +148,8 @@ export function RequestScopeButton({
             would skip the occupied Manage row and land underneath it. */}
         <Button
           size="standard"
+          disabled={!enabled}
+          title={!enabled ? "Requests are not available yet." : undefined}
           variant="none"
           className={className}
           data-voice-control-id="person-profile-request-scope"

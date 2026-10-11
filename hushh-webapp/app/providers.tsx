@@ -1,5 +1,7 @@
 "use client";
 
+import { LivingMemoryBridge } from "@/components/profile/living-memory-bridge";
+
 /**
  * Unified Client Providers
  *
@@ -803,6 +805,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                   here: it needs the vault-owner token this provider holds and
                   must work from Home, not only with Profile mounted. */}
               <AccountLifecycleStepBridge />
+              <LivingMemoryBridge />
             </AgentRuntimeStateProvider>
           </OneLocationInteractionSurfaceProvider>
         </VaultProvider>

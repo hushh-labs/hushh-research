@@ -39,6 +39,7 @@ LEGACY_ACCOUNTS = "pkm_owner_payout_accounts"
 ONBOARDING_RETURN_PATHS = {
     "marketplace": "/one/marketplace",
     "documents": "/one/profile/payouts",
+    "answers": "/one/profile/payouts",
 }
 
 
@@ -216,10 +217,16 @@ async def resume_document_owner_setup(db: Any, user_id: str) -> None:
 
 class PkmPayoutService:
     def __init__(
-        self, *, stripe_api: Any = None, mode: str | None = None, api_key: str | None = None
+        self,
+        *,
+        stripe_api: Any = None,
+        mode: str | None = None,
+        api_key: str | None = None,
+        resume_documents: bool = True,
     ) -> None:
         import stripe
 
+        self._resume_documents = resume_documents
         self._db = None
         self.stripe_api = stripe_api or stripe
         self._explicit_account_mode = mode
@@ -318,7 +325,10 @@ class PkmPayoutService:
     # --- owner -------------------------------------------------------------
 
     async def onboarding_link(
-        self, *, user_id: str, surface: Literal["marketplace", "documents"] = "marketplace"
+        self,
+        *,
+        user_id: str,
+        surface: Literal["marketplace", "documents", "answers"] = "marketplace",
     ) -> dict[str, Any]:
         """Create (once) the owner's Express account and a fresh onboarding link."""
         key = self._account_key()
@@ -385,7 +395,9 @@ class PkmPayoutService:
                 "PAYOUT_ACCOUNT_DISABLED",
                 "This payout account needs support before setup can continue.",
             )
-        query_key = "documentPayouts" if surface == "documents" else "payouts"
+        query_key = {"documents": "documentPayouts", "answers": "answerPayouts"}.get(
+            surface, "payouts"
+        )
         try:
             link = _stripe_dict(
                 await asyncio.to_thread(
@@ -443,7 +455,7 @@ class PkmPayoutService:
             .eq("user_id", user_id)
             .eq("stripe_mode", self.account_mode)
         )
-        if account.get("account_ready") is not readiness["ready"]:
+        if self._resume_documents and account.get("account_ready") is not readiness["ready"]:
             await resume_document_owner_setup(self.db, user_id)
         return {**account, **patch, "readiness": readiness}
 

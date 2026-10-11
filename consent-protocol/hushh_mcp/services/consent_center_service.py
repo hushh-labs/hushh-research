@@ -136,6 +136,9 @@ class ConsentCenterService:
         self._owned_identifier_cache: dict[str, list[str]] = {}
         self._owned_identifier_inflight: dict[str, asyncio.Task[list[str]]] = {}
         self._drive_center = DriveSharingCenterContributor()
+        from hushh_mcp.services.pkm_answer_center_contributor import PkmAnswerCenterContributor
+
+        self._answer_center = PkmAnswerCenterContributor()
         self._location_center = None
         if _one_location_consent_center_enabled():
             try:
@@ -240,6 +243,18 @@ class ConsentCenterService:
                 exc,
             )
             return empty
+
+    async def _extra_buckets_async(self, user_id: str) -> dict[str, list[dict[str, Any]]]:
+        marketplace = await self._marketplace_buckets_async(user_id)
+        contributor = getattr(self, "_answer_center", None)
+        if contributor is None:
+            return marketplace
+        try:
+            answers = await contributor.collect(user_id)
+        except Exception as error:
+            logger.warning("answer_center.unavailable type=%s", type(error).__name__)
+            return marketplace
+        return {key: [*marketplace.get(key, []), *answers.get(key, [])] for key in marketplace}
 
     def _location_buckets(self, user_id: str) -> dict[str, list[dict[str, Any]]]:
         """Coordinate-free One Location entries grouped by consent bucket.
@@ -1735,9 +1750,7 @@ class ConsentCenterService:
                 else:
                     location_count += len(location_buckets["history"])
             marketplace_buckets = (
-                await self._marketplace_buckets_async(user_id)
-                if normalized_mode == "consents"
-                else None
+                await self._extra_buckets_async(user_id) if normalized_mode == "consents" else None
             )
             if marketplace_buckets:
                 if surface == "pending":
@@ -1980,7 +1993,7 @@ class ConsentCenterService:
             invite_entries = [*invite_entries, *location_buckets["invites"]]
 
         marketplace_buckets = (
-            await self._marketplace_buckets_async(user_id)
+            await self._extra_buckets_async(user_id)
             if (actor is None or normalized_actor != "ria")
             else None
         )
@@ -2090,7 +2103,7 @@ class ConsentCenterService:
                 (connection_count, drive_counts),
             ) = await asyncio.gather(
                 self._location_buckets_async(user_id),
-                self._marketplace_buckets_async(user_id),
+                self._extra_buckets_async(user_id),
                 self._load_investor_pending_entries(user_id),
                 self._load_investor_active_entries(user_id),
                 self._load_investor_previous_entries(user_id),
@@ -2286,9 +2299,7 @@ class ConsentCenterService:
                 else:
                     entries = [*entries, *location_buckets["history"]]
             marketplace_buckets = (
-                await self._marketplace_buckets_async(user_id)
-                if normalized_mode == "consents"
-                else None
+                await self._extra_buckets_async(user_id) if normalized_mode == "consents" else None
             )
             if marketplace_buckets:
                 if normalized_surface == "pending":

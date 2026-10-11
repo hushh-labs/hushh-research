@@ -96,7 +96,17 @@ export type PkmConnectedSourceSyncAuthorization = {
   connectedSourceProvider: "plaid" | "statement_import";
 };
 
+/** Reproducible encrypted copies of owner-visible source records, never a
+ * claim that the owner reviewed a background write or consent to share. */
+export type PkmSourceProjectionAuthorization = {
+  authorizationMode: "owner_source_projection";
+  confirmedByUser?: never;
+  surface: "web";
+  source: "one_living_memory_source_projection";
+};
+
 export type PkmWriteAuthorization =
+  | PkmSourceProjectionAuthorization
   | PkmUserConfirmation
   | PkmConnectedSourceSyncAuthorization
   | PkmOwnerAutoSaveAuthorization
@@ -165,7 +175,8 @@ export type PkmMutationPlanV2 = {
       | "owner_auto_save_policy"
       | "owner_requested_workflow"
       | "product_default_auto_save_policy"
-      | "owner_connected_source_sync";
+      | "owner_connected_source_sync"
+      | "owner_source_projection";
     workflow_authority?: LocationRequestedWorkflowAuthority;
     connected_source_provider?: "plaid" | "statement_import";
     auto_save_policy_version?: 1;
@@ -281,13 +292,15 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
     params.confirmation.authorizationMode === "owner_connected_source_sync"
       ? params.confirmation
       : null;
-  const ownerConfirmation = automatic || workflowAuthorization || connectedSourceSync
+  const sourceProjection = params.confirmation.authorizationMode === "owner_source_projection" ? params.confirmation : null;
+  const ownerConfirmation = automatic || workflowAuthorization || connectedSourceSync || sourceProjection
     ? null
     : params.confirmation as PkmUserConfirmation;
   if (
     !automatic &&
     !workflowAuthorization &&
     !connectedSourceSync &&
+    !sourceProjection &&
     params.confirmation.confirmedByUser !== true
   ) {
     throw new Error("PKM mutation requires explicit owner confirmation.");
@@ -305,6 +318,9 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
   const sourceHandle = registryHandle(params.currentManifest, scope) || generatedHandle;
   const targetHandle = registryHandle(params.targetManifest, scope) || sourceHandle;
   const operation = params.operation || (params.currentManifest ? "update" : "create");
+  if (sourceProjection && (domain !== "one_living_sources" || operation === "delete")) {
+    throw new Error("Source projection can only refresh the private source inventory.");
+  }
   if (connectedSourceSync && (domain !== "financial" || operation === "delete")) {
     throw new Error("A connected-source sync can only refresh financial information.");
   }
@@ -324,7 +340,9 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
   const confirmedAt = automatic || connectedSourceSync
     ? new Date().toISOString()
     : ownerConfirmation?.confirmedAt || new Date().toISOString();
-  const authorizationReceipt = automaticAuthorization
+  const authorizationReceipt = sourceProjection
+    ? { authorization_mode: "owner_source_projection" as const }
+    : automaticAuthorization
     ? {
         authorization_mode: automaticAuthorization.authorizationMode,
         auto_save_policy_version: automaticAuthorization.autoSavePolicyVersion,
@@ -354,7 +372,9 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
     confidence: Math.max(0, Math.min(1, params.confidence ?? 1)),
     explanation:
       params.explanation ||
-      (connectedSourceSync
+      (sourceProjection
+        ? "Rebuilt the private encrypted source inventory from owner-scoped source records; no per-write review or sharing is claimed."
+        : connectedSourceSync
         ? `Refreshed ${titleize(domain)} / ${titleize(scope)} from a financial connection the owner linked (${connectedSourceSync.connectedSourceProvider}); no per-write review is claimed.`
         : workflowAuthorization
         ? "The owner requested Location setup, including saving the current place privately."

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getStaleFirst = vi.fn();
 vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
-  PkmDomainResourceService: { getStaleFirst: (...args: unknown[]) => getStaleFirst(...args) },
+  PkmDomainResourceService: { refresh: (...args: unknown[]) => getStaleFirst(...args), getStaleFirst: (...args: unknown[]) => getStaleFirst(...args) },
 }));
 vi.mock("@/lib/pkm/pkm-domain-change-events", () => ({
   subscribeToPkmDomainChanges: () => () => {},

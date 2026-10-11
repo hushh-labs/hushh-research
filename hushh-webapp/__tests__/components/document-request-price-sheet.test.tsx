@@ -7,7 +7,7 @@ import {
 } from "@/components/consent/document-request-price-sheet";
 
 vi.mock("@/components/consent/document-payout-account", () => ({
-  DocumentPayoutAccountCard: () => null,
+  DocumentPayoutAccountCard: () => <span>Drive account setup</span>,
 }));
 
 /**
@@ -197,4 +197,11 @@ describe("DocumentRequestPriceSheet", () => {
     expect(screen.queryByLabelText("Custom price")).toBeNull();
     expect(screen.getByRole("button", { name: "Allow · $10" })).toBeTruthy();
   });
+});
+
+it("answer settlement reuses pricing without invoking Drive account setup", () => {
+  renderSheet({ settlement: <span>Answer account setup</span> });
+  expect(screen.getByText("Answer account setup")).toBeVisible();
+  expect(screen.queryByText("Drive account setup")).toBeNull();
+  expect(screen.queryByText(/Undelivered files/)).toBeNull();
 });

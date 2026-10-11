@@ -69,8 +69,9 @@ async function boxes(page: import("@playwright/test").Page) {
   );
 }
 
-test("Request scope sits with the file actions, above Manage access", async ({ page }) => {
-  await page.setViewportSize({ width: 420, height: 900 });
+for (const width of [375, 420, 1280]) {
+test(`Request scope sits below files and above Manage access at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 900 });
   await page.goto(origin);
 
   const rect = await boxes(page);
@@ -84,6 +85,8 @@ test("Request scope sits with the file actions, above Manage access", async ({ p
   // exists to prevent: without it the button lands under Manage.
   expect(rect["request-scope"]!.bottom).toBeLessThanOrEqual(rect["manage"]!.top + 1);
 });
+
+}
 
 test("Request scope matches the file actions' control sizing", async ({ page }) => {
   await page.setViewportSize({ width: 420, height: 900 });

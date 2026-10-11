@@ -53,6 +53,7 @@ def _is_user_state_event_type(event_type: str) -> bool:
         # payload contains only opaque ids; the Feed and Consent Center remain
         # the authorities for the current request state.
         "document_share_feed_changed",
+        "answer_request_changed",
         "bank_payout_changed",
         "location_settings_changed",
         "location_pkm_changed",

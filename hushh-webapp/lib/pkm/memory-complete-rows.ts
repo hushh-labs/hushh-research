@@ -107,7 +107,9 @@ export function collectDomainRows(params: {
       for (const [key, value] of Object.entries(node)) {
         const branch = [...segments, key].join(".");
         if (excluded(params.audience, key, params.domain, branch)) {
-          withheld.add(branch);
+          if (params.audience === "self" && ["id", "source_id", "created_at", "updated_at", "revision"].includes(key) && (typeof value === "string" || typeof value === "number")) {
+            rows.push({ path: branch, label: `Source › ${branch}`, value: String(value) });
+          } else withheld.add(branch);
           continue;
         }
         walk(value, [...segments, key], depth + 1);
@@ -130,6 +132,39 @@ export function collectDomainRows(params: {
     return { domain: params.domain, rows: [], withheld: [params.domain], truncated: false };
   }
 
+  // Only the owning To-Do schema is eligible here. Other private branches
+  // remain withheld, and no private task values travel in an agent document.
+  if (params.domain === "one_todos" && params.audience === "self" && isRecord(params.domainData)) {
+    const privateData = params.domainData._private;
+    if (isRecord(privateData) && Array.isArray(privateData.tasks)) {
+      const fields = ["id", "sourceId", "title", "type", "date", "time", "status", "sourceAgent", "link", "notes", "createdAt", "updatedAt", "completedAt", "deletedAt"];
+      for (const task of privateData.tasks) {
+        if (!isRecord(task) || typeof task.id !== "string") continue;
+        for (const field of fields) {
+          const value = renderScalar(task[field]);
+          if (value) rows.push({ path: `tasks.${task.id}.${field}`, label: `Task ${task.id} › ${humanize(field)}`, value });
+        }
+      }
+    }
+  }
+  if (params.domain === "one_living_sources" && params.audience === "self" && isRecord(params.domainData)) {
+    const privateData = params.domainData._private;
+    const inventory = isRecord(privateData) ? privateData.inventory : null;
+    if (isRecord(inventory)) {
+      if (inventory.complete !== true) truncated = true;
+      if (Array.isArray(inventory.records)) {
+        for (const record of inventory.records) {
+          if (!isRecord(record)) { truncated = true; continue; }
+          // The schema has no credentials or raw provider payloads.
+          const key = `${String(record.kind)}:${String(record.id)}`;
+          for (const field of ["kind", "id", "revision", "createdAt", "updatedAt", "capturedAt", "deletedAt", "value"]) {
+            const value = renderScalar(record[field]);
+            if (value) rows.push({ path: `${key}.${field}`, label: `${key} › ${humanize(field)}`, value });
+          }
+        }
+      }
+    }
+  }
   walk(params.domainData, [], 0);
   rows.sort((a, b) => a.path.localeCompare(b.path));
   return {

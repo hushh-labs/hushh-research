@@ -11,7 +11,7 @@
  * device.
  *
  * INTERIM, AND UNLOCK-DEPENDENT. This is not 24/7 operation. A paid, approved
- * question produces nothing until the owner next opens and unlocks the app.
+ * question produces nothing until the owner chooses Write answer in the unlocked app.
  * The requester is told that before they pay, the deadline is quoted before
  * they pay, and a missed deadline refunds in full. The architectures that
  * could make this genuinely always-on, without escrowing a key to the backend,
@@ -25,10 +25,12 @@
  * never read as a unit here. `projectApprovedAnswer` then drops anything that
  * was not approved and applies the requested period.
  *
- * Trust boundary: the server is a blind relay. Everything below runs on the
- * owner's device, and only ciphertext is posted back.
+ * Trust boundary: reads and encryption run on the owner's device. The approved
+ * projection is sent transiently to the composer and model provider under the
+ * separately reviewed flag; delivery storage receives only ciphertext.
  */
 
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { AnswerRequestService, type AnswerableWork } from "@/lib/services/answer-request-service";
 import { encryptSliceForRecipient } from "@/lib/one-marketplace/encryption";
 import { buildConsentExportForScope } from "@/lib/consent/export-builder";
@@ -44,13 +46,15 @@ export interface AnswerSweepParams {
   vaultKey: string;
   vaultOwnerToken: string;
   firebaseIdToken: string;
+  /** Explicit owner action may fulfil only the selected request. */
+  requestId?: string;
 }
 
 export interface AnswerSweepResult {
   delivered: number;
   empty: number;
   skipped: number;
-  /** Composition failed; left queued for the next unlock, then refunded. */
+  /** Composition failed; left queued for the next explicit attempt, then refunded. */
   retry: number;
 }
 
@@ -96,11 +100,13 @@ export async function buildAnswerPayload(
   work: AnswerableWork,
   params: Pick<AnswerSweepParams, "userId" | "vaultKey" | "vaultOwnerToken">,
   firebaseIdToken?: string,
+  epoch = snapshotVaultSessionEpoch(),
 ): Promise<{ payload: AnswerPayload; hasContent: boolean }> {
   const projections: ScopeProjection[] = [];
   const unavailableScopes: string[] = [];
 
   for (const scope of work.approvedScopes) {
+    if (!isVaultSessionEpochCurrent(epoch)) throw new Error("Vault session changed");
     try {
       const built = await buildConsentExportForScope({
         userId: params.userId,
@@ -146,6 +152,7 @@ export async function buildAnswerPayload(
     answerMode: "projection",
     answer: null,
   };
+  if (!isVaultSessionEpochCurrent(epoch)) throw new Error("Vault session changed");
   if (firebaseIdToken && projected.hasContent) {
     written = await AnswerRequestService.compose(firebaseIdToken, work.requestId, {
       // The memory document is the answer's source of truth; the per-scope
@@ -185,6 +192,7 @@ export async function buildAnswerPayload(
  */
 export async function runAnswerDeliverySweep(
   params: AnswerSweepParams,
+  epoch = snapshotVaultSessionEpoch(),
 ): Promise<AnswerSweepResult> {
   const result: AnswerSweepResult = { delivered: 0, empty: 0, skipped: 0, retry: 0 };
   if (!params.vaultKey || !params.vaultOwnerToken || !params.firebaseIdToken) return result;
@@ -197,18 +205,21 @@ export async function runAnswerDeliverySweep(
   }
 
   for (const work of queue) {
+    if (params.requestId && work.requestId !== params.requestId) continue;
+    if (!isVaultSessionEpochCurrent(epoch)) break;
     try {
       const { payload, hasContent } = await buildAnswerPayload(
         work,
         params,
         params.firebaseIdToken,
+        epoch,
       );
 
       // A question the owner's information CAN answer, but which the writer
       // failed to answer, is not finished work. Delivering the approved
       // material as `projection` would mark the request answered, pay the
       // owner, and hand the requester raw records instead of the answer they
-      // bought. Leave it queued instead: the next unlock retries, and if it
+      // bought. Leave it queued instead: the next explicit attempt retries, and if it
       // never succeeds the deadline sweep expires it and refunds in full.
       //
       // An empty answer is different and still delivers: there is genuinely
@@ -218,12 +229,14 @@ export async function runAnswerDeliverySweep(
         continue;
       }
 
+      if (!isVaultSessionEpochCurrent(epoch)) break;
       const envelope = await encryptSliceForRecipient({
         payload,
         recipientPublicKeyJwk: work.recipientKey.publicKeyJwk,
         recipientKeyId: work.recipientKey.keyId,
         metadata: { kind: "pkm_answer", requestId: work.requestId },
       });
+      if (!isVaultSessionEpochCurrent(epoch)) break;
       await AnswerRequestService.deliver(params.firebaseIdToken, work.requestId, {
         envelope,
         sourceRevisions: payload.sourceRevisions,

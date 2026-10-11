@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { DocumentPayoutAccountCard } from "@/components/consent/document-payout-account";
@@ -43,6 +43,8 @@ export interface DocumentRequestPriceSheetProps {
   initialAmountCents?: number | null;
   /** Trusted requests set price without an additional consent grant. */
   priceOnly?: boolean;
+  /** A caller with a different settlement lane supplies its existing account control. */
+  settlement?: ReactNode;
   busy: boolean;
   error: string | null;
   onSubmit: (amountCents: number | null) => void;
@@ -111,6 +113,7 @@ export function DocumentRequestPriceSheet(props: DocumentRequestPriceSheetProps)
 }
 
 function PriceSheet({
+  settlement,
   open,
   requesterLabel,
   purpose,
@@ -308,10 +311,12 @@ function PriceSheet({
               </div>
             ) : null}
             </>}
+            {settlement ?? <>
             <HelperText>
               Your net earnings are calculated after delivery, minus Hushh&apos;s 3% commission and the actual Stripe fee. Undelivered files are refunded to the requester.
             </HelperText>
             <DocumentPayoutAccountCard active={open} compact disabled={busy} />
+            </>}
           </>
         ) : null}
         {error ? <HelperText role="alert">{error}</HelperText> : null}

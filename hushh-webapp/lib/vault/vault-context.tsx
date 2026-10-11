@@ -1,3 +1,4 @@
+import { clearMemoryDocument } from "@/lib/pkm/memory-refresh";
 /**
  * Vault Context - Memory-Only Vault Key & Token Storage
  * =====================================================
@@ -225,6 +226,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
       // The Agent's decrypted working set is strictly session-memory-only.
       // Clear it synchronously with the vault credentials, rather than waiting
       // for an Agent workspace to remain mounted and notice the lock.
+      clearMemoryDocument(lockedUserId);
       clearAgentPkmContext(lockedUserId);
       clearAgentChatHistoryCache(lockedUserId);
       clearGeminiRuntimeConnectionCache(lockedUserId);

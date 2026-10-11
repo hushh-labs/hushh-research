@@ -1328,6 +1328,7 @@ export function ConsentNotificationProvider({
               const preservesDomainType =
                 preservesConnectionType ||
                 payload.type === "information_request_updated" ||
+                payload.type === "answer_request_changed" ||
                 String(payload.type || "").startsWith("location_");
               const type = preservesDomainType
                 ? payload.type
@@ -1661,6 +1662,16 @@ export function ConsentNotificationProvider({
         data.user_id &&
         String(data.user_id).trim() !== user.uid
       ) {
+        return;
+      }
+
+      if (msgType === "answer_request_changed") {
+        if (!user?.uid || !data.user_id || data.user_id !== user.uid ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(data.request_id || "")) return;
+        detail.accepted = true;
+        CacheSyncService.onConsentMutated(user.uid);
+        dispatchConsentStateChanged({ source: "answer_request_changed", requestId: `answer_request:${data.request_id}`, messageId: data.event_id });
+        dispatchFeedStateChanged("arrived");
         return;
       }
 

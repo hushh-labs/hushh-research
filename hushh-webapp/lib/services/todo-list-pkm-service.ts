@@ -183,7 +183,7 @@ function privateDomainData(
     ...current,
     _private: {
       ...privateData,
-      tasks: tasks.slice(0, 250),
+      tasks,
       updatedAt,
     },
   };
@@ -329,8 +329,7 @@ export function readTodoListState(
 
   return {
     tasks: tasks
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-      .slice(0, 250),
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
   };
 }
 
@@ -354,7 +353,7 @@ async function write(
       >;
       const state = readTodoListState(currentDomain);
       const updatedAt = new Date().toISOString();
-      const tasks = update(state).slice(0, 250);
+      const tasks = update(state);
       const completedCount = tasks.filter(
         (task) => task.status === "done",
       ).length;
@@ -475,8 +474,10 @@ export const TodoListPkmService = {
       "one_todo_list_owner_confirmed_status",
       `one_todo_list:status:${params.task.id}:${params.status}:${updatedAt}`,
       (current) => {
+        const latest = current.tasks.find((task) => task.id === params.task.id);
+        if (!latest || latest.status === "deleted") return current.tasks;
         const next = {
-          ...params.task,
+          ...latest,
           status: params.status,
           completedAt: params.status === "done" ? updatedAt : null,
           deletedAt: null,
@@ -516,16 +517,14 @@ export const TodoListPkmService = {
           // A provider-backed automatic row needs a private tombstone or it
           // would reappear on the next Calendar refresh. A manual task can be
           // removed entirely.
-          return task.type === "automatic"
-            ? [
+          return [
                 {
                   ...task,
                   status: "deleted" as const,
                   deletedAt: updatedAt,
                   updatedAt,
                 },
-              ]
-            : [];
+              ];
         });
       },
     );

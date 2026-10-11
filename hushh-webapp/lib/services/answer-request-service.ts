@@ -163,6 +163,29 @@ export class AnswerRequestService {
     }
   }
 
+  static async payoutAccount(firebaseIdToken: string): Promise<{ stripeMode: "test" | "live"; account: { ready: boolean; canManageBank: boolean } | null }> {
+    const response = await ApiService.apiFetch("/api/one/answer-requests/payout-account", {
+      cache: "no-store", headers: { Authorization: `Bearer ${firebaseIdToken}` },
+    });
+    if (!response.ok) throw new Error("Could not verify answer payout setup.");
+    const value = await readJson(response);
+    if (value.stripeMode !== "test" && value.stripeMode !== "live") throw new Error("Invalid payout mode");
+    const account = value.account;
+    if (account !== null && (!account || typeof account !== "object" || !("ready" in account) || typeof account.ready !== "boolean")) throw new Error("Invalid payout response");
+    return value as { stripeMode: "test" | "live"; account: { ready: boolean; canManageBank: boolean } | null };
+  }
+
+  static async payoutLink(firebaseIdToken: string, action: "onboarding" | "dashboard"): Promise<string> {
+    const response = await ApiService.apiFetch(`/api/one/answer-requests/payout-account/${action}`, {
+      method: "POST", cache: "no-store", headers: { Authorization: `Bearer ${firebaseIdToken}` },
+    });
+    if (!response.ok) throw new Error("Could not open answer payout setup. Please retry or contact support.");
+    const value = await readJson(response);
+    const url = new URL(String(value.url || ""));
+    if (url.protocol !== "https:" || !["connect.stripe.com", "stripe.com"].includes(url.hostname) || url.username || url.password || url.port) throw new Error("Invalid payout link");
+    return url.href;
+  }
+
   /** Questions this owner has been asked and has not yet answered or refused. */
   static async inbox(firebaseIdToken: string): Promise<PendingAnswerRequest[]> {
     if (!firebaseIdToken) return [];
@@ -176,14 +199,22 @@ export class AnswerRequestService {
     return (Array.isArray(value.requests) ? value.requests : []) as PendingAnswerRequest[];
   }
 
+  static async state(token: string, requestId: string): Promise<{ role: string; requestStatus: string; question: string }> {
+    const response = await ApiService.apiFetch(`${requestPath(requestId)}/state`, { cache: "no-store", headers: { Authorization: `Bearer ${token}` } });
+    if (!response.ok) throw new Error("Request unavailable");
+    return await response.json();
+  }
+
   /** Approve the exact question, the exact scopes and a whole-dollar price. */
   static async approve(
     firebaseIdToken: string,
     requestId: string,
     scopes: string[],
     amountCents: number,
+    modelProcessingConsent: boolean,
   ): Promise<{ termsDigest: string }> {
     if (!firebaseIdToken) throw new Error("Sign in to approve");
+    if (!modelProcessingConsent) throw new Error("Agree to model processing for this question.");
     if (!scopes.length) throw new Error("Choose the information to share");
     if (!isValidAnswerPriceCents(amountCents)) throw new Error("Choose a whole-dollar price");
     const response = await ApiService.apiFetch(`${requestPath(requestId)}/approve`, {
@@ -193,7 +224,7 @@ export class AnswerRequestService {
         Authorization: `Bearer ${firebaseIdToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ scopes, amountCents }),
+      body: JSON.stringify({ scopes, amountCents, modelProcessingConsent }),
     });
     if (!response.ok) throw new Error("This request could not be approved");
     const value = await readJson(response);

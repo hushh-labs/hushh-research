@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import text
@@ -34,6 +35,7 @@ from hushh_mcp.consent.answer_scope_resolution import (
 from hushh_mcp.services.external_connector_lifecycle_store import (
     ExternalConnectorLifecycleStore,
 )
+from hushh_mcp.services.pkm_answer_config import answer_stripe_mode
 from hushh_mcp.services.pkm_answer_payment_service import (
     PkmAnswerPaymentService,
     valid_answer_price_cents,
@@ -358,12 +360,15 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
         request_id: str,
         scopes: list[str],
         amount_cents: int,
+        model_processing_consent: bool = False,
     ) -> dict[str, Any]:
         """The owner approves the exact question, the exact scopes and a price.
 
         The approved set must be a subset of what was put in front of them: an
         owner may narrow the resolution, never widen it past validation.
         """
+        if not model_processing_consent:
+            raise AnswerRequestError("model_processing_consent_required")
         if not valid_answer_price_cents(amount_cents):
             raise AnswerRequestError("invalid_price")
         chosen = sorted({str(scope or "").strip().lower() for scope in scopes if scope})
@@ -412,6 +417,9 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                     """UPDATE pkm_answer_requests
                        SET status = 'approved', amount_cents = :amount,
                            terms_digest = :digest, approved_at = clock_timestamp(),
+                           composer_consent_at = clock_timestamp(),
+                           composer_consent_version = 'approved-projection-v1',
+                           composer_consent_digest = :digest,
                            updated_at = clock_timestamp()
                        WHERE request_id = :request"""
                 ),
@@ -428,6 +436,25 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
 
         digest = await self._transaction(write)
         return {"approved": True, "termsDigest": digest, "amountCents": amount_cents}
+
+    async def participant_state(self, *, user_id: str, request_id: str) -> dict[str, Any]:
+        def read(connection):
+            row = self._row(
+                connection,
+                """SELECT owner_user_id, status, question
+                FROM pkm_answer_requests WHERE request_id=:request
+                AND (owner_user_id=:user OR requester_user_id=:user)""",
+                {"request": request_id, "user": user_id},
+            )
+            if row is None:
+                raise AnswerRequestError("request_unavailable")
+            return {
+                "role": "owner" if row["owner_user_id"] == user_id else "requester",
+                "requestStatus": row["status"],
+                "question": row["question"],
+            }
+
+        return await self._transaction(read)
 
     async def decline(self, *, owner_user_id: str, request_id: str) -> dict[str, Any]:
         def write(connection):
@@ -486,11 +513,20 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                        LEFT JOIN pkm_answer_deliveries d ON d.request_id = r.request_id
                        WHERE r.owner_user_id = :owner AND r.status = 'answering'
                          AND o.status = 'paid' AND NOT o.reconciliation_required
+                         AND o.stripe_mode = :stripe_mode
+                         AND r.answer_deadline_at > clock_timestamp()
+                         AND EXISTS (SELECT 1 FROM connections c WHERE c.status='active'
+                           AND ((c.user_a_id=r.owner_user_id AND c.user_b_id=r.requester_user_id)
+                             OR (c.user_b_id=r.owner_user_id AND c.user_a_id=r.requester_user_id)))
                          AND d.request_id IS NULL
                        ORDER BY r.approved_at
                        LIMIT :limit"""
                     ),
-                    {"owner": owner_user_id, "limit": max(1, min(int(limit), 25))},
+                    {
+                        "owner": owner_user_id,
+                        "limit": max(1, min(int(limit), 25)),
+                        "stripe_mode": answer_stripe_mode(),
+                    },
                 )
                 .mappings()
                 .all()
@@ -604,8 +640,8 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
         def read(connection):
             request = self._row(
                 connection,
-                """SELECT request_id, owner_user_id, status, question, terms_digest,
-                          period_start, period_end
+                """SELECT request_id, owner_user_id, requester_user_id, status, question, terms_digest,
+                          period_start, period_end, answer_deadline_at, composer_consent_digest
                    FROM pkm_answer_requests WHERE request_id = :request FOR SHARE""",
                 {"request": request_id},
             )
@@ -613,10 +649,26 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 raise AnswerRequestError("request_unavailable")
             if request["status"] != "answering":
                 raise AnswerRequestError("request_not_answerable")
+            self._require_active_connection(connection, owner_user_id, request["requester_user_id"])
+            if request["answer_deadline_at"] is None or request[
+                "answer_deadline_at"
+            ] <= datetime.now(UTC):
+                raise AnswerRequestError("request_not_answerable")
             PkmAnswerPaymentService.require_paid_answer(connection, request)
             return {
                 "requestId": str(request["request_id"]),
                 "question": request["question"],
+                "modelProcessingConsented": request["composer_consent_digest"]
+                == request["terms_digest"],
+                "approvedScopes": [
+                    r["scope"]
+                    for r in connection.execute(
+                        text(
+                            "SELECT scope FROM pkm_answer_request_scopes WHERE request_id=:request AND approved"
+                        ),
+                        {"request": request_id},
+                    ).mappings()
+                ],
                 "period": (
                     {
                         "start": request["period_start"].isoformat(),
@@ -654,7 +706,7 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
         def write(connection):
             request = self._row(
                 connection,
-                """SELECT request_id, owner_user_id, requester_user_id, status, terms_digest
+                """SELECT request_id, owner_user_id, requester_user_id, status, terms_digest, answer_deadline_at
                    FROM pkm_answer_requests WHERE request_id = :request FOR UPDATE""",
                 {"request": request_id},
             )
@@ -663,8 +715,21 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
             if request["status"] != "answering":
                 raise AnswerRequestError("request_not_answerable")
             # The gate, inside the delivery transaction, after the lock.
+            self._require_active_connection(connection, owner_user_id, request["requester_user_id"])
+            if request["answer_deadline_at"] is None or request[
+                "answer_deadline_at"
+            ] <= datetime.now(UTC):
+                raise AnswerRequestError("request_not_answerable")
             PkmAnswerPaymentService.require_paid_answer(connection, request)
 
+            recipient = self._row(
+                connection,
+                """SELECT key_id FROM marketplace_recipient_keys
+                WHERE user_id=:requester AND key_id=:key AND status='active' FOR SHARE""",
+                {"requester": request["requester_user_id"], "key": envelope["recipientKeyId"]},
+            )
+            if recipient is None:
+                raise AnswerRequestError("invalid_envelope")
             connection.execute(
                 text(
                     """INSERT INTO pkm_answer_deliveries

@@ -481,14 +481,17 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         answer_request_declined: ["Question declined", "They declined this question. Anything paid is refunded in full."],
         answer_delivered: ["Answer ready", "Open the answer they sent you."],
       };
-      const [label, description] = copy[item.event_type] ?? ["Question", ""];
+      const state = metadataString(item.metadata, "status");
+      const terminal = ["answered", "declined", "cancelled", "expired"].includes(state || "");
+      const [label, originalDescription] = copy[item.event_type] ?? ["Question", ""];
+      const description = terminal ? `Request ${state}. Open its current status.` : state === "answering" ? "Payment verified. Open the request to continue." : originalDescription;
       return {
         icon,
         domainLabel,
         label,
         description,
         href: buildConsentCenterHref(
-          item.event_type === "answer_request_declined" ? "previous" : "pending",
+          terminal || item.event_type === "answer_request_declined" ? "previous" : "pending",
           { requestId: answerRequestId ? `answer_request:${answerRequestId}` : undefined },
         ),
       };

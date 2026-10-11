@@ -21,9 +21,11 @@ vi.mock("@/lib/services/answer-request-service", () => ({
     deliver: (...a: unknown[]) => deliver(...a),
   },
 }));
+const encrypt = vi.fn();
 vi.mock("@/lib/one-marketplace/encryption", () => ({
-  encryptSliceForRecipient: async () => ({ sealed: "ciphertext" }),
+  encryptSliceForRecipient: (...a: unknown[]) => encrypt(...a),
 }));
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 import { buildAnswerPayload, runAnswerDeliverySweep } from "@/lib/answers/answer-delivery-sweep";
 import { projectApprovedAnswer } from "@/lib/answers/answer-projection";
@@ -50,6 +52,7 @@ beforeEach(() => {
   answerable.mockReset();
   compose.mockReset();
   deliver.mockReset();
+  encrypt.mockReset().mockResolvedValue({ sealed: "ciphertext" });
   compose.mockResolvedValue({ answerMode: "projection", answer: null });
   deliver.mockResolvedValue(undefined);
 });
@@ -233,5 +236,26 @@ describe("a failed answer is retried and refunded, never counted as delivered", 
 
     expect(result).toMatchObject({ delivered: 1, retry: 0 });
     expect(deliver).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe("lock fences asynchronous answer work", () => {
+  it.each(["export", "compose", "encrypt"])("stops after lock during %s", async (stage) => {
+    let release!: (value: never) => void;
+    const pending = new Promise((resolve) => { release = resolve; });
+    answerable.mockResolvedValue([work()]);
+    buildConsentExportForScope.mockResolvedValue({ payload: { trips: [{ city: "Tokyo" }] } });
+    compose.mockResolvedValue({ answerMode: "agent", answer: "One trip." });
+    const selected = stage === "export" ? buildConsentExportForScope : stage === "compose" ? compose : encrypt;
+    selected.mockReturnValue(pending);
+    const sweep = runAnswerDeliverySweep({ ...params, firebaseIdToken: "token" });
+    await vi.waitFor(() => expect(selected).toHaveBeenCalled());
+    advanceVaultSessionEpoch();
+    release((stage === "export" ? { payload: { trips: [{ city: "Tokyo" }] } } : stage === "compose" ? { answerMode: "agent", answer: "One trip." } : { sealed: "ciphertext" }) as never);
+    await sweep;
+    expect(deliver).not.toHaveBeenCalled();
+    if (stage === "export") expect(compose).not.toHaveBeenCalled();
+    if (stage !== "encrypt") expect(encrypt).not.toHaveBeenCalled();
   });
 });

@@ -19,6 +19,7 @@
  */
 
 import { useState } from "react";
+import { AnswerPayoutAccount } from "@/components/consent/answer-payout-account";
 
 import { AuthService } from "@/lib/services/auth-service";
 import {
@@ -45,6 +46,7 @@ export function AnswerRequestReview({
   const [chosen, setChosen] = useState<string[]>(() =>
     request.proposedScopes.map((entry) => entry.scope),
   );
+  const [consented, setConsented] = useState(false);
   const [priceOpen, setPriceOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +77,7 @@ export function AnswerRequestReview({
   const approve = (amountCents: number | null) => {
     if (amountCents === null) return;
     void run((token) =>
-      AnswerRequestService.approve(token, request.requestId, chosen, amountCents),
+      AnswerRequestService.approve(token, request.requestId, chosen, amountCents, consented),
     );
   };
 
@@ -127,6 +129,15 @@ export function AnswerRequestReview({
         )}
       </fieldset>
 
+      <HelperText as="p">
+        When you choose Write answer in the unlocked app, only this approved information is sent temporarily to
+        the answer service and its model provider to write this answer. Your device
+        encrypts the answer for the requester. If it is not delivered within 72 hours,
+        the requester receives a full refund.
+      </HelperText>
+
+      <Label className="flex items-start gap-2"><input type="checkbox" checked={consented} disabled={busy} onChange={(event) => setConsented(event.target.checked)} />I agree to model processing of this question and only the selected information to write this answer.</Label>
+
       {error ? (
         <HelperText as="p" role="alert">
           {error}
@@ -138,7 +149,7 @@ export function AnswerRequestReview({
           <Button
             type="button"
             size="prominent"
-            disabled={busy || chosen.length === 0}
+            disabled={busy || chosen.length === 0 || !consented}
             onClick={() => setPriceOpen(true)}
           >
             Set a price
@@ -166,6 +177,7 @@ export function AnswerRequestReview({
         periodStart={request.periodStart}
         periodEnd={request.periodEnd}
         paymentRequired
+        settlement={<AnswerPayoutAccount />}
         busy={busy}
         error={error}
         onSubmit={approve}

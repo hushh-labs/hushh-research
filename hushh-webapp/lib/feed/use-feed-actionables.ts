@@ -1,5 +1,7 @@
 "use client";
 
+import { isAnswerRequestEntry } from "@/lib/consent/answer-request-consent";
+
 import { documentRequestEntrySetup, documentRequestSetupHref, documentRequestSetupLabel } from "@/lib/consent/document-request-setup";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -1292,14 +1294,24 @@ export function useFeedActionables(): UseFeedActionablesResult {
         // A document request from outside the Trusted circle that the server
         // says the owner can answer now gets Deny and Allow inline. Anything
         // else (background access, waiting on payment) keeps its chevron row.
-        const documentDecision = ownerDocumentDecision(entry);
-        if (documentDecision && settledConsentKeys.has(entry.id)) continue;
         const requesterLabel = resolveConsentRequesterLabel({
           counterpartLabel: entry.counterpart_label,
           counterpartEmail: entry.counterpart_email,
           counterpartSecondaryLabel: entry.counterpart_secondary_label,
           counterpartId: entry.counterpart_id,
         });
+        if (isAnswerRequestEntry(entry)) {
+          const state = String(entry.metadata?.request_status || entry.status);
+          const owner = entry.metadata?.role === "owner";
+          const label = owner ? (state === "answering" ? "Write answer" : "Review question") : "Review price and pay";
+          const href = buildConsentCenterHref("pending", { requestId: entry.id, from: "/one/feed" });
+          items.push({ id: `consent:${entry.id}`, icon: ConsentAgentIcon, iconTone: "capability", title: requesterLabel,
+            description: label, href, chevron: true, actions: [{ key: "review-answer", label, tone: "primary", run: () => router.push(href) }],
+            sortAt: parseConsentInstant(entry.issued_at) ?? firstSeenAt(`consent:${entry.id}`), displayTimestamp: parseConsentInstant(entry.issued_at) });
+          continue;
+        }
+        const documentDecision = ownerDocumentDecision(entry);
+        if (documentDecision && settledConsentKeys.has(entry.id)) continue;
         const reviewHref = buildConsentCenterHref("pending", {
           requestId: driveSharingSelectionId(entry),
           from: "/one/feed",

@@ -36,12 +36,16 @@ from tests.services.test_external_connector_lifecycle_postgres import (  # noqa:
 OWNER = "owner-account-A"
 REQUESTER = "requester-account-B"
 MIGRATIONS = [
+    # latest expansion is appended below; preserve production migration ordering.
     Path(__file__).resolve().parents[2] / "db" / "migrations" / "300_pkm_answer_requests.sql",
     Path(__file__).resolve().parents[2]
     / "db"
     / "migrations"
     / "301_pkm_answer_refunds_payouts.sql",
 ]
+MIGRATIONS.append(
+    Path(__file__).resolve().parents[2] / "db/migrations/303_pkm_answer_payment_recovery.sql"
+)
 
 # The owner's registry. attr.financial.holdings is deliberately present so a
 # resolver over-reach can be distinguished from a legitimate narrow answer.
@@ -237,13 +241,15 @@ def _mark_paid(engine, request_id, digest, amount=1000):
             text(
                 """INSERT INTO pkm_answer_payment_orders
                    (request_id,owner_user_id,requester_user_id,amount_cents,
-                    terms_digest,status,paid_at)
-                   VALUES (:r,:o,:q,:a,:d,'paid',clock_timestamp())"""
+                    terms_digest,status,paid_at,stripe_mode,stripe_payment_intent_id)
+                   VALUES (:r,:o,:q,:a,:d,'paid',clock_timestamp(),'test','pi_x')"""
             ),
             {"r": request_id, "o": OWNER, "q": REQUESTER, "a": amount, "d": digest},
         )
         connection.execute(
-            text("UPDATE pkm_answer_requests SET status='answering' WHERE request_id=:r"),
+            text(
+                "UPDATE pkm_answer_requests SET status='answering', answer_deadline_at=clock_timestamp()+INTERVAL '72 hours' WHERE request_id=:r"
+            ),
             {"r": request_id},
         )
 
@@ -276,6 +282,7 @@ class TestHappyPath:
             request_id=request_id,
             scopes=["attr.travel.trips"],
             amount_cents=1000,
+            model_processing_consent=True,
         )
         expected = compute_terms_digest(
             question="How much did you spend on travel last year?",
@@ -333,6 +340,7 @@ class TestOwnerIdentityTravelsWithTheWork:
             request_id=request_id,
             scopes=["attr.travel.trips"],
             amount_cents=1000,
+            model_processing_consent=True,
         )
         _mark_paid(answer_engine, request_id, approved["termsDigest"])
 
@@ -352,6 +360,7 @@ class TestOwnerIdentityTravelsWithTheWork:
             request_id=request_id,
             scopes=["attr.travel.trips"],
             amount_cents=1000,
+            model_processing_consent=True,
         )
         _mark_paid(answer_engine, request_id, approved["termsDigest"])
         work = await service.claim_answerable(owner_user_id=OWNER)
@@ -379,6 +388,7 @@ class TestScopeIsolation:
                 request_id=request_id,
                 scopes=["attr.travel.trips", "attr.financial.holdings"],
                 amount_cents=1000,
+                model_processing_consent=True,
             )
 
     async def test_a_skipped_resolver_is_recorded_not_guessed(self, answer_engine):
@@ -424,10 +434,13 @@ class TestPaymentGate:
             request_id=request_id,
             scopes=["attr.travel.trips"],
             amount_cents=1000,
+            model_processing_consent=True,
         )
         with answer_engine.begin() as connection:
             connection.execute(
-                text("UPDATE pkm_answer_requests SET status='answering' WHERE request_id=:r"),
+                text(
+                    "UPDATE pkm_answer_requests SET status='answering', answer_deadline_at=clock_timestamp()+INTERVAL '72 hours' WHERE request_id=:r"
+                ),
                 {"r": request_id},
             )
         with pytest.raises(AnswerPaymentError, match="payment_required"):
@@ -446,6 +459,7 @@ class TestPaymentGate:
             request_id=request_id,
             scopes=["attr.travel.trips"],
             amount_cents=1000,
+            model_processing_consent=True,
         )
         _mark_paid(answer_engine, request_id, approved["termsDigest"])
         # The owner's terms change after the money settled.
@@ -464,6 +478,7 @@ class TestPaymentGate:
             request_id=request_id,
             scopes=["attr.travel.trips"],
             amount_cents=1000,
+            model_processing_consent=True,
         )
         _mark_paid(answer_engine, request_id, approved["termsDigest"])
         with pytest.raises(AnswerRequestError, match="invalid_envelope"):
@@ -482,6 +497,7 @@ class TestRecovery:
             request_id=request_id,
             scopes=["attr.travel.trips"],
             amount_cents=1000,
+            model_processing_consent=True,
         )
         _mark_paid(answer_engine, request_id, approved["termsDigest"])
         with answer_engine.begin() as connection:
@@ -514,6 +530,7 @@ class TestRecovery:
             request_id=request_id,
             scopes=["attr.travel.trips"],
             amount_cents=1000,
+            model_processing_consent=True,
         )
         _mark_paid(answer_engine, request_id, approved["termsDigest"])
         with answer_engine.begin() as connection:
@@ -552,6 +569,7 @@ class TestRecovery:
             request_id=request_id,
             scopes=["attr.travel.trips"],
             amount_cents=1000,
+            model_processing_consent=True,
         )
         await service.cancel(requester_user_id=REQUESTER, request_id=request_id)
         with answer_engine.begin() as connection:
@@ -574,6 +592,7 @@ class TestFeed:
             request_id=request_id,
             scopes=["attr.travel.trips"],
             amount_cents=1000,
+            model_processing_consent=True,
         )
         _mark_paid(answer_engine, request_id, approved["termsDigest"])
         await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
@@ -613,6 +632,7 @@ class TestObligationMirror:
             request_id=request_id,
             scopes=["attr.travel.trips"],
             amount_cents=1000,
+            model_processing_consent=True,
         )
         _mark_paid(answer_engine, request_id, approved["termsDigest"])
         with answer_engine.begin() as connection:

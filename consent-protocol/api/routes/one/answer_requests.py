@@ -15,7 +15,8 @@ Firebase-authenticated on both sides. No `app/api` proxy for the money path:
 the Stripe webhook needs the exact signed bytes and the status/checkout
 endpoints stay on the same origin as it, matching the Drive lane.
 
-The server never sees an answer in the clear. `/deliver` accepts ciphertext
+Delivery storage never receives an answer in the clear. The separately gated
+composer receives the approved plaintext projection transiently; it decrypts no PKM. `/deliver` accepts ciphertext
 sealed to the requester's key and refuses anything shaped like plaintext.
 """
 
@@ -30,6 +31,11 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Response
 from api.middleware import require_firebase_auth, require_firebase_auth_read_only
 from hushh_mcp.services.answer_composer import AnswerComposer, AnswerComposerError
 from hushh_mcp.services.answer_scope_resolver import AnswerScopeResolver
+from hushh_mcp.services.pkm_answer_config import (
+    answer_composer_enabled,
+    answer_payment_config,
+    answer_stripe_mode,
+)
 from hushh_mcp.services.pkm_answer_payment_service import (
     AnswerPaymentError,
     PkmAnswerPaymentService,
@@ -39,6 +45,8 @@ from hushh_mcp.services.pkm_answer_request_service import (
     AnswerRequestError,
     PkmAnswerRequestService,
 )
+from hushh_mcp.services.pkm_packet_order_service import PacketOrderError
+from hushh_mcp.services.pkm_payout_service import PkmPayoutService
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +60,7 @@ _STATUS = {
     "invalid_price": 422,
     "invalid_envelope": 422,
     "no_scopes_approved": 422,
+    "model_processing_consent_required": 422,
     "scope_not_offered": 422,
     "request_unavailable": 404,
     "answer_unavailable": 404,
@@ -104,7 +113,7 @@ def _payments() -> PkmAnswerPaymentService:
 
 def _require_enabled() -> None:
     """Staged rollout, defaulting closed exactly like the Drive paywall."""
-    if not answer_payments_enabled():
+    if not (answer_payments_enabled() and answer_composer_enabled()):
         raise HTTPException(
             status_code=503,
             detail="Answers are not available yet.",
@@ -119,11 +128,54 @@ async def answer_requests_available(
 ) -> dict[str, bool]:
     """Whether this environment offers paid answers at all.
 
-    The lane ships disabled, so the Request scope CTA asks before it appears.
-    A dead button that 503s on submit is worse than no button.
+    The lane ships disabled, so Request scope checks this before admission.
+    The profile always shows the control; unavailable deployments disable it.
     """
     response.headers["Cache-Control"] = "private, no-store"
-    return {"enabled": answer_payments_enabled()}
+    enabled = answer_payments_enabled() and answer_composer_enabled()
+    if enabled:
+        try:
+            answer_payment_config()
+        except ValueError:
+            enabled = False
+    return {"enabled": enabled}
+
+
+def _payouts() -> PkmPayoutService:
+    key, _, _ = answer_payment_config()
+    return PkmPayoutService(mode=answer_stripe_mode(), api_key=key, resume_documents=False)
+
+
+@router.get("/payout-account")
+async def answer_payout_account(
+    response: Response, user_id: str = Depends(require_firebase_auth_read_only)
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        return await _payouts().account_status(user_id=user_id)
+    except (PacketOrderError, ValueError):
+        raise HTTPException(
+            status_code=503, detail="Could not verify answer payout setup. Please retry."
+        ) from None
+
+
+@router.post("/payout-account/{action}")
+async def answer_payout_link(
+    action: str, response: Response, user_id: str = Depends(require_firebase_auth)
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "private, no-store"
+    if action not in {"onboarding", "dashboard"}:
+        raise HTTPException(status_code=404, detail="Payout action unavailable.")
+    try:
+        service = _payouts()
+        if action == "onboarding":
+            return await service.onboarding_link(user_id=user_id, surface="answers")
+        return await service.management_link(user_id=user_id)
+    except (PacketOrderError, ValueError):
+        raise HTTPException(
+            status_code=503,
+            detail="Could not open answer payout setup. Please retry or contact support.",
+        ) from None
 
 
 @router.post("")
@@ -156,10 +208,22 @@ async def owner_inbox(
     response: Response,
     owner_user_id: str = Depends(require_firebase_auth_read_only),
 ) -> dict[str, Any]:
-    _require_enabled()
     response.headers["Cache-Control"] = "private, no-store"
     try:
         return {"requests": await _requests().pending_for_owner(owner_user_id=owner_user_id)}
+    except Exception as error:
+        raise _http(error) from None
+
+
+@router.get("/{request_id}/state")
+async def participant_state(
+    request_id: UUID, response: Response, user_id: str = Depends(require_firebase_auth_read_only)
+) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        return dict(
+            await _requests().participant_state(user_id=user_id, request_id=str(request_id))
+        )
     except Exception as error:
         raise _http(error) from None
 
@@ -183,6 +247,7 @@ async def approve_answer_request(
                 request_id=str(request_id),
                 scopes=[str(scope) for scope in scopes],
                 amount_cents=body.get("amountCents"),
+                model_processing_consent=body.get("modelProcessingConsent") is True,
             )
         )
     except Exception as error:
@@ -195,7 +260,6 @@ async def decline_answer_request(
     response: Response,
     owner_user_id: str = Depends(require_firebase_auth),
 ) -> dict[str, Any]:
-    _require_enabled()
     response.headers["Cache-Control"] = "private, no-store"
     try:
         return dict(
@@ -211,7 +275,6 @@ async def cancel_answer_request(
     response: Response,
     requester_user_id: str = Depends(require_firebase_auth),
 ) -> dict[str, Any]:
-    _require_enabled()
     response.headers["Cache-Control"] = "private, no-store"
     try:
         return dict(
@@ -229,7 +292,6 @@ async def get_answer_payment(
     response: Response,
     requester_user_id: str = Depends(require_firebase_auth_read_only),
 ) -> dict[str, Any]:
-    _require_enabled()
     response.headers["Cache-Control"] = "private, no-store"
     try:
         return dict(
@@ -296,6 +358,12 @@ async def compose_answer(
     """
     _require_enabled()
     response.headers["Cache-Control"] = "private, no-store"
+    if not answer_composer_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="Answer writing is not enabled.",
+            headers={"Cache-Control": "no-store"},
+        )
     projection = body.get("projection")
     if not isinstance(projection, dict) or not projection:
         raise HTTPException(status_code=422, detail="Check the request details.")
@@ -305,6 +373,18 @@ async def compose_answer(
         )
     except Exception as error:
         raise _http(error) from None
+    if work.get("modelProcessingConsented") is not True:
+        raise HTTPException(status_code=409, detail="Owner model-processing consent is required.")
+    values = projection.get("values")
+    if (
+        set(projection) != {"memory", "values"}
+        or not isinstance(values, dict)
+        or not values
+        or not set(values) <= set(work["approvedScopes"])
+        or not isinstance(projection.get("memory"), str)
+        or len(str(projection)) > 200_000
+    ):
+        raise HTTPException(status_code=422, detail="Check the approved information.")
     try:
         written = await AnswerComposer().compose(
             question=work["question"],
@@ -313,9 +393,8 @@ async def compose_answer(
             user_id=owner_user_id,
         )
     except AnswerComposerError:
-        # A model FAILURE is reported as such. The device then delivers the
-        # approved projection labelled answer_mode='projection' rather than
-        # passing anything off as a written answer.
+        # A model failure remains queued on the device for retry; the deadline
+        # worker refunds it if a written answer cannot be delivered.
         return {"answerMode": "projection", "answer": None}
     return {"answerMode": "agent", **written}
 
@@ -327,7 +406,6 @@ async def deliver_answer(
     body: dict[str, Any] = Body(...),
     owner_user_id: str = Depends(require_firebase_auth),
 ) -> dict[str, Any]:
-    _require_enabled()
     response.headers["Cache-Control"] = "private, no-store"
     envelope = body.get("envelope")
     if not isinstance(envelope, dict):

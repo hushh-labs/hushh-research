@@ -418,6 +418,7 @@ export class PkmWriteCoordinator {
     vaultKey?: string | null;
     vaultOwnerToken?: string | null;
     confirmation:
+      | import("@/lib/personal-knowledge-model/mutation-plan").PkmSourceProjectionAuthorization
       | PkmUserConfirmation
       | import("@/lib/personal-knowledge-model/mutation-plan").PkmRequestedWorkflowAuthorization
       | import("@/lib/personal-knowledge-model/mutation-plan").PkmConnectedSourceSyncAuthorization;

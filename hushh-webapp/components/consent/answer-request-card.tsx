@@ -13,7 +13,9 @@
  * never sent anywhere; the server relayed ciphertext it cannot read.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useVault } from "@/lib/vault/vault-context";
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 import { AuthService } from "@/lib/services/auth-service";
 import {
@@ -26,6 +28,8 @@ import { AnswerRequestReview } from "@/components/consent/answer-request-review"
 import { Button } from "@/lib/morphy-ux/button";
 import { BodyText, HelperText } from "@/components/app-ui/typography";
 import { SettingsRow } from "@/components/app-ui/settings-ui";
+import { runAnswerDeliverySweep } from "@/lib/answers/answer-delivery-sweep";
+import { CONSENT_STATE_CHANGED_EVENT, dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 import { useAuth } from "@/hooks/use-auth";
 
 export interface AnswerRequestCardProps {
@@ -38,6 +42,10 @@ function money(cents: number | null): string {
 
 export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
   const { user } = useAuth();
+  const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
+  const [state, setState] = useState<{ role: string; requestStatus: string; question: string } | null>(null);
+  const ownerRef = useRef(user?.uid);
+  ownerRef.current = user?.uid;
   const [pending, setPending] = useState<PendingAnswerRequest | null>(null);
   const [payment, setPayment] = useState<AnswerPaymentView | null>(null);
   const [answer, setAnswer] = useState<Record<string, unknown> | null>(null);
@@ -49,14 +57,19 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
     setLoading(true);
     setError(null);
     try {
+      const owner = user?.uid;
+      const epoch = snapshotVaultSessionEpoch();
       const token = await AuthService.getIdToken();
       if (!token) throw new Error("Sign in to open this request.");
       // The owner's copy and the requester's copy are different endpoints;
       // whichever answers is the role this person actually holds.
-      const [inbox, paid] = await Promise.all([
+      const [inbox, paid, requestState] = await Promise.all([
         AnswerRequestService.inbox(token).catch(() => []),
         AnswerRequestService.payment(token, requestId).catch(() => null),
+        AnswerRequestService.state(token, requestId),
       ]);
+      if (ownerRef.current !== owner || !isVaultSessionEpochCurrent(epoch)) return;
+      setState(requestState);
       setPending(inbox.find((entry) => entry.requestId === requestId) ?? null);
       setPayment(paid);
     } catch (cause) {
@@ -64,10 +77,14 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
     } finally {
       setLoading(false);
     }
-  }, [requestId]);
+  }, [requestId, user?.uid]);
 
   useEffect(() => {
     void load();
+    const refresh = () => { void load(); };
+    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, refresh);
+    window.addEventListener("focus", refresh);
+    return () => { window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, refresh); window.removeEventListener("focus", refresh); };
   }, [load]);
 
   const run = async (action: (token: string) => Promise<unknown>) => {
@@ -77,6 +94,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
       const token = await AuthService.getIdToken();
       if (!token) throw new Error("Sign in to continue.");
       await action(token);
+      dispatchConsentStateChanged({ userId: user?.uid, requestId: `answer_request:${requestId}` });
       await load();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "That could not be completed.");
@@ -92,14 +110,20 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
       window.location.assign(url);
     });
 
+  useEffect(() => { setAnswer(null); }, [user?.uid, isVaultUnlocked, requestId]);
+
   const openAnswer = () =>
     run(async (token) => {
+      const owner = user?.uid;
+      const epoch = snapshotVaultSessionEpoch();
+      if (!owner || !isVaultUnlocked) throw new Error("Unlock to read your answer.");
       const envelope = await AnswerRequestService.answer(token, requestId);
       // Decrypted with this person's own recipient key, held on this device.
       const decrypted = await decryptMarketplaceEnvelope({
-        userId: user?.uid || "",
+        userId: owner,
         envelope: envelope as never,
       });
+      if (ownerRef.current !== owner || !isVaultSessionEpochCurrent(epoch)) return;
       setAnswer(decrypted as Record<string, unknown>);
     });
 
@@ -116,6 +140,17 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
         onResolved={() => void load()}
       />
     );
+  }
+
+  if (state?.role === "owner") {
+    return <div className="space-y-4"><BodyText>{state.question}</BodyText>
+      <HelperText as="p" role="status">{state.requestStatus === "answering" ? "Payment verified. Unlock and choose Write answer. Failed attempts can be retried until the 72-hour deadline; then a full refund is due." : `Request ${state.requestStatus}.`}</HelperText>
+      {state.requestStatus === "answering" ? <Button disabled={busy || !isVaultUnlocked} onClick={() => void run(async (token) => {
+        if (!user?.uid || !vaultKey || !vaultOwnerToken) throw new Error("Unlock to write this answer.");
+        const result = await runAnswerDeliverySweep({ userId: user.uid, vaultKey, vaultOwnerToken, firebaseIdToken: token, requestId });
+        if (!result.delivered && !result.empty) throw new Error("Answer not delivered. Retry while unlocked; the deadline worker refunds unresolved requests.");
+      })}>Write answer</Button> : null}
+      {error ? <HelperText role="alert">{error}</HelperText> : null}</div>;
   }
 
   // ---- requester ---------------------------------------------------------
@@ -136,7 +171,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
             {/* The wait is disclosed BEFORE checkout, not after. */}
             <HelperText as="p">
               The answer is produced on their device, so it may wait until they
-              next open the app. If it is not answered within{" "}
+              choose Write answer after unlocking. If it is not answered within{" "}
               {payment.answerDeadlineHours} hours, you are refunded in full. You
               can cancel for a full refund any time before it arrives.
             </HelperText>
@@ -153,14 +188,14 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
 
         {payment.requestStatus === "answering" ? (
           <HelperText as="p" role="status">
-            Paid. Waiting for them to open the app
+            Paid. Waiting for them to write the answer
             {payment.answerDeadlineAt ? ` — due by ${payment.answerDeadlineAt}` : ""}. Cancel
             for a full refund if you no longer need it.
           </HelperText>
         ) : null}
 
         {payment.requestStatus === "answered" ? (
-          answer ? (
+          answer && isVaultUnlocked ? (
             <pre className="min-w-0 overflow-x-auto whitespace-pre-wrap break-words text-sm">
               {JSON.stringify(answer, null, 2)}
             </pre>

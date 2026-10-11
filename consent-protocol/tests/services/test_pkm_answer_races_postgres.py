@@ -33,6 +33,7 @@ from tests.services.test_pkm_answer_requests_postgres import (  # noqa: F401
 def payments_enabled(monkeypatch):
     # The lane ships disabled; the workers short-circuit unless it is on.
     monkeypatch.setenv("PKM_ANSWER_PAYMENTS_ENABLED", "true")
+    monkeypatch.setenv("PKM_ANSWER_COMPOSER_ENABLED", "true")
     monkeypatch.setenv("ENVIRONMENT", "test")
     monkeypatch.setenv("HUSHH_DEPLOY_ENV", "test")
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_local_only_synthetic")
@@ -52,6 +53,7 @@ async def _approved(engine, amount=1000):
         request_id=request_id,
         scopes=["attr.travel.trips"],
         amount_cents=amount,
+        model_processing_consent=True,
     )
     return service, request_id, approved["termsDigest"]
 
@@ -66,22 +68,56 @@ def _orders(engine, request_id):
         )
 
 
-def _stripe_payout_api(fee_cents: int = 0):
-    """A Stripe double that can answer the charge's real processing fee.
-
-    The payout split reads PaymentIntent -> Charge -> BalanceTransaction the
-    way the Drive lane does, so a double that cannot answer that chain makes
-    the worker defer rather than guess the fee.
-    """
+def _stripe_payout_api(fee_cents: int = 0, amount: int = 10000):
     api = Mock()
     api.PaymentIntent.retrieve.return_value = {
         "id": "pi_x",
         "status": "succeeded",
         "latest_charge": "ch_x",
+        "livemode": False,
     }
-    api.Charge.retrieve.return_value = {"id": "ch_x", "balance_transaction": "txn_x"}
+    api.Charge.retrieve.return_value = {
+        "id": "ch_x",
+        "payment_intent": "pi_x",
+        "balance_transaction": "txn_x",
+        "amount": amount,
+        "currency": "usd",
+        "paid": True,
+        "captured": True,
+        "disputed": False,
+        "amount_refunded": 0,
+        "livemode": False,
+    }
     api.BalanceTransaction.retrieve.return_value = {"id": "txn_x", "fee": fee_cents}
-    api.Transfer.create.return_value = {"id": "tr_test_1"}
+    api.Account.retrieve.side_effect = lambda account, **kw: {
+        "id": account,
+        "country": "US",
+        "details_submitted": True,
+        "payouts_enabled": True,
+        "capabilities": {"transfers": "active"},
+        "external_accounts": {
+            "data": [
+                {
+                    "object": "bank_account",
+                    "country": "US",
+                    "currency": "usd",
+                    "default_for_currency": True,
+                    "status": "verified",
+                }
+            ]
+        },
+    }
+    api.Transfer.list.return_value = {"data": [], "has_more": False}
+    api.Transfer.create.side_effect = lambda **kw: {
+        "id": "tr_test_1",
+        "livemode": False,
+        "reversed": False,
+        "amount_reversed": 0,
+        **{
+            k: kw[k]
+            for k in ("amount", "currency", "destination", "source_transaction", "transfer_group")
+        },
+    }
     return api
 
 
@@ -430,7 +466,9 @@ class TestPaymentArrivingAfterTheRequestClosed:
     """
 
     @staticmethod
-    async def _settle_webhook(engine, request_id, digest, attempt, event_id):
+    async def _settle_webhook(
+        engine, request_id, digest, attempt, intent_event_id, *, event_id=None
+    ):
         import hashlib
         import hmac
         import json
@@ -441,6 +479,7 @@ class TestPaymentArrivingAfterTheRequestClosed:
             PkmAnswerPaymentService,
         )
 
+        event_id = event_id or intent_event_id
         body = json.dumps(
             {
                 "id": event_id,
@@ -462,7 +501,7 @@ class TestPaymentArrivingAfterTheRequestClosed:
                         "amount_total": 1000,
                         "currency": "usd",
                         "livemode": False,
-                        "payment_intent": "pi_late_" + event_id,
+                        "payment_intent": "pi_late_" + intent_event_id,
                     }
                 },
             }
@@ -482,8 +521,8 @@ class TestPaymentArrivingAfterTheRequestClosed:
                 text(
                     """INSERT INTO pkm_answer_payment_orders
                        (request_id,owner_user_id,requester_user_id,amount_cents,
-                        terms_digest,status,checkout_attempt_id,stripe_checkout_session_id)
-                       VALUES (:r,:o,:q,1000,:d,'checkout_open',:a,'cs_test_late')"""
+                        terms_digest,status,stripe_mode,checkout_attempt_id,stripe_checkout_session_id)
+                       VALUES (:r,:o,:q,1000,:d,'checkout_open','test',:a,'cs_test_late')"""
                 ),
                 {"r": request_id, "o": OWNER, "q": REQUESTER, "d": digest, "a": attempt},
             )
@@ -595,7 +634,15 @@ class TestRefundRetry:
 
         # The next sweep succeeds and the order becomes refunded.
         ok = Mock()
-        ok.Refund.create.return_value = {"id": "re_test_ok"}
+        ok.Refund.create.return_value = {
+            "id": "re_test_ok",
+            "status": "succeeded",
+            "payment_intent": "pi_x",
+            "amount": 1000,
+            "currency": "usd",
+            "livemode": False,
+        }
+        ok.Refund.list.return_value = {"data": [], "has_more": False}
         with answer_engine.begin() as connection:
             connection.execute(
                 text(
@@ -630,7 +677,18 @@ class TestRefundRetry:
         await service.cancel(requester_user_id=REQUESTER, request_id=request_id)
 
         api = Mock()
-        api.Refund.create.side_effect = [RuntimeError("down"), {"id": "re_ok"}]
+        api.Refund.create.side_effect = [
+            RuntimeError("down"),
+            {
+                "id": "re_ok",
+                "status": "succeeded",
+                "payment_intent": "pi_x",
+                "amount": 1000,
+                "currency": "usd",
+                "livemode": False,
+            },
+        ]
+        api.Refund.list.return_value = {"data": [], "has_more": False}
         worker = PkmAnswerWorkWorker(_db(answer_engine), stripe_api=api)
         await worker.run_refunds(max_jobs=5)
         with answer_engine.begin() as connection:
@@ -800,10 +858,9 @@ class TestPayouts:
         with answer_engine.begin() as connection:
             connection.execute(
                 text(
-                    """INSERT INTO pkm_owner_payout_accounts
-                       (user_id, stripe_account_id, details_submitted, payouts_enabled)
-                       VALUES (:u,'acct_test',TRUE,TRUE)
-                       ON CONFLICT (user_id) DO NOTHING"""
+                    """INSERT INTO stripe_owner_payout_accounts
+                       (user_id,stripe_mode,stripe_account_id,details_submitted,payouts_enabled,account_ready)
+                       VALUES (:u,'test','acct_test',TRUE,TRUE,TRUE)"""
                 ),
                 {"u": OWNER},
             )
@@ -890,18 +947,7 @@ class TestPayoutFollowsDriveCanonicalRules:
 
     @staticmethod
     def _stripe_with_fee(fee_cents: int):
-        from unittest.mock import Mock as _Mock
-
-        api = _Mock()
-        api.PaymentIntent.retrieve.return_value = {
-            "id": "pi_x",
-            "status": "succeeded",
-            "latest_charge": "ch_x",
-        }
-        api.Charge.retrieve.return_value = {"id": "ch_x", "balance_transaction": "txn_x"}
-        api.BalanceTransaction.retrieve.return_value = {"id": "txn_x", "fee": fee_cents}
-        api.Transfer.create.return_value = {"id": "tr_x"}
-        return api
+        return _stripe_payout_api(fee_cents, amount=100 if fee_cents == 500 else 10000)
 
     @staticmethod
     def _ready_account(engine, mode="test"):
