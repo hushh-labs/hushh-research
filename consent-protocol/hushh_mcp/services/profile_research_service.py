@@ -94,6 +94,10 @@ async def offer_profile_research(
     if await asyncio.wait_for(check_saved(user_id), 5):
         return {"status": "saved", "pkm_written": False}
     await require_access()
+    if not one_profile_research_enabled() or not magic_intelligence_owner_admitted(
+        user_id, current_record
+    ):
+        return {"status": "disabled", "pkm_written": False}
     logger.info(
         "one.profile_research_complete match=%s sections=%d",
         report.match_status,

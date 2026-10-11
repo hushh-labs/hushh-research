@@ -737,6 +737,50 @@ async def test_saved_personal_offer_suppresses_paid_or_inflight_research(monkeyp
     assert researcher.await_count == (1 if completion == "other_device" else 0)
 
 
+@pytest.mark.parametrize("withdrawal", ["phase", "feature"])
+async def test_withdrawal_during_final_completion_read_never_releases_report(
+    monkeypatch, withdrawal
+):
+    from hushh_mcp.services.magic_intelligence_admission import PILOT_EMAIL
+
+    monkeypatch.setenv("ONE_MAGIC_INTELLIGENCE_PHASE", "1")
+    monkeypatch.setenv("ONE_PROFILE_RESEARCH_ENABLED", "true")
+    calls = 0
+
+    async def saved_check(_owner):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            monkeypatch.setenv(
+                "ONE_MAGIC_INTELLIGENCE_PHASE"
+                if withdrawal == "phase"
+                else "ONE_PROFILE_RESEARCH_ENABLED",
+                "0" if withdrawal == "phase" else "false",
+            )
+        return False
+
+    result = await service.offer_profile_research(
+        user_id="owner",
+        consent_token=OWNER_TOKEN,
+        owner_check=AsyncMock(return_value=object()),
+        setup_check=AsyncMock(return_value=True),
+        identity_lookup=MagicMock(
+            return_value=SimpleNamespace(
+                uid="owner",
+                disabled=False,
+                email_verified=True,
+                email=PILOT_EMAIL,
+                display_name="Pilot",
+                phone_number="+15555550123",
+            )
+        ),
+        researcher=AsyncMock(return_value={"report": REPORT, "search_suggestions": []}),
+        saved_check=saved_check,
+    )
+    assert calls == 2
+    assert result == {"status": "disabled", "pkm_written": False}
+
+
 def test_report_rejects_duplicate_sections_no_match_findings_and_unsafe_sources():
     for report in (
         {**REPORT, "sections": REPORT["sections"] * 2},
