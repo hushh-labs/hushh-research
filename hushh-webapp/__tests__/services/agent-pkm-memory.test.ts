@@ -209,6 +209,46 @@ describe("agent PKM memory helpers", () => {
     });
   });
 
+  it("finds origin-bearing businesses across scopes without starving existing personal details", async () => {
+    pkmGetMetadataMock.mockResolvedValue({ ...METADATA, domains: [{ key: "professional" }] });
+    pkmBlob = { professional: {
+      profile: { entities: { known: { name: "Example Company", _business_origin: { business_uid: "known-business" } } } },
+      businesses: { entities: Object.fromEntries(Array.from({ length: 12 }, (_, index) => [`business${index}`, {
+        name: `Unrelated Company ${index}`, _business_origin: { business_uid: `uid${index}` },
+      }])) },
+      education: { entities: { school: { summary: "Alex studied mathematics at Example School." } } },
+    } };
+    await AgentPkmContextStore.load({ userId: "user_1", vaultKey: "test-key", vaultOwnerToken: "test-token", forceRefresh: true });
+    const stored = AgentPkmContextStore.findBusinessReconciliationCandidates({ userId: "user_1", businessUid: "known-business" });
+    expect(stored[0]?.entity_scope).toBe("profile");
+    const personal = AgentPkmContextStore.findProfileReconciliationCandidates({ userId: "user_1", text: "Alex studied mathematics at Example School." });
+    expect(personal.some(candidate => candidate.entity_id === "school")).toBe(true);
+    expect(personal).toHaveLength(2); // Relevant company + school; unrelated companies cannot crowd them out.
+    expect(JSON.stringify(personal)).not.toContain("business_uid");
+    const target = AgentPkmContextStore.profileBusinessTarget("user_1", { card_id: "test", source_text: "A detail",
+      target_domain: "professional", candidate_payload: { notes: { entities: { known: { summary: "A detail" } } } },
+      merge_decision: { merge_mode: "extend_entity", target_entity_path: "profile.entities.known" } }, "professional");
+    expect(target?.businessUid).toBe("known-business");
+  });
+
+  it("rechecks origin at a retargeted destination inside the public-profile writer", async () => {
+    pkmSavePreparedDomainMock.mockImplementation(async (input: { build: (context: { currentDomainData: Record<string, unknown> }) => Promise<unknown> }) => {
+      await input.build({ currentDomainData: { profile: { entities: { known: { _business_origin: { business_uid: "existing-business" } } } } } });
+      return { success: true, dataVersion: 2, fullBlob: {} };
+    });
+    const result = await addToPKM({ userId: "user_1", vaultKey: "test-key", vaultOwnerToken: "test-token",
+      sourceMessage: "A company detail", source: "profile_research_review", confirmation: { confirmedByUser: true, surface: "chat" },
+      cards: [{ card_id: "test", source_text: "A company detail", write_mode: "confirm_first", target_domain: "professional",
+        candidate_payload: { notes: { entities: { known: { summary: "A company detail" } } } },
+        merge_decision: { merge_mode: "extend_entity", target_entity_path: "profile.entities.known" } }] });
+    expect(result.saved).toBe(0); expect(result.results[0]?.message).toContain("identity review");
+    await expect(addToPKM({ userId: "user_1", vaultKey: "test-key", vaultOwnerToken: "test-token",
+      sourceMessage: "A company detail", source: "profile_research_review", confirmation: { confirmedByUser: true, surface: "chat" },
+      cards: [{ card_id: "bad-target", source_text: "A company detail", write_mode: "confirm_first", target_domain: "professional",
+        candidate_payload: { notes: { entities: { known: { summary: "A company detail" } } } },
+        merge_decision: { merge_mode: "create_entity", target_entity_path: "profile.entities.known.details" } }] })).rejects.toThrow("destination");
+  });
+
   afterEach(() => {
     vi.useRealTimers();
   });
