@@ -923,4 +923,8 @@ def test_production_status_blocks_until_account_deletion_is_activated() -> None:
 def test_production_deploys_share_one_global_concurrency_group() -> None:
     concurrency = _production_workflow()["concurrency"]
 
-    assert concurrency == {"group": "deploy-production", "cancel-in-progress": False}
+    assert concurrency == {
+        "group": "deploy-production",
+        "cancel-in-progress": False,
+        "queue": "max",
+    }
