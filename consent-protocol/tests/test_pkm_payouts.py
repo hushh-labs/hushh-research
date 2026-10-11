@@ -39,6 +39,7 @@ def _provider_response(monkeypatch, *, payload, status=200):
 class _Stripe:
     def __init__(self):
         self.accounts, self.links, self.transfers, self.refunds = [], [], [], []
+        self.retrieves = []
         self.payouts_enabled = False
         self.transfers_capability = "inactive"
         self.disabled_reason = None
@@ -65,10 +66,11 @@ class _Stripe:
             @staticmethod
             def create(**kw):
                 outer.accounts.append(kw)
-                return {"id": f"acct_{len(outer.accounts)}"}
+                return {"id": f"acct_{len(outer.accounts)}", "country": outer.country}
 
             @staticmethod
             def retrieve(acct, **_kw):
+                outer.retrieves.append(acct)
                 return {
                     "id": acct,
                     "country": outer.country,
@@ -169,11 +171,16 @@ def world():
 async def test_onboarding_creates_one_express_account(world):
     svc, db, fake = world
     first = await svc.onboarding_link(user_id="owner")
+    assert fake.retrieves == []  # the create response is checked instead of re-read
     await svc.onboarding_link(user_id="owner")
+    assert fake.retrieves == ["acct_1"]  # an existing mapping is always re-read
     assert first["url"].startswith("https://connect.stripe.com/")
     assert len(fake.accounts) == 1 and fake.accounts[0]["type"] == "express"
     assert fake.links[0]["return_url"] == "https://uat.one.hushh.ai/one/marketplace?payouts=done"
     assert db.tables["stripe_owner_payout_accounts"][0]["stripe_account_id"] == "acct_1"
+    fake.country = "CA"
+    with pytest.raises(PacketOrderError, match="needs support"):
+        await svc.onboarding_link(user_id="other")
 
 
 async def test_document_onboarding_reuses_packet_account_with_separate_return_path(world):
@@ -261,6 +268,7 @@ async def test_concurrent_mapping_insert_reuses_existing_stripe_account(world, m
     assert len(fake.accounts) == 1
     assert len(db.tables["stripe_owner_payout_accounts"]) == 1
     assert fake.links[0]["account"] == "acct_1"
+    assert fake.retrieves == ["acct_1"]  # the winner's mapping is verified, not assumed
 
 
 async def test_stripe_failure_is_sanitized_and_does_not_create_second_account(world):

@@ -52,6 +52,7 @@ from hushh_mcp.services.pkm_answer_request_service import (
 )
 from hushh_mcp.services.pkm_packet_order_service import PacketOrderError
 from hushh_mcp.services.pkm_payout_service import PkmPayoutService
+from hushh_mcp.services.stripe_mode import configured_connect_mode
 
 logger = logging.getLogger(__name__)
 
@@ -151,10 +152,25 @@ def _payouts() -> PkmPayoutService:
     return PkmPayoutService(mode=answer_stripe_mode(), api_key=key, resume_documents=False)
 
 
+def _require_payout_mode() -> None:
+    """A paused answers lane must not open an Express account in another Connect mode."""
+    try:
+        allowed = answer_payments_enabled() or answer_stripe_mode() == configured_connect_mode()
+    except ValueError:
+        allowed = False
+    if not allowed:
+        raise HTTPException(
+            status_code=404,
+            detail="Answer payouts are not available.",
+            headers={"Cache-Control": "no-store"},
+        )
+
+
 @router.get("/payout-account")
 async def answer_payout_account(
     response: Response, user_id: str = Depends(require_firebase_auth_read_only)
 ) -> dict[str, Any]:
+    _require_payout_mode()
     response.headers["Cache-Control"] = "private, no-store"
     try:
         return cast(dict[str, Any], await _payouts().account_status(user_id=user_id))
@@ -168,6 +184,7 @@ async def answer_payout_account(
 async def answer_payout_link(
     action: str, response: Response, user_id: str = Depends(require_firebase_auth)
 ) -> dict[str, Any]:
+    _require_payout_mode()
     response.headers["Cache-Control"] = "private, no-store"
     if action not in {"onboarding", "dashboard"}:
         raise HTTPException(status_code=404, detail="Payout action unavailable.")
