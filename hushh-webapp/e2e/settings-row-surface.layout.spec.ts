@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { titleOnlyControlsAreCentered } from "./fixtures/settings-row-geometry";
 import {
   awaitProductFont,
   productFontStyle,
@@ -373,15 +374,7 @@ for (const width of [320, 393, 834, 1440]) {
       expect(await titleOnlyGroup.locator('[data-slot="settings-row-description"]').count()).toBe(0);
       for (const row of await titleOnlyRows.all()) {
         expect(await contract(row)).toEqual([]);
-        expect(await row.evaluate((node) => {
-          const center = (selector: string) => {
-            const box = node.querySelector(selector)!.getBoundingClientRect();
-            return box.top + box.height / 2;
-          };
-          const title = center('[data-slot="settings-row-title"]');
-          return Math.abs(title - center('[data-slot="settings-row-icon"]')) <= 1 &&
-            Math.abs(title - center('[data-slot="settings-row-chevron"]')) <= 1;
-        }), "title-only rows retain centered title, icon and chevron").toBe(true);
+        expect(await row.evaluate(titleOnlyControlsAreCentered), "title-only rows retain centered title, icon and chevron").toBe(true);
       }
       for (const source of boundedGroups) {
         const siblings = source.locator("[data-row-layout]");
@@ -398,15 +391,7 @@ for (const width of [320, 393, 834, 1440]) {
         expect(spread(titleOffsets), `${await source.getAttribute("data-testid")}: uniform siblings retain a shared title start when supporting copy wraps`).toBeLessThanOrEqual(1);
         for (const row of await siblings.all()) {
           if (await row.locator('[data-slot="settings-row-description"]').count() === 0) {
-            expect(await row.evaluate((node) => {
-              const title = node.querySelector('[data-slot="settings-row-title"]')!.getBoundingClientRect();
-              const titleCenter = title.top + title.height / 2;
-              return [...node.querySelectorAll('[data-slot="settings-row-icon"],[data-slot="settings-row-chevron"]')]
-                .every((control) => {
-                  const box = control.getBoundingClientRect();
-                  return Math.abs(titleCenter - box.top - box.height / 2) <= 1;
-                });
-            }), "title-only siblings retain centered title, icon and chevron").toBe(true);
+            expect(await row.evaluate(titleOnlyControlsAreCentered), "title-only siblings retain centered title, icon and chevron").toBe(true);
           }
           // Voice rows intentionally have only a trailing switch or a passive
           // Coming soon badge; they are not full-row navigation actions.
