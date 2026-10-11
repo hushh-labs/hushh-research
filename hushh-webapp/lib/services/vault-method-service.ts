@@ -140,7 +140,10 @@ export class VaultMethodService {
       const { token: vaultOwnerToken } = await VaultService.getOrIssueVaultOwnerToken(params.userId);
 
       if (params.targetMethod === "passphrase") {
-        const passphrase = params.passphrase?.trim();
+        // Preserve the input verbatim, matching create and unlock: trimming
+        // only here made a passphrase with boundary whitespace unlock with a
+        // different string than the one the owner typed when switching to it.
+        const passphrase = params.passphrase;
         if (!passphrase || passphrase.length < 8) {
           throw new Error("Passphrase must be at least 8 characters.");
         }
@@ -288,7 +291,10 @@ export class VaultMethodService {
       }
       const { token: vaultOwnerToken } = await VaultService.getOrIssueVaultOwnerToken(params.userId);
 
-      const nextPassphrase = params.newPassphrase.trim();
+      // Preserve the input verbatim, matching create and unlock: trimming
+      // only here made a passphrase with boundary whitespace unlock with a
+      // different string than the one the owner typed when changing it.
+      const nextPassphrase = params.newPassphrase;
       if (nextPassphrase.length < 8) {
         throw new Error("Passphrase must be at least 8 characters.");
       }

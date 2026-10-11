@@ -77,6 +77,9 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const userId = searchParams.get("userId");
+  // A security-sensitive read (e.g. an unlock attempt) must never decrypt
+  // against metadata this proxy cached before a wrapper changed elsewhere.
+  const bypassCache = searchParams.get("fresh") === "1";
 
   if (!userId) {
     return withRequestIdJson(requestId, { error: "userId required" }, { status: 400 });
@@ -105,7 +108,7 @@ export async function GET(request: NextRequest) {
   const cacheKey = `${userId}:${authHeader || "no-auth"}`;
 
   try {
-    const cached = readVaultGetCache(cacheKey);
+    const cached = bypassCache ? null : readVaultGetCache(cacheKey);
     if (cached) {
       return withRequestIdJson(requestId, cached.payload, { status: cached.status });
     }
