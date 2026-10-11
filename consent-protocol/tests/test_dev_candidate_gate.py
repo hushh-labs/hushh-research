@@ -424,9 +424,11 @@ body=$(cat)
 
 
 def test_preview_public_admission_follows_authenticated_health_and_application_promotion():
-    steps = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())["jobs"][
-        "deploy"
-    ]["steps"]
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    # The retired spelling sends normal owner OAuth returns to a signed-out
+    # origin. Runtime callback generation and release probes use this origin.
+    assert workflow["env"]["APP_FRONTEND_ORIGIN"] == "https://dev.one.hussh.ai"
+    steps = workflow["jobs"]["deploy"]["steps"]
     names = [step["name"] for step in steps]
     assert names.index("Verify selected candidates before traffic promotion") < names.index(
         "Promote deployed revisions to dev traffic"
