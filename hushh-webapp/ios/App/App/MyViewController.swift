@@ -102,19 +102,18 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         HushhNativeRouter()
     }
 
-    override open func webViewConfiguration(for instanceConfiguration: InstanceConfiguration) -> WKWebViewConfiguration {
-        let configuration = super.webViewConfiguration(for: instanceConfiguration)
+    override open func webView(with frame: CGRect, configuration: WKWebViewConfiguration) -> WKWebView {
         let eligible: Bool
         if #available(iOS 26.0, *) {
             eligible = NativeDrawerQualificationPolicy.enabled && UIDevice.current.userInterfaceIdiom == .phone
         } else { eligible = false }
-        // Renderer choice is public bootstrap metadata, installed before the
-        // first document script. Capability/owner/privacy checks still admit
-        // every presentation; this is not operation or information authority.
+        // Capacitor replaces userContentController after its configuration
+        // hook. Install against the final controller before WK creates the
+        // document. This selects rendering, never operation/information authority.
         configuration.userContentController.addUserScript(WKUserScript(
             source: "Object.defineProperty(window, '__HUSHH_NATIVE_DRAWER_BOOTSTRAP__', {value:Object.freeze({contractVersion:1,enabled:\(eligible ? "true" : "false")})});",
             injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        return configuration
+        return super.webView(with: frame, configuration: configuration)
     }
 
     override func viewDidLayoutSubviews() {

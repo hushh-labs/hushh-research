@@ -4,6 +4,22 @@ import WebKit
 @testable import App
 
 final class NativeSupportTests: XCTestCase {
+    @MainActor
+    func testDrawerBootstrapUsesTheFinalCapacitorContentController() {
+        let controller = MyViewController()
+        let configuration = WKWebViewConfiguration()
+        // Capacitor replaces the content controller after webViewConfiguration.
+        // Renderer bootstrap must reach the final configuration used by WK.
+        configuration.userContentController = WKUserContentController()
+        let web = controller.webView(with: .zero, configuration: configuration)
+        let scripts = web.configuration.userContentController.userScripts.filter {
+            $0.source.contains("__HUSHH_NATIVE_DRAWER_BOOTSTRAP__")
+        }
+        XCTAssertEqual(scripts.count, 1, "Bootstrap was lost before the document could choose its renderer")
+        XCTAssertEqual(scripts.first?.injectionTime, .atDocumentStart)
+        XCTAssertEqual(scripts.first?.isForMainFrameOnly, true)
+    }
+
     private func privateDrawerState(family: String = "profile", open: Bool = true,
                                    owner: String = "opaque-owner", revision: Int = 1, update: Int = 1,
                                    appearance: String = "light") -> NativeDrawerProjection {
