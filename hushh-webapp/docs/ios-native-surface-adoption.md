@@ -89,30 +89,36 @@ The ADK copy lacks the newer `ui:doctor` package entry. Running the canonical
 current validator against this worktree exposed pre-existing Back/Search authoring
 drift and missing validator mutation-test sources. Surface map, action gateway,
 Siri and route-orchestration checks pass. Resolve that branch/tooling gap without
-weakening the gate before release; canonical core, exact-head CI, Admin SOP,
-deployment and distribution are separate, unproven transitions for this change.
+weakening the gate before release. Canonical core passes at `1ec4e93d67` using
+its supported serial setting, with unchanged test timeouts. Exact-head CI, Admin
+SOP, deployment and distribution remain separate, unproven transitions.
 
 ### Installed native History qualification — 2026-10-11
 
 The physical iPhone 16e/iOS 27.2 runs Debug `com.hushh.app` 1.4.0 (69), bundled
 UAT, with the explicit product-drawers qualification switch. Native source:
-`e396057bd9`; exported web: `ddded99038`; UI test body: `3bba249eea`.
-Executable: `2d7b301fddde6318d97be83ddb05020439d666b5e7dc828d696a68a2f7ab9ad5`;
-packaged index: `6ed3867f32cb72ce21a5cdac2a336d0b49d704bea01fded915f6c1547969caa0`;
+`1ec4e93d67`; exported web and runner build: `1ec4e93d67`; UI test body:
+`3bba249eea`. Executable:
+`1bef59cd4991b3fadde350ea53be68a624b9941f3b03301aa3fd756025156a21`;
+packaged index: `4990c0095c31afe7d661101f5a7b118f6cb0557e79c70ee26cc68e6154040e0d`;
 runtime contract: `aa822769e2547459e63e38784b039f3b80ed905c1d426cb7834606fab1fc3f69`.
 Installation/signature/assets verification and attach-only testing were separate.
 XCTest ran over authenticated Wi-Fi; no account reset or sign-out was used.
-Normal owner-checked passphrase unlock passed. Credential-run bundles were erased.
+Normal owner-checked passphrase unlock passed using the explicit software-key
+path. Whole-value XCTest entry lacked an insertion receipt and was never
+submitted; this candidate does not qualify that input path. Preparation selected
+passphrase without reset or automatic sign-in. Credential-run bundles were erased.
 
 `testLocalSessionNativeProductHistoryKeepsOwnerAndSingleHost` completed ten warm
-cycles with zero failures/skips. It requires the native drawer and search field,
+cycles with zero failures/skips on both `e396057bd9` and the final installed
+`1ec4e93d67`. It requires the native drawer and search field,
 rejects an interactive React duplicate, tests edge taps and held partial closing
 drags, and checks full-height geometry, one identified WebView, unchanged host
 frame, draft preservation and continued vault admission. These are functional and
 sampled-geometry checks, not exact JavaScript/editor object identity or a rendered
 transition recording. No rename/deletion or other fixture mutation was inferred.
 
-The same installed candidate also passed the warm Mail pager/software-keyboard,
+The final installed candidate also passed the warm Mail pager/software-keyboard,
 native bottom-tab/overlay and seven-screen nested Profile Back journeys. Profile
 coverage includes Account, Preferences, Vault methods, Trusted devices, Connectors,
 Referrals and Support; the three Support choices returned to their original state
