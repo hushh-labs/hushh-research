@@ -708,7 +708,12 @@ export class VaultService {
     secretMaterial: string;
   }): Promise<string | null> {
     const wrapper = this.getWrapperByMethod(params.state, params.method);
-    if (!wrapper) return null;
+    if (!wrapper) {
+      // Distinct from a failed decrypt: there is nothing to attempt a
+      // secret against, so this must not read as "that passphrase did not
+      // match" to the owner.
+      throw new Error(`Vault unlock method is not configured on this account: ${params.method}`);
+    }
 
     const decrypted = await this.unlockVault(
       params.secretMaterial,
@@ -1166,14 +1171,23 @@ export class VaultService {
 
   /**
    * Get vault state (recovery + all enrolled wrappers).
+   *
+   * `forceFresh` bypasses the client cache (and, on web, the `/api/vault/get`
+   * proxy's own cache) for security-sensitive reads like an unlock attempt:
+   * a stale wrapper must never be the reason a correct secret is rejected.
+   * Concurrent callers still coalesce onto one in-flight request.
    */
-  static async getVaultState(userId: string): Promise<VaultState> {
-    const cached = this.getCachedVaultState(userId);
-    if (cached) {
-      return cached;
+  static async getVaultState(userId: string, options?: { forceFresh?: boolean }): Promise<VaultState> {
+    const forceFresh = options?.forceFresh ?? false;
+    if (!forceFresh) {
+      const cached = this.getCachedVaultState(userId);
+      if (cached) {
+        return cached;
+      }
     }
 
-    const inFlight = this.vaultStateInflight.get(userId);
+    const inflightKey = forceFresh ? `fresh:${userId}` : userId;
+    const inFlight = this.vaultStateInflight.get(inflightKey);
     if (inFlight) {
       return inFlight;
     }
@@ -1235,7 +1249,9 @@ export class VaultService {
         }
       }
 
-      const url = this.getApiUrl(`/api/vault/get?userId=${userId}`);
+      const url = this.getApiUrl(
+        `/api/vault/get?userId=${userId}${forceFresh ? "&fresh=1" : ""}`,
+      );
       const authToken = await this.getFirebaseToken();
       if (!authToken) throw new VaultAuthSessionNotReadyError();
       const headers: HeadersInit = {};
@@ -1292,12 +1308,12 @@ export class VaultService {
       }
     })();
 
-    this.vaultStateInflight.set(userId, requestPromise);
+    this.vaultStateInflight.set(inflightKey, requestPromise);
     try {
       return await requestPromise;
     } finally {
-      if (this.vaultStateInflight.get(userId) === requestPromise) {
-        this.vaultStateInflight.delete(userId);
+      if (this.vaultStateInflight.get(inflightKey) === requestPromise) {
+        this.vaultStateInflight.delete(inflightKey);
       }
     }
   }
