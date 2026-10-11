@@ -125,10 +125,18 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         guard !motion.retired, model.projection.identity == projection.identity else { return }
         let changedOpen = model.projection.open != projection.open
         let withdrawn = model.projection.enabled && !projection.enabled
+        let compatibleTerminal = intentPending && !changedOpen && model.projection.enabled == projection.enabled &&
+            model.projection.privacyGeneration == projection.privacyGeneration
         model.update(projection)
+        applyAppearance()
+        if compatibleTerminal {
+            // Content/theme refresh is not acknowledgement of the terminal
+            // intent. Keep its pose, token and original bounded deadline.
+            reconcileIsolation()
+            return
+        }
         intentTimeout?.cancel(); intentTimeout = nil
         awaitingReadmission = false
-        applyAppearance()
         if intentPending && projection.open == motion.committedOpen && animator == nil {
             intentPending = false; pose(motion.progress)
         } else if changedOpen || intentPending || withdrawn { intentPending = false; settle(open: projection.open, userIntent: false) }

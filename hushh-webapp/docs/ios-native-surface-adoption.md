@@ -110,6 +110,22 @@ settlements cannot clear a newer editor, and no operation is automatically retri
 Deletion retains unsent text/attachments until server commitment; empty chats
 still switch immediately. Completion signals and row changes remain owner-fenced.
 
+The 2026-10-11 correction negotiates `terminalRefreshes` without changing the
+private contract version. Only emitted Open/Close intents survive uninterrupted
+content/theme updates with the same identity, privacy, enabled and authored open
+state. Their native pose and original five-second deadline remain intact. Row/Back
+and older wrappers stay strictly update-bound. Exact emitted tokens, interaction
+generations and one-shot consumption remain mandatory; an open/closed/reopened
+boundary invalidates the older intent. Late positive or negative acknowledgements
+cannot retire the superseding drawer. No operation is replayed.
+
+The pre-fix JavaScript regression fails on the dropped Close. After correction,
+137 bridge tests, 61 simulator native support tests, full lint and typecheck pass.
+The native regression keeps the same host and restores WebView touch/accessibility
+only after authored closed-state acknowledgement; privacy, owner, drag and
+close/reopen negative cases reject the old token. These are contract checks:
+the corrected native History still needs its separately installed physical retry.
+
 The wrapper installs public qualification metadata at document start using
 Capacitor's supported `webView(with:configuration:)` hook. Normal/older wrappers choose
 React before discovery, rather than briefly withholding the web History while

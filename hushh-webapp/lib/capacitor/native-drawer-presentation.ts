@@ -1,7 +1,7 @@
 import type { PluginListenerHandle } from "@capacitor/core";
 import {
   NativeDrawerChoiceFence, sameNativeDrawer, validNativeDrawerProjection,
-  nativeDrawerChoiceAllowed, subscribeNativeDrawerIsolation, reconcileNativeDrawerIsolation, retainNativeDrawerIsolation,
+  subscribeNativeDrawerIsolation, reconcileNativeDrawerIsolation, retainNativeDrawerIsolation,
   nativeDrawerAcknowledged as acknowledged,
   type HushhNativeDrawersPlugin, type NativeDrawerChoice, type NativeDrawerIdentity,
   type NativeDrawerProjection, type NativeDrawerReceipt,
@@ -56,6 +56,7 @@ export class NativeDrawerPresentation {
         await this.retire();
         return false; // No native body has been prepared; established web fallback is safe.
       }
+      if (capability.terminalRefreshes === true) this.fence.enableTerminalRefreshes();
       // Listener installation creates no view. If it arrives after retirement,
       // remove that exact handle rather than leaking a callback into next owner.
       const handle = await this.plugin.addListener("choice", event => { void this.choose(event); });
@@ -133,12 +134,14 @@ export class NativeDrawerPresentation {
   private async choose(event: NativeDrawerChoice): Promise<void> {
     if (!this.disposed && !this.ownerIsCurrent()) { this.quarantine(); return; }
     if (this.disposed || !this.current || event.sequence <= this.seenChoice) return;
-    if (!nativeDrawerChoiceAllowed(event, this.current.state)) {
+    const terminal = event.action === "close" || event.action === "open";
+    if (!this.fence.allows(event)) {
       // Cancel the exact unconfirmed intent, never replay it against new rows.
       if (event.action === "row" && Number.isSafeInteger(event.sequence) && sameNativeDrawer(event, this.identity) && event.updateSequence < this.current.state.updateSequence) {
         this.seenChoice = event.sequence;
         await this.settle(event, false);
       }
+      else if (this.fence.terminalIsCurrent(event)) this.quarantine();
       return;
     }
     this.seenChoice = event.sequence;
@@ -147,8 +150,9 @@ export class NativeDrawerPresentation {
     await this.inFlight;
     const current = this.current;
     if (this.disposed || this.phase !== "active" || !current || this.applied !== current.state.updateSequence ||
-        !nativeDrawerChoiceAllowed(event, current.state)) {
+        !this.fence.allows(event)) {
       if (!this.disposed && current && event.action === "row" && sameNativeDrawer(event, this.identity)) await this.settle(event, false);
+      else if (!this.disposed && this.fence.terminalIsCurrent(event)) this.quarantine();
       return;
     }
     const action = event.action === "row" ? current.actions.rows.get(event.rowId ?? "") : current.actions[event.action];
@@ -156,18 +160,19 @@ export class NativeDrawerPresentation {
     let invoked = false;
     try {
       const accepted = await this.fence.consume(event, () => acknowledged(this.plugin.confirmChoice(event)),
-        () => !this.disposed && this.phase === "active" && this.current === current && this.ownerIsCurrent(),
+        () => !this.disposed && this.phase === "active" && (terminal || this.current === current) && this.ownerIsCurrent(),
         () => {
-          const latest = event.action === "row" ? current.actions.rows.get(event.rowId ?? "") : current.actions[event.action];
+          const owner = terminal ? this.current : current;
+          const latest = event.action === "row" ? owner?.actions.rows.get(event.rowId ?? "") : owner?.actions[event.action];
           if (!latest) return;
           invoked = true; return latest(event);
         });
       if (invoked) await this.settle(event, true);
       else if (!accepted && event.action === "row") await this.settle(event, false);
-      if (!accepted && (event.action === "close" || event.action === "open") && this.current === current) this.quarantine();
+      if (!accepted && this.fence.terminalIsCurrent(event)) this.quarantine();
     } catch {
       if (invoked) await this.settle(event, false);
-      if (!invoked && !this.disposed && this.current === current) this.quarantine();
+      if (!invoked && !this.disposed && (this.fence.terminalIsCurrent(event) || !terminal && this.current === current)) this.quarantine();
       // The owning feature reports operation failures. No raw provider error,
       // private text or automatic retry belongs in this presentation adapter.
     }

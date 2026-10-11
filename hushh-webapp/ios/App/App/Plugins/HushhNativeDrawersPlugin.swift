@@ -62,6 +62,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
         DispatchQueue.main.async { [weak self] in
             call.resolve(["contractVersion": 1, "supported": self?.supported == true, "wholePresentation": self?.supported == true,
                 "historyActions": self?.supported == true,
+                "terminalRefreshes": self?.supported == true,
                 "generation": self?.container?.isolationGeneration ?? 0, "isolated": self?.container?.interactionIsolated == true])
         }
     }

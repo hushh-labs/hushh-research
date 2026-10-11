@@ -22,13 +22,13 @@ final class NativeSupportTests: XCTestCase {
 
     private func privateDrawerState(family: String = "profile", open: Bool = true,
                                    owner: String = "opaque-owner", revision: Int = 1, update: Int = 1,
-                                   appearance: String = "light") -> NativeDrawerProjection {
+                                   appearance: String = "light", privacy: Int = 0, enabled: Bool = true) -> NativeDrawerProjection {
         NativeDrawerProjection(documentId: "public-document", ownerEpoch: owner, ownerGeneration: revision, revision: revision, family: family,
-            updateSequence: update, privacyGeneration: 0, appearance: appearance, accentHex: "#007aff", foregroundHex: "#000000",
+            updateSequence: update, privacyGeneration: privacy, appearance: appearance, accentHex: "#007aff", foregroundHex: "#000000",
             title: "Public sample", sections: [NativeDrawerSection(id: "settings", title: "Settings",
                 rows: [NativeDrawerRow(id: "row-handle", label: "Appearance", detail: nil, symbol: "circle.lefthalf.filled",
                     enabled: true, destructive: nil, selected: nil, pending: nil)])],
-            open: open, enabled: true, backEnabled: false)
+            open: open, enabled: enabled, backEnabled: false)
     }
 
     func testPrivateDrawerRenameBindsTheExactEmittedTextAndRejectsUnboundedInput() throws {
@@ -177,6 +177,79 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(web.superview === container)
         XCTAssertFalse(base.isHidden)
         XCTAssertFalse(glass.isUserInteractionEnabled, "Fresh bindings restore permissions, not a captured boolean")
+    }
+
+    @MainActor
+    func testPendingNativeCloseSurvivesContentRefreshAndUncoversTheSameWebViewOnlyAfterAcknowledgement() async throws {
+        let state = privateDrawerState(family: "history")
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let container = NativePresentationContainer(webView: web, basePresentation: .coherentDrawers)
+        let parent = UIViewController()
+        parent.view = container
+        let window = UIWindow(frame: web.frame)
+        window.rootViewController = parent
+        window.isHidden = false
+        let controller = NativeDrawerPresentationController(state)
+        parent.addChild(controller)
+        container.addSubview(controller.view)
+        controller.view.frame = container.bounds
+        controller.didMove(toParent: parent)
+        defer { controller.retire(); window.isHidden = true; window.rootViewController = nil }
+        var lease = NativeDrawerLease()
+        XCTAssertTrue(lease.apply(state))
+        controller.invalidateInteractions = { lease.invalidateInteractions() }
+        controller.isolation = { container.isolateForOwnedDrawer($0) }
+        controller.activateInitialPresentation()
+        let admitted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in controller.model.interactionEnabled }, object: nil)
+        await fulfillment(of: [admitted], timeout: 3)
+        let host = try XCTUnwrap(controller.host)
+        let emitted = expectation(description: "Close emitted")
+        var token: Int?, interaction = 0
+        controller.model.choose = { action, row, text in
+            token = lease.emit(action: action, row: row, state: controller.model.projection, text: text)
+            interaction = lease.interactionGeneration
+            if token != nil { emitted.fulfill() }
+            return token != nil
+        }
+        controller.settle(open: false, userIntent: true)
+        await fulfillment(of: [emitted], timeout: 3)
+        let sequence = try XCTUnwrap(token)
+        let refresh = privateDrawerState(family: "history", update: 2, appearance: "dark")
+        XCTAssertTrue(lease.apply(refresh))
+        controller.update(refresh)
+        XCTAssertTrue(controller.host === host)
+        XCTAssertEqual(controller.motion.progress, 0, "A content refresh must not reopen a locally closed drawer")
+        XCTAssertFalse(web.isUserInteractionEnabled, "Unacknowledged Close does not release modal isolation")
+        XCTAssertTrue(web.accessibilityElementsHidden)
+        XCTAssertTrue(lease.confirm(identity: state.identity, update: 1, privacy: 0, sequence: sequence,
+            interaction: interaction, action: "close", row: nil, allowed: controller.allowsInteraction("close", row: nil)))
+        let closed = privateDrawerState(family: "history", open: false, update: 3, appearance: "dark")
+        XCTAssertTrue(lease.apply(closed))
+        controller.update(closed)
+        XCTAssertTrue(web.isUserInteractionEnabled)
+        XCTAssertFalse(web.accessibilityElementsHidden)
+        XCTAssertTrue(web.superview === container)
+        XCTAssertFalse(lease.confirm(identity: state.identity, update: 1, privacy: 0, sequence: sequence,
+            interaction: interaction, action: "close", row: nil, allowed: true), "Close is never replayed")
+
+        // Compatible refresh never bypasses interaction, privacy, authority,
+        // withdrawal or a subsequent close/reopen boundary.
+        for invalidation in 0..<5 {
+            var stale = NativeDrawerLease()
+            XCTAssertTrue(stale.apply(state))
+            let old = try XCTUnwrap(stale.emit(action: "close", row: nil, state: state))
+            switch invalidation {
+            case 0: stale.invalidateInteractions()
+            case 1: XCTAssertTrue(stale.apply(privateDrawerState(family: "history", update: 2, privacy: 1)))
+            case 2: XCTAssertTrue(stale.apply(privateDrawerState(family: "history", owner: "replacement", revision: 2)))
+            case 3: XCTAssertTrue(stale.apply(privateDrawerState(family: "history", update: 2, enabled: false)))
+            default:
+                XCTAssertTrue(stale.apply(privateDrawerState(family: "history", open: false, update: 2)))
+                XCTAssertTrue(stale.apply(privateDrawerState(family: "history", update: 3)))
+            }
+            XCTAssertFalse(stale.confirm(identity: state.identity, update: 1, privacy: 0, sequence: old,
+                interaction: 1, action: "close", row: nil, allowed: true))
+        }
     }
 
     @MainActor

@@ -51,7 +51,7 @@ export type NativeDrawerChoice = NativeDrawerIdentity & {
 };
 export type NativeDrawerIsolation = { generation: number; isolated: boolean };
 export interface HushhNativeDrawersPlugin {
-  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean }>;
+  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean }>;
   apply(options: NativeDrawerProjection): Promise<NativeDrawerReceipt>;
   confirmChoice(options: NativeDrawerChoice): Promise<{ valid: boolean }>;
   settleChoice?(options: NativeDrawerIdentity & { sequence: number; privacyGeneration: number; success: boolean }): Promise<{ valid: boolean }>;
@@ -192,24 +192,45 @@ export class NativeDrawerChoiceFence {
   private generation = 0;
   private retired = false;
   private current: NativeDrawerProjection | null = null;
+  private terminalRefreshes = false;
+  private terminalUpdateFloor = 0;
   constructor(readonly identity: NativeDrawerIdentity) {}
+  enableTerminalRefreshes(): void { if (!this.current) this.terminalRefreshes = true; }
   update(state: NativeDrawerProjection): boolean {
     if (this.retired || !validNativeDrawerProjection(state) || !sameNativeDrawer(this.identity, state) ||
         (this.current && state.updateSequence <= this.current.updateSequence)) return false;
+    if (!this.current || this.current.open !== state.open || this.current.enabled !== state.enabled ||
+        this.current.privacyGeneration !== state.privacyGeneration) this.terminalUpdateFloor = state.updateSequence;
     this.current = state;
     this.generation++;
     return true;
   }
   retire() { this.retired = true; this.current = null; this.generation++; }
+  terminalIsCurrent(choice: NativeDrawerChoice): boolean {
+    if (this.retired || !this.current || choice.action !== "open" && choice.action !== "close") return false;
+    return validSequence(choice.updateSequence) && choice.updateSequence >= this.terminalUpdateFloor &&
+      choice.updateSequence <= this.current.updateSequence &&
+      nativeDrawerChoiceAllowed({ ...choice, updateSequence: this.current.updateSequence }, this.current);
+  }
+  allows(choice: NativeDrawerChoice): boolean {
+    if (this.retired || !this.current) return false;
+    if (!this.terminalRefreshes || choice.action !== "open" && choice.action !== "close") {
+      return nativeDrawerChoiceAllowed(choice, this.current);
+    }
+    // Only terminal presentation intents survive compatible content updates.
+    // Native still confirms the exact emitted token and interaction generation.
+    return this.terminalIsCurrent(choice);
+  }
   async consume(choice: NativeDrawerChoice, confirm: () => Promise<{ valid: boolean }>,
     isCurrent: () => boolean, invoke: () => void | Promise<void>): Promise<boolean> {
     if (!this.current || choice.sequence <= this.consumed ||
-        !nativeDrawerChoiceAllowed(choice, this.current) || !isCurrent()) return false;
-    const generation = this.generation;
+        !this.allows(choice) || !isCurrent()) return false;
+    const terminal = this.terminalRefreshes && (choice.action === "open" || choice.action === "close");
+    const generation = terminal ? this.terminalUpdateFloor : this.generation;
     const result = await confirm();
-    if (!result.valid || generation !== this.generation || !this.current ||
+    if (!result.valid || generation !== (terminal ? this.terminalUpdateFloor : this.generation) || !this.current ||
         choice.sequence <= this.consumed || !isCurrent() ||
-        !nativeDrawerChoiceAllowed(choice, this.current)) return false;
+        !this.allows(choice)) return false;
     this.consumed = choice.sequence;
     await invoke();
     return true;

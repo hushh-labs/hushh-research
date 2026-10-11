@@ -157,6 +157,9 @@ struct NativeDrawerLease {
     private var document: String?
     private var retiredDocuments = Set<String>()
     private var consumed = 0
+    private var terminalUpdateFloor = 0
+    private var terminalOpen = false
+    private var terminalEnabled = false
     private var pendingSettlements = Set<Int>()
     private(set) var interactionGeneration = 1
     private var emitted: [Int: (update: Int, interaction: Int, action: String, row: String?, text: String?)] = [:]
@@ -173,8 +176,15 @@ struct NativeDrawerLease {
             document = projection.documentId
             identity = projection.identity
             sequence = 0; updateSequence = 0; consumed = 0; emitted.removeAll(); pendingSettlements.removeAll()
+            terminalUpdateFloor = 0
         }
         guard projection.updateSequence > updateSequence else { return false }
+        if terminalUpdateFloor == 0 || terminalOpen != projection.open || terminalEnabled != projection.enabled ||
+            privacyGeneration != projection.privacyGeneration {
+            terminalUpdateFloor = projection.updateSequence
+        }
+        terminalOpen = projection.open
+        terminalEnabled = projection.enabled
         updateSequence = projection.updateSequence
         privacyGeneration = projection.privacyGeneration
         return true
@@ -194,7 +204,9 @@ struct NativeDrawerLease {
     }
     mutating func confirm(identity: NativeDrawerIdentity, update: Int, privacy: Int, sequence: Int, interaction: Int,
                           action: String, row: String?, allowed: Bool, text: String? = nil) -> Bool {
-        guard allowed, identity == self.identity, update == updateSequence, privacy == privacyGeneration,
+        let terminal = action == "open" || action == "close"
+        let currentUpdate = terminal ? update >= terminalUpdateFloor && update <= updateSequence : update == updateSequence
+        guard allowed, identity == self.identity, currentUpdate, privacy == privacyGeneration,
               interaction == interactionGeneration,
               sequence > consumed, let choice = emitted[sequence], choice.update == update,
               choice.interaction == interaction,

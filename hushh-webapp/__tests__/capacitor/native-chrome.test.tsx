@@ -193,6 +193,64 @@ describe("private native drawer action boundary", () => {
       } };
   }
 
+  it("completes one emitted Close through compatible content refreshes without replaying or using obsolete authority", async () => {
+    const bridge = presentationBridge();
+    const capabilities = await bridge.plugin.getCapabilities();
+    bridge.plugin.getCapabilities = async () => ({ ...capabilities, terminalRefreshes: true });
+    const confirmation = deferred<{ valid: boolean }>();
+    vi.mocked(bridge.plugin.confirmChoice).mockReturnValueOnce(confirmation.promise);
+    const phases = vi.fn(), originalClose = vi.fn(), currentClose = vi.fn();
+    const presentation = new NativeDrawerPresentation(state(), bridge.plugin, () => true, phases);
+    const actions = { rows: new Map([["row-handle", vi.fn()]]), open: vi.fn(), close: originalClose };
+    await presentation.listen();
+    presentation.publish(state(), actions);
+    await waitFor(() => expect(phases).toHaveBeenCalledWith("active"));
+    const terminal = { ...choice(), action: "close" as const, rowId: undefined };
+    bridge.emit(terminal);
+    await waitFor(() => expect(bridge.plugin.confirmChoice).toHaveBeenCalledOnce());
+    presentation.publish({ ...state(), updateSequence: 2, appearance: "dark" }, { ...actions, close: currentClose });
+    await waitFor(() => expect(bridge.apply).toHaveBeenCalledTimes(2));
+    confirmation.resolve({ valid: true });
+    await waitFor(() => expect(currentClose).toHaveBeenCalledOnce());
+    expect(originalClose).not.toHaveBeenCalled();
+    bridge.emit(terminal);
+    expect(currentClose).toHaveBeenCalledOnce();
+    bridge.retire.mockResolvedValue({ ...state(), updateSequence: 2, phase: "retired" });
+    expect(await presentation.retire()).toBe(true);
+
+    for (const invalidation of ["privacy", "disabled", "close-reopen", "owner"] as const) {
+      const fence = new NativeDrawerChoiceFence(state());
+      fence.enableTerminalRefreshes();
+      fence.update(state());
+      const pending = deferred<{ valid: boolean }>(), operation = vi.fn();
+      let currentOwner = true;
+      const consume = fence.consume(terminal, () => pending.promise, () => currentOwner, operation);
+      if (invalidation === "owner") currentOwner = false;
+      else {
+        fence.update({ ...state(), updateSequence: 2,
+          privacyGeneration: invalidation === "privacy" ? 1 : 0,
+          enabled: invalidation !== "disabled", open: invalidation !== "close-reopen" });
+        if (invalidation === "close-reopen") fence.update({ ...state(), updateSequence: 3 });
+      }
+      pending.resolve({ valid: true });
+      expect(await consume).toBe(false);
+      expect(operation).not.toHaveBeenCalled();
+    }
+    for (const action of ["close", "row", "back"] as const) {
+      const projection = { ...state(), backEnabled: true };
+      const fence = new NativeDrawerChoiceFence(projection);
+      if (action !== "close") fence.enableTerminalRefreshes();
+      fence.update(projection);
+      const pending = deferred<{ valid: boolean }>(), operation = vi.fn();
+      const consume = fence.consume({ ...choice(), action, rowId: action === "row" ? "row-handle" : undefined },
+        () => pending.promise, () => true, operation);
+      fence.update({ ...projection, updateSequence: 2, appearance: "dark" });
+      pending.resolve({ valid: true });
+      expect(await consume).toBe(false); // Older wrappers and Row/Back remain strict.
+      expect(operation).not.toHaveBeenCalled();
+    }
+  });
+
   it.each([true, false])("settles a committed row once with explicit success=%s and never repeats the operation", async success => {
     const bridge = presentationBridge();
     bridge.plugin.settleChoice = vi.fn(async () => ({ valid: true }));
@@ -212,6 +270,31 @@ describe("private native drawer action boundary", () => {
     expect(operation).toHaveBeenCalledOnce();
     expect(bridge.plugin.settleChoice).toHaveBeenCalledOnce();
     await presentation.retire();
+  });
+
+  it.each([true, false])("does not retire a reopened drawer after an obsolete terminal acknowledgement valid=%s", async valid => {
+    const bridge = presentationBridge();
+    const capabilities = await bridge.plugin.getCapabilities();
+    bridge.plugin.getCapabilities = async () => ({ ...capabilities, terminalRefreshes: true });
+    const confirmation = deferred<{ valid: boolean }>();
+    vi.mocked(bridge.plugin.confirmChoice).mockReturnValueOnce(confirmation.promise);
+    const phases = vi.fn(), close = vi.fn();
+    const presentation = new NativeDrawerPresentation(state(), bridge.plugin, () => true, phases);
+    const actions = { rows: new Map([["row-handle", vi.fn()]]), open: vi.fn(), close };
+    await presentation.listen();
+    presentation.publish(state(), actions);
+    await waitFor(() => expect(phases).toHaveBeenCalledWith("active"));
+    bridge.emit({ ...choice(), action: "close", rowId: undefined });
+    await waitFor(() => expect(bridge.plugin.confirmChoice).toHaveBeenCalledOnce());
+    presentation.publish({ ...state(), updateSequence: 2, open: false }, actions);
+    presentation.publish({ ...state(), updateSequence: 3 }, actions);
+    await waitFor(() => expect(bridge.apply).toHaveBeenCalledTimes(3));
+    await act(async () => { confirmation.resolve({ valid }); });
+    expect(close).not.toHaveBeenCalled();
+    expect(bridge.retire).not.toHaveBeenCalled();
+    expect(phases).not.toHaveBeenCalledWith("quarantined");
+    bridge.retire.mockResolvedValue({ ...state(), updateSequence: 3, phase: "retired" });
+    expect(await presentation.retire()).toBe(true);
   });
 
   it.each(["accepted", "rejected"] as const)("waits for latest admission and fences a replaced callback after %s obsolete confirmation", async outcome => {
