@@ -134,6 +134,19 @@ describe("VaultMethodService.changePassphrase", () => {
     });
   });
 
+  it("preserves boundary whitespace when changing the passphrase, matching create and unlock", async () => {
+    await VaultMethodService.changePassphrase({
+      userId: "uid-1",
+      currentVaultKey:
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      newPassphrase: " new-passphrase-123 ",
+    });
+
+    expect(rewrapMock).toHaveBeenCalledWith(
+      expect.objectContaining({ wrappingSecret: " new-passphrase-123 " }),
+    );
+  });
+
   it("maps RP mismatch errors to actionable message", async () => {
     upsertWrapperMock.mockRejectedValueOnce(
       new Error("wrapper rp id is not allowed for this environment"),
@@ -183,6 +196,23 @@ describe("VaultMethodService.changePassphrase", () => {
     expect(latestVaultState?.recoveryEncryptedVaultKey).toBe("r1");
     expect(latestVaultState?.recoverySalt).toBe("r2");
     expect(latestVaultState?.recoveryIv).toBe("r3");
+  });
+
+  describe("switchMethod", () => {
+    it("preserves boundary whitespace when switching to passphrase, matching create and unlock", async () => {
+      await VaultMethodService.switchMethod({
+        userId: "uid-1",
+        currentVaultKey:
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        displayName: "Test Device",
+        targetMethod: "passphrase",
+        passphrase: " new-passphrase-123 ",
+      });
+
+      expect(rewrapMock).toHaveBeenCalledWith(
+        expect.objectContaining({ wrappingSecret: " new-passphrase-123 " }),
+      );
+    });
   });
 
   describe("removeMethod", () => {
