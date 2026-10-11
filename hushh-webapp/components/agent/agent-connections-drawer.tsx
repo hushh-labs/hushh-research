@@ -303,11 +303,13 @@ export function AgentConnectionsDrawer({
               // get a nearly full-width panel that leaves a strip of scrim to tap
               // closed; from md up it keeps the drawer's 336px. Closed, it also
               // clears its own shadow. Motion uses the shared sheet tier.
-              "pointer-events-none fixed inset-y-0 left-0 z-(--z-sheet) touch-pan-y transform-gpu transition-[transform,visibility] motion-reduce:transition-none",
+              // Keep endpoints on transform: Tailwind translate utilities use a
+              // separate property, bypassing both this transition and re-grabbing.
+              "pointer-events-none fixed inset-y-0 left-0 z-(--z-sheet) touch-pan-y transition-[transform,visibility] motion-reduce:transition-none",
               "w-[min(88vw,360px)] md:w-[336px]",
               historyDisplayed
-                ? "visible translate-x-0 duration-(--motion-sheet-enter-duration) ease-(--motion-sheet-enter-ease)"
-                : "invisible -translate-x-full duration-(--motion-sheet-exit-duration) ease-(--motion-sheet-exit-ease)",
+                ? "visible [transform:translate3d(0,0,0)] duration-(--motion-sheet-enter-duration) ease-(--motion-sheet-enter-ease)"
+                : "invisible [transform:translate3d(-100%,0,0)] duration-(--motion-sheet-exit-duration) ease-(--motion-sheet-exit-ease)",
             )}
           >
             <div

@@ -273,17 +273,43 @@ async function mountAppChrome(page: import("@playwright/test").Page, barHeight: 
   }, barHeight);
 }
 
-test("stationary History chrome retains its grid while only the body follows a pull", async ({ page }) => {
+test("History tap motion and interrupted pulls move the entire panel without shifting Chat", async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 852 });
-  await page.getByRole("button", { name: "Open drawer" }).click();
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await mountAppChrome(page, 74);
+  await page.locator("[data-agent-history-drawer]").waitFor({ state: "attached" });
+  const motion = await page.evaluate(async () => {
+    const panel = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
+    const main = document.querySelector("main")!;
+    const nav = document.querySelector("[data-fixture-bottom-bar]")!;
+    const before = [main.getBoundingClientRect().x, nav.getBoundingClientRect().y];
+    const width = panel.offsetWidth;
+    const trigger = Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+      .find(button => button.textContent === "Open drawer")!;
+    trigger.click();
+    const frames: { elapsed: number; x: number }[] = [];
+    const start = performance.now();
+    await new Promise<void>(resolve => {
+      const sample = () => {
+        const elapsed = performance.now() - start;
+        frames.push({ elapsed, x: panel.getBoundingClientRect().x });
+        if (elapsed < 360) requestAnimationFrame(sample); else resolve();
+      };
+      requestAnimationFrame(sample);
+    });
+    return { frames, width, before, after: [main.getBoundingClientRect().x, nav.getBoundingClientRect().y] };
+  });
+  // An instantaneous endpoint jump passes a settled screenshot but fails here.
+  expect(motion.frames.some(frame => frame.x > -motion.width + 1 && frame.x < -1)).toBe(true);
+  expect(motion.frames.find(frame => frame.x > -motion.width + 1)?.elapsed).toBeLessThan(100);
+  expect(Math.abs(motion.frames.at(-1)!.x)).toBeLessThanOrEqual(1);
+  expect(motion.after).toEqual(motion.before);
   const dialog = page.locator("[data-agent-history-drawer]");
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Create new chat" })).toBeVisible();
-  await expect.poll(() => dialog.locator('[data-side-panel-body="left"]').evaluate(element =>
-    Math.abs(element.getBoundingClientRect().left - element.parentElement!.getBoundingClientRect().left))).toBeLessThanOrEqual(1);
   const measured = await dialog.evaluate(frame => {
     const title = frame.querySelector("h2")!;
-    const body = frame.querySelector<HTMLElement>('[data-side-panel-body="left"]')!;
+    const body = frame.querySelector<HTMLElement>("aside")!;
     const before = [title.getBoundingClientRect().x, body.getBoundingClientRect().x];
     const dispatch = (type: string, x: number, time: number) => {
       const point = { identifier: 1, clientX: x, clientY: 320 };
@@ -296,10 +322,28 @@ test("stationary History chrome retains its grid while only the body follows a p
     dispatch("touchcancel", 110, 240);
     return { before, after, frameTransform: (frame as HTMLElement).style.transform };
   });
-  expect(Math.abs(measured.after[0]! - measured.before[0]!)).toBeLessThanOrEqual(1);
+  expect(measured.after[0]! - measured.before[0]!).toBeCloseTo(-50, 0);
   expect(measured.after[1]! - measured.before[1]!).toBeCloseTo(-50, 0);
-  expect(measured.frameTransform).toBe("");
+  expect(measured.frameTransform).toContain("translate3d");
   await expect(dialog).toHaveAttribute("aria-hidden", "false");
+  await expect.poll(() => dialog.evaluate(element => element.getBoundingClientRect().x)).toBeCloseTo(0, 0);
+  const exit = await page.evaluate(async () => {
+    const panel = document.querySelector<HTMLElement>("[data-agent-history-drawer]")!;
+    // The authored Escape handler closes History without another navigation owner.
+    panel.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    const samples: number[] = [];
+    const start = performance.now();
+    await new Promise<void>(resolve => {
+      const sample = () => {
+        samples.push(panel.getBoundingClientRect().x);
+        if (performance.now() - start < 260) requestAnimationFrame(sample); else resolve();
+      };
+      requestAnimationFrame(sample);
+    });
+    return { samples, width: panel.offsetWidth };
+  });
+  expect(exit.samples.some(x => x < -1 && x > -exit.width + 1)).toBe(true);
+  expect(exit.samples.at(-1)).toBeCloseTo(-exit.width, 0);
 });
 
 /** What a finger at (x, y) would land on: the scrim, the panel, or chrome. */
