@@ -205,9 +205,26 @@ describe("business profile reviewed-memory boundary", () => {
     expect(businessDraftMessage(candidate, "Edited test business", "https://example.test")).toContain("Edited test business");
     expect(businessDraftMessage(candidate, "Edited test business", "https://example.test")).not.toContain("untrusted source details");
     expect(businessDraftMessage(candidate, "Edited test business", "http://example.test")).toContain("http://example.test/");
-    for (const website of ["javascript:alert(1)", "https://user:pass@example.test", "http://user:pass@example.test"])
+    for (const website of ["javascript:alert(1)", "ftp://example.test", "https://user:pass@example.test", "http://user:pass@example.test",
+      "user:pass@example.test", "user@example.test", "//example.test", "relative/path", "not a website", "example..test", "-example.test", "example.test\\other"])
       expect(() => businessDraftMessage(candidate, "Test", website)).toThrow();
     expect(() => businessDraftMessage(candidate, "", "https://example.test")).toThrow();
+  });
+  it.each([
+    ["hushh.ai", "https://hushh.ai/"],
+    [" www.example.test/team?language=en#about ", "https://www.example.test/team?language=en#about"],
+    ["example.test:8443/contact", "https://example.test:8443/contact"],
+  ])("reviews a scheme-less domain edit (%s) as HTTPS without changing the exact source contract", (website, expected) => {
+    const snapshot = businessCandidateSnapshot(candidate);
+    const message = businessDraftMessage(candidate, "Edited business", website);
+    const details = JSON.parse(message);
+    expect(details).toEqual({ name: "Edited business", website: expected });
+    expect(businessCandidateSnapshot(candidate)).toBe(snapshot);
+    const proposal = { ...card(), candidate_payload: { businesses: { entities: { mem_one: details } } } };
+    expect(validBusinessProfilePreview([proposal], message)).toBe(true);
+    expect(validBusinessProfilePreview([{ ...proposal, candidate_payload: { businesses: { entities: {
+      mem_one: { ...details, website },
+    } } } }], message)).toBe(false);
   });
   it("checkpoints exact reviewed cards before any cloud write and completes only on acknowledged revisions", async () => {
     const input = args(); const result = await saveBusinessReview(input);

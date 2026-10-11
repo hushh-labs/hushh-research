@@ -1026,8 +1026,10 @@ personality turn, including when ordinary chat messages interrupt onboarding.
 
 The main chat workspace mounts `BusinessProfileSuggestion` after current auth
 and unlocked-vault admission, requiring known, unexpired owner authority.
-It opens a labelled synthetic suggestion with Review, Later and Not my business.
-Editing a name/HTTPS website invalidates prior proposals. Review uses the existing
+It opens an unverified real directory suggestion with Review, Later and Not my business.
+Editing a name or website invalidates prior proposals. A scheme-less website domain
+is normalized to HTTPS before preparation; explicit HTTP(S) URLs remain supported,
+and unsafe protocols or embedded credentials are rejected. Review uses the existing
 private-agent memory preparation and exact-card selection; it does not save.
 Business review additionally exposes the proposed entity's individual fields,
 including nested object leaves. Arrays and synthesized summaries are visible,

@@ -122,7 +122,12 @@ export async function decideBusinessReview(input: {
 export function businessDraftMessage(candidate: BusinessCandidate, name: string, website: string) {
   assertDirectoryCandidate(candidate);
   if (!name.trim() || name.length > 160 || website.length > 512) throw new Error("Check the business details.");
-  const url = website.trim() ? new URL(website) : null;
+  const trimmedWebsite = website.trim();
+  // Only a dotted DNS name may gain a scheme. Credentials, relative paths and
+  // explicit protocols still pass through the existing URL safety checks.
+  const schemeLessDomain = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?(?::\d{1,5})?(?:[/?#][^\s\\]*)?$/i.test(trimmedWebsite) &&
+    trimmedWebsite.split(/[/?#:]/, 1)[0]!.length <= 253;
+  const url = trimmedWebsite ? new URL(schemeLessDomain ? `https://${trimmedWebsite}` : trimmedWebsite) : null;
   if (url && (!["https:", "http:"].includes(url.protocol) || url.username || url.password)) throw new Error("Use an HTTP or HTTPS website without credentials.");
   // Do not infer an owner, phone, address, or role from the matched domain.
   // Only listing values enter the source span. Trust/consent policy belongs in

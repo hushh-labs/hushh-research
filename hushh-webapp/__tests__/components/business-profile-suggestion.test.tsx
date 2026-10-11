@@ -6,12 +6,12 @@ import type { AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), load: vi.fn(), prepare: vi.fn(), save: vi.fn(), decide: vi.fn(), create: vi.fn(), attach: vi.fn() }));
 vi.mock("@/lib/services/business-suggestion-service", () => ({ BusinessSuggestionService: { get: mocks.get } }));
-vi.mock("@/lib/agent/business-profile-review", () => ({
+vi.mock("@/lib/agent/business-profile-review", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/agent/business-profile-review")>()),
   BusinessOriginValidationError: class extends Error {},
   loadBusinessReview: mocks.load, saveBusinessReview: mocks.save, decideBusinessReview: mocks.decide,
   createBusinessReviewJob: mocks.create, attachBusinessOrigin: mocks.attach,
   businessCandidateSnapshot: (candidate: unknown) => JSON.stringify(candidate),
-  businessDraftMessage: (_candidate: unknown, name: string, website: string) => `${name}\n${website}`,
 }));
 vi.mock("@/lib/agent/connector-memory-review", () => ({ prepareConnectorMemoryReview: mocks.prepare,
   BusinessReviewPreparationError: class extends Error {},
@@ -301,6 +301,30 @@ describe("post-onboarding business suggestion", () => {
     fireEvent.click(screen.getByRole("button", { name: "Review details", exact: true }));
     await waitFor(() => expect(mocks.prepare).toHaveBeenCalledTimes(2));
     expect(mocks.prepare.mock.calls[1]![0].message).toContain("Edited company");
+  });
+  it("prepares an edited scheme-less website through the real draft formatter without saving", async () => {
+    render(<BusinessProfileSuggestion {...props} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit details", exact: true }));
+    fireEvent.change(screen.getByLabelText("Website"), { target: { value: "hushh.ai" } });
+    fireEvent.click(screen.getByRole("button", { name: "Review details", exact: true }));
+    await screen.findByRole("checkbox", { name: "Save phone", exact: true });
+    expect(mocks.prepare).toHaveBeenCalledOnce();
+    expect(JSON.parse(mocks.prepare.mock.calls[0]![0].message)).toEqual({ name: candidate.draft.name, website: "https://hushh.ai/" });
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+  it.each(["javascript:alert(1)", "user:pass@example.test", "relative/path"])("rejects an unsafe website edit (%s) before preparation and lets the owner correct it", async website => {
+    render(<BusinessProfileSuggestion {...props} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit details", exact: true }));
+    fireEvent.change(screen.getByLabelText("Website"), { target: { value: website } });
+    fireEvent.click(screen.getByRole("button", { name: "Review details", exact: true }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Check the name and website.");
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.save).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Website"), { target: { value: "example.test" } });
+    fireEvent.click(screen.getByRole("button", { name: "Review details", exact: true }));
+    await screen.findByRole("checkbox", { name: "Save phone", exact: true });
+    expect(mocks.prepare).toHaveBeenCalledOnce();
+    expect(mocks.save).not.toHaveBeenCalled();
   });
   it.each(["owner", "vault", "unmount"])("discards late preparation after %s", async cause => {
     const pending = deferred<{ cards: AgentPkmPreviewCard[]; incomplete: boolean }>(); mocks.prepare.mockReturnValue(pending.promise);
