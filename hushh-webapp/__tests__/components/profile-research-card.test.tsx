@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   clear: vi.fn(),
   candidates: vi.fn(),
   businessTarget: vi.fn(),
+  readRequired: vi.fn(),
 }));
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: { apiFetch: mocks.apiFetch },
@@ -29,7 +30,7 @@ vi.mock("@/lib/services/secure-resource-cache-service", async (original) => ({
   ...(await original<
     typeof import("@/lib/services/secure-resource-cache-service")
   >()),
-  SecureResourceCacheService: { readRequired: async () => null },
+  SecureResourceCacheService: { readRequired: mocks.readRequired },
 }));
 vi.mock("@/lib/vault/one-chat-key", () => ({
   oneChatKeyHeaders: async () => ({ "X-Hussh-Chat-Key": "fixture" }),
@@ -171,6 +172,7 @@ beforeEach(() => {
   mocks.receipts.mockResolvedValue([{ exists: false, dataVersion: null }]);
   mocks.candidates.mockReturnValue([]);
   mocks.businessTarget.mockReturnValue(null);
+  mocks.readRequired.mockResolvedValue(null);
 });
 afterEach(() => {
   cleanup();
@@ -179,6 +181,69 @@ afterEach(() => {
 });
 
 describe("onboarding profile draft and owner confirmation", () => {
+  it("keeps the whole Magic offer hidden for a saved owner even when Business has a candidate", async () => {
+    useOneConversationSession.getState().clearSession();
+    const businessUid = `urn:hushh:business:directory:business:${"a".repeat(64)}`;
+    let finishRecovery!: (value: null) => void;
+    mocks.readRequired.mockImplementationOnce(
+      () => new Promise<null>((resolve) => { finishRecovery = resolve; }),
+    );
+    mocks.apiFetch.mockImplementation((path: string) =>
+      Promise.resolve(
+        respond(
+          path === "/api/one/profile-research"
+            ? { status: "saved", pkm_written: false }
+            : {
+                contract_version: "b2b-profile-suggestion.v2",
+                scope: "b2b",
+                status: "suggestion_available",
+                pkm_written: false,
+                candidates: [
+                  {
+                    business_uid: businessUid,
+                    synthetic: false,
+                    source_identity: {
+                      source: "directory",
+                      source_key: "real-company",
+                      vertical: "business",
+                    },
+                    match_evidence: [
+                      { kind: "verified_email_domain", domain: "example.test" },
+                    ],
+                    draft: {
+                      name: "Example Business",
+                      website: "https://example.test",
+                    },
+                    ownership_verified: false,
+                    claim_created: false,
+                    verification_required: ["business_authority"],
+                  },
+                ],
+              },
+        ),
+      ),
+    );
+    const visible = vi.fn();
+    render(
+      <OneBackgroundCards
+        {...props}
+        tokenExpiresAt={Date.now() + 60_000}
+        onVisibleChange={visible}
+        renderMessage={(_id, _text, card) => card}
+      />,
+    );
+    await waitFor(() => expect(mocks.apiFetch).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mocks.readRequired).toHaveBeenCalledWith({
+      userId: "owner",
+      vaultKey: "key",
+      resourceKey: `business_profile_review:uat:v1:${encodeURIComponent(businessUid)}`,
+    }));
+    await act(async () => { finishRecovery(null); });
+    await waitFor(() => expect(visible).toHaveBeenLastCalledWith(false));
+    expect(screen.getByTestId("magic-intelligence-card")).not.toBeVisible();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+  });
+
   it("offers an already-onboarded owner without a setup marker and consumes markers without repeating research", async () => {
     useOneConversationSession.getState().clearSession();
     const root = render(

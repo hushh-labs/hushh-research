@@ -61,7 +61,7 @@ type Props = {
   onBusinessAvailabilityChange?: (available: boolean) => void;
 };
 export type ProfileResearchAvailability =
-  "hidden" | "loading" | "offered" | "empty" | "failed";
+  "hidden" | "loading" | "offered" | "empty" | "failed" | "saved";
 type Phase =
   | "loading"
   | "draft"
@@ -181,6 +181,9 @@ export function ProfileResearchCard({
           if (!guard.isCurrent()) return;
           setResult(next);
           setPhase(next.status === "unavailable" ? "failed" : "draft");
+          if (next.status === "saved") {
+            setVisibleOwner({ ownerId, vaultKey, vaultOwnerToken });
+          }
           if (next.status === "offered") {
             setVisibleOwner({ ownerId, vaultKey, vaultOwnerToken });
             setSelected(
@@ -309,19 +312,18 @@ export function ProfileResearchCard({
     });
 
   const availability: ProfileResearchAvailability =
-    !visible ||
-    phase === "skipped" ||
-    phase === "saved" ||
-    (!hasOffer && phase === "draft")
-      ? "hidden"
-      : phase === "loading"
-        ? "loading"
-        : phase === "failed"
-          ? "failed"
-          : result?.status === "offered" &&
-              result.report.match_status === "no_match"
-            ? "empty"
-            : "offered";
+    visible && (phase === "saved" || result?.status === "saved")
+      ? "saved"
+      : !visible || phase === "skipped" || (!hasOffer && phase === "draft")
+        ? "hidden"
+        : phase === "loading"
+          ? "loading"
+          : phase === "failed"
+            ? "failed"
+            : result?.status === "offered" &&
+                result.report.match_status === "no_match"
+              ? "empty"
+              : "offered";
   useEffect(() => {
     onAvailabilityChange?.(availability);
   }, [onAvailabilityChange, availability]);

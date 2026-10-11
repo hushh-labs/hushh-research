@@ -1062,6 +1062,9 @@ saves never complete it; retries retain pinned scopes and reconcile existing
 receipts before retrying completion. Opening, Later and research alone never
 set it. Saved owners receive `{status: "saved", pkm_written: false}` before any
 paid research; an in-flight result is also suppressed if another device saves.
+Personal completion hides the whole automatic Magic offer, including an unsaved
+optional Business suggestion. It does not mark that Business review saved or
+erase its independent receipt/recovery state.
 The completion route remains available during rollout withdrawal for recovery.
 Migration 307 adds only this boolean UI metadata, with no profile facts; normal
 application rollback retains it and all approved Memory. The explicit down

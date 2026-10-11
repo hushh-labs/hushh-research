@@ -114,6 +114,7 @@ def fixture_identity(monkeypatch):
     monkeypatch.setattr(service, "get_firebase_auth_app", lambda: object())
     monkeypatch.setattr(service, "_setup_resolved", AsyncMock(return_value=True))
     monkeypatch.setattr(service, "business_profile_saved", AsyncMock(return_value=False))
+    monkeypatch.setattr(service, "magic_intelligence_saved", AsyncMock(return_value=False))
     record = SimpleNamespace(
         uid="owner", disabled=False, email="person@hushh.ai", email_verified=True
     )
@@ -169,6 +170,32 @@ async def test_completion_read_failure_never_reoffers_profile(fixture_identity, 
     with pytest.raises(service.BusinessSuggestionUnavailable):
         await service.get_business_suggestion("owner")
     assert fixture_identity[1] == []
+
+
+@pytest.mark.parametrize("saved", ["already", "during_lookup", "unavailable"])
+@pytest.mark.asyncio
+async def test_completed_magic_never_reoffers_optional_business(
+    fixture_identity, monkeypatch, saved
+):
+    directory = AsyncMock(return_value={"status": "offered", "candidates": []})
+    monkeypatch.setattr(service, "lookup_directory", directory)
+    check = AsyncMock(
+        side_effect=(
+            RuntimeError("completion unavailable")
+            if saved == "unavailable"
+            else [True]
+            if saved == "already"
+            else [False, True]
+        )
+    )
+    monkeypatch.setattr(service, "magic_intelligence_saved", check)
+    if saved == "unavailable":
+        with pytest.raises(service.BusinessSuggestionUnavailable):
+            await service.get_business_suggestion("owner")
+    else:
+        result = await service.get_business_suggestion("owner")
+        assert result["status"] == "disabled" and result["candidates"] == []
+    assert directory.await_count == (1 if saved == "during_lookup" else 0)
 
 
 @pytest.mark.parametrize(

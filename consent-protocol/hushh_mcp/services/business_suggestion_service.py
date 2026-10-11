@@ -23,6 +23,7 @@ from hushh_mcp.services.magic_intelligence_admission import (
     magic_intelligence_emails,
     magic_intelligence_owner_admitted,
 )
+from hushh_mcp.services.magic_intelligence_completion import magic_intelligence_saved
 from hushh_mcp.services.one_owner_admission import (
     OwnerIdentityUnavailable,
     lookup_fresh_owner_identity,
@@ -60,6 +61,8 @@ async def get_business_suggestion(user_id: str, *, local_loopback: bool = False)
     if not (local_rehearsal or (real_enabled and magic_intelligence_emails())):
         return result
     try:
+        if await asyncio.wait_for(magic_intelligence_saved(user_id), timeout=5):
+            return result  # The optional subsection cannot re-offer completed Magic.
         if await asyncio.wait_for(business_profile_saved(user_id), timeout=5):
             result["status"] = "no_match"
             return result
@@ -122,6 +125,11 @@ async def get_business_suggestion(user_id: str, *, local_loopback: bool = False)
         raise BusinessSuggestionUnavailable() from None
     if getattr(current_record, "uid", None) != user_id or getattr(current_record, "disabled", True):
         raise BusinessSuggestionUnavailable()
+    try:
+        if await asyncio.wait_for(magic_intelligence_saved(user_id), timeout=5):
+            return result
+    except Exception:
+        raise BusinessSuggestionUnavailable() from None
     if local_rehearsal:
         active = (
             one_business_local_rehearsal_enabled(user_id, loopback=local_loopback)
