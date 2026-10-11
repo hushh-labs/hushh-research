@@ -69,15 +69,38 @@ function renderCard() {
 
 describe("FirstConnectInsightsCard", () => {
   beforeEach(() => {
+    delete window.__HUSHH_NATIVE_TEST__;
     publishValidatedAuthSessionOwner("owner");
     mocks.apiFetch.mockReset().mockResolvedValue(new Response(JSON.stringify(offer()), { status: 200 }));
     mocks.prepare.mockReset().mockImplementation(async ({ message }: { message: string }) => preparedCard(message));
     mocks.addToPKM.mockReset().mockResolvedValue({ attempted: 1, saved: 1, failed: 0, domains: ["professional"], results: [] });
     mocks.clearAgentPkmContext.mockReset();
   });
-  afterEach(() => { cleanup(); publishValidatedAuthSessionOwner(null); });
+  afterEach(() => { cleanup(); publishValidatedAuthSessionOwner(null); delete window.__HUSHH_NATIVE_TEST__; });
 
-  it("shows an approval card and saves nothing until Keep; Forget discards", async () => {
+  it.each(["read_only", "preparation_only", "bounded_mutation"] as const)(
+    "does not consume an insights offer during %s automation", async (policy) => {
+      window.__HUSHH_NATIVE_TEST__ = {
+        enabled: true,
+        autoReviewerLogin: true,
+        reviewerMutationPolicy: policy,
+      };
+      await act(async () => { renderCard(); });
+      expect(mocks.apiFetch).not.toHaveBeenCalled();
+      expect(mocks.prepare).not.toHaveBeenCalled();
+      expect(mocks.addToPKM).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("first-connect-insights-card")).toBeNull();
+    },
+  );
+
+  it.each([undefined, "mutation_authorized"] as const)("shows an approval card and saves nothing until Keep; Forget discards (%s)", async (policy) => {
+    if (policy) {
+      window.__HUSHH_NATIVE_TEST__ = {
+        enabled: true,
+        autoReviewerLogin: true,
+        reviewerMutationPolicy: policy,
+      };
+    }
     renderCard();
     expect(await screen.findByTestId("first-connect-insights-card")).toHaveTextContent(
       "Here's what I picked up from Calendar",
