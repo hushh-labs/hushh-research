@@ -4516,7 +4516,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "668d16c4d6c055a5abe0a079b3d68fc807ad55a1cca520ab09410b07bcde497e",
+      "system_instruction_sha256": "339791a145d1e079ec77e350bcbed2de3c0f5cef9f135ecdf6eb2f80e02b0777",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",
