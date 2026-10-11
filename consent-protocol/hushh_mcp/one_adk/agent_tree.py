@@ -162,6 +162,7 @@ from hushh_mcp.one_adk.workspace_mcp_tools import (
     read_selected_drive_search_result,
 )
 from hushh_mcp.runtime_providers import (
+    bind_managed_vertex_project,
     build_managed_gemini_adk_model,
     build_managed_regional_gemini_adk_model,
     thinking_config_for,
@@ -1651,8 +1652,16 @@ async def _specialist_turn(
             "message": "Unlock the vault before asking this specialist to use protected information.",
         }
     trace = _new_dependency_trace()
+    # The canonical AG-UI ingress authors execution_surface after discarding
+    # client state. Keep this billing choice local to the delegated operation;
+    # standalone specialist and Live calls retain the fleet project.
+    chat_project = (
+        (os.getenv("HUSHH_ONE_CHAT_VERTEX_PROJECT") or "").strip() or None
+        if getattr(task, "execution_surface", None) == "typed_chat"
+        else None
+    )
     try:
-        with _dependency_scope(trace):
+        with _dependency_scope(trace), bind_managed_vertex_project(chat_project):
             result = await dispatch(agent_id, task)
     except PuppyCapabilityUnsupported as exc:
         return _with_dependency(

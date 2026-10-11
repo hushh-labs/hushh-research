@@ -18,6 +18,7 @@ from __future__ import annotations
 from .factory import (
     GeminiByokTransportUnsupportedError,
     ManagedGeminiRuntimeBinding,
+    bind_managed_vertex_project,
     build_gemini_byok_adk_model,
     build_managed_gemini_adk_model,
     build_managed_live_client,
@@ -48,6 +49,7 @@ __all__ = [
     "ProviderId",
     "GeminiByokTransportUnsupportedError",
     "ManagedGeminiRuntimeBinding",
+    "bind_managed_vertex_project",
     "GEMINI_37_FLASH",
     "build_generate_content_config",
     "build_gemini_byok_adk_model",

@@ -666,6 +666,55 @@ def _tool_context(state: dict, *, session_id: str | None = None) -> SimpleNamesp
 
 class TestSpecialistTurn:
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "execution_surface,expected_project",
+        [("typed_chat", "hussh-511311"), (None, "hushh-vertex-personal54")],
+    )
+    async def test_delegated_model_uses_only_typed_chat_project_scope(
+        self, monkeypatch, execution_surface, expected_project
+    ):
+        from hushh_mcp.runtime_providers import (
+            ManagedGeminiRuntimeBinding,
+            build_managed_regional_gemini_adk_model,
+        )
+
+        monkeypatch.setenv("HUSHH_ONE_CHAT_VERTEX_PROJECT", "hussh-511311")
+        monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+        monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "hushh-vertex-personal54")
+        monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+        monkeypatch.setenv("HUSHH_VERTEX_LOCATIONS", "global")
+        projects = []
+
+        async def delegated(_agent_id, _task):
+            # Specialist models are built during dispatch, after the scope binds.
+            model = build_managed_regional_gemini_adk_model("gemini-default")
+            projects.append(model.client_kwargs["project"])
+            return SpecialistTurnResult(
+                conversation_id="conversation",
+                text="Specialist answer",
+                directive=None,
+                is_complete=True,
+                state_changed=False,
+                model="fixture",
+            )
+
+        with (
+            patch.object(
+                _tree,
+                "_task_from_context",
+                new=AsyncMock(return_value=SimpleNamespace(execution_surface=execution_surface)),
+            ),
+            patch.object(_tree, "dispatch", new=delegated),
+        ):
+            await _specialist_turn(
+                "agent_nav",
+                "review consent",
+                _tool_context({STATE_USER_ID: "owner", STATE_CONSENT_TOKEN: "opaque"}),
+            )
+        assert projects == [expected_project]
+        assert ManagedGeminiRuntimeBinding.from_environment().project == "hushh-vertex-personal54"
+
+    @pytest.mark.asyncio
     async def test_fails_closed_without_auth_state(self):
         result = await _specialist_turn("agent_location", "what needs a reply", _tool_context({}))
         assert result["status"] == "needs_auth"

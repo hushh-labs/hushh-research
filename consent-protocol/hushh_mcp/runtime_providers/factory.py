@@ -13,9 +13,11 @@ import functools
 import os
 import re
 import threading
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Any, Literal
+from typing import Any, Iterator, Literal
 
 from google.genai.types import HttpOptions, HttpOptionsDict
 
@@ -44,6 +46,24 @@ GeminiByokTransport = Literal["developer_api", "vertex_api_key"]
 _MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
 _LOCATION_RE = re.compile(r"^(?:global|us|eu|[a-z]+-[a-z]+[0-9]+)$")
 _PROJECT_RE = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
+_MANAGED_VERTEX_PROJECT: ContextVar[str | None] = ContextVar("managed_vertex_project", default=None)
+
+
+@contextmanager
+def bind_managed_vertex_project(vertex_project: str | None) -> Iterator[None]:
+    """Scope an ADC billing project to one trusted in-process operation.
+
+    The caller must obtain this value from server configuration, never model or
+    client input. Explicit model project arguments still take precedence.
+    """
+    project = str(vertex_project).strip() if vertex_project is not None else None
+    if project is not None and not _PROJECT_RE.fullmatch(project):
+        raise ValueError("Managed Vertex project override is invalid")
+    token = _MANAGED_VERTEX_PROJECT.set(project)
+    try:
+        yield
+    finally:
+        _MANAGED_VERTEX_PROJECT.reset(token)
 
 
 class GeminiByokTransportUnsupportedError(ValueError):
@@ -85,8 +105,10 @@ class ManagedGeminiRuntimeBinding:
         cls, *, vertex_project: str | None = None
     ) -> "ManagedGeminiRuntimeBinding":
         mode = _managed_genai_auth_mode()
-        if vertex_project is not None:
-            project = str(vertex_project).strip()
+        scoped_project = _MANAGED_VERTEX_PROJECT.get()
+        effective_project = vertex_project if vertex_project is not None else scoped_project
+        if effective_project is not None:
+            project = str(effective_project).strip()
             if not _PROJECT_RE.fullmatch(project):
                 raise ValueError("Managed Vertex project override is invalid")
             if mode != VERTEX_ADC_AUTH_MODE:
