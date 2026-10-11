@@ -9,7 +9,7 @@ vi.mock("@/lib/services/onboarding-local-service", () => ({
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/components/wallet/wallet-sharing", () => ({ WalletSharing: () => <section>Card recipients</section> }));
+vi.mock("@/components/wallet/wallet-sharing", () => ({ WalletSharing: ({ cardDetails }: { cardDetails?: boolean }) => <section>{cardDetails ? "Card recipients" : "Sharing overview"}</section> }));
 vi.mock("@/components/wallet-card/wallet-card-workspace", () => ({
   WalletCardWorkspace: () => <section>Live profile controls</section>,
 }));
@@ -265,3 +265,4 @@ describe("Wallet video browser workspace", () => {
   });
 
 });
+vi.mock("@/lib/services/wallet-card-artwork-service", () => ({ loadWalletCardArtwork: vi.fn().mockResolvedValue("<svg></svg>") }));

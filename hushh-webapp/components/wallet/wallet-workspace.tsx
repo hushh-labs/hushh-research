@@ -76,6 +76,7 @@ import {
   type WalletCardSummary,
 } from "@/lib/services/wallet-service";
 import { WalletCardService } from "@/lib/services/wallet-card-service";
+import { loadWalletCardArtwork } from "@/lib/services/wallet-card-artwork-service";
 import { ReferralService, type ReferralSummary } from "@/lib/services/referral-service";
 import { useReferralStream } from "@/lib/referral/use-referral-stream";
 import { cn } from "@/lib/utils";
@@ -200,6 +201,13 @@ function WalletIntroduction({ onConnect, loading }: { onConnect: () => void; loa
 }
 
 export function WalletWorkspace() {
+  useEffect(() => {
+    // Public artwork can load alongside the protected card read, rather than
+    // beginning another network waterfall after the vault has opened.
+    for (const kind of ["profile", "referral", "nws"] as const) {
+      void loadWalletCardArtwork(kind).catch(() => {});
+    }
+  }, []);
   const { user, loading: authLoading } = useAuth();
   const sharingUserRef = useRef(user);
   sharingUserRef.current = user;
@@ -849,7 +857,10 @@ export function WalletWorkspace() {
             <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Wallet is not available here yet.</p>
           ) : null}
 
-          {view.kind === "loading" ? <p role="status" className={TYPOGRAPHY_CLASSNAMES.helperText}>Opening your wallet…</p> : null}
+          {view.kind === "loading" ? <div className="mx-auto w-full max-w-[420px] space-y-3 py-5" role="status" aria-label="Opening your wallet">
+            <CardSlot variant="placeholder" />
+            <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Opening your wallet…</p>
+          </div> : null}
 
           {view.kind === "locked" ? (
             <div className="flex flex-col items-center gap-6" data-testid="one-wallet-locked">
@@ -907,7 +918,7 @@ export function WalletWorkspace() {
           {hasCards && searchOpen && deferredQuery ? <ul className="mx-auto w-full max-w-[820px] space-y-2" aria-label="Card search results">{filteredCards.map((card) => <li key={card.cardId}><Button variant="secondary" size="standard" className="w-full justify-start" onClick={() => selectCard(card.cardId)}>{card.nickname || cardNetworkLabel(card.brand)} · {cardNetworkLabel(card.brand)} ending {card.last4}</Button></li>)}</ul> : null}
           {ready && !(searchOpen && deferredQuery) ? (
             <WalletCardBrowser demoProfile={walletIdentity} referralSummary={referralSummary} referralError={Boolean(renderedOwnerId && referralErrorOwnerId === renderedOwnerId)} onRetryReferral={() => void loadReferral()} ownerId={renderedOwnerId || undefined}
-              key={`${renderedOwnerId || "wallet"}-${activeTab}`}
+              key={renderedOwnerId || "wallet"}
               cards={cards}
               cardholderNames={cardholderNames}
               selectedCardId={selectedDeckCardId}
@@ -1000,7 +1011,7 @@ export function WalletWorkspace() {
           ) : null}
           </div>
           <div className="space-y-3.5 px-[var(--page-inline-gutter-standard)]" data-testid="one-wallet-sharing">
-            {ready && activeTab === "sharing" ? <WalletSharing key={renderedOwnerId} /> : null}
+            {ready ? <WalletSharing key={renderedOwnerId} profile={walletIdentity} active={activeTab === "sharing"} /> : null}
           </div>
           </SwipeViews>
           </div>
