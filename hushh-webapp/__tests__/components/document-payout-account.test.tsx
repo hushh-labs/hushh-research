@@ -149,6 +149,7 @@ describe("document payout account", () => {
     render(<DocumentHashcoinPayouts />);
     const bankAction = await screen.findByRole("button", { name: "Link bank" });
     expect(bankAction).toBeDisabled();
+    await waitFor(() => expect(state.account).toHaveBeenCalledExactlyOnceWith("owner-token"));
     await act(async () => { finishAccount({ account: null, stripeMode: "live" }); });
     await waitFor(() => expect(bankAction).toBeEnabled());
     expect(screen.getByRole("region", { name: "Document payouts" })).toHaveTextContent("US payouts");
@@ -449,8 +450,9 @@ describe("document payout account", () => {
     });
 
     it("still opens bank setup when storage is blocked, then stays on Payouts", async () => {
+      const sessionStoragePrototype = Object.getPrototypeOf(window.sessionStorage);
       for (const method of ["getItem", "setItem", "removeItem"] as const) {
-        vi.spyOn(Storage.prototype, method).mockImplementation(() => { throw new Error("storage blocked"); });
+        vi.spyOn(sessionStoragePrototype, method).mockImplementation(() => { throw new Error("storage blocked"); });
       }
       vi.spyOn(console, "warn").mockImplementation(() => {});
       await startSetup("from=%2Fone%2Ffeed");
