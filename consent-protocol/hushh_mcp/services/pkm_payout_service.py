@@ -334,6 +334,7 @@ class PkmPayoutService:
         origin = _app_origin()
         return_path = ONBOARDING_RETURN_PATHS[surface]
         account = await self._account(user_id)
+        remote: dict[str, Any] | None = None
         if account is None:
             try:
                 created = _stripe_dict(
@@ -384,11 +385,15 @@ class PkmPayoutService:
                         "PAYOUT_UNAVAILABLE", "Could not start payout setup. Please retry."
                     ) from None
                 account_id = account["stripe_account_id"]
+            else:
+                # Check the new account from its create response; a re-read only adds latency.
+                remote = created
         else:
             account_id = account["stripe_account_id"]
         # An existing mapping must never be replaced with another Connect account.
         # Stripe may have disabled or deleted the account since the last visit.
-        remote = await self._retrieve_account(account_id, key=key)
+        if remote is None:
+            remote = await self._retrieve_account(account_id, key=key)
         if remote.get("deleted") or (remote.get("country") and remote["country"] != "US"):
             raise PacketOrderError(
                 "PAYOUT_ACCOUNT_DISABLED",

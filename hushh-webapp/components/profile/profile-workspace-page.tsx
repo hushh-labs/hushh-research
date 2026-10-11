@@ -109,7 +109,6 @@ import {
   PkmDomainDetailPanel,
 } from "@/components/profile/pkm-data-manager";
 import { SharedWithYouGroup } from "@/components/profile/shared-with-you-group";
-import { AnswerPayoutAccount } from "@/components/consent/answer-payout-account";
 import { DocumentHashcoinPayouts } from "@/components/consent/document-hashcoins";
 import { DocumentRequestPricingCard } from "@/components/consent/document-request-pricing-card";
 import { SecretsListGroup } from "@/components/secrets/secrets-list-group";
@@ -4489,7 +4488,6 @@ function ProfilePageContent({
           )}
         >
           <DocumentHashcoinPayouts />
-          <AnswerPayoutAccount />
         </div>
       ),
     });
