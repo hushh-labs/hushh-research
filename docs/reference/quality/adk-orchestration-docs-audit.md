@@ -46,6 +46,7 @@ applies to `14876c2a3b8d`, not this candidate.
 | Existing users / Shared | Explicit owner choice plus the strictly evidenced legacy cohort. Assigned, pending or unresolved pods cannot become Shared by default. Canonical migration 320 (schema head 320) and parked dev 958 require environment adoption evidence. Existing-user changelog admission exists; UAT/production content remains unconfigured until a reviewed rollout. New users do not receive the update modal. |
 | Updates / erasure | Exact-release approval, isolated recovery and normal Dev 15 installation pass. Active-work drain, production release provenance, erasure and retained-resource disposition still require live receipts. No automatic owner upgrade. |
 | Puppy / phone | BYOC-only signed owner/device/pod authority; personal dev inference, cancellation and idle wake pass. New outbound expiry/revocation/incarnation and idle-race protections pass focused tests but are not deployed. Physical phone/Mac independent internet acceptance remains unverified. Native phone HTTP/SSE admission and Mac device WSS are distinct transports. |
+| Native security | The source pins Capacitor Android/iOS/core/CLI and Swift PM to exact 8.4.3 for [GHSA-rvm3-566m-v7fv](https://github.com/ionic-team/capacitor/security/advisories/GHSA-rvm3-566m-v7fv). Chat also refuses the reserved native HTTP proxy path, including normalized and encoded links; its old-code negative control fails. Rebuilt native binaries and exact-SHA hosted native validation remain required. Existing distributed binaries are not qualified by a web deployment. |
 | Both-cloud launch | Native Google/connector journeys, production IAM/retention/recovery, hub capacity and independent UAT acceptance remain release gates. Matched-resource cold p95 is about 71s on each cloud, above the 30s target. |
 
 Local verification is composite and revision-bound: the original `4c2575227c`
@@ -66,6 +67,15 @@ the actual packed parser and its validation. Generated UI checks pass. The
 real Chromium Back/Forward case passes, and removing its direction guard fails
 the same case. These are affected-surface receipts, not a replacement claim of
 complete hosted CI.
+
+Hosted validation of `10c301cac9` retained two failed web fixtures after the
+shared Puppy composer integration. The corrected fixtures follow the actual
+dock owner and shared geometry; behavioral draft isolation remains required.
+The iOS job compiled and passed 98 native cases (three skipped), then passed cold
+and resumed login assertions before failing simulator termination. This remains
+a failed gate. Three local Location cases pass with their original timeouts;
+the cancellation fixture now settles its deferred grant and revocation retry
+before teardown. The native security correction requires exact-SHA validation.
 
 Main owns migration 306 for Business, 313 for Feed and 314 for Magic completion.
 The six unapplied pod migrations occupy 315–320 in original order, with rollback, fixture

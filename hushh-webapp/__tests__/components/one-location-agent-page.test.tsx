@@ -3925,57 +3925,72 @@ describe("OneLocationAgentPage", () => {
         }),
     );
 
-    const { rerender } = render(<OneLocationAgentPage />);
-    await skipLocationEntryFlow();
-    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await openShareConfirmStep();
-    mockStoreEnvelope.mockClear();
-    mockRevokeGrant.mockClear();
-    mockRevokeGrant
-      .mockRejectedValueOnce(new Error("Temporary revoke failure"))
-      .mockResolvedValueOnce({});
+    // This case owns a pending authority mutation, not onboarding.
+    window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
+    const { rerender, unmount } = render(<OneLocationAgentPage />);
+    try {
+      await skipLocationEntryFlow();
+      await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+      await openShareConfirmStep();
+      mockStoreEnvelope.mockClear();
+      mockRevokeGrant.mockClear();
+      mockRevokeGrant
+        .mockRejectedValueOnce(new Error("Temporary revoke failure"))
+        .mockResolvedValueOnce({});
 
-    fireEvent.click(screen.getByRole("button", { name: "Start sharing" }));
-    await waitFor(() => expect(mockCreateGrant).toHaveBeenCalledTimes(1));
-    const concurrentShare = resolveLocalOnboardingHandler(
-      "location.share_selected",
-    );
-    expect(concurrentShare).toBeTruthy();
-    await expect(concurrentShare!({ duration_hours: "1" })).resolves.toEqual(
-      expect.objectContaining({
-        status: "blocked",
-        summary: "Your current location share is still being sent.",
-      }),
-    );
-    expect(mockCreateGrant).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("button", { name: "Change who can see you" }));
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "Select the Delivery Circle Circle, 1 member",
-      }),
-    );
-    expect(
-      await screen.findByRole("button", { name: "Sharing…" }),
-    ).toBeDisabled();
+      fireEvent.click(screen.getByRole("button", { name: "Start sharing" }));
+      await waitFor(() => expect(mockCreateGrant).toHaveBeenCalledTimes(1));
+      const concurrentShare = resolveLocalOnboardingHandler(
+        "location.share_selected",
+      );
+      expect(concurrentShare).toBeTruthy();
+      await expect(concurrentShare!({ duration_hours: "1" })).resolves.toEqual(
+        expect.objectContaining({
+          status: "blocked",
+          summary: "Your current location share is still being sent.",
+        }),
+      );
+      expect(mockCreateGrant).toHaveBeenCalledTimes(1);
+      fireEvent.click(screen.getByRole("button", { name: "Change who can see you" }));
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Select the Delivery Circle Circle, 1 member",
+        }),
+      );
+      expect(
+        await screen.findByRole("button", { name: "Sharing…" }),
+      ).toBeDisabled();
 
-    // Simulate the app-chrome / OS back action that closes the focused flow.
-    mockUseSearchParams.mockReturnValue(new URLSearchParams("action=share"));
-    rerender(<OneLocationAgentPage />);
-    mockUseSearchParams.mockReturnValue(new URLSearchParams());
-    rerender(<OneLocationAgentPage />);
-    expect(
-      await screen.findByRole("heading", { name: "Location" }),
-    ).toBeTruthy();
-    await act(async () => {
-      resolveGrant?.(createdGrant);
-    });
+      // Simulate the app-chrome / OS back action that closes the focused flow.
+      mockUseSearchParams.mockReturnValue(new URLSearchParams("action=share"));
+      rerender(<OneLocationAgentPage />);
+      mockUseSearchParams.mockReturnValue(new URLSearchParams());
+      rerender(<OneLocationAgentPage />);
+      expect(
+        await screen.findByRole("heading", { name: "Location" }),
+      ).toBeTruthy();
+      await act(async () => {
+        resolveGrant?.(createdGrant);
+      });
 
-    await waitFor(() => expect(mockRevokeGrant).toHaveBeenCalledTimes(2));
-    expect(mockRevokeGrant).toHaveBeenLastCalledWith({
+      await waitFor(() => expect(mockRevokeGrant).toHaveBeenCalledTimes(2));
+      expect(mockRevokeGrant).toHaveBeenLastCalledWith({
         vaultOwnerToken: "vault-token",
         grantId: createdGrant.id,
-    });
-    expect(mockStoreEnvelope).not.toHaveBeenCalled();
+      });
+      expect(mockStoreEnvelope).not.toHaveBeenCalled();
+    } finally {
+      // Settle the deferred request and its bounded compensation even when an
+      // assertion fails, so neither a React act scope nor a retry leaks.
+      unmount();
+      mockUseSearchParams.mockReturnValue(mockSearchParams);
+      if (resolveGrant) {
+        await act(async () => {
+          resolveGrant?.(createdGrant);
+        });
+        await waitFor(() => expect(mockRevokeGrant).toHaveBeenCalledTimes(2));
+      }
+    }
   });
 
   it("opens a named People action directly in Ask details with that person selected", async () => {

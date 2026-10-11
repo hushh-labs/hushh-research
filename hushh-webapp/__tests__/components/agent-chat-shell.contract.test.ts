@@ -324,7 +324,9 @@ describe("private-agent chat shell contract", () => {
     expect(shell).toContain("agentBarHidden?: boolean");
     expect(shell).not.toContain("const agentBarVisible = !model.agentBarHidden");
     expect(shell).toContain("<AgentDockVoiceBoundary>");
-    expect(workspace).toContain("<AgentDockPortal enabled={isCanonicalChatRoute}");
+    // Puppy owns the retained composer while its mode is active; Cloud must
+    // release that seat rather than create a second destination for the draft.
+    expect(workspace).toContain("<AgentDockPortal enabled={isCanonicalChatRoute && !isPuppySurface}");
     expect(workspace).toContain('<AgentBar layout="slot" />');
     expect(workspace).toContain("<AgentBarSurface");
     expect(workspace).not.toContain("<AgentVoiceWaveInput");
