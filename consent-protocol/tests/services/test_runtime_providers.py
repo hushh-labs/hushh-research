@@ -307,6 +307,40 @@ def test_factory_managed_adc_separates_vertex_project_from_native_project(monkey
     ]
 
 
+def test_factory_chat_vertex_override_keeps_other_managed_callers_on_fleet_project(monkeypatch):
+    from hushh_mcp.runtime_providers import build_managed_regional_gemini_adk_model
+
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "hushh-vertex-personal54")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+    monkeypatch.setenv("HUSHH_VERTEX_LOCATIONS", "global")
+
+    chat_model = build_managed_regional_gemini_adk_model(
+        "gemini-default", vertex_project="hussh-511311"
+    )
+    other_model = build_managed_regional_gemini_adk_model("gemini-default")
+
+    assert chat_model.client_kwargs["project"] == "hussh-511311"
+    assert other_model.client_kwargs["project"] == "hushh-vertex-personal54"
+    assert chat_model.client_kwargs["vertexai"] is True
+    assert "api_key" not in chat_model.client_kwargs
+
+
+def test_factory_chat_vertex_override_rejects_invalid_project_and_developer_mode(monkeypatch):
+    from hushh_mcp.runtime_providers import build_managed_regional_gemini_adk_model
+
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    with pytest.raises(ValueError, match="project override is invalid"):
+        build_managed_regional_gemini_adk_model(
+            "gemini-default", vertex_project="https://wrong.example"
+        )
+
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "developer_api_key")
+    with pytest.raises(RuntimeError, match="requires Vertex ADC"):
+        build_managed_regional_gemini_adk_model("gemini-default", vertex_project="hussh-511311")
+
+
 def test_factory_builds_google_cloud_vertex_api_key_transport(monkeypatch):
     calls: list[dict] = []
 

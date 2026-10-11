@@ -81,14 +81,24 @@ class ManagedGeminiRuntimeBinding:
     auth_mode: str
 
     @classmethod
-    def from_environment(cls) -> "ManagedGeminiRuntimeBinding":
+    def from_environment(
+        cls, *, vertex_project: str | None = None
+    ) -> "ManagedGeminiRuntimeBinding":
         mode = _managed_genai_auth_mode()
+        if vertex_project is not None:
+            project = str(vertex_project).strip()
+            if not _PROJECT_RE.fullmatch(project):
+                raise ValueError("Managed Vertex project override is invalid")
+            if mode != VERTEX_ADC_AUTH_MODE:
+                raise RuntimeError("Managed Vertex project override requires Vertex ADC")
+        else:
+            project = _vertex_project() if mode == VERTEX_ADC_AUTH_MODE else ""
         if mode == DEVELOPER_API_KEY_AUTH_MODE:
             # Local-only compatibility mode. It remains explicit and cannot be
             # selected in a hosted environment.
             return cls(project="", locations=(), auth_mode=mode)
         return cls(
-            project=_vertex_project(),
+            project=project,
             locations=_vertex_locations(),
             auth_mode=mode,
         )
@@ -571,10 +581,14 @@ def build_managed_gemini_adk_model(
     )
 
 
-def build_managed_regional_gemini_adk_model(model: str) -> Any:
+def build_managed_regional_gemini_adk_model(
+    model: str, *, vertex_project: str | None = None
+) -> Any:
     """Build a tool-less single-turn ADK model with bounded regional failover."""
 
-    return ManagedGeminiRuntimeBinding.from_environment().build_regional_adk_model(model)
+    return ManagedGeminiRuntimeBinding.from_environment(
+        vertex_project=vertex_project
+    ).build_regional_adk_model(model)
 
 
 def build_gemini_byok_adk_model(
