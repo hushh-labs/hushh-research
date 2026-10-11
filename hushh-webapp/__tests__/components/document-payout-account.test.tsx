@@ -1,8 +1,10 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   query: "",
+  pathname: "/one/profile/payouts",
+  router: { replace: vi.fn() },
   token: "owner-token" as string | null,
   account: vi.fn(),
   onboard: vi.fn(),
@@ -15,6 +17,8 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock("next/navigation", () => ({
+  usePathname: () => state.pathname,
+  useRouter: () => state.router,
   useSearchParams: () => new URLSearchParams(state.query),
 }));
 vi.mock("@/lib/vault/vault-context", () => ({
@@ -37,6 +41,9 @@ import { ApiError } from "@/lib/services/api-client";
 describe("document payout account", () => {
   beforeEach(() => {
     state.query = "";
+    state.pathname = "/one/profile/payouts";
+    state.router.replace.mockReset();
+    window.sessionStorage.clear();
     state.epoch = 1;
     state.manage.mockReset().mockResolvedValue({ url: "https://example.invalid/unsafe" });
     state.earnings.mockReset().mockResolvedValue({ currency: "USD", transactions: [], nextCursor: null });
@@ -294,6 +301,71 @@ describe("document payout account", () => {
       await waitFor(() => expect(state.manage).toHaveBeenCalledExactlyOnceWith("owner-token"));
       expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't open bank setup");
     } finally { window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, events); }
+  });
+
+  describe("return to the screen that opened bank setup", () => {
+    const pending = { detailsSubmitted: true, transfersEnabled: false, payoutsEnabled: false, ready: false, status: "onboarding_required" };
+    const linked = { account: { ...pending, transfersEnabled: true, payoutsEnabled: true, ready: true, status: "ready" } };
+    const assign = vi.fn();
+    const realLocation = window.location;
+    const startSetup = async (query: string) => {
+      state.query = query;
+      const view = render(<DocumentPayoutAccountCard handleReturn showHistory={false} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Link bank" }));
+      await waitFor(() => expect(assign).toHaveBeenCalledOnce());
+      view.unmount();
+      assign.mockReset();
+      state.query = "documentPayouts=done";
+    };
+    // Lets the last read's effects run before asserting that nothing navigated.
+    const settle = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    beforeEach(() => {
+      state.onboard.mockResolvedValue({ url: "https://connect.stripe.com/setup/safe_link" });
+      Object.defineProperty(window, "location", { configurable: true, value: { assign } });
+    });
+    afterEach(() => {
+      vi.restoreAllMocks();
+      Object.defineProperty(window, "location", { configurable: true, value: realLocation });
+    });
+
+    it("goes back once the account first reads ready, and stays while setup is unfinished", async () => {
+      await startSetup("from=%2Fone%2Ffeed");
+      state.account.mockResolvedValueOnce({ account: pending }).mockResolvedValueOnce(linked);
+      render(<DocumentPayoutAccountCard handleReturn showHistory={false} />);
+      expect(await screen.findByRole("button", { name: "Finish setup" })).toBeEnabled();
+      await settle();
+      expect(state.router.replace).not.toHaveBeenCalled();
+      expect(window.sessionStorage.length).toBe(1);
+      act(() => window.dispatchEvent(new Event("focus")));
+      await waitFor(() => expect(state.router.replace).toHaveBeenCalledExactlyOnceWith("/one/feed"));
+      expect(window.sessionStorage.length).toBe(0);
+    });
+
+    it("stays on Payouts for an external or expired origin", async () => {
+      await startSetup("from=https%3A%2F%2Fevil.example%2Fone%2Ffeed");
+      expect(window.sessionStorage.length).toBe(0);
+      await startSetup("from=%2Fone%2Ffeed");
+      const anHourLater = Date.now() + 61 * 60 * 1000;
+      vi.spyOn(Date, "now").mockReturnValue(anHourLater);
+      state.account.mockResolvedValue(linked);
+      render(<DocumentPayoutAccountCard handleReturn showHistory={false} />);
+      expect(await screen.findByText("Bank linked")).toBeVisible();
+      await waitFor(() => expect(window.sessionStorage.length).toBe(0));
+      expect(state.router.replace).not.toHaveBeenCalled();
+    });
+
+    it("still opens bank setup when storage is blocked, then stays on Payouts", async () => {
+      for (const method of ["getItem", "setItem", "removeItem"] as const) {
+        vi.spyOn(Storage.prototype, method).mockImplementation(() => { throw new Error("storage blocked"); });
+      }
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      await startSetup("from=%2Fone%2Ffeed");
+      state.account.mockResolvedValue(linked);
+      render(<DocumentPayoutAccountCard handleReturn showHistory={false} />);
+      expect(await screen.findByText("Bank linked")).toBeVisible();
+      await settle();
+      expect(state.router.replace).not.toHaveBeenCalled();
+    });
   });
 
   it("drops an old owner's onboarding result after an account switch", async () => {

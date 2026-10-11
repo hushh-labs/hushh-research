@@ -1,6 +1,13 @@
 "use client";
 
-import { documentRequestEntrySetup, documentRequestSetupHref, documentRequestSetupLabel } from "@/lib/consent/document-request-setup";
+import {
+  documentRequestEntrySetup,
+  documentRequestSetupHref,
+  documentRequestSetupLabel,
+  GOOGLE_DRIVE_CONNECTOR_ID,
+  isDocumentRequestSetupStep,
+  type DocumentRequestSetupStep,
+} from "@/lib/consent/document-request-setup";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -104,6 +111,7 @@ import type {
   OneLocationGrant,
 } from "@/lib/one-location/types";
 import { buildOneLocationNotificationHref } from "@/lib/one-location/notifications";
+import { openProfilePane, profileConnectorsLocation } from "@/lib/navigation/profile-pane";
 import {
   ConnectionsService,
   type ConnectionRequest,
@@ -794,6 +802,24 @@ export function useFeedActionables(): UseFeedActionablesResult {
     [router],
   );
 
+  // Google Drive opens over this screen, as every Connectors entry does, so
+  // closing it returns here. Payouts and price are Profile pages of their own.
+  const openDocumentRequestSetup = useCallback(
+    (step: DocumentRequestSetupStep) => {
+      if (step === "drive") {
+        openProfilePane(
+          window.location.pathname,
+          window.location.search,
+          profileConnectorsLocation(GOOGLE_DRIVE_CONNECTOR_ID),
+          { returnsToOrigin: true },
+        );
+        return;
+      }
+      router.push(documentRequestSetupHref(step));
+    },
+    [router],
+  );
+
   // Pull stable slices out of the resource wrappers (which useStaleResource
   // returns fresh every render) so the memo below depends on the actual data
   // + the stable refresh callbacks, not the changing wrapper identity.
@@ -1209,24 +1235,37 @@ export function useFeedActionables(): UseFeedActionablesResult {
       const setup = documentRequestEntrySetup(entry);
       if (!setup || setup === "price" && ownerDocumentDecision(entry)) continue;
       setupEntryIds.add(entry.id);
-      const label = resolveConsentRequesterLabel({ counterpartLabel: entry.counterpart_label });
-      const reviewHref = buildConsentCenterHref("pending", { requestId: entry.id, from: "/one/feed" });
-      items.push({
+      const row = {
         id: `consent:${entry.id}`,
         icon: ConsentAgentIcon,
         iconTone: "capability",
-        title: label,
-        description: documentRequestSetupLabel(setup, true),
-        href: reviewHref,
-        chevron: setup === "unavailable",
-        actions: setup === "unavailable" ? [] : [{
-          key: setup === "payouts" ? "setup-payouts" : "setup-price",
-          label: documentRequestSetupLabel(setup, true),
-          tone: "primary",
-          run: () => router.push(documentRequestSetupHref(setup)),
-        }],
+        title: resolveConsentRequesterLabel({ counterpartLabel: entry.counterpart_label }),
         sortAt: parseConsentInstant(entry.issued_at) ?? firstSeenAt(`consent:${entry.id}`),
         displayTimestamp: parseConsentInstant(entry.issued_at),
+      } as const;
+      if (!isDocumentRequestSetupStep(setup)) {
+        items.push({
+          ...row,
+          description: documentRequestSetupLabel(setup, true),
+          href: buildConsentCenterHref("pending", { requestId: entry.id, from: "/one/feed" }),
+          chevron: true,
+          actions: [],
+        });
+        continue;
+      }
+      // The button names the step, so the row says only what waits on it. A
+      // row with an action is not a link: its tap takes the same step.
+      const openStep = () => openDocumentRequestSetup(setup);
+      items.push({
+        ...row,
+        description: "Requested a document",
+        onSelect: openStep,
+        actions: [{
+          key: `setup-${setup}`,
+          label: documentRequestSetupLabel(setup, true),
+          tone: "primary",
+          run: openStep,
+        }],
       });
     }
 
@@ -1880,6 +1919,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
     circleMemberInvites,
     locationRefresh,
     openAnalysis,
+    openDocumentRequestSetup,
     pendingConsentCount,
     paymentClockNow,
     paymentContexts,
