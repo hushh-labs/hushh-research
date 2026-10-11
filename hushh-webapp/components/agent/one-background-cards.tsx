@@ -62,6 +62,7 @@ export function OneBackgroundCards(props: Props) {
     !!props.ownerId &&
     !!props.vaultKey &&
     !!props.vaultOwnerToken &&
+    profile !== "saved" &&
     (profile !== "hidden" || business);
   const onProfileAvailability = useCallback(
     (profile: ProfileResearchAvailability) => {

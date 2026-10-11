@@ -34,6 +34,16 @@ REPORT = {
 }
 
 
+@pytest.fixture(autouse=True)
+def research_cohort(monkeypatch):
+    monkeypatch.setattr(service, "magic_intelligence_saved", AsyncMock(return_value=False))
+    monkeypatch.setenv("ONE_MAGIC_INTELLIGENCE_PHASE", "2")
+    monkeypatch.setenv(
+        "ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS",
+        "alex@example.test,person@hushh.ai,owner@gmail.com,person@company.test",
+    )
+
+
 class ProfileModel(BaseLlm):
     _calls: int = PrivateAttr(default=0)
     _requests: list = PrivateAttr(default_factory=list)
@@ -456,9 +466,9 @@ async def test_current_owner_identifiers_only_and_no_persistence(monkeypatch, ca
         "phone_number": identity.phone_number,
     }
     assert identity.email not in caplog.text and identity.phone_number not in caplog.text
-    # Unverified email does not leave ingress, even when the UI has a value.
+    # A previously admitted owner loses access when the primary email is unverified.
     identity.email_verified = False
-    await service.offer_profile_research(
+    denied = await service.offer_profile_research(
         user_id="owner",
         consent_token=OWNER_TOKEN,
         researcher=researcher,
@@ -466,7 +476,8 @@ async def test_current_owner_identifiers_only_and_no_persistence(monkeypatch, ca
         setup_check=complete,
         identity_lookup=lambda uid: identity,
     )
-    assert calls[1]["identity"]["email"] is None
+    assert denied == {"status": "disabled", "pkm_written": False}
+    assert len(calls) == 1
 
 
 @pytest.mark.parametrize(
@@ -509,8 +520,8 @@ async def test_canonical_onboarding_name_fallback_keeps_contact_verification(
         uid="owner",
         disabled=False,
         display_name=None,
-        email="unverified@example.test",
-        email_verified=False,
+        email="alex@example.test",
+        email_verified=True,
         phone_number=None,
     )
     result = await service.offer_profile_research(
@@ -526,7 +537,7 @@ async def test_canonical_onboarding_name_fallback_keeps_contact_verification(
         assert calls == [
             {
                 "full_name": shadow_name,
-                "email": None,
+                "email": "alex@example.test",
                 "phone_number": "+15555550123" if phone_verified else None,
             }
         ]
@@ -557,7 +568,8 @@ async def test_no_draft_crosses_an_ineligible_or_changed_owner_boundary(monkeypa
             uid="other" if condition == "wrong_owner" else uid,
             disabled=False,
             display_name="Alex Example",
-            email_verified=False,
+            email="alex@example.test",
+            email_verified=True,
             phone_number="+15555550123",
         )
 
@@ -591,6 +603,182 @@ async def test_no_draft_crosses_an_ineligible_or_changed_owner_boundary(monkeypa
         assert "research" not in calls
     if condition == "disabled":
         assert "identity" not in calls
+
+
+@pytest.mark.parametrize(
+    "change",
+    ["excluded", "phone_only", "phase_off", "email", "verification", "disabled", "failure"],
+)
+async def test_magic_cohort_blocks_research_and_withdraws_changed_identity(monkeypatch, change):
+    from hushh_mcp.services.magic_intelligence_admission import PILOT_EMAIL
+
+    monkeypatch.setenv("ONE_PROFILE_RESEARCH_ENABLED", "true")
+    monkeypatch.setenv("ONE_MAGIC_INTELLIGENCE_PHASE", "1")
+    record = SimpleNamespace(
+        uid="owner",
+        disabled=False,
+        email_verified=True,
+        email=PILOT_EMAIL,
+        display_name="Pilot",
+        phone_number="+15555550123",
+    )
+    if change == "excluded":
+        record.email = "other@example.test"
+    if change == "phone_only":
+        record.email_verified = False
+    lookups = []
+
+    def lookup(uid):
+        lookups.append(uid)
+        if change == "failure" and len(lookups) == 2:
+            raise RuntimeError("identity lookup failed")
+        return record
+
+    async def research(**kwargs):
+        if change == "phase_off":
+            monkeypatch.setenv("ONE_MAGIC_INTELLIGENCE_PHASE", "0")
+        elif change == "email":
+            # The second email is also admitted in phase 2; results still belong
+            # to the exact initial identity, not whichever account is current.
+            monkeypatch.setenv("ONE_MAGIC_INTELLIGENCE_PHASE", "2")
+            record.email = "alex@example.test"
+        elif change == "verification":
+            record.email_verified = False
+        elif change == "disabled":
+            record.disabled = True
+        return {"report": REPORT, "search_suggestions": []}
+
+    researcher = AsyncMock(side_effect=research)
+    invoke = service.offer_profile_research(
+        user_id="owner",
+        consent_token=OWNER_TOKEN,
+        researcher=researcher,
+        owner_check=AsyncMock(return_value=object()),
+        setup_check=AsyncMock(return_value=True),
+        identity_lookup=lookup,
+    )
+    if change == "failure":
+        with pytest.raises(RuntimeError, match="identity lookup failed"):
+            await invoke
+    else:
+        assert await invoke == {"status": "disabled", "pkm_written": False}
+    assert researcher.await_count == (0 if change in {"excluded", "phone_only"} else 1)
+
+
+async def test_pilot_research_works_with_business_disabled_and_no_team_roster(monkeypatch):
+    from hushh_mcp.services.magic_intelligence_admission import PILOT_EMAIL
+
+    monkeypatch.setenv("ONE_MAGIC_INTELLIGENCE_PHASE", "1")
+    monkeypatch.setenv("ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS", "")
+    monkeypatch.setenv("ONE_PROFILE_RESEARCH_ENABLED", "true")
+    monkeypatch.setenv("ONE_BUSINESS_DIRECTORY_ENABLED", "false")
+    identity = MagicMock(
+        return_value=SimpleNamespace(
+            uid="owner",
+            disabled=False,
+            email_verified=True,
+            email=PILOT_EMAIL,
+            display_name="Pilot",
+            phone_number="+15555550123",
+        )
+    )
+    result = await service.offer_profile_research(
+        user_id="owner",
+        consent_token=OWNER_TOKEN,
+        owner_check=AsyncMock(return_value=object()),
+        setup_check=AsyncMock(return_value=True),
+        identity_lookup=identity,
+        researcher=AsyncMock(return_value={"report": REPORT, "search_suggestions": []}),
+    )
+    assert result["status"] == "offered"
+    assert identity.call_count == 2
+
+
+@pytest.mark.parametrize("completion", ["saved", "other_device", "unavailable"])
+async def test_saved_personal_offer_suppresses_paid_or_inflight_research(monkeypatch, completion):
+    from hushh_mcp.services.magic_intelligence_admission import PILOT_EMAIL
+
+    monkeypatch.setenv("ONE_MAGIC_INTELLIGENCE_PHASE", "1")
+    monkeypatch.setenv("ONE_PROFILE_RESEARCH_ENABLED", "true")
+    identity = MagicMock(
+        return_value=SimpleNamespace(
+            uid="owner",
+            disabled=False,
+            email_verified=True,
+            email=PILOT_EMAIL,
+            display_name="Pilot",
+            phone_number="+15555550123",
+        )
+    )
+    researcher = AsyncMock(return_value={"report": REPORT, "search_suggestions": []})
+    saved = AsyncMock(
+        side_effect=(
+            RuntimeError("completion unavailable")
+            if completion == "unavailable"
+            else [True]
+            if completion == "saved"
+            else [False, True]
+        )
+    )
+    invoke = service.offer_profile_research(
+        user_id="owner",
+        consent_token=OWNER_TOKEN,
+        owner_check=AsyncMock(return_value=object()),
+        setup_check=AsyncMock(return_value=True),
+        identity_lookup=identity,
+        researcher=researcher,
+        saved_check=saved,
+    )
+    if completion == "unavailable":
+        with pytest.raises(RuntimeError):
+            await invoke
+    else:
+        assert await invoke == {"status": "saved", "pkm_written": False}
+    assert researcher.await_count == (1 if completion == "other_device" else 0)
+
+
+@pytest.mark.parametrize("withdrawal", ["phase", "feature"])
+async def test_withdrawal_during_final_completion_read_never_releases_report(
+    monkeypatch, withdrawal
+):
+    from hushh_mcp.services.magic_intelligence_admission import PILOT_EMAIL
+
+    monkeypatch.setenv("ONE_MAGIC_INTELLIGENCE_PHASE", "1")
+    monkeypatch.setenv("ONE_PROFILE_RESEARCH_ENABLED", "true")
+    calls = 0
+
+    async def saved_check(_owner):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            monkeypatch.setenv(
+                "ONE_MAGIC_INTELLIGENCE_PHASE"
+                if withdrawal == "phase"
+                else "ONE_PROFILE_RESEARCH_ENABLED",
+                "0" if withdrawal == "phase" else "false",
+            )
+        return False
+
+    result = await service.offer_profile_research(
+        user_id="owner",
+        consent_token=OWNER_TOKEN,
+        owner_check=AsyncMock(return_value=object()),
+        setup_check=AsyncMock(return_value=True),
+        identity_lookup=MagicMock(
+            return_value=SimpleNamespace(
+                uid="owner",
+                disabled=False,
+                email_verified=True,
+                email=PILOT_EMAIL,
+                display_name="Pilot",
+                phone_number="+15555550123",
+            )
+        ),
+        researcher=AsyncMock(return_value={"report": REPORT, "search_suggestions": []}),
+        saved_check=saved_check,
+    )
+    assert calls == 2
+    assert result == {"status": "disabled", "pkm_written": False}
 
 
 def test_report_rejects_duplicate_sections_no_match_findings_and_unsafe_sources():

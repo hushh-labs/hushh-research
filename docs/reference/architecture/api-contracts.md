@@ -1046,6 +1046,32 @@ wait for loaded owner progress and finished personality onboarding; they
 do not mount or request discovery while questions, confirmation, saving or
 failed-save recovery are active. The single Magic offer renders after the final
 personality turn, including when ordinary chat messages interrupt onboarding.
+Already-onboarded owners use the same discovery path once their loaded
+personality progress is resolved and their vault is unlocked. No onboarding
+reset or new-user marker is required. One authority-bound attempt per mounted
+controller prevents duplicate requests under StrictMode or marker consumption;
+only an explicit retry retries an unsaved report within that controller.
+
+Personal completion is independent of Business completion. A successful review
+calls `POST /api/one/profile-research/complete` with 1–64 unique domain/plan
+receipts using the same VAULT_OWNER + derived chat-key authority. The server
+locks the owner's vault row and checks all acknowledged PKM mutation receipts,
+content revisions and confirmed `profile_research_review` provenance before
+setting the monotonic `one_magic_intelligence_saved` flag. Failed or partial
+saves never complete it; retries retain pinned scopes and reconcile existing
+receipts before retrying completion. Opening, Later and research alone never
+set it. Saved owners receive `{status: "saved", pkm_written: false}` before any
+paid research; an in-flight result is also suppressed if another device saves.
+Personal completion hides the whole automatic Magic offer, including an unsaved
+optional Business suggestion. It does not mark that Business review saved or
+erase its independent receipt/recovery state.
+The completion route remains available during rollout withdrawal for recovery.
+Migration 314 adds only this boolean UI metadata, with no profile facts; normal
+application rollback retains it and all approved Memory. The explicit down
+migration removes suppression history and must only be used for schema rollback.
+The flag is authoritative in Postgres across workers and devices. A future
+Redis/Memorystore read cache must be invalidated by the confirmed completion
+transaction and must never replace receipt verification or the monotonic flag.
 
 The main chat workspace mounts one compact Magic Intelligence offer: a short
 notice that One found more information and a Review details action. Opening it
@@ -1060,6 +1086,36 @@ permanent completion flag; a personal save never completes an unsaved Business
 review. Controllers remain mounted while details collapse, retaining approved
 recovery jobs. Back unwinds a nested edit/review or Business subsection before
 collapsing Magic and then reaching route navigation; busy mutations consume Back.
+Both discovery services share a server-owned cumulative Magic rollout. Phase 0
+is off; phase 1 admits only `parth.mawai.12@gmail.com`; phase 2 adds the four
+inner-team accounts; phase 3 adds four senior-team accounts; phase 4 adds QA.
+Admission uses fresh Firebase UID, enabled state and verified primary email,
+with only case/outer whitespace normalization. Client input, phone identity,
+shadow records, aliases and token email claims cannot select a rollout account.
+Missing, malformed, duplicated, overlapping or incomplete promoted cohorts
+close discovery. Independent profile/Business switches still apply; Business
+never blocks personal research. Both services recheck current identity and their
+worker's policy before returning provider results. Initial pending, denied,
+malformed and failed personal discoveries never reveal a card; admitted
+`no_match` reports can still explain that no reliable match was found.
+
+The UAT deploy defaults to phase 1 with personal research enabled. Production
+and other unconfigured lanes default to phase 0 with research off. Promote
+explicitly using `ONE_MAGIC_INTELLIGENCE_PHASE_UAT` (1–4) and exact CSV repository
+variables `ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS_UAT` (Sharu, Roopmann, Divya,
+Smirthika; four accounts), `ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS_UAT` (Ankit,
+Akshat, Neelesh, Kushal; four accounts), and `ONE_MAGIC_INTELLIGENCE_QA_EMAILS_UAT`
+(Jhumma; one account). These feed the corresponding lowercase structured
+runtime-config keys and uppercase backend environment names. Unconfirmed
+inner-team addresses remain empty, so phase 2+ stays closed until supplied.
+For rollback, set phase to 0, or set `ONE_PROFILE_RESEARCH_ENABLED_UAT=false`
+and `ONE_BUSINESS_DIRECTORY_ENABLED_UAT=false`, then deploy a new backend
+revision and retire old traffic. Secret/variable edits alone do not update
+existing workers or withdraw their in-flight requests. Already confirmed PKM
+and commit-receipt recovery remain available. The strict localhost Business
+reviewer exception remains local-only and rechecks identity and its full
+environment boundary before releasing a result.
+
 An unverified real directory listing retains Review, Later and Not my business.
 Editing a name or website invalidates prior proposals. A scheme-less website domain
 is normalized to HTTPS before preparation; explicit HTTP(S) URLs remain supported,
