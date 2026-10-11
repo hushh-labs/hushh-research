@@ -2877,14 +2877,12 @@ async def test_structure_instruction_is_supplied_once_by_both_runtime_adapters(m
     assert kernel_text not in prompt
     assert instruction not in prompt
     assert "Never invent domains, paths" not in instruction + prompt
-    assert (
-        "New domain and path names may organize only information actually supplied" in instruction
-    )
-    assert "Proposing structure does not authorize a write" in instruction
+    assert "New domain and path names organize only owner-supplied information." in instruction
+    assert "Structure authorizes no write, correction, deletion or sharing." in instruction
     assert "Never create a changes branch" in instruction
     assert "merge_decision.target_entity_path" in instruction
     assert "do not create replacement plaintext" in instruction
-    assert "your question is where it goes, never whether" in instruction
+    assert "decide where, never whether, to save it." in instruction
     assert "Choose a place for everything the owner stated" in instruction
     assert "Export eligibility is not publication or consent" in instruction
     assert '"primary_json_path": "string"' in instruction

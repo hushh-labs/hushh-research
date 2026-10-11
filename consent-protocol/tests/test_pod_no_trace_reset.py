@@ -40,6 +40,7 @@ PRIVATE_INTELLIGENCE_TABLES = (
     "kai_receipt_memory_artifacts",
     "agent_chat_messages",
     "agent_chat_conversations",
+    "pkm_answer_requests",
 )
 
 # The identity spine a reset deliberately KEEPS, so the owner and their vault
@@ -85,6 +86,12 @@ class _Result:
 
     def mappings(self) -> _Mappings:
         return _Mappings()
+
+    def first(self) -> Any:
+        return None
+
+    def all(self) -> list:
+        return []
 
 
 class _RecordingConn:
