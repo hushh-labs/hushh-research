@@ -17,6 +17,25 @@ function setup(cards: WalletCardSummary[] = [], selectedCardId: string | null = 
 }
 
 describe("Wallet card browser", () => {
+  it("resets scroll after the next card has committed, including a scrolled detail page", () => {
+    const root = document.createElement("div");
+    root.setAttribute("data-app-scroll-root", "true");
+    document.body.appendChild(root);
+    const committedPages: string[] = [];
+    root.scrollTo = vi.fn(() => {
+      committedPages.push(root.textContent || "");
+      root.scrollTop = 0;
+    });
+    const view = render(<WalletCardBrowser cards={[]} selectedCardId={null} onSelect={() => {}} onOverview={() => {}} onAdd={() => {}} onRemove={() => {}} busyCardId={null} details={null} dockHost={null} />, { container: root });
+    fireEvent.click(screen.getByRole("button", { name: "View details for Agent One Profile" }));
+    root.scrollTop = 450;
+    committedPages.length = 0;
+    fireEvent.click(screen.getByRole("button", { name: "Next card" }));
+    expect(root.scrollTop).toBe(0);
+    expect(committedPages.length).toBeGreaterThan(0);
+    expect(committedPages.every(text => text.includes("Live referral controls"))).toBe(true);
+    view.unmount(); root.remove();
+  });
   it("unwinds the selected card before leaving Wallet and releases the handler when inactive", () => {
     const { dock, host, unmount, rerender, props } = setup();
     fireEvent.click(dock.getByRole("button", { name: "Open Agent One Profile" }));

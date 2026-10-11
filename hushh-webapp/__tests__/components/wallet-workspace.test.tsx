@@ -13,6 +13,7 @@ vi.mock("@/lib/services/onboarding-local-service", () => ({
 }));
 
 vi.mock("@/components/wallet/wallet-sharing", () => ({ WalletSharing: () => <section>Card recipients</section> }));
+vi.mock("@/lib/services/wallet-card-artwork-service", () => ({ loadWalletCardArtwork: vi.fn().mockResolvedValue("<svg></svg>") }));
 
 const navigationMock = vi.hoisted(() => ({
   pathname: "/one/wallet",
@@ -266,11 +267,15 @@ describe("WalletWorkspace at scale", () => {
     fireEvent.click(screen.getByRole("button", { name: "View details for Card 0" }));
     await screen.findByTestId("wallet-selected-card");
     fireEvent.click(screen.getByRole("button", { name: "All cards", exact: true }));
+    const browser = screen.getByTestId("wallet-card-browser");
+    const deck = screen.getByTestId("wallet-add-collection");
     for (const tab of ["Add", "Sharing"]) {
       fireEvent.click(screen.getByRole("tab", { name: tab }));
       fireEvent.click(screen.getByRole("tab", { name: "Cards" }));
       await screen.findByTestId("wallet-add-collection");
       expect(screen.queryByTestId("wallet-selected-card")).toBeNull();
+      expect(screen.getByTestId("wallet-card-browser")).toBe(browser);
+      expect(screen.getByTestId("wallet-add-collection")).toBe(deck);
     }
   });
 

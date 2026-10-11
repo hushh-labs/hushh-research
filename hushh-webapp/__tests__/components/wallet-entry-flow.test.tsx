@@ -217,3 +217,4 @@ describe("Wallet visit introduction", () => {
   });
 
 });
+vi.mock("@/lib/services/wallet-card-artwork-service", () => ({ loadWalletCardArtwork: vi.fn().mockResolvedValue("<svg></svg>") }));
