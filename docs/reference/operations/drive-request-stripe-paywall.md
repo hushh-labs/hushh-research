@@ -36,7 +36,7 @@ sequenceDiagram
     Drive->>Chris: Confirmed access
     PrivateAgent->>Feed: Credit net Hussh Coins after delivery, refunds and fees
     Manish->>Stripe: Redeem separate test coins in payout sandbox
-    Stripe->>Bank: Simulated deposit only; real balance unchanged
+    Stripe->>Bank: Simulated deposit only, real balance unchanged
 ```
 
 ## User story
