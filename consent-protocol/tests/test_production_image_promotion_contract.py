@@ -211,9 +211,23 @@ def test_preflight_runs_before_production_is_changed() -> None:
     )
 
 
-def test_voice_release_gate_survives_checkout_of_older_uat_sha() -> None:
+def test_release_gates_survive_checkout_of_older_uat_sha() -> None:
     preserve = str(_step("Preserve current release tooling")["run"])
     checkout = str(_step("Checkout deployment SHA")["run"])
+    for path in ("scripts/ci/runtime-capacity-budget.py", "config/runtime-capacity.json"):
+        name = Path(path).name
+        assert f"cp {path}" in preserve
+        assert f'"${{RUNNER_TEMP}}/release-tools/{name}"' in preserve
+        assert f'cp "${{RUNNER_TEMP}}/release-tools/{name}"' in checkout
+        assert path in checkout
+    assert (
+        "--phase post-release"
+        in _step("Retire unused production tags after a healthy release")["run"]
+    )
+    assert (
+        "--phase post-release"
+        not in _step("Enforce production database connection budget before deployment")["run"]
+    )
     deploy = str(_step("Deploy backend using Cloud Build")["run"])
     for path in ("deploy/backend.cloudbuild.yaml", "scripts/ci/assert_one_voice_live_probe.py"):
         assert f"cp {path} " in preserve
