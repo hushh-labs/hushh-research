@@ -1085,7 +1085,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/pkm_payout_service.py",
       "symbol": "PkmPayoutService",
-      "value": 445
+      "value": 450
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -7988,7 +7988,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/pkm_payout_service.py",
       "symbol": "onboarding_link",
-      "value": 95
+      "value": 100
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -14729,7 +14729,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/pkm_payout_service.py",
       "symbol": null,
-      "value": 661
+      "value": 666
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16862,7 +16862,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pkm_payouts.py",
       "symbol": null,
-      "value": 641
+      "value": 649
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20939,7 +20939,7 @@
       "limit": 500,
       "path": "scripts/ops/sync_backend_runtime_secrets.py",
       "symbol": null,
-      "value": 686
+      "value": 687
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21407,7 +21407,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/document-payout-account.test.tsx",
       "symbol": null,
-      "value": 650
+      "value": 851
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -28843,6 +28843,50 @@
           "rationale": "Extend the existing SQLite snapshot regression across current, retained standby and unfinished migration claims. Preserve unbounded reads and private-field exclusion; no duplicate test suite."
         }
       ]
+    },
+    "current_main_payout_and_origin_20261011": {
+      "changes": [
+        {
+          "after": 450,
+          "before": 445,
+          "key": "class_size|consent-protocol/hushh_mcp/services/pkm_payout_service.py|PkmPayoutService|class exceeds the advisory operon budget",
+          "source_sha256": "e7608e66cb0cdc333007605be289493b25b5f8492decb2e319ffbd92afad7af4"
+        },
+        {
+          "after": 100,
+          "before": 95,
+          "key": "function_size|consent-protocol/hushh_mcp/services/pkm_payout_service.py|onboarding_link|function exceeds the advisory gene budget",
+          "source_sha256": "e7608e66cb0cdc333007605be289493b25b5f8492decb2e319ffbd92afad7af4"
+        },
+        {
+          "after": 851,
+          "before": 650,
+          "key": "module_size|hushh-webapp/__tests__/components/document-payout-account.test.tsx||module exceeds the advisory operon budget",
+          "source_sha256": "cf787bceaaddc5fe674b53e55c1bbfeb07761ec6def502c1b09c107a808db672"
+        },
+        {
+          "after": 687,
+          "before": 686,
+          "key": "module_size|scripts/ops/sync_backend_runtime_secrets.py||module exceeds the advisory operon budget",
+          "source_sha256": "dcc339f04773cbe61deb3a7dc15f4ae83416c719ed953d0b3a3d2bad62fd00f2"
+        },
+        {
+          "after": 666,
+          "before": 661,
+          "key": "module_size|consent-protocol/hushh_mcp/services/pkm_payout_service.py||module exceeds the advisory operon budget",
+          "source_sha256": "e7608e66cb0cdc333007605be289493b25b5f8492decb2e319ffbd92afad7af4"
+        },
+        {
+          "after": 649,
+          "before": 641,
+          "key": "module_size|consent-protocol/tests/test_pkm_payouts.py||module exceeds the advisory operon budget",
+          "source_sha256": "988ab7dde1aec803598fdbce8c347d23f68528e35d195ce7200f0896281f8746"
+        }
+      ],
+      "incoming_main": "e4c9e8e2387210aa05fa0a123b46e1269349f3b6",
+      "review": "Five inherited payout spans reviewed against current main: new-account create response, existing/concurrent-account re-read and US eligibility retained; one-bank readiness/recovery and retry keys covered by nearest tests. One synchronizer line adds missing-host and empty-userinfo rejection to the existing canonical origin authority. No module splitting by count, budget changes, scanner exclusions or blanket baseline refresh.",
+      "source_revision": "8cd28de07033c5dc9e43805475c7aa11b2e02a17",
+      "verification": "45 backend payout/answer cases and86 origin/admission cases pass; frontend review preserves scope panels and100displaycoins/USD. Combined Back/Search behavior and full core/hosted CI remain required."
     }
   },
   "review": {

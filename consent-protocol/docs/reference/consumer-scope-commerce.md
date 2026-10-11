@@ -2319,3 +2319,11 @@ The unchanged branch architecture ratchet requires explicit review of incoming
 main's size findings. Its 225 exact reviewed slots retain both parent behaviors,
 duplicate occurrence ordering and future growth enforcement; the provenance is
 recorded in the [quality decision memo](../../../docs/reference/quality/adk-orchestration-docs-audit.md#reviewed-integration-debt).
+The later bank-payout integration adds five exact reviewed size spans and one
+canonical-origin validation line. Their source hashes and before/after values
+are recorded in `architecture-fitness-baseline.json`; budgets, scanner and other
+finding slots remain unchanged. The origin/admission checks pass 86 focused cases;
+two negative controls reproduce unsafe rebinding with the original validator and
+refuse it with the correction. Combined Back review passes all 422 cases.
+The latest payout/scope presentation passes 96 frontend cases and 45 backend
+payout/answer cases; all seven generated UI contract checks pass.
