@@ -2,6 +2,8 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SecureCardAddForm } from "@/components/wallet/secure-card-add-form";
 
+const scan = vi.hoisted(() => ({ read: vi.fn() }));
+vi.mock("@/lib/services/wallet-card-scan", () => ({ scanWalletCard: scan.read, pickNativeWalletCard: vi.fn() }));
 const notify = vi.hoisted(() => ({ error: vi.fn() }));
 vi.mock("sonner", () => ({ toast: notify }));
 
@@ -19,11 +21,11 @@ function submit() {
 describe("Secure manual card entry", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("removes scanner/photo/nickname entry, requires card details and links validation errors", () => {
+  it("offers scanning alongside manual entry and links validation errors", () => {
     const save = vi.fn();
     render(<SecureCardAddForm scanEnabled onSubmit={save} />);
-    expect(screen.queryByText("Scan card")).toBeNull();
-    expect(screen.queryByText("Choose photo")).toBeNull();
+    expect(screen.getByRole("button", { name: "Scan card" })).toHaveAttribute("type", "button");
+    expect(screen.queryByRole("button", { name: "Choose photo" })).toBeNull();
     expect(screen.queryByLabelText("Nickname")).toBeNull();
     expect(screen.getByLabelText("Card network (optional)")).toBeInTheDocument();
     submit();
@@ -98,4 +100,31 @@ describe("Secure manual card entry", () => {
     submit();
     expect(save).not.toHaveBeenCalled();
   });
+});
+
+it("reviews scanned fields without saving and clears old security codes", async () => {
+  scan.read.mockResolvedValue({ pan: "5555555555554444", expiry: "11/99", cardholderName: "Scanned Owner" });
+  const save = vi.fn();
+  render(<SecureCardAddForm onSubmit={save} />);
+  fillRequired();
+  const stop = vi.fn();
+  Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop }] }) } });
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: vi.fn() } as unknown as CanvasRenderingContext2D);
+  vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(callback => callback(new Blob(["test"], { type: "image/jpeg" })));
+  fireEvent.click(screen.getByRole("button", { name: "Scan card", exact: true }));
+  const preview = screen.getByLabelText("Card camera preview");
+  Object.defineProperties(preview, { videoWidth: { value: 1280 }, videoHeight: { value: 720 } });
+  await waitFor(() => expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledOnce());
+  fireEvent.loadedData(preview);
+  fireEvent.click(screen.getByRole("button", { name: "Capture card" }));
+  await waitFor(() => expect(stop).toHaveBeenCalled());
+  await waitFor(() => expect(screen.getByLabelText("Card number")).toHaveValue("5555555555554444"));
+  expect(screen.getByLabelText("Name on card")).toHaveValue("Scanned Owner");
+  expect(screen.getByLabelText("Expiry (MM/YY)")).toHaveValue("11/99");
+  expect(screen.getByLabelText("CVV")).toHaveValue("");
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText("CVV"), { target: { value: "321" } });
+  submit();
+  await waitFor(() => expect(save).toHaveBeenCalledOnce());
 });

@@ -228,3 +228,7 @@ export function ProfilePaneScanIcon(props: ProfilePaneIconProps) {
 export function ProfilePaneHistoryIcon(props: ProfilePaneIconProps) {
   return <PaneIcon {...props}><circle cx="12" cy="12" r="9" /><path className="profile-pane-icon-accent" d="M12 6v6l4 2" /></PaneIcon>;
 }
+
+export function ProfilePaneSearchIcon(props: ProfilePaneIconProps) {
+  return <PaneIcon {...props}><circle cx="10.5" cy="10.5" r="6.5" /><path className="profile-pane-icon-accent" d="m15.5 15.5 5 5" /></PaneIcon>;
+}
