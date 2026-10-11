@@ -12,6 +12,7 @@
 import { useMemo, useState } from "react";
 import {
   AppStreamSection,
+  AppStreamEventList,
   type AppStreamProgressItem,
 } from "@/components/app-ui/stream-progress-panel";
 import { cn } from "@/lib/morphy-ux";
@@ -20,7 +21,6 @@ import { Progress } from "@/components/ui/progress";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { Activity, CheckCircle2, ChevronDown, ChevronUp, FileChartColumn, X } from "@/components/icons";
 import { Icon } from "@/lib/morphy-ux/ui";
-import { useSmoothStreamProgress } from "@/lib/morphy-ux/hooks/use-smooth-stream-progress";
 import { toInvestorStreamText } from "@/lib/copy/investor-language";
 import type { LiveHoldingPreview } from "@/lib/kai/import/live-holdings-preview";
 import {
@@ -146,20 +146,15 @@ export function ImportProgressView({
   const [holdingsExpanded, setHoldingsExpanded] = useState<boolean>(() => stage !== "error");
 
   const hasMeasuredProgress = useMemo(
-    () => typeof progressPct === "number" && Number.isFinite(progressPct) && progressPct > 0,
+    () => typeof progressPct === "number" && Number.isFinite(progressPct) && progressPct >= 0,
     [progressPct]
   );
 
   const resolvedProgress = useMemo(() => {
+    if (stage === "complete") return 100;
     if (hasMeasuredProgress) return Math.max(0, Math.min(100, progressPct as number));
-    if (stage === "complete" || stage === "error") return 100;
     return 0;
   }, [hasMeasuredProgress, progressPct, stage]);
-
-  const smoothProgress = useSmoothStreamProgress(resolvedProgress, {
-    // Reset any previous-run visual floor while backend is still in stage-tracking mode.
-    resetHint: !hasMeasuredProgress && stage !== "complete" && stage !== "error",
-  });
 
   const fallbackRawLines = useMemo(() => {
     const lines = stageTrail.length > 0 ? stageTrail : [statusMessage || stageMessages[stage]];
@@ -208,9 +203,6 @@ export function ImportProgressView({
     showConfirmedHoldings && displayHoldings.length > 0
       ? displayHoldings.length
       : holdingsExtracted;
-  const latestStreamUpdate = effectiveRawLines.length
-    ? effectiveRawLines[effectiveRawLines.length - 1]
-    : undefined;
   const displayStatusMessage = useMemo(
     () => normalizeStreamLine(statusMessage || stageMessages[stage]),
     [statusMessage, stage]
@@ -243,35 +235,28 @@ export function ImportProgressView({
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>Import progress</span>
             <span>
-              {hasMeasuredProgress || stage === "complete" || stage === "error"
-                ? `${Math.round(smoothProgress)}%`
-                : "Tracking stages"}
+              {hasMeasuredProgress || stage === "complete"
+                ? `${Math.round(resolvedProgress)}%`
+                : stage === "error" ? "Stopped" : "Tracking stages"}
             </span>
           </div>
-          {hasMeasuredProgress || stage === "complete" || stage === "error" ? (
-            <Progress
-              value={smoothProgress}
-              className="h-2"
-            />
-          ) : (
-            <div className="h-2 overflow-hidden rounded-full bg-secondary">
-              <div className="h-full w-1/3 rounded-full bg-primary/70 animate-pulse" />
-            </div>
-          )}
+          <Progress
+            aria-label="Import progress"
+            value={hasMeasuredProgress || stage === "complete" ? resolvedProgress : undefined}
+            className="h-2"
+            indicatorClassName={cn(
+              "duration-300 ease-out motion-reduce:transition-none data-[state=indeterminate]:opacity-0",
+              (stage === "error" || !isStreaming) && "transition-none",
+            )}
+          />
         </div>
 
-        <p className="text-sm text-muted-foreground">{displayStatusMessage}</p>
-        {latestStreamUpdate && stage !== "complete" ? (
-          <p className="text-xs text-muted-foreground/80">
-            {(() => {
-              const { tag, message } = splitTaggedLine(latestStreamUpdate);
-              return tag ? `${tag}: ${message}` : message;
-            })()}
-          </p>
-        ) : null}
+        <p className="min-h-10 text-sm text-muted-foreground">{displayStatusMessage}</p>
 
         <AppStreamSection
           title="AI stream"
+          content={<AppStreamEventList items={streamItemsForDisplay} ariaLabel="AI stream events"
+              emptyLabel="Waiting for stream events..." className="h-44" />}
           icon={Activity}
           count={effectiveRawLines.length}
           items={streamItemsForDisplay}
