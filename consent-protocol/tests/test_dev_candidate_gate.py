@@ -13,6 +13,86 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 
 
+@pytest.mark.parametrize("environment", ["dev", "uat"])
+def test_selected_pkm_gate_runs_without_a_backend_deployment(environment):
+    workflow = yaml.safe_load((ROOT / f".github/workflows/deploy-{environment}.yml").read_text())
+    steps = workflow["jobs"]["deploy"]["steps"]
+    gate = next(step for step in steps if step.get("id") == "verify-pkm-preservation")
+    # This is a release-authority wiring contract: frontend-only selection must
+    # execute the same preservation gate instead of merely installing its deps.
+    assert gate["if"] == "steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'"
+    assert gate.get("continue-on-error", False) is False
+    assert gate["run"] == f"bash scripts/ci/run-release-pkm-gate.sh {environment}"
+    proxy = next(step for step in steps if step["name"] == "Install Cloud SQL Auth Proxy")
+    assert "steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'" in proxy["if"]
+    assert steps.index(gate) < next(
+        i for i, step in enumerate(steps) if step.get("id") == "deploy-backend"
+    )
+
+
+@pytest.mark.parametrize(
+    ("environment", "project", "gate_exit"),
+    [("dev", "hushh-pda-dev", 0), ("uat", "hushh-pda-uat", 73), ("dev", "hushh-pda", None)],
+)
+def test_release_pkm_gate_owns_its_connection_and_propagates_failure(
+    tmp_path, environment, project, gate_exit
+):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    calls = tmp_path / "calls"
+    proxy_pid_file = tmp_path / "proxy-pid"
+    proxy = bin_dir / "cloud-sql-proxy"
+    proxy.write_text(
+        f"#!{sys.executable}\nimport os,socket,sys,time\nfrom pathlib import Path\n"
+        "Path(os.environ['PROXY_PID_FILE']).write_text(str(os.getpid()))\n"
+        "port=int(sys.argv[sys.argv.index('--port')+1]);s=socket.socket();s.bind(('127.0.0.1',port));s.listen()\n"
+        "while True: time.sleep(1)\n"
+    )
+    gcloud = bin_dir / "gcloud"
+    gcloud.write_text('#!/bin/sh\necho "fixture-credential"\n')
+    (bin_dir / "psql").write_text("#!/bin/sh\nexit 0\n")
+    (bin_dir / "psql").chmod(0o700)
+    proxy.chmod(0o700)
+    gcloud.chmod(0o700)
+    scripts = tmp_path / "scripts"
+    (scripts / "ci").mkdir(parents=True)
+    (scripts / "env").mkdir()
+    for name in ("bootstrap_profiles.sh", "use_profile.sh"):
+        (scripts / "env" / name).write_text("#!/bin/sh\nexit 0\n")
+    (scripts / "ci/pkm-upgrade-gate.sh").write_text(
+        '#!/bin/sh\nprintf "%s\\n" "$PGHOST:$PGPORT:$PGDATABASE" "$PKM_UPGRADE_PROTECTED_UAT" "$PKM_UPGRADE_RUNTIME_AUDIT_DEFERRED" > "$CALLS_FILE"\n'
+        f"exit {gate_exit or 0}\n"
+    )
+    result = subprocess.run(  # noqa: S603 - repository helper and fixed synthetic environment.
+        ["bash", str(ROOT / "scripts/ci/run-release-pkm-gate.sh"), environment],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        env={
+            **os.environ,
+            "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
+            "PROTOCOL_PYTHON": sys.executable,
+            "GCP_PROJECT_ID": project,
+            "CALLS_FILE": str(calls),
+            "PROXY_PID_FILE": str(proxy_pid_file),
+            "RUNNER_TEMP": str(tmp_path),
+        },
+    )
+    if gate_exit is None:
+        assert result.returncode == 1 and "project mismatch" in result.stderr
+        assert not calls.exists() and not proxy_pid_file.exists()
+    else:
+        assert result.returncode == gate_exit, result.stderr
+        address, protected, deferred = calls.read_text().splitlines()
+        host, port, database = address.split(":")
+        assert (host, database, protected, deferred) == ("127.0.0.1", "postgres", "1", "1")
+        assert 0 < int(port) < 65536
+        with pytest.raises(ProcessLookupError):
+            os.kill(int(proxy_pid_file.read_text()), 0)
+    assert not list(tmp_path.glob("hussh-pkm-release.*"))
+
+
 def test_manual_ci_secret_range_includes_diverged_candidate_commits(tmp_path):
     repository = tmp_path / "repository"
     repository.mkdir()

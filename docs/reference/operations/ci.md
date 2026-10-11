@@ -210,7 +210,7 @@ Local/UAT release rehearsal should additionally run the Kai no-write PKM drill b
 The canonical blocker for that broader surface is:
 
 1. [scripts/ci/pkm-upgrade-gate.sh](../../../scripts/ci/pkm-upgrade-gate.sh)
-2. [scripts/ci/resolve-uat-verification-plan.py](../../../scripts/ci/resolve-uat-verification-plan.py) is the single changed-SHA selector used by PR, queue, post-merge, and UAT lanes
+2. [scripts/ci/resolve-uat-verification-plan.py](../../../scripts/ci/resolve-uat-verification-plan.py) is the single changed-SHA selector used by PR, queue, post-merge, dev and UAT lanes
 3. `integration-check.sh` runs the PKM gate only when that selector finds a PKM upgrade, stored-shape, migration, or fixture change; selector-policy changes are covered by always-on classifier contract tests. Ordinary UI, consent, MCP, RIA, and provider changes keep their own focused checks without repeating the PKM cycle
 4. a missing or unproven comparison base fails closed to the deterministic PKM/reviewer plan, never to implicit paid model calls
 5. when `PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL` is set for a selected PKM release, the same gate also runs the live Playwright investor / RIA / PKM audits against that runtime
@@ -220,6 +220,22 @@ includes the changed files, each lane's `required`/`skipped` state, and its
 reason. This is evidence only: authority checks, migrations, deployment
 provenance, runtime health, and directly affected frontend/backend checks remain
 mandatory regardless of the expensive-lane selection.
+
+Dev and UAT execute selected preservation through
+[scripts/ci/run-release-pkm-gate.sh](../../../scripts/ci/run-release-pkm-gate.sh)
+independently of backend deployment. A frontend-only change can therefore require
+preservation without a backend migration. The helper owns its proxy and temporary
+resources, pins the environment/project, and propagates the existing synthetic
+preservation gate's result. Selected reviewer navigation uses memory-only Secret
+Manager resolution; dev refuses release acceptance when its required receipt is
+missing, skipped or failed. Candidate health, schema, provenance and semantic
+verification keep their existing authority.
+
+Dev, UAT and production expose `scope=auto` against each service's actual serving
+SHA; explicit scopes remain available. Dev consumes the exact green branch SHA
+without an application merge to main. UAT and production retain their main-SHA
+and environment gates. Workflow changes become active only after governed main
+landing; feature-branch source does not change the running workflow definition.
 
 Live Gemini/Vertex candidate checks are opt-in, not ordinary CI gates. UAT
 dispatches default `run_live_model_checks=false`; explicitly setting it to

@@ -158,7 +158,9 @@ async def pod(tmp_path, monkeypatch, hub_key):
     # Entered as a context so the client's portal exists: the tests use it to drive
     # the broker from the test thread while the app serves the socket.
     with TestClient(app, raise_server_exceptions=False) as client:
-        yield {"client": client, "authority": authority, "admit": admit, "keypair": keypair}
+        yield dict(
+            client=client, authority=authority, admit=admit, keypair=keypair, objects=object_store
+        )
     psa.set_active_session_authority(None)
     pod_config.set_active_pod_config(None)
     pb.BROKER._links.clear()
@@ -362,6 +364,67 @@ async def test_a_revocation_at_the_pod_closes_the_link_on_the_next_frame(pod):
             ws.receive_json()
         assert caught.value.code == 1008
     assert pb.BROKER.is_linked((OWNER, device.subject_id)) is False
+
+
+@pytest.mark.parametrize("refusal", ["expired", "revoked", "replaced"])
+async def test_outbound_dispatch_rechecks_authority_before_disclosing_a_request(
+    pod, monkeypatch, refusal
+):
+    device = Device()
+    token, claims = await pod["admit"](device)
+    key = (OWNER, device.subject_id)
+    with _connect(pod, token) as ws:
+        ws.send_json(_hello(device))
+        assert ws.receive_json()["type"] == "relay.ready"
+        link = pod["client"].portal.call(pb.BROKER.get, key)
+        request = {
+            "type": "inference.request",
+            "requestId": "guarded",
+            "deviceId": device.subject_id,
+        }
+        # The same real send callback delivers a sealed request while authorized.
+        pod["client"].portal.call(link.send, request)
+        frame = _device_envelope(pod, device, claims).open(
+            ws.receive_json(), expected_direction=env.DIR_POD_TO_DEVICE, expected_seq=1
+        )
+        assert frame == request
+        if refusal == "expired":
+            monkeypatch.setattr(pod["authority"], "_clock", lambda: claims["exp"])
+        elif refusal == "revoked":
+            pod["client"].portal.call(pod["authority"].revoke_subject, device.subject_id)
+        else:
+            await claim_incarnation(pod["objects"], DEK, instance_id="rev-b")
+            await pod["authority"].lease.state(force=True)
+        # No inbound heartbeat is sent between expiry/revocation and dispatch.
+        with pytest.raises(psa.PodSessionRefused):
+            pod["client"].portal.call(link.send, request)
+        with pytest.raises(WebSocketDisconnect) as closed:
+            ws.receive_json()
+        assert closed.value.code == 1008
+        assert not pb.BROKER.is_linked(key)
+
+
+async def test_work_arriving_during_an_idle_wait_does_not_evict_a_live_device(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    link = SimpleNamespace(last_work_monotonic=time.monotonic(), pending={})
+    websocket = SimpleNamespace(close=AsyncMock())
+    calls = 0
+
+    async def frame(_websocket):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            # A dispatch replaced the old idle deadline while receive waited.
+            link.pending["active"] = object()
+            link.last_work_monotonic = time.monotonic()
+            raise TimeoutError
+        return {"type": "relay.heartbeat"}
+
+    monkeypatch.setattr(pod_puppy_relay, "_frame", frame)
+    assert await pod_puppy_relay._next_frame(websocket, link, 600) == {"type": "relay.heartbeat"}
+    websocket.close.assert_not_awaited()
 
 
 async def test_a_silent_device_is_evicted_instead_of_held_forever(pod, monkeypatch):

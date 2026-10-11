@@ -5,8 +5,8 @@ The hello must name the session's own subject; the role is the binding's, never
 the hello's. After the hello every frame in both directions is sealed by
 ``puppy_envelope`` under a key derived from this pod's identity key and the
 ephemeral key the device sent, with the owner, device, session, incarnation epoch,
-direction and sequence bound as AAD. The session is re-verified on every inbound
-frame, so a revocation that lands at the pod closes the socket at the next frame.
+direction and sequence bound as AAD. Session and incarnation authority are
+re-verified before outbound dispatch; inbound frames also re-verify the session.
 
 A device never requests inference. It answers. A sealed ``inference.request`` from
 the device closes the socket 1008: the hub broker used to echo that frame back,
@@ -37,6 +37,7 @@ from hushh_mcp.services.pod_config import active_pod_config
 from hushh_mcp.services.pod_session_authority import (
     ROLE_DEVICE,
     SCOPE_PUPPY_INFERENCE,
+    PodSessionAuthority,
     PodSessionRefused,
     active_session_authority,
 )
@@ -121,28 +122,34 @@ async def _next_frame(
     websocket: WebSocket, link: Any, idle_grace: int | None
 ) -> dict[str, Any] | None:
     """Close idle or silent sockets without treating heartbeats as active work."""
-    remaining = (
-        idle_grace - (time.monotonic() - link.last_work_monotonic)
-        if idle_grace and not link.pending
-        else _DEVICE_SILENCE_SECONDS
-    )
-    if remaining <= 0:
-        await websocket.close(code=1000, reason="Puppy relay idle")
-        return None
-    try:
-        async with asyncio.timeout(min(_DEVICE_SILENCE_SECONDS, remaining)):
-            return await _frame(websocket)
-    except asyncio.TimeoutError:
-        if (
-            idle_grace
-            and not link.pending
-            and time.monotonic() - link.last_work_monotonic >= idle_grace
-        ):
+    silence_deadline = time.monotonic() + _DEVICE_SILENCE_SECONDS
+    while True:
+        now = time.monotonic()
+        idle_remaining = (
+            idle_grace - (now - link.last_work_monotonic)
+            if idle_grace and not link.pending
+            else None
+        )
+        if idle_remaining is not None and idle_remaining <= 0:
             await websocket.close(code=1000, reason="Puppy relay idle")
-        else:
+            return None
+        silence_remaining = silence_deadline - now
+        if silence_remaining <= 0:
             logger.info("pod_puppy_relay.device_silent seconds=%s", int(_DEVICE_SILENCE_SECONDS))
             await websocket.close(code=1001, reason="Puppy relay went silent")
-        return None
+            return None
+        timeout = (
+            min(silence_remaining, idle_remaining)
+            if idle_remaining is not None
+            else silence_remaining
+        )
+        try:
+            async with asyncio.timeout(timeout):
+                return await _frame(websocket)
+        except asyncio.TimeoutError:
+            # Work may arrive while an older idle deadline is waiting. Recheck
+            # it without extending the independent device-silence deadline.
+            continue
 
 
 def _idle_grace_seconds() -> int | None:
@@ -153,6 +160,40 @@ def _idle_grace_seconds() -> int | None:
     if seconds <= 0:
         raise ValueError("Puppy idle grace must be positive")
     return seconds
+
+
+async def _verify_dispatch_authority(
+    websocket: WebSocket,
+    authority: PodSessionAuthority,
+    token: str,
+    key: tuple[str, str],
+    link: Any,
+) -> None:
+    """Fence private outbound requests even when no device heartbeat arrives."""
+    try:
+        await authority.require_held()
+        authority.verify_session(token, expected_role=ROLE_DEVICE)
+    except PodSessionRefused:
+        if link is not None:
+            await BROKER.remove(key, link)
+        await websocket.close(code=1008, reason="Puppy relay session ended")
+        raise
+
+
+def _relay_envelope(
+    authority: PodSessionAuthority, device_id: str, session_id: str, ephemeral_public_key: str
+) -> PuppyEnvelope:
+    """Establish this admitted device's sealed channel under the pod identity."""
+    from hushh_mcp.services.pod_self_registration import pod_keypair  # noqa: PLC0415
+
+    key = derive_frame_key(pod_keypair().private_key, ephemeral_public_key)
+    return PuppyEnvelope(
+        key,
+        hushh_id=authority.hushh_id,
+        device_id=device_id,
+        session_id=session_id,
+        epoch=authority.epoch,
+    )
 
 
 @router.websocket("/relay")
@@ -187,26 +228,21 @@ async def pod_puppy_relay(websocket: WebSocket) -> None:
         ):
             await websocket.close(code=1008, reason="Puppy relay binding refused")
             return
-        from hushh_mcp.services.pod_self_registration import pod_keypair  # noqa: PLC0415
-
         try:
-            frame_key = derive_frame_key(
-                pod_keypair().private_key, str(hello.get("deviceEphemeralPublicKey") or "")
+            envelope = _relay_envelope(
+                authority,
+                device_id,
+                str(claims["sid"]),
+                str(hello.get("deviceEphemeralPublicKey") or ""),
             )
         except PuppyEnvelopeError:
             await websocket.close(code=1008, reason="Puppy relay key agreement refused")
             return
-        envelope = PuppyEnvelope(
-            frame_key,
-            hushh_id=authority.hushh_id,
-            device_id=device_id,
-            session_id=str(claims["sid"]),
-            epoch=authority.epoch,
-        )
         outbound = {"seq": 0}
         inbound_expected = 1
 
         async def send(frame: dict[str, Any]) -> None:
+            await _verify_dispatch_authority(websocket, authority, token, key, link)
             outbound["seq"] += 1
             await websocket.send_json(
                 envelope.seal(frame, direction=DIR_POD_TO_DEVICE, seq=outbound["seq"])

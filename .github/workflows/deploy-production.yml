@@ -8,11 +8,12 @@ on:
         required: true
         type: string
       scope:
-        description: "Deploy backend only, frontend only, or both"
+        description: "Auto-detect changed services, or force backend/frontend/all"
         required: true
-        default: "all"
+        default: "auto"
         type: choice
         options:
+          - auto
           - all
           - backend
           - frontend

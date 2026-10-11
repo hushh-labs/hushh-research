@@ -61,7 +61,7 @@ def resolve_hosting_mode(
         return "unknown"
     if row is not None and status not in {"", "unprovisioned", "reaped"}:
         return "unknown"
-    if not _detach_history_readable(row):
+    if not _unassigned_placement_clear(row):
         return "unknown"
 
     if setup_job is not None and abandoned_intent(setup_job, now=now):
@@ -144,6 +144,44 @@ def _last_detach(row: dict | None) -> Optional[dict]:
     return detached[-1]
 
 
+def _unassigned_placement_clear(row: dict | None) -> bool:
+    """An empty target cannot release unresolved resources or lifecycle work."""
+    if not _detach_history_readable(row):
+        return False
+    record = row or {}
+    resource_fields = (
+        "backend",
+        "external_agent_id",
+        "pod_pubkey",
+        "pod_key_id",
+        "pod_signing_pubkey",
+        "pod_signing_key_id",
+        "user_cloud_project",
+        "user_cloud_region",
+        "user_cloud_bootstrap_sa",
+        "user_cloud_authorized_at",
+        "user_cloud_tenant_id",
+        "user_cloud_subscription_id",
+        "user_cloud_resource_group",
+    )
+    if any(record.get(field) not in (None, "") for field in resource_fields):
+        return False
+    metadata = record.get("backend_metadata") or {}
+    if set(metadata) - {"detachedPlacements"}:
+        return False
+    route = record.get("a2a_route")
+    if route:
+        # Detach deliberately preserves the stable identity route. Only its
+        # recorded snapshot establishes that this is history, not an assignment.
+        detached = _last_detach(row)
+        if not detached or route != detached.get("a2a_route"):
+            return False
+        for field in ("user_id", "hushh_id"):
+            if record.get(field) != detached.get(field):
+                return False
+    return True
+
+
 def shared_choice_is_current(row: dict | None, choice: dict | None) -> bool:
     """True when a recorded Shared choice exists and is newer than the last detach.
 
@@ -156,7 +194,7 @@ def shared_choice_is_current(row: dict | None, choice: dict | None) -> bool:
     chosen_at = _instant(choice.get("chosen_at"))
     if chosen_at is None:
         return False
-    if not _detach_history_readable(row):
+    if not _unassigned_placement_clear(row):
         return False
     detach = _last_detach(row)
     if detach is None:

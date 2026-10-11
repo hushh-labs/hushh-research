@@ -76,6 +76,46 @@ def test_a_shared_choice_newer_than_the_detach_is_shared():
     assert _mode(row=_detached(), choice=_shared(AFTER)) == "shared"
 
 
+@pytest.mark.parametrize("status", ["unprovisioned", "reaped"])
+@pytest.mark.parametrize(
+    "residue",
+    [
+        {"backend": "gcp"},
+        {"external_agent_id": "existing-service"},
+        {"pod_key_id": "existing-pod"},
+        {"pod_pubkey": "public-key"},
+        {"pod_signing_key_id": "existing-signing-key"},
+        {"user_cloud_project": "owner-project"},
+        {"user_cloud_subscription_id": "owner-subscription"},
+        {"a2a_route": "https://unresolved.example/owner"},
+        {"backend_metadata": {"url": "https://unresolved.example"}},
+        {"backend_metadata": {"provisionAttempt": {"phase": "provisioned"}}},
+        {"backend_metadata": {"upgradeLease": {"operation": "unfinished"}}},
+        {"backend_metadata": {"erasure": {"phase": "retained"}}},
+    ],
+)
+def test_unresolved_placement_neither_admits_shared_nor_offers_a_new_choice(status, residue):
+    row = {"status": status, "deployment_target": None, **residue}
+    assert _mode(row=row, choice=_shared(AFTER)) == "unknown"
+    assert _mode(row=row) == "unknown"
+    assert hosting.shared_choice_is_current(row, _shared(AFTER)) is False
+
+
+@pytest.mark.parametrize("changed_field", ["a2a_route", "user_id", "hushh_id"])
+def test_detached_identity_route_remains_usable_without_restoring_pod_authority(changed_field):
+    row = _detached()
+    identity = {
+        "user_id": "owner",
+        "hushh_id": "ha1_owner",
+        "a2a_route": "https://a2a.example/owner",
+    }
+    row.update(identity)
+    row["backend_metadata"]["detachedPlacements"][0].update(identity)
+    assert _mode(row=row, choice=_shared(AFTER)) == "shared"
+    row[changed_field] = "someone-else"
+    assert _mode(row=row, choice=_shared(AFTER)) == "unknown"
+
+
 def test_a_detach_without_a_readable_time_supersedes_every_choice():
     assert _mode(row=_detached(at=None), choice=_shared(AFTER)) == "unplaced"
 
@@ -252,6 +292,15 @@ async def test_a_real_setup_job_is_never_replaced_by_shared(monkeypatch):
     with pytest.raises(HTTPException) as refused:
         await runtime_placement.select_shared("u1")
     assert refused.value.status_code == 409
+    assert _ChoiceRecorder.calls == [] and marked == []
+
+
+async def test_unresolved_cloud_resources_cannot_be_overwritten_by_shared_selection(monkeypatch):
+    mode = _mode(row={"status": "unprovisioned", "external_agent_id": "existing-service"})
+    marked = _wire_select(monkeypatch, [mode])
+    with pytest.raises(HTTPException) as refused:
+        await runtime_placement.select_shared("u1")
+    assert refused.value.status_code == 503
     assert _ChoiceRecorder.calls == [] and marked == []
 
 
