@@ -205,7 +205,7 @@ async def test_isolated_postgres_receipt_authority_and_forward_rollback(request,
                 );
                 INSERT INTO vault_keys VALUES ('owner', true), ('other', false);
             """)
-            migration = (ROOT / "db/migrations/307_one_magic_intelligence_saved.sql").read_text()
+            migration = (ROOT / "db/migrations/314_one_magic_intelligence_saved.sql").read_text()
             await conn.execute(migration)
             await conn.execute(migration)  # Additive migration replay preserves existing state.
             assert (
@@ -297,7 +297,7 @@ async def test_isolated_postgres_receipt_authority_and_forward_rollback(request,
         async with pool.acquire() as conn:
             await conn.execute(
                 (
-                    ROOT / "db/migrations/rollback/307_one_magic_intelligence_saved.rollback.sql"
+                    ROOT / "db/migrations/rollback/314_one_magic_intelligence_saved.rollback.sql"
                 ).read_text()
             )
             assert await conn.fetchval("SELECT COUNT(*) FROM pkm_domain_commits") == 2
