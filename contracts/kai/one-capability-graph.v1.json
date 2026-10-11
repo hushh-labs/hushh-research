@@ -29880,7 +29880,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Opens the secure inline add-card form; card secrets are typed into the widget and encrypted under the vault key, never into chat.",
+      "description": "Opens the secure inline add-card form; card secrets are entered or scanned and reviewed in the widget, then encrypted under the vault key, never into chat.",
       "execution": {
         "binding_ref": "semantic_action:agent_chat_wallet_add",
         "executor": {
@@ -39555,7 +39555,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "3df13e7fb2dc600dae6d414b0e95736100a838769c2f46ce6329a162367664b0",
+      "projection_digest": "27564bdea313c59a0ee059356d18e25cc3084cfec1024003bc1440f2d16a68ad",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -39565,7 +39565,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "b99e70e7a502fc76b70c9d2d010c8be01fb93aba6972bd6d4e1fab938b7b6b59",
+        "capability_graph_evolution": "6e32de8c00cbd9ce46897b451872549fa3b660fdb78d725b1eb31936e900b7b6",
         "capability_runtime_compiler": "465de0a7294d6b0733e422548f9ed9c087fc41fd5b2632431d0f120136da819f",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
@@ -39574,7 +39574,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
       },
-      "source_revision": "9b9069c8c60c02f9",
+      "source_revision": "d71ad90b1264bb6c",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -41092,7 +41092,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "9b9069c8c60c02f9",
+    "source_revision": "d71ad90b1264bb6c",
     "web": {
       "actions": [
         {
@@ -41135,7 +41135,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "e5b3614804fa3c9f145814a2364e375e9bc272b348d5347db06505e9fb8fc921",
+      "projection_digest": "8ba909473989f99356b1e0ffa35b54754c6674f46dfc51396ee3b90e92e4ed86",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -41145,7 +41145,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "b99e70e7a502fc76b70c9d2d010c8be01fb93aba6972bd6d4e1fab938b7b6b59",
+        "capability_graph_evolution": "6e32de8c00cbd9ce46897b451872549fa3b660fdb78d725b1eb31936e900b7b6",
         "capability_runtime_compiler": "465de0a7294d6b0733e422548f9ed9c087fc41fd5b2632431d0f120136da819f",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
@@ -41154,7 +41154,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
       },
-      "source_revision": "9b9069c8c60c02f9",
+      "source_revision": "d71ad90b1264bb6c",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -42711,7 +42711,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "9b9069c8c60c02f9",
+  "revision": "d71ad90b1264bb6c",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -44609,10 +44609,13 @@
     ],
     "breaking": [],
     "changed": [
+      "actions:wallet.add",
       "screens:screen:/one/setup"
     ],
     "compatible": [],
-    "deprecated": [],
+    "deprecated": [
+      "actions:wallet.add"
+    ],
     "from_revision": "f0dd083b1d2493ac",
     "migrated": [],
     "removed": []
@@ -46899,10 +46902,10 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "b99e70e7a502fc76b70c9d2d010c8be01fb93aba6972bd6d4e1fab938b7b6b59",
+    "capability_graph_evolution": "6e32de8c00cbd9ce46897b451872549fa3b660fdb78d725b1eb31936e900b7b6",
     "capability_runtime_compiler": "465de0a7294d6b0733e422548f9ed9c087fc41fd5b2632431d0f120136da819f",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "cb6115a6cdb1d7c18d00433809a524fa796d3b656640d7d6ba4d62c6f30d9466",
+    "kai_action_gateway": "845c70d82d5e472bb18040700ea80fceaa8168091d7cde370d1ef48e9b8bb1da",
     "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
     "location_knowledge_package": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
@@ -46911,9 +46914,9 @@
     "route_orchestration_index": "aefc23dc5e44935116f169b876b1382a3e71b08ccfcc9bfac950d53fb45ab474",
     "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
   },
-  "source_revision": "9b9069c8c60c02f9",
+  "source_revision": "d71ad90b1264bb6c",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "9b9069c8c60c02f9",
+    "current_graph_revision": "d71ad90b1264bb6c",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -46998,6 +47001,7 @@
           "982f6c71300d5430",
           "9901faaed410026a",
           "99f8c9ff56a09d49",
+          "9b9069c8c60c02f9",
           "9c1f8b9bcf9e2d4b",
           "9c797354f3ce3b52",
           "9d786fec1d5617bb",
@@ -47073,6 +47077,7 @@
           "82b0f2c85fa6d4da",
           "83966cd4fefe54f6",
           "9901faaed410026a",
+          "9b9069c8c60c02f9",
           "9c1f8b9bcf9e2d4b",
           "cb10ee16c62231b2"
         ],
@@ -47164,6 +47169,7 @@
           "982f6c71300d5430",
           "9901faaed410026a",
           "99f8c9ff56a09d49",
+          "9b9069c8c60c02f9",
           "9c1f8b9bcf9e2d4b",
           "9c797354f3ce3b52",
           "9d786fec1d5617bb",
@@ -47270,6 +47276,7 @@
           "934f53f787f43981",
           "9685a4f3c74e2591",
           "9901faaed410026a",
+          "9b9069c8c60c02f9",
           "9d786fec1d5617bb",
           "9e8a734a41be8c78",
           "a557b6e430688973",
@@ -47449,6 +47456,7 @@
           "982f6c71300d5430",
           "9901faaed410026a",
           "99f8c9ff56a09d49",
+          "9b9069c8c60c02f9",
           "9c1f8b9bcf9e2d4b",
           "9c797354f3ce3b52",
           "9d786fec1d5617bb",
@@ -47595,6 +47603,7 @@
           "982f6c71300d5430",
           "9901faaed410026a",
           "99f8c9ff56a09d49",
+          "9b9069c8c60c02f9",
           "9c1f8b9bcf9e2d4b",
           "9c797354f3ce3b52",
           "9d786fec1d5617bb",
@@ -47741,6 +47750,7 @@
           "982f6c71300d5430",
           "9901faaed410026a",
           "99f8c9ff56a09d49",
+          "9b9069c8c60c02f9",
           "9c1f8b9bcf9e2d4b",
           "9c797354f3ce3b52",
           "9d786fec1d5617bb",
@@ -47887,6 +47897,7 @@
           "982f6c71300d5430",
           "9901faaed410026a",
           "99f8c9ff56a09d49",
+          "9b9069c8c60c02f9",
           "9c1f8b9bcf9e2d4b",
           "9c797354f3ce3b52",
           "9d786fec1d5617bb",

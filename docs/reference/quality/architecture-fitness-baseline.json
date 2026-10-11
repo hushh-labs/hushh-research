@@ -19544,7 +19544,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/wallet/wallet-workspace.tsx",
       "symbol": null,
-      "value": 1102
+      "value": 1106
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19886,7 +19886,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts",
       "symbol": null,
-      "value": 1473
+      "value": 1474
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -28938,6 +28938,26 @@
           "before": null,
           "after": 127,
           "source_sha256": "a926e62015172a74e491a2aafe039be42d78695c7636b4a342d288e56a3a8e87"
+        }
+      ]
+    },
+    "current_main_wallet_back_20261011": {
+      "incoming_main": "bf3376e0067eb7ada835f6b6df28ee07a4776a27",
+      "source_revision": "e04debe8d8973d8b92dea8bdf720d739af82684d",
+      "review": "Independent read-only client review and parent inspection accept exactly two integration spans: two incoming main Wallet lines and two explicit Back binding lines; the generated Location catalog retains exactly one prior compatible graph revision. Cancellation remains in existing form/scanner owners. No budgets, scanner, exclusions, other finding slots, workflow versions or future-growth enforcement change.",
+      "verification": "46 Wallet browser cases, two full tablet recovery matrices, 46 focused Wallet boundary cases, 422 Back cases, generated UI parity and frontend typechecking pass. Original source fails new Back assertions.",
+      "changes": [
+        {
+          "key": "module_size|hushh-webapp/components/wallet/wallet-workspace.tsx||module exceeds the advisory operon budget",
+          "before": 1102,
+          "after": 1106,
+          "source_sha256": "9b780b2885736ccd52363ad10396f8152ea4c30cd4451d4120f44d1733d0c300"
+        },
+        {
+          "key": "module_size|hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts||module exceeds the advisory operon budget",
+          "before": 1473,
+          "after": 1474,
+          "source_sha256": "46a9e4b18ec19279ef47d3ead7b59c5082cc176760535f3052302277d13e6196"
         }
       ]
     }

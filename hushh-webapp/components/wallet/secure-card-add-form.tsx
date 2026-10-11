@@ -31,6 +31,7 @@ import { cn } from "@/lib/utils";
 import { CARD_BRANDS, detectBrand, validateCardForRegion, type CardBrand } from "@/lib/wallet/card-validation";
 import { COUNTRY_PHONE_OPTIONS } from "@/lib/constants/country-phone-options";
 import type { WalletCardInput } from "@/lib/services/wallet-service";
+import { useBackLayer } from "@/lib/navigation/back-layers";
 
 import { WalletCardScanner } from "./wallet-card-scanner";
 import styles from "./secure-card-add-form.module.css";
@@ -55,6 +56,7 @@ const ERROR_COPY: Record<string, string> = {
 export interface SecureCardAddFormProps {
   onSubmit: (card: WalletCardInput) => Promise<void>;
   onCancel?: () => void;
+  backRoute?: string;
   compact?: boolean;
   /** Read a physical card locally, then review before saving. */
   scanEnabled?: boolean;
@@ -67,7 +69,7 @@ export interface SecureCardAddFormProps {
   initialPan?: string;
 }
 
-export function SecureCardAddForm({ onSubmit, onCancel, compact, scanEnabled = true, scanInToolbar = false, active = true, initialNickname, initialPan }: SecureCardAddFormProps) {
+export function SecureCardAddForm({ onSubmit, onCancel, backRoute, compact, scanEnabled = true, scanInToolbar = false, active = true, initialNickname, initialPan }: SecureCardAddFormProps) {
   const id = useId();
   const saving = useRef(false);
   const errorsRef = useRef<HTMLUListElement>(null);
@@ -82,6 +84,10 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, scanEnabled = t
   const [errors, setErrors] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [scanning, setScanning] = useState(false);
+  useBackLayer(backRoute ?? "", backRoute && active && onCancel ? 2 : 0, () => {
+    if (!saving.current) onCancel?.();
+    return true;
+  });
   useEffect(() => {
     if (!active) setRevealSecrets(false);
   }, [active]);
@@ -143,7 +149,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, scanEnabled = t
     }
   };
 
-  const scanner = scanEnabled ? <WalletCardScanner active={active} disabled={submitting} onBusyChange={setScanning} onRead={(fields) => {
+  const scanner = scanEnabled ? <WalletCardScanner backRoute={backRoute} active={active} disabled={submitting} onBusyChange={setScanning} onRead={(fields) => {
         setPan(fields.pan);
         setExpiry(fields.expiry ?? "");
         setCardholderName(fields.cardholderName ?? "");

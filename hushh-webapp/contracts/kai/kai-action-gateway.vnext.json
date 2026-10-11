@@ -24376,7 +24376,7 @@
         "new card",
         "save card"
       ],
-      "meaning": "Opens the secure inline add-card form; card secrets are typed into the widget and encrypted under the vault key, never into chat.",
+      "meaning": "Opens the secure inline add-card form; card secrets are entered or scanned and reviewed in the widget, then encrypted under the vault key, never into chat.",
       "speaker_persona": "one",
       "delegate_agent_id": "agent_wallet",
       "reachability": {

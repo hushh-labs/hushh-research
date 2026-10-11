@@ -493,6 +493,9 @@ test("hands the vault stage to the interactive unlock screen", async ({ page }) 
 
 for (const viewport of [{ width: 834, height: 1194 }, { width: 1194, height: 834 }]) {
   test(`real vault recovery remains reachable on tablet ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    // Fifteen resize/keyboard states each prove real wheel access and its
+    // clipped negative control; the complete matrix takes over 30 seconds.
+    test.setTimeout(60_000);
     await open(page, { ...viewport, dark: false, native: true });
     await settleIdle(page);
     await page.evaluate(() => window.bootFixture.unlock(true));

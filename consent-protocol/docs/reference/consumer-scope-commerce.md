@@ -2340,3 +2340,29 @@ parent review, retaining all budgets and future growth enforcement. Its 24 neare
 retention tests pass. The final combined source still requires core, hosted CI,
 governed Dev deployment and actual reviewer/provider receipts; no payment or MCP
 OAuth acceptance follows from these source results.
+
+The `1ce2d17b54` candidate passed the full local core in 1,264 seconds, but
+hosted CI `38127101503` failed its targeted browser gate; 21 other jobs passed.
+The browser fixtures missed the versioned public logo URL and placed Wallet on
+an opaque origin without browser storage. Commit `16957d74ec` corrects both
+fixtures while preserving image, layout and remount assertions. Main then
+advanced to `bf3376e006` with Wallet camera, swipe and sharing improvements;
+normal merge `e04debe8d8` preserves both sources on the infrastructure branch.
+All 46 fresh-main Wallet browser cases pass. Both complete tablet recovery
+matrices pass with a measured 60-second per-test budget; all resize, real-wheel
+and clipped negative-control assertions remain intact.
+
+Combined Back review found missing Add and inline-scan cancellation ownership.
+Wallet now explicitly supplies its route to the shared form: Back cancels scan
+before Add, consumes pending-save Back and releases inactive ownership. Agent
+One's separate inline widget remains outside this Wallet route binding. The
+nearest 46 focused cases pass; the original source fails the two new Back
+assertions. The existing `wallet.add` description now includes reviewed local
+scanning, with its action ID, executor and vault guards preserved. The canonical
+capability evolution contract rejects paused actions from main's exact previous
+graph revision `f0dd083b1d2493ac`; they require planning against the new graph.
+All 422 Back cases, generated UI parity and frontend typechecking pass.
+Exact-candidate core/hosted CI remain release gates. No financial transaction,
+fresh deployment, physical
+device acceptance or authenticated Stripe MCP read is established by this
+source evidence.

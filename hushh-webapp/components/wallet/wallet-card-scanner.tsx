@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2 } from "@/components/icons";
 import { ProfilePaneScanIcon } from "@/components/profile/profile-pane-icons";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -8,10 +8,12 @@ import { Button } from "@/components/ui/button";
 import { isNative } from "@/lib/capacitor/platform";
 import { pickNativeWalletCard, scanWalletCard } from "@/lib/services/wallet-card-scan";
 import type { ScannedCardFields } from "@/lib/wallet/card-scan-fields";
+import { useBackLayer } from "@/lib/navigation/back-layers";
 import styles from "./secure-card-add-form.module.css";
 
-export function WalletCardScanner({ active, disabled, onRead, onBusyChange }: {
+export function WalletCardScanner({ active, disabled, backRoute, onRead, onBusyChange }: {
   active: boolean; disabled: boolean;
+  backRoute?: string;
   onRead: (fields: ScannedCardFields) => void;
   onBusyChange: (busy: boolean) => void;
 }) {
@@ -46,6 +48,13 @@ export function WalletCardScanner({ active, disabled, onRead, onBusyChange }: {
   const [notice, setNotice] = useState("");
   const busyCallback = useRef(onBusyChange);
   busyCallback.current = onBusyChange;
+  const cancelScan = useCallback(() => {
+    request.current?.abort(); request.current = null; setBusy(false); busyCallback.current(false);
+  }, []);
+  useBackLayer(backRoute ?? "", backRoute && active && busy ? 3 : 0, () => {
+    cancelScan();
+    return true;
+  });
   useEffect(() => {
     if (!active) {
       setCameraOpen(false);
@@ -110,9 +119,7 @@ export function WalletCardScanner({ active, disabled, onRead, onBusyChange }: {
     {busy ? <div className={styles.scanProgress} role="status">
       <Loader2 aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" />
       Reading on your device…
-      <Button type="button" variant="ghost" size="compact" onClick={() => {
-        request.current?.abort(); request.current = null; setBusy(false); onBusyChange(false);
-      }}>Cancel scan</Button>
+      <Button type="button" variant="ghost" size="compact" onClick={cancelScan}>Cancel scan</Button>
     </div> : null}
     {notice ? <p role="status" className={styles.scanHint}>{notice}</p> : null}
   </div>;

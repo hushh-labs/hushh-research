@@ -72,7 +72,7 @@
     {
       "action_id": "wallet.add",
       "label": "Add a card",
-      "meaning": "Opens the secure inline add-card form; card secrets are typed into the widget and encrypted under the vault key, never into chat.",
+      "meaning": "Opens the secure inline add-card form; card secrets are entered or scanned and reviewed in the widget, then encrypted under the vault key, never into chat.",
       "aliases": [
         "add a card",
         "save my card",

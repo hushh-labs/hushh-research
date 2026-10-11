@@ -1,6 +1,9 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Capacitor } from "@capacitor/core";
 import { SecureCardAddForm } from "@/components/wallet/secure-card-add-form";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
+import { pickNativeWalletCard } from "@/lib/services/wallet-card-scan";
 
 const scan = vi.hoisted(() => ({ read: vi.fn() }));
 vi.mock("@/lib/services/wallet-card-scan", () => ({ scanWalletCard: scan.read, pickNativeWalletCard: vi.fn() }));
@@ -40,7 +43,8 @@ describe("Secure manual card entry", () => {
   it("submits once with omitted optional fields and clears credentials only after success", async () => {
     let finish!: () => void;
     const save = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
-    render(<SecureCardAddForm onSubmit={save} />);
+    const cancel = vi.fn();
+    render(<SecureCardAddForm backRoute="/one/wallet" onCancel={cancel} onSubmit={save} />);
     fillRequired();
     submit();
     submit();
@@ -52,6 +56,8 @@ describe("Secure manual card entry", () => {
     }));
     expect(screen.getByLabelText("CVV")).toHaveValue("123");
     expect(screen.getByTestId("secure-card-save")).toBeDisabled();
+    act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
+    expect(cancel).not.toHaveBeenCalled();
     await act(async () => finish());
     expect(screen.getByLabelText("Card number")).toHaveValue("");
     expect(screen.getByLabelText("CVV")).toHaveValue("");
@@ -100,6 +106,36 @@ describe("Secure manual card entry", () => {
     submit();
     expect(save).not.toHaveBeenCalled();
   });
+});
+
+it("cancels an inline scan before Add, rejects late fields, and releases inactive Back ownership", async () => {
+  const platform = vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
+  let finish!: (fields: { pan: string }) => void;
+  scan.read.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  vi.mocked(pickNativeWalletCard).mockResolvedValue(new Blob(["synthetic"]));
+  const cancel = vi.fn();
+  const save = vi.fn();
+  const props = { backRoute: "/one/wallet", onCancel: cancel, onSubmit: save };
+  const view = render(<SecureCardAddForm {...props} />);
+  try {
+    fireEvent.click(screen.getByRole("button", { name: "Scan card", exact: true }));
+    await waitFor(() => expect(scan.read).toHaveBeenCalled());
+    const signal = scan.read.mock.calls.at(-1)![1] as AbortSignal;
+    act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
+    expect(signal.aborted).toBe(true);
+    expect(cancel).not.toHaveBeenCalled();
+    await act(async () => finish({ pan: "5555555555554444" }));
+    expect(screen.getByLabelText("Card number")).toHaveValue("");
+    act(() => { expect(unwindBackLayer("/one/wallet")).toBe(true); });
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(save).not.toHaveBeenCalled();
+    view.rerender(<SecureCardAddForm {...props} active={false} />);
+    expect(unwindBackLayer("/one/wallet")).toBe(false);
+    view.unmount();
+    expect(unwindBackLayer("/one/wallet")).toBe(false);
+  } finally {
+    platform.mockRestore();
+  }
 });
 
 it("reviews scanned fields without saving and clears old security codes", async () => {
