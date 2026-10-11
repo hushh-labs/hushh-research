@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 306,
+  "expected_migration_version": 307,
   "migration_version_policy": "minimum",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -2271,6 +2271,7 @@
       "one_runtime_setup_choice",
       "one_chat_onboarding",
       "one_business_profile_saved",
+      "one_magic_intelligence_saved",
       "created_at",
       "updated_at"
     ],

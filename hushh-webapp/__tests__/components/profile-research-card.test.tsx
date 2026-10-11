@@ -25,6 +25,12 @@ vi.mock("@/lib/services/api-service", () => ({
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
   PersonalKnowledgeModelService: { lookupMutationCommits: mocks.receipts },
 }));
+vi.mock("@/lib/services/secure-resource-cache-service", async (original) => ({
+  ...(await original<
+    typeof import("@/lib/services/secure-resource-cache-service")
+  >()),
+  SecureResourceCacheService: { readRequired: async () => null },
+}));
 vi.mock("@/lib/vault/one-chat-key", () => ({
   oneChatKeyHeaders: async () => ({ "X-Hussh-Chat-Key": "fixture" }),
 }));
@@ -62,6 +68,7 @@ vi.mock("@/lib/agent/agent-pkm-context-store", () => ({
 }));
 
 import { ProfileResearchCard } from "@/components/agent/profile-research-card";
+import { BusinessProfileSuggestion } from "@/components/agent/business-profile-suggestion";
 import { OneBackgroundCards } from "@/components/agent/one-background-cards";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
@@ -147,7 +154,11 @@ beforeEach(() => {
   publishValidatedAuthSessionOwner("owner");
   useOneConversationSession.getState().clearSession();
   useOneConversationSession.getState().queueProfileResearch("owner");
-  mocks.apiFetch.mockResolvedValue(respond(offer()));
+  mocks.apiFetch.mockImplementation((path: string) =>
+    Promise.resolve(
+      respond(path.endsWith("/complete") ? { saved: true } : offer()),
+    ),
+  );
   mocks.prepare.mockImplementation(async ({ message }: { message: string }) =>
     preview(message),
   );
@@ -168,6 +179,49 @@ afterEach(() => {
 });
 
 describe("onboarding profile draft and owner confirmation", () => {
+  it("offers an already-onboarded owner without a setup marker and consumes markers without repeating research", async () => {
+    useOneConversationSession.getState().clearSession();
+    const root = render(
+      <StrictMode>
+        <ProfileResearchCard {...props} />
+      </StrictMode>,
+    );
+    await screen.findByText("Alex Example");
+    act(() =>
+      useOneConversationSession.getState().queueProfileResearch("owner"),
+    );
+    root.rerender(
+      <StrictMode>
+        <ProfileResearchCard {...props} present={false} />
+      </StrictMode>,
+    );
+    root.rerender(
+      <StrictMode>
+        <ProfileResearchCard {...props} />
+      </StrictMode>,
+    );
+    expect(mocks.apiFetch).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    expect(screen.queryByTestId("profile-research-card")).toBeNull();
+    expect(mocks.apiFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits for resolved onboarding and hides a saved owner's offer on a fresh chat", async () => {
+    useOneConversationSession.getState().clearSession();
+    mocks.apiFetch.mockResolvedValue(
+      respond({ status: "saved", pkm_written: false }),
+    );
+    const root = render(<ProfileResearchCard {...props} enabled={false} />);
+    await act(async () => {
+      await new Promise((done) => setTimeout(done, 5));
+    });
+    expect(mocks.apiFetch).not.toHaveBeenCalled();
+    root.rerender(<ProfileResearchCard {...props} />);
+    await waitFor(() => expect(mocks.apiFetch).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId("profile-research-card")).toBeNull();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.addToPKM).not.toHaveBeenCalled();
+  });
   it("discards late discoveries and collapses details when the Magic owner changes", async () => {
     const pending: Array<{ path: string; resolve: (value: Response) => void }> =
       [];
@@ -261,6 +315,8 @@ describe("onboarding profile draft and owner confirmation", () => {
         }
         if (path === "/api/one/profile-research")
           return Promise.resolve(respond(offer()));
+        if (path === "/api/one/profile-research/complete")
+          return Promise.resolve(respond({ saved: true }));
         throw new Error(`Unexpected request: ${path}`);
       });
       render(
@@ -405,8 +461,8 @@ describe("onboarding profile draft and owner confirmation", () => {
     expect(mocks.addToPKM).not.toHaveBeenCalled();
   });
 
-  it.each(["no_match", "unavailable"])(
-    "never prepares or saves %s; failed research can retry and empty research can be skipped",
+  it.each(["no_match"])(
+    "never prepares or saves %s; empty research can be skipped",
     async (status) => {
       const result =
         status === "no_match"
@@ -431,11 +487,6 @@ describe("onboarding profile draft and owner confirmation", () => {
         expect(
           useOneConversationSession.getState().pendingProfileResearch,
         ).toBeNull();
-      } else {
-        await screen.findByText("Magic Intelligence is unavailable right now.");
-        fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-        await screen.findByText("Alex Example");
-        expect(mocks.apiFetch).toHaveBeenCalledTimes(2);
       }
       fireEvent.click(screen.getByRole("button", { name: "Skip" }));
       expect(mocks.prepare).not.toHaveBeenCalled();
@@ -443,6 +494,123 @@ describe("onboarding profile draft and owner confirmation", () => {
       expect(screen.queryByTestId("profile-research-card")).toBeNull();
     },
   );
+
+  it.each(["disabled", "unavailable", "rejected", "malformed"])(
+    "never reveals Magic during pending or %s initial research",
+    async (status) => {
+      let settle!: (value: Response) => void;
+      let fail!: (error: Error) => void;
+      mocks.apiFetch.mockImplementation((path: string) => {
+        if (path === "/api/one/business/suggestion")
+          return Promise.resolve(
+            respond({
+              contract_version: "b2b-profile-suggestion.v2",
+              scope: "b2b",
+              status: "disabled",
+              candidates: [],
+              pkm_written: false,
+            }),
+          );
+        return new Promise<Response>((resolve, reject) => {
+          settle = resolve;
+          fail = reject;
+        });
+      });
+      const visibility = vi.fn();
+      render(
+        <OneBackgroundCards
+          {...props}
+          tokenExpiresAt={Date.now() + 60_000}
+          onVisibleChange={visibility}
+          renderMessage={(_id, _text, card) => card}
+        />,
+      );
+      await waitFor(() => expect(mocks.apiFetch).toHaveBeenCalledTimes(2));
+      expect(screen.getByTestId("magic-intelligence-card")).not.toBeVisible();
+      expect(visibility).not.toHaveBeenCalledWith(true);
+      await act(async () => {
+        if (status === "rejected") fail(new Error("Unavailable"));
+        else
+          settle(
+            respond(
+              status === "malformed"
+                ? { status: "offered" }
+                : { status, pkm_written: false },
+            ),
+          );
+      });
+      expect(screen.getByTestId("magic-intelligence-card")).not.toBeVisible();
+      expect(visibility).not.toHaveBeenCalledWith(true);
+      expect(mocks.prepare).not.toHaveBeenCalled();
+      expect(mocks.addToPKM).not.toHaveBeenCalled();
+    },
+  );
+
+  it("never reports the previous owner's visible Business card under a new owner", async () => {
+    mocks.apiFetch
+      .mockResolvedValueOnce(
+        respond({
+          contract_version: "b2b-profile-suggestion.v2",
+          scope: "b2b",
+          status: "suggestion_available",
+          pkm_written: false,
+          candidates: [
+            {
+              business_uid: `urn:hushh:business:directory:business:${"a".repeat(64)}`,
+              synthetic: false,
+              source_identity: {
+                source: "directory",
+                source_key: "real-company",
+                vertical: "business",
+              },
+              match_evidence: [
+                { kind: "verified_email_domain", domain: "example.test" },
+              ],
+              draft: {
+                name: "Owner business",
+                website: "https://example.test",
+              },
+              ownership_verified: false,
+              claim_created: false,
+              verification_required: ["business_authority"],
+            },
+          ],
+        }),
+      )
+      .mockResolvedValue(
+        respond({
+          contract_version: "b2b-profile-suggestion.v2",
+          scope: "b2b",
+          status: "disabled",
+          candidates: [],
+          pkm_written: false,
+        }),
+      );
+    const visibility = vi.fn();
+    const expires = Date.now() + 60_000;
+    const root = render(
+      <BusinessProfileSuggestion
+        {...props}
+        tokenExpiresAt={expires}
+        onVisibleChange={visibility}
+      />,
+    );
+    await waitFor(() => expect(visibility).toHaveBeenCalledWith(true));
+    visibility.mockClear();
+    publishValidatedAuthSessionOwner("other");
+    root.rerender(
+      <BusinessProfileSuggestion
+        {...props}
+        ownerId="other"
+        vaultOwnerToken="other-token"
+        tokenExpiresAt={expires}
+        onVisibleChange={visibility}
+      />,
+    );
+    await waitFor(() => expect(mocks.apiFetch).toHaveBeenCalledTimes(2));
+    expect(visibility).not.toHaveBeenCalledWith(true);
+    expect(screen.queryByText("Owner business")).toBeNull();
+  });
 
   it("uses current-owner transport, dispatches once under StrictMode, and saves only after final confirmation", async () => {
     render(
@@ -581,6 +749,51 @@ const session = {
   assertCurrent: async () => undefined,
   isCurrent: () => true,
 };
+it("retains confirmed scopes after a lost completion response and retries without replaying Memory writes", async () => {
+  const reviewed = await prepareProfileReview(session, FACT);
+  mocks.apiFetch.mockRejectedValueOnce(new Error("completion response lost"));
+  await expect(
+    saveProfileReview(session, reviewed, new Set(["career1"]), false),
+  ).rejects.toThrow();
+  expect(mocks.addToPKM).toHaveBeenCalledTimes(1);
+  expect(reviewed.committed.has("career1")).toBe(true);
+  mocks.receipts.mockResolvedValue([{ exists: true, dataVersion: 2 }]);
+  await saveProfileReview(session, reviewed, new Set(["career1"]), false);
+  expect(mocks.addToPKM).toHaveBeenCalledTimes(1);
+  const calls = mocks.apiFetch.mock.calls.filter(([path]) =>
+    path.endsWith("/complete"),
+  );
+  expect(calls).toHaveLength(2);
+  expect(calls[0][1].body).toBe(calls[1][1].body);
+});
+
+it("waits for partial-save recovery and completes with every accumulated receipt", async () => {
+  const first = preview(FACT).cards[0];
+  mocks.prepare.mockResolvedValue({
+    sourceCoverage: [],
+    cards: [first, { ...first, card_id: "career2" }],
+  });
+  const reviewed = await prepareProfileReview(session, FACT);
+  mocks.addToPKM.mockResolvedValueOnce({
+    saved: 1,
+    failed: 0,
+    results: [{ success: true, result: { dataVersion: 2 } }],
+  });
+  mocks.addToPKM.mockRejectedValueOnce(new Error("second write unavailable"));
+  const partial = await saveProfileReview(
+    session,
+    reviewed,
+    new Set(["career1", "career2"]),
+    false,
+  );
+  expect([...partial.committed]).toEqual(["career1"]);
+  expect(mocks.apiFetch).not.toHaveBeenCalled();
+  await saveProfileReview(session, reviewed, new Set(["career2"]), false);
+  const commits = JSON.parse(mocks.apiFetch.mock.calls[0][1].body).commits;
+  expect(commits).toHaveLength(2);
+  expect(commits[0].plan_id).not.toBe(commits[1].plan_id);
+});
+
 it("recovers a committed lost response by receipt, and does not replay a card lacking an acknowledged revision", async () => {
   const reviewed = await prepareProfileReview(session, FACT);
   mocks.addToPKM.mockRejectedValueOnce(new Error("response lost"));

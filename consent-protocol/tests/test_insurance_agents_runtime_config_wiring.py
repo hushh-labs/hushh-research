@@ -204,3 +204,50 @@ def test_business_directory_rollout_remains_closed_without_opt_in():
     module = _load_sync_module()
     config = module._build_backend_runtime_config(_namespace())
     assert config["one_business_directory_enabled"] == "false"
+
+
+@pytest.mark.parametrize("phase", ["0", "1", "2", "3", "4"])
+def test_magic_phase_and_research_survive_canonical_config_generation(monkeypatch, phase):
+    module = _load_sync_module()
+    names = {
+        "one_profile_research_enabled": "true",
+        "one_magic_intelligence_phase": phase,
+        "one_magic_intelligence_inner_team_emails": "a@example.test,b@example.test,c@example.test,d@example.test",
+        "one_magic_intelligence_senior_team_emails": "e@example.test,f@example.test,g@example.test,h@example.test",
+        "one_magic_intelligence_qa_emails": "qa@example.test",
+    }
+    config = module._build_backend_runtime_config(_namespace(**names))
+    for name, value in names.items():
+        monkeypatch.delenv(name.upper(), raising=False)
+        assert config[name] == value
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps(config))
+    runtime_settings.hydrate_runtime_environment()
+    assert runtime_settings.one_profile_research_enabled()
+    assert runtime_settings.one_magic_intelligence_phase() == int(phase)
+    assert [len(row) for row in runtime_settings.one_magic_intelligence_cohorts()] == [4, 4, 1]
+
+
+@pytest.mark.parametrize("environment", ["uat", "production", "development"])
+def test_unconfigured_config_writer_never_opens_magic(environment):
+    config = _load_sync_module()._build_backend_runtime_config(_namespace(environment=environment))
+    assert config["one_profile_research_enabled"] == "false"
+    assert config["one_magic_intelligence_phase"] == "0"
+    assert config["one_business_directory_enabled"] == "false"
+
+
+def test_uat_deploy_uses_safe_environment_arguments_and_only_defaults_to_the_pilot():
+    import yaml
+
+    workflow = yaml.safe_load(
+        (Path(__file__).resolve().parents[2] / ".github/workflows/deploy-uat.yml").read_text()
+    )
+    step = next(
+        step
+        for job in workflow["jobs"].values()
+        for step in job.get("steps", [])
+        if step.get("name") == "Sync canonical hosted runtime secrets"
+    )
+    assert step["env"]["UAT_ONE_MAGIC_INTELLIGENCE_PHASE"].endswith("|| '1' }}")
+    for suffix in ["PHASE", "INNER_TEAM_EMAILS", "SENIOR_TEAM_EMAILS", "QA_EMAILS"]:
+        assert f'"$UAT_ONE_MAGIC_INTELLIGENCE_{suffix}"' in step["run"]
+    assert '"$UAT_ONE_PROFILE_RESEARCH_ENABLED"' in step["run"]

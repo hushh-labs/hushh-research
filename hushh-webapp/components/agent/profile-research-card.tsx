@@ -85,9 +85,6 @@ export function ProfileResearchCard({
   onAvailabilityChange,
   onBusinessAvailabilityChange,
 }: Props) {
-  const pending = useOneConversationSession(
-    (state) => state.pendingProfileResearch,
-  );
   const consume = useOneConversationSession(
     (state) => state.consumeProfileResearch,
   );
@@ -110,6 +107,7 @@ export function ProfileResearchCard({
   const credentials = useRef({ ownerId, vaultKey, vaultOwnerToken, enabled });
   credentials.current = { ownerId, vaultKey, vaultOwnerToken, enabled };
   const operations = useRef(new Set<AbortController>());
+  const attempted = useRef<string | null>(null);
   const busy = phase === "preparing" || phase === "saving";
   const hasOffer = result?.status === "offered";
   const visible =
@@ -147,6 +145,7 @@ export function ProfileResearchCard({
     setEditing(false);
     setSharingOpen(false);
     setVisibleOwner(null);
+    attempted.current = null;
     const activeOperations = operations.current;
     return () => {
       activeOperations.forEach((controller) => controller.abort());
@@ -155,14 +154,9 @@ export function ProfileResearchCard({
   }, [ownerId, vaultKey, vaultOwnerToken, enabled]);
 
   useEffect(() => {
-    if (
-      !enabled ||
-      !ownerId ||
-      !vaultKey ||
-      !vaultOwnerToken ||
-      pending?.userId !== ownerId
-    )
-      return;
+    if (!enabled || !ownerId || !vaultKey || !vaultOwnerToken) return;
+    const attempt = JSON.stringify([ownerId, vaultKey, vaultOwnerToken, retry]);
+    if (attempted.current === attempt) return;
     const controller = new AbortController();
     const guard = createAgentPkmCaptureGuard({
       userId: ownerId,
@@ -176,7 +170,7 @@ export function ProfileResearchCard({
     // Defer dispatch one tick: StrictMode's trial mount cleans up before a paid request starts.
     const timer = setTimeout(() => {
       if (!guard.isCurrent()) return;
-      setVisibleOwner({ ownerId, vaultKey, vaultOwnerToken });
+      attempted.current = attempt;
       setPhase("loading");
       void ProfileResearchService.research({
         vaultKey,
@@ -188,6 +182,7 @@ export function ProfileResearchCard({
           setResult(next);
           setPhase(next.status === "unavailable" ? "failed" : "draft");
           if (next.status === "offered") {
+            setVisibleOwner({ ownerId, vaultKey, vaultOwnerToken });
             setSelected(
               new Set(
                 next.report.match_status === "matched"
@@ -203,8 +198,8 @@ export function ProfileResearchCard({
               ),
             );
             setEdits({});
-            // The offered card is ephemeral. Re-entering chat must not pay
-            // for another research task for the same completed onboarding.
+            // Existing and newly onboarded owners share this path. Consuming
+            // the optional setup marker must not dispatch another request.
             consume(ownerId);
           } else if (next.status !== "unavailable") consume(ownerId);
         })
@@ -216,7 +211,7 @@ export function ProfileResearchCard({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [enabled, ownerId, vaultKey, vaultOwnerToken, pending, consume, retry]);
+  }, [enabled, ownerId, vaultKey, vaultOwnerToken, consume, retry]);
 
   const withSession = async (
     operation: (
