@@ -63,7 +63,12 @@ describe("profile workspace duplication contract", () => {
     expect(profilePageSource).toContain('activePanel === "payouts"');
     expect(profilePageSource).toContain('activePanel === "request-pricing"');
     expect(profilePageSource).toContain("<DocumentHashcoinPayouts />");
-    expect(payoutsSource).toContain("<DocumentPayoutAccountCard handleReturn showHistory={false} />");
+    // One bank control on Payouts: the document card, which also takes Stripe's return.
+    const payoutsPanel = profilePageSource.split('activePanel === "payouts") {')[1]?.split("} else if (")[0] ?? "";
+    expect(payoutsPanel).toContain("<DocumentHashcoinPayouts />");
+    expect(payoutsPanel).not.toContain("AnswerPayoutAccount");
+    expect(payoutsSource.match(/<DocumentPayoutAccountCard\b/g)).toEqual(["<DocumentPayoutAccountCard"]);
+    expect(payoutsSource).toContain("<DocumentPayoutAccountCard handleReturn showHistory={false} onAccountChange={setBank} />");
     expect(profilePageSource).toContain("<DocumentRequestPricingCard");
     expect(profilePageSource).toMatch(/if \(vaultAccess\.needsVaultCreation && panel !== "security"\) \{\s*setPendingProfileTarget\(\{ panel, detail, mode: "push" \}\);/);
     expect(profilePageSource).toMatch(/else if \(pendingProfileTarget\) \{\s*updateProfileView\(/);
