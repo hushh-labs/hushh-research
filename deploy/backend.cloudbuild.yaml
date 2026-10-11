@@ -300,6 +300,7 @@ steps:
           v="_${n}"
           add_env "${n}" "${!v}"
         done
+        add_env "PKM_ANSWER_REQUESTS_ENABLED" "${_PKM_ANSWER_REQUESTS_ENABLED}"
         add_env "PKM_ANSWER_PAYMENTS_ENABLED" "${_PKM_ANSWER_PAYMENTS_ENABLED}"
         add_env "PKM_ANSWER_COMPOSER_ENABLED" "${_PKM_ANSWER_COMPOSER_ENABLED}"
         add_env "PKM_ANSWER_LIVE_PROVIDER_REVIEWED" "${_PKM_ANSWER_LIVE_PROVIDER_REVIEWED}"
@@ -661,6 +662,9 @@ substitutions:
   _EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET: ""
   _DRIVE_DOCUMENT_KEY_V1_SECRET: ""
   _DRIVE_SHARING_KEY_V1_SECRET: ""
+  # Request intake and owner review. Independent of the payment flags, and
+  # empty means "inherit the payment flag" so an already-paid lane is unchanged.
+  _PKM_ANSWER_REQUESTS_ENABLED: ""
   _PKM_ANSWER_PAYMENTS_ENABLED: "false"
   _PKM_ANSWER_COMPOSER_ENABLED: "false"
   _PKM_ANSWER_LIVE_PROVIDER_REVIEWED: "false"
