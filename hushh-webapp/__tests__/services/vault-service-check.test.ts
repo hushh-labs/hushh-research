@@ -87,18 +87,8 @@ vi.mock("@/lib/vault/passphrase-key", () => ({
   unlockVaultWithRecoveryKey: vi.fn(),
 }));
 
-vi.mock("@/lib/vault/passkey-rp", () => ({
-  isPasskeyRpIdCompatibleWithHost: (
-    hostname: string | null | undefined,
-    rpId: string | null | undefined,
-  ) => {
-    const normalizedHost = hostname?.trim().toLowerCase();
-    const normalizedRpId = rpId?.trim().toLowerCase();
-    return !!normalizedHost && !!normalizedRpId && (
-      normalizedHost === normalizedRpId ||
-      normalizedHost.endsWith(`.${normalizedRpId}`)
-    );
-  },
+vi.mock("@/lib/vault/passkey-rp", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/vault/passkey-rp")>(),
   resolvePasskeyRpId: (...args: unknown[]) => mockResolveRpId(...args),
 }));
 
@@ -281,6 +271,38 @@ describe("VaultService.checkVault (web) — session-restore / 401 handling", () 
       wrapperId: "canonical",
       passkeyRpId: "one.hushh.ai",
     });
+  });
+
+  it.each(["one.hushh.ai"])(
+    "reuses the stored production RP %s after the spelling migration",
+    (storedRp) => {
+      mockResolveRpId.mockReturnValue("one.hussh.ai");
+      const wrapper = { method: "generated_default_web_prf" as const,
+        wrapperId: "legacy", encryptedVaultKey: "encrypted", salt: "salt", iv: "iv",
+        passkeyRpId: storedRp, passkeyCredentialId: "credential", passkeyPrfSalt: "prf-salt" };
+      const state = { vaultKeyHash: "hash", primaryMethod: wrapper.method,
+        primaryWrapperId: wrapper.wrapperId, recoveryEncryptedVaultKey: "recovery",
+        recoverySalt: "salt", recoveryIv: "iv", wrappers: [wrapper] };
+      expect(VaultService.getWrapperByMethod(state, wrapper.method)).toBe(wrapper);
+      for (const host of ["dev.one.hussh.ai", "uat.one.hussh.ai", "evil.one.hussh.ai"]) {
+        mockResolveRpId.mockReturnValue(host);
+        expect(VaultService.getWrapperByMethod(state, wrapper.method)).toBeNull();
+      }
+    },
+  );
+
+  it("preserves null metadata fallback without choosing it over an incompatible explicit RP", () => {
+    mockResolveRpId.mockReturnValue("one.hussh.ai");
+    const wrapper = { method: "generated_default_web_prf" as const,
+      wrapperId: "missing-rp", encryptedVaultKey: "encrypted", salt: "salt", iv: "iv" };
+    const state = { vaultKeyHash: "hash", primaryMethod: wrapper.method,
+      primaryWrapperId: wrapper.wrapperId, recoveryEncryptedVaultKey: "recovery",
+      recoverySalt: "salt", recoveryIv: "iv", wrappers: [wrapper] };
+    expect(VaultService.getWrapperByMethod(state, wrapper.method)).toBe(wrapper);
+    const foreign = { ...wrapper, wrapperId: "foreign", passkeyRpId: "uat.one.hushh.ai" };
+    expect(VaultService.getWrapperByMethod({ ...state, wrappers: [foreign, wrapper] }, wrapper.method)).toBeNull();
+    const compatible = { ...wrapper, wrapperId: "compatible", passkeyRpId: "one.hushh.ai" };
+    expect(VaultService.getWrapperByMethod({ ...state, wrappers: [foreign, wrapper, compatible] }, wrapper.method)).toBe(compatible);
   });
 
   it("waits briefly for a still-restoring session, then fails closed instead of guessing hasVault=false", async () => {

@@ -845,6 +845,8 @@ export class GmailReceiptsService {
             login_hint: params.loginHint || null,
             include_granted_scopes: params.includeGrantedScopes,
             purpose: params.purpose || "read",
+            redirect_uri: typeof window === "undefined" ? undefined
+              : `${window.location.origin}/one/profile/gmail/oauth/return`,
           }),
         },
       );
@@ -999,6 +1001,8 @@ export class GmailReceiptsService {
             user_id: params.userId,
             code: params.code,
             state: params.state,
+            redirect_uri: typeof window === "undefined" ? undefined
+              : `${window.location.origin}/one/profile/gmail/oauth/return`,
           }),
         },
       );
