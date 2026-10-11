@@ -9,8 +9,7 @@ import {
   ListIcon,
   SearchIcon,
 } from "@/components/icons/ui";
-import { AGENT_ICON_MAP } from "@/components/icons/agents";
-import { MessageSquareIcon } from "@/components/icons/ui";
+import { OneRosterAgentIcon } from "@/components/icons/agents/one-roster-agent-icon";
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
@@ -267,14 +266,11 @@ function useCachedAgentMetrics(
   return resolveCachedAgentMetrics(userId);
 }
 
-// Outline icons belong to the One roster only; other surfaces keep their defaults.
+// The welcome illustration shares this roster's outline treatment.
 function rosterIcon(mode: OneAgentMode): OneCapabilityIcon {
-  const Icon = AGENT_ICON_MAP[mode.id as keyof typeof AGENT_ICON_MAP];
   return {
     kind: "custom",
-    component: (props) => Icon
-      ? <Icon {...props} weight="regular" color={mode.id === "location" ? "#FF3B30" : undefined} />
-      : <MessageSquareIcon {...props} weight="regular" color="var(--app-accent)" />,
+    component: (props) => <OneRosterAgentIcon {...props} agentId={mode.id} />,
   };
 }
 
