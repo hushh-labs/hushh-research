@@ -1,7 +1,14 @@
 # Mail + Drive UAT acceptance
 
 Status: historical post-merge UAT deployment verified; verify the current live rollout and two-account acceptance separately. Mail/Drive acceptance remains incomplete.
-Runtime remains in `hushh-pda-uat`. Founder decision 2026-09-26: Drive moves off the isolated
+Runtime remains in `hushh-pda-uat`. The 2026-09-26 shared-client proposal below
+is historical and superseded by the current environment-specific callback
+contract: keep the UAT Drive client and grants intact; production uses its own
+reviewed registration and production-only callbacks/referrers. Provider review
+must pass before production activation. Switching a client requires affected
+connections to reconnect once.
+
+Historical proposal, not rollout instructions: Drive moves off the isolated
 `hushh-drive-uat` project onto the Hussh PDA Google projects. Localhost and dev use the
 dev/localhost OAuth client (project `hushh-pda-uat`) with its Picker key (secret
 `GOOGLE_DRIVE_PICKER_API_KEY` in `hushh-pda-dev`); UAT and production will use the same

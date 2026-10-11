@@ -38,9 +38,9 @@ export type AnswerOrderStatus =
 
 export interface AnswerRequestTerms {
   question: string;
-  /** ISO dates, or null when the question does not cover a period. */
-  periodStart: string | null;
-  periodEnd: string | null;
+  /** Optional ISO dates; a supplied range must be complete. */
+  periodStart?: string | null;
+  periodEnd?: string | null;
 }
 
 export interface AnswerPaymentView {
@@ -72,12 +72,19 @@ export function isValidAnswerPriceCents(value: unknown): boolean {
 
 /** A period is either absent entirely or complete and correctly ordered. */
 export function validAnswerPeriod(
-  start: string | null,
-  end: string | null,
+  start?: string | null,
+  end?: string | null,
 ): boolean {
-  if (!start && !end) return true;
+  const absent = (value: unknown) => value == null || value === "";
+  if (absent(start) && absent(end)) return true;
   if (!start || !end) return false;
-  return start <= end;
+  const isoDate = (value: string) => {
+    if (typeof value !== "string" || !/^(?!0000)\d{4}-\d{2}-\d{2}$/.test(value))
+      return false;
+    const date = new Date(`${value}T00:00:00Z`);
+    return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+  };
+  return isoDate(start) && isoDate(end) && start <= end;
 }
 
 export function validAnswerRequest(terms: AnswerRequestTerms): boolean {
@@ -429,7 +436,7 @@ export class AnswerRequestService {
   ): Promise<{ requestId: string }> {
     if (!firebaseIdToken) throw new Error("Sign in to send this request");
     if (!validAnswerRequest(terms))
-      throw new Error("Check the question and dates");
+      throw new Error("Check the request details");
     const response = await ApiService.apiFetch("/api/one/answer-requests", {
       method: "POST",
       cache: "no-store",
@@ -448,7 +455,7 @@ export class AnswerRequestService {
       const code = response.status;
       if (code === 403)
         throw new Error("You need an active connection with this person.");
-      if (code === 422) throw new Error("Check the question and dates.");
+      if (code === 422) throw new Error("Check the request details.");
       throw new Error("This request could not be sent. Try again.");
     }
     const value = await readJson(response);

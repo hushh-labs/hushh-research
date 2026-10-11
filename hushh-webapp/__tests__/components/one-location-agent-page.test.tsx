@@ -7276,6 +7276,12 @@ describe("OneLocationAgentPage", () => {
     const advisorAction = within(list).getByRole("button", {
       name: /Select Advisor C/i,
     });
+    expect(advisorAction).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(within(advisorAction).getByText("Advisor C"));
+    expect(advisorAction).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(within(advisorAction).getByText("Advisor C"));
+    expect(advisorAction).toHaveAttribute("aria-pressed", "false");
+    expect(advisorAction.querySelector("button")).toBeNull();
     const advisorRow = advisorAction.closest('[role="listitem"]');
     expect(advisorRow).toBeTruthy();
     expect(

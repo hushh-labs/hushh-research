@@ -297,8 +297,9 @@ def test_production_preflight_rejects_unattested_oauth_and_wrong_picker(monkeypa
     values["GOOGLE_DRIVE_OAUTH_CLIENT_ID"] = "client.apps.googleusercontent.com"
     values["DRIVE_DOCUMENT_KEY_V1"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
     values["DRIVE_SHARING_KEY_V1"] = base64.b64encode(b"\x01" * 32).decode()
-    values["EXTERNAL_CONNECTOR_CREDENTIAL_KEY"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    values["EXTERNAL_CONNECTOR_CREDENTIAL_KEY"] = base64.b64encode(b"\x02" * 32).decode()
     monkeypatch.setattr(module, "_secret", values.__getitem__)
+    referrers = list(module.PICKER_REFERRERS)
 
     def fake_gcloud(*args):
         if args[:3] == ("services", "api-keys", "list"):
@@ -309,18 +310,44 @@ def test_production_preflight_rejects_unattested_oauth_and_wrong_picker(monkeypa
                         "displayName": module.PICKER_KEY_NAME,
                         "restrictions": {
                             "apiTargets": [{"service": "picker.googleapis.com"}],
-                            "browserKeyRestrictions": {
-                                "allowedReferrers": ["https://uat.one.hushh.ai/*"]
-                            },
+                            "browserKeyRestrictions": {"allowedReferrers": referrers},
                         },
                     }
                 ]
             )
+        if args[:3] == ("services", "api-keys", "get-key-string"):
+            return json.dumps({"keyString": values["GOOGLE_DRIVE_PICKER_API_KEY"]})
+        if args[:2] == ("projects", "get-iam-policy"):
+            return json.dumps(
+                {
+                    "bindings": [
+                        {
+                            "role": "roles/cloudscheduler.jobRunner",
+                            "members": [f"serviceAccount:{module.RUNTIME_ACCOUNT}"],
+                        }
+                    ]
+                }
+            )
         return "{}"
 
     monkeypatch.setattr(module, "_gcloud", fake_gcloud)
-    with pytest.raises(module.PrerequisiteError, match="restrictions are incomplete"):
-        module.verify(oauth_attested=True)
+    module.verify(oauth_attested=True)
+    for invalid in (
+        ["https://uat.one.hushh.ai/*"],
+        [*module.PICKER_REFERRERS, "https://uat.one.hussh.ai/*"],
+        [*module.PICKER_REFERRERS, "http://one.hushh.ai/*"],
+        [*module.PICKER_REFERRERS, "https://*.hussh.ai/*"],
+        ["https://one.hushh.ai/*"],
+    ):
+        referrers[:] = invalid
+        with pytest.raises(module.PrerequisiteError, match="restrictions are incomplete"):
+            module.verify(oauth_attested=True)
+    referrers[:] = module.PICKER_REFERRERS
+    for reused in (values["DRIVE_DOCUMENT_KEY_V1"], values["DRIVE_SHARING_KEY_V1"], "\x00" * 32):
+        values["EXTERNAL_CONNECTOR_CREDENTIAL_KEY"] = reused
+        with pytest.raises(module.PrerequisiteError, match="must be distinct"):
+            module.verify(oauth_attested=True)
+    values["EXTERNAL_CONNECTOR_CREDENTIAL_KEY"] = base64.b64encode(b"\x02" * 32).decode()
 
     values["DRIVE_SHARING_KEY_V1"] = values["DRIVE_DOCUMENT_KEY_V1"]
     with pytest.raises(module.PrerequisiteError, match="must be distinct"):
@@ -383,6 +410,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     tools = (
         "resolve_prod_release_mode.py",
         "verify_prod_prerequisites.py",
+        "setup_native_callback_log_exclusion.sh",
         "deploy_worker_service_prod.sh",
         "setup_work_drain_scheduler_prod.sh",
         "work_drain_scheduler_snapshot_prod.py",

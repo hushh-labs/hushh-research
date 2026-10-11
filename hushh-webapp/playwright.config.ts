@@ -128,6 +128,7 @@ export default defineConfig({
         // and table scroll boxes, 24px link targets and chip baselines are
         // measured in the engine the app ships in. Own document.
         /agent-markdown\.layout\.spec\.ts/,
+        /finance-interactions\.layout\.spec\.ts/,
         // press-ripple: the md-ripple on pointerdown, no press scale, and the
         // reduced-motion layer are felt on an iPhone first; own document.
         /press-ripple\.layout\.spec\.ts/,
