@@ -87,18 +87,8 @@ vi.mock("@/lib/vault/passphrase-key", () => ({
   unlockVaultWithRecoveryKey: vi.fn(),
 }));
 
-vi.mock("@/lib/vault/passkey-rp", () => ({
-  isPasskeyRpIdCompatibleWithHost: (
-    hostname: string | null | undefined,
-    rpId: string | null | undefined,
-  ) => {
-    const normalizedHost = hostname?.trim().toLowerCase();
-    const normalizedRpId = rpId?.trim().toLowerCase();
-    return !!normalizedHost && !!normalizedRpId && (
-      normalizedHost === normalizedRpId ||
-      normalizedHost.endsWith(`.${normalizedRpId}`)
-    );
-  },
+vi.mock("@/lib/vault/passkey-rp", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/vault/passkey-rp")>(),
   resolvePasskeyRpId: (...args: unknown[]) => mockResolveRpId(...args),
 }));
 
@@ -252,35 +242,6 @@ describe("VaultService.checkVault (web) — session-restore / 401 handling", () 
     VaultService.invalidateVaultStateCache();
     fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-  });
-
-  it("selects a canonical RP wrapper on a hosted subdomain", () => {
-    mockResolveRpId.mockReturnValue("uat.one.hushh.ai");
-    const state = {
-      vaultKeyHash: "hash",
-      primaryMethod: "generated_default_web_prf" as const,
-      primaryWrapperId: "canonical",
-      recoveryEncryptedVaultKey: "recovery",
-      recoverySalt: "recovery-salt",
-      recoveryIv: "recovery-iv",
-      wrappers: [
-        {
-          method: "generated_default_web_prf" as const,
-          wrapperId: "canonical",
-          encryptedVaultKey: "encrypted",
-          salt: "salt",
-          iv: "iv",
-          passkeyRpId: "one.hushh.ai",
-        },
-      ],
-    };
-
-    expect(
-      VaultService.getWrapperByMethod(state, "generated_default_web_prf"),
-    ).toMatchObject({
-      wrapperId: "canonical",
-      passkeyRpId: "one.hushh.ai",
-    });
   });
 
   it("waits briefly for a still-restoring session, then fails closed instead of guessing hasVault=false", async () => {

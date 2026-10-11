@@ -6,6 +6,16 @@ import { AuthService } from "@/lib/services/auth-service";
 import { CACHE_TTL, CacheService } from "@/lib/services/cache-service";
 import { clearCachedGmailReceipts } from "@/lib/profile/gmail-receipts-cache";
 import {
+  type GmailConnectStartResponse,
+  type GmailNativeConnectStartResponse,
+  parseGmailConnectStartPayload,
+  parseGmailNativeConnectStartPayload,
+} from "@/lib/services/gmail-oauth-contract";
+export type {
+  GmailConnectStartResponse,
+  GmailNativeConnectStartResponse,
+} from "@/lib/services/gmail-oauth-contract";
+import {
   buildGmailNudgesPath,
   buildGmailReceiptsPath,
   buildGmailStatusPath,
@@ -120,20 +130,6 @@ export interface GmailConnectionStatus {
   connected_at?: string | null;
   disconnected_at?: string | null;
   latest_run?: GmailSyncRun | null;
-}
-
-export interface GmailConnectStartResponse {
-  configured: boolean;
-  authorize_url: string;
-  state: string;
-  redirect_uri: string;
-  expires_at: string;
-}
-
-export interface GmailNativeConnectStartResponse {
-  configured: boolean;
-  server_client_id: string;
-  purpose: "read" | "send" | "compose";
 }
 
 export interface GmailSyncQueueResponse {
@@ -692,37 +688,13 @@ function parseLiveReceiptDetailResponse(
 async function parseNativeConnectStartResponse(
   response: Response,
 ): Promise<GmailNativeConnectStartResponse> {
-  const payload: unknown = await response.json();
-  if (
-    !isRecord(payload) ||
-    typeof payload.configured !== "boolean" ||
-    typeof payload.server_client_id !== "string" ||
-    payload.server_client_id.trim().length === 0 ||
-    (payload.purpose !== "read" && payload.purpose !== "send")
-  ) {
-    throw new Error("Mail OAuth start returned an invalid response.");
-  }
-  return payload as unknown as GmailNativeConnectStartResponse;
+  return parseGmailNativeConnectStartPayload(await response.json());
 }
 
 async function parseConnectStartResponse(
   response: Response,
 ): Promise<GmailConnectStartResponse> {
-  const payload: unknown = await response.json();
-  if (
-    !isRecord(payload) ||
-    typeof payload.configured !== "boolean" ||
-    typeof payload.authorize_url !== "string" ||
-    payload.authorize_url.trim().length === 0 ||
-    typeof payload.state !== "string" ||
-    payload.state.trim().length === 0 ||
-    typeof payload.redirect_uri !== "string" ||
-    typeof payload.expires_at !== "string" ||
-    payload.expires_at.trim().length === 0
-  ) {
-    throw new Error("Mail OAuth start returned an invalid response.");
-  }
-  return payload as unknown as GmailConnectStartResponse;
+  return parseGmailConnectStartPayload(await response.json());
 }
 
 async function parseConnectionStatus(
@@ -845,6 +817,8 @@ export class GmailReceiptsService {
             login_hint: params.loginHint || null,
             include_granted_scopes: params.includeGrantedScopes,
             purpose: params.purpose || "read",
+            redirect_uri: typeof window === "undefined" ? undefined
+              : `${window.location.origin}/one/profile/gmail/oauth/return`,
           }),
         },
       );
@@ -999,6 +973,8 @@ export class GmailReceiptsService {
             user_id: params.userId,
             code: params.code,
             state: params.state,
+            redirect_uri: typeof window === "undefined" ? undefined
+              : `${window.location.origin}/one/profile/gmail/oauth/return`,
           }),
         },
       );

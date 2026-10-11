@@ -448,6 +448,18 @@ Used by:
 | `DEVELOPER_REGISTRY_JSON` | n/a (legacy) | Optional legacy | Legacy developer registry payload; no active backend reader |
 | `HUSHH_DEVELOPER_TOKEN` | `api/routes/session.py` (`/api/user/lookup`) | Optional | Self-serve developer token for stdio MCP and token-auth developer lookups. Not part of the normal hosted runtime bootstrap. |
 
+Hosted Gmail, Calendar and Plaid web callbacks retain their configured canonical
+URI. During the `hushh.ai` to `hussh.ai` migration, the backend also accepts the
+exact same path on the explicitly configured One spelling pair only when both
+origins are in `CORS_ALLOWED_ORIGINS`. Custom hosts, other environments, query
+strings and arbitrary CORS entries do not gain callback authority. Web start and
+completion echo the current document callback; signed Gmail state preserves the
+original callback for older in-flight completions that omit it. Register both
+URLs on the existing provider client before release; this application allowlist
+does not update Google or other providers. Drive registry provisioning upgrades
+only its exact known predecessor policy under the existing attestation/lock.
+
+
 Live Gmail receipt read-through introduces no new credential or persistence
 configuration. It reuses the four `GMAIL_OAUTH_*` settings above, the existing
 encrypted per-owner connection, managed Vertex configuration for the

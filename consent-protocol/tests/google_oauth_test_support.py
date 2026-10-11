@@ -23,3 +23,12 @@ class TransactionEngine:
             rows = [{"attempt_id": params["attempt_id"]}]
         mapped = SimpleNamespace(first=lambda: rows[0] if rows else None, all=lambda: rows)
         return SimpleNamespace(first=mapped.first, mappings=lambda: mapped)
+
+
+def configure_gmail_oauth(monkeypatch, *, origin: str = "https://uat.one.hushh.ai"):
+    redirect_uri = f"{origin}/one/profile/gmail/oauth/return"
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", origin)
+    monkeypatch.setenv("GMAIL_OAUTH_CLIENT_ID", "test-client-id")
+    monkeypatch.setenv("GMAIL_OAUTH_CLIENT_SECRET", "test-client-secret")
+    monkeypatch.setenv("GMAIL_OAUTH_REDIRECT_URI", redirect_uri)
+    return redirect_uri

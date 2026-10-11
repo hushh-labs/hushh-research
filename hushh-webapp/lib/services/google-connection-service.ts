@@ -53,6 +53,8 @@ export class GoogleConnectionService {
           user_id: params.userId,
           code: params.code,
           state: params.state,
+          redirect_uri: typeof window === "undefined" ? undefined
+            : `${window.location.origin}/one/profile/google/oauth/return`,
         }),
         isEffectCurrent,
       },

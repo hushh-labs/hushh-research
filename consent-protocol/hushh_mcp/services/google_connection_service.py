@@ -24,6 +24,7 @@ from sqlalchemy import text
 
 from db.db_client import get_db
 from hushh_mcp.runtime_settings import get_app_runtime_settings, get_core_security_settings
+from hushh_mcp.services import oauth_redirect_policy
 from hushh_mcp.services.google_oauth_attempt import (
     connection_generation,
     decode_attempt,
@@ -121,16 +122,12 @@ class GoogleConnectionService:
         return self._env("GOOGLE_OAUTH_CLIENT_SECRET", "GMAIL_OAUTH_CLIENT_SECRET")
 
     def _configured_redirect(self) -> str:
-        # The generic setting wins. During the Gmail compatibility period,
-        # derive Calendar's distinct callback from the backend-owned origin
-        # rather than incorrectly reusing Gmail's callback secret.
         configured = _clean(os.getenv("GOOGLE_OAUTH_REDIRECT_URI"))
         if configured:
             return configured
         origin = get_app_runtime_settings().app_frontend_origin
-        if origin:
-            return f"{origin}{_RETURN_PATH}"
-        return _clean(os.getenv("GMAIL_OAUTH_REDIRECT_URI"))
+        legacy = _clean(os.getenv("GMAIL_OAUTH_REDIRECT_URI"))
+        return oauth_redirect_policy.google_compatibility_callback(origin, _RETURN_PATH, legacy)
 
     def _signing_key(self) -> bytes:
         try:
@@ -169,9 +166,12 @@ class GoogleConnectionService:
             raise GoogleConnectionError(
                 "Google OAuth redirect configuration is invalid", status_code=503
             )
-        if supplied and not hmac.compare_digest(_clean(supplied), configured):
+        requested = _clean(supplied)
+        if requested and requested not in oauth_redirect_policy.allowed_oauth_callback_uris(
+            configured
+        ):
             raise GoogleConnectionError("Google OAuth redirect URI is not allowed", status_code=400)
-        return configured
+        return requested or configured
 
     @staticmethod
     def scopes(service: GoogleService, access_level: Literal["read", "manage"]) -> tuple[str, ...]:

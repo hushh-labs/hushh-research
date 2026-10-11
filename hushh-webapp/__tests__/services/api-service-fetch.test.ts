@@ -197,7 +197,7 @@ describe("ApiService.apiFetch", () => {
       code: "synthetic-code", state: "synthetic-state", isEffectCurrent: () => true,
     });
     expect(result.service).toBe("calendar");
-    expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ user_id: "synthetic-owner", code: "synthetic-code", state: "synthetic-state" });
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ user_id: "synthetic-owner", code: "synthetic-code", state: "synthetic-state", redirect_uri: `${window.location.origin}/one/profile/google/oauth/return` });
     expect(mockFetch.mock.calls[0][1]).not.toHaveProperty("isEffectCurrent");
   });
 
