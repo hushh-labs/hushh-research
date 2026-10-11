@@ -474,3 +474,17 @@ When adding a new setup screen or control:
    backend prompt allowlist, not a ranking hint.
 4. Regenerate and verify: `npm run build:voice-gateway && npm run
 verify:voice-gateway`.
+
+## First chat preferences
+
+One's scripted first conversation offers a name, a first capability, and a
+reply tone. “Something else” exits these optional questions immediately and
+focuses ordinary chat. The choice is persisted so no name prompt or preference
+recommendations return on another visit. It does not capture the next message
+as a name or save preferences to memory.
+
+First-capability choices appear in this order: Location, Mail, Calendar,
+Finance, Advisor, Wallet, Consent, Memory, Messages. They reuse existing
+connector and workspace actions without granting access. Phones show three
+rows of three; “Skip for now” sits on a separate row. Names and reply tone
+still require confirmation before encrypted memory storage.
