@@ -106,6 +106,16 @@ growth negative control still fails the ratchet. Required core and hosted CI
 remain separate gates; accepting inherited size debt proves neither deployment
 nor the scope-payment lifecycle.
 
+The subsequent `5685d52f` hardening is integrated through the same branch.
+Seven additional size slots are independently reviewed under
+`main_profile_hardening_20261011`: incoming main research/card/fixture spans,
+the retained attachment-test union, and the generated compatibility revision.
+The owner-bound no-store and sequential Search receipts improve public research
+admission; they do not implement selected-owner private model processing. The
+feature remains default-off pending that qualification. Capability and Location
+schema producers also restore DDL column ordering without changing the required
+schema sets or migration head 311.
+
 ## Owners and next gate
 
 | Owner | Required receipt |

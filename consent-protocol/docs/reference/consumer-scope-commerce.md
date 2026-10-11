@@ -2244,7 +2244,8 @@ not shared Dev writer admission, a live cutover or canonical baseline.
 ### Main synchronization and current evidence — 2026-10-11 UTC
 
 The infrastructure branch integrated main `1ee136eb` and then the newer
-`5d756e38` and `14a052a8` sources through normal merges on the same branch. No history rewrite,
+`5d756e38`, `14a052a8` and `5685d52f` sources through normal merges on the same
+branch. No history rewrite,
 new delivery branch, migration baseline or database receipt relabeling is part
 of this synchronization. Main 299–305 keep their identities; unchanged branch
 SQL is registered as 306–311. The exact prior manifest, six SQL bodies and
@@ -2261,6 +2262,9 @@ through the existing packed Cloud Build settings without exceeding its limit.
 
 The newer main profile-research feature stays default-off. Its shared, owner-bound
 research is ephemeral, but selected-owner private processing is not implemented.
+The subsequent hardening minimizes Search queries and verifies each Search
+receipt; the managed root still receives account identifiers, so the private
+processing qualification remains required.
 Research can disclose account identifiers to managed Gemini/Search before review;
 save confirmation establishes write authority, not prior processing authority.
 The owning product-agent/backend and vault governance workflows must qualify

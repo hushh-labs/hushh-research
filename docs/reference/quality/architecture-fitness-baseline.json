@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2393,
+  "finding_count": 2395,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -17420,7 +17420,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/agent-chat-pasted-text-attachment.test.tsx",
       "symbol": null,
-      "value": 516
+      "value": 539
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19877,7 +19877,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts",
       "symbol": null,
-      "value": 1471
+      "value": 1473
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21155,7 +21155,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_adk/profile_research.py",
       "symbol": "run_profile_research",
-      "value": 99
+      "value": 122
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -21524,7 +21524,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_one_profile_research.py",
       "symbol": null,
-      "value": 503
+      "value": 734
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21533,7 +21533,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/profile-research-card.tsx",
       "symbol": null,
-      "value": 502
+      "value": 503
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21543,6 +21543,24 @@
       "path": "hushh-webapp/__tests__/services/connections-service.test.ts",
       "symbol": null,
       "value": 501
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_one_profile_research.py|generate_content_async|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_one_profile_research.py",
+      "symbol": "generate_content_async",
+      "value": 104
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/components/profile-research-card.test.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/components/profile-research-card.test.tsx",
+      "symbol": null,
+      "value": 528
     }
   ],
   "inspected_files": 6625,
@@ -28563,6 +28581,119 @@
       "source_state": "Committed three normal merges plus owned generated compatibility projections; exact source hashes below bind reviewed metric slots.",
       "unchanged_policy": "500/250/80 budgets, scanner, exclusions, dependency/import checks and future ratchet enforcement are unchanged.",
       "verification": "Focused backend, frontend and422 Back cases pass. Full core and hosted CI remain required; this review is not deployment or payment acceptance."
+    },
+    "main_profile_hardening_20261011": {
+      "source_revision": "d7a663ea44dae48e2a7f8598263e1f4b9714f16d",
+      "incoming_main": "5685d52f20710f3813a87f01117372052fbe023e",
+      "review": "Independent backend/frontend review; exact7 size slots only.53 focused backend and105 frontend cases pass;422 Back cases pass. Required core and hosted CI remain required.",
+      "changes": [
+        {
+          "kind": "function_size",
+          "path": "consent-protocol/hushh_mcp/one_adk/profile_research.py",
+          "detail": "function exceeds the advisory gene budget",
+          "value": 122,
+          "limit": 80,
+          "symbol": "run_profile_research",
+          "key": "function_size|consent-protocol/hushh_mcp/one_adk/profile_research.py|run_profile_research|function exceeds the advisory gene budget",
+          "ratchet_reason": "finding worsened",
+          "multiset_slot": 0,
+          "previous": 99,
+          "classification": "exact_main_source",
+          "source_sha256": "d6f01c1562430d2158e059974b93ecc5eba760767a27b137c468185aed8eafd9",
+          "rationale": "Byte-identical#7755 source: independent owner/setup/no-store admission and sequential grounded public Search, or nearest approval/identity regression coverage. Private selected-owner execution is still unqualified and default-off."
+        },
+        {
+          "kind": "function_size",
+          "path": "consent-protocol/tests/test_one_profile_research.py",
+          "detail": "function exceeds the advisory gene budget",
+          "value": 104,
+          "limit": 80,
+          "symbol": "generate_content_async",
+          "key": "function_size|consent-protocol/tests/test_one_profile_research.py|generate_content_async|function exceeds the advisory gene budget",
+          "ratchet_reason": "new finding",
+          "multiset_slot": 0,
+          "previous": null,
+          "classification": "exact_main_source",
+          "source_sha256": "3b9d60a3a56ba7e245171cc9bc37e9706beaa4fba07c77f628304ee8d9a1e6aa",
+          "rationale": "Byte-identical#7755 source: independent owner/setup/no-store admission and sequential grounded public Search, or nearest approval/identity regression coverage. Private selected-owner execution is still unqualified and default-off."
+        },
+        {
+          "kind": "module_size",
+          "path": "hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts",
+          "detail": "module exceeds the advisory operon budget",
+          "value": 1473,
+          "limit": 500,
+          "symbol": null,
+          "key": "module_size|hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts||module exceeds the advisory operon budget",
+          "ratchet_reason": "finding worsened",
+          "multiset_slot": 0,
+          "previous": 1471,
+          "classification": "owned_generator",
+          "source_sha256": "5024701672c9478a34e526bfef40d326f9a633fe29b956d18994eb82b7202f4f",
+          "rationale": "Canonical generator retains parent and intermediate graph revisions including incoming mainf0dd083b; workflow, schema and telemetry variants stay unchanged."
+        },
+        {
+          "kind": "module_size",
+          "path": "consent-protocol/tests/test_one_profile_research.py",
+          "detail": "module exceeds the advisory operon budget",
+          "value": 734,
+          "limit": 500,
+          "symbol": null,
+          "key": "module_size|consent-protocol/tests/test_one_profile_research.py||module exceeds the advisory operon budget",
+          "ratchet_reason": "finding worsened",
+          "multiset_slot": 0,
+          "previous": 503,
+          "classification": "exact_main_source",
+          "source_sha256": "3b9d60a3a56ba7e245171cc9bc37e9706beaa4fba07c77f628304ee8d9a1e6aa",
+          "rationale": "Byte-identical#7755 source: independent owner/setup/no-store admission and sequential grounded public Search, or nearest approval/identity regression coverage. Private selected-owner execution is still unqualified and default-off."
+        },
+        {
+          "kind": "module_size",
+          "path": "hushh-webapp/__tests__/components/agent-chat-pasted-text-attachment.test.tsx",
+          "detail": "module exceeds the advisory operon budget",
+          "value": 539,
+          "limit": 500,
+          "symbol": null,
+          "key": "module_size|hushh-webapp/__tests__/components/agent-chat-pasted-text-attachment.test.tsx||module exceeds the advisory operon budget",
+          "ratchet_reason": "finding worsened",
+          "multiset_slot": 0,
+          "previous": 516,
+          "classification": "reviewed_test_union",
+          "source_sha256": "4c4edb08ff3c970abf520642d467d0569604d8c97c7367381bf9724b7aa9cf58",
+          "rationale": "Main two ephemeral card compatibility cases retain existing branch attachment coverage; no assertion weakens or repeated test title is added."
+        },
+        {
+          "kind": "module_size",
+          "path": "hushh-webapp/__tests__/components/profile-research-card.test.tsx",
+          "detail": "module exceeds the advisory operon budget",
+          "value": 528,
+          "limit": 500,
+          "symbol": null,
+          "key": "module_size|hushh-webapp/__tests__/components/profile-research-card.test.tsx||module exceeds the advisory operon budget",
+          "ratchet_reason": "new finding",
+          "multiset_slot": 0,
+          "previous": null,
+          "classification": "exact_main_source",
+          "source_sha256": "0f20defbf2f3d732c20b758d393a1b60fc1a7d08e76b51cde47cb3354215dd95",
+          "rationale": "Byte-identical#7755 source: independent owner/setup/no-store admission and sequential grounded public Search, or nearest approval/identity regression coverage. Private selected-owner execution is still unqualified and default-off."
+        },
+        {
+          "kind": "module_size",
+          "path": "hushh-webapp/components/agent/profile-research-card.tsx",
+          "detail": "module exceeds the advisory operon budget",
+          "value": 503,
+          "limit": 500,
+          "symbol": null,
+          "key": "module_size|hushh-webapp/components/agent/profile-research-card.tsx||module exceeds the advisory operon budget",
+          "ratchet_reason": "finding worsened",
+          "multiset_slot": 0,
+          "previous": 502,
+          "classification": "exact_main_source",
+          "source_sha256": "51c59d36f0600593470a5890c748a6df3598892032358bdeb70bf6cb9013a561",
+          "rationale": "Byte-identical#7755 source: independent owner/setup/no-store admission and sequential grounded public Search, or nearest approval/identity regression coverage. Private selected-owner execution is still unqualified and default-off."
+        }
+      ],
+      "unchanged_policy": "Budgets, scanner, exclusions, dependency/import gates and future ratchet remain unchanged."
     }
   },
   "review": {
