@@ -754,11 +754,11 @@ def _read_workflow_predecessor(ref: str) -> dict[str, Any]:
 
 
 def _merged_workflow_predecessor_refs(base_ref: str | None = None) -> tuple[str, ...]:
-    """Keep the other parent of a merge with the current PR base.
+    """Keep the other parent of an ancestor merge with the current PR base.
 
     The base graph supplies one workflow history. A merged feature parent may
-    carry another compatible history, which must survive the default CI check
-    without a one-off generator flag. Only committed ancestors are returned;
+    carry another compatible history, including through a second parent. It must
+    survive default CI without a one-off flag. Only committed ancestors are returned;
     ``_read_workflow_predecessor`` still validates their graph and semantics.
     """
 
@@ -768,7 +768,7 @@ def _merged_workflow_predecessor_refs(base_ref: str | None = None) -> tuple[str,
     if not base_commit:
         return ()
     merges = subprocess.run(  # noqa: S603 - fixed git executable/arguments
-        ["git", "rev-list", "--first-parent", "--merges", "HEAD"],  # noqa: S607
+        ["git", "rev-list", "--merges", "HEAD"],  # noqa: S607
         cwd=REPO_ROOT,
         check=True,
         capture_output=True,

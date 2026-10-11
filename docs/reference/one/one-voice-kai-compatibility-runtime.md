@@ -16,6 +16,11 @@ One is the private agent. Kai is the finance specialist. The maintained command 
 
 `kai-action-gateway.vnext.json`, existing `lib/voice` types, route journeys and local action identifiers remain compatibility contracts shared with typed search, text chat and Location tap flows. Authored `.voice-action-contract.json` files remain the source; generated projections must not become independent catalogs.
 
+Capability graph generation preserves compatible workflow history from the
+committed feature parent of a merge with the current base, including a base
+merge carried through another merge's second parent. Ancestor identity and
+workflow semantics remain verified; declared deprecations remain authoritative.
+
 Talk to One, the Chat microphone and Siri free-text requests use the bounded Location command runtime. Typed Siri uses its typed proposal endpoint and the same checkpoint, preparation and confirmation ledger. Typed Agent Chat keeps ordinary model access and AG-UI. Shared context sanitizers and consent services retain historical filenames because they also serve text and commands.
 
 The former Live websocket and relay-token entry points on `/api/one/adk/*` return retirement responses. `GeminiLiveClient` and the old transport constructor fail before networking. Local phrase classification and ASR/ONNX model packs are retired; they are not fallback paths. Do not restore them through compatibility adapters. New Live sessions use the flag-gated `/api/one/voice/live` relay (One Live Voice), a separate adapter over the same generated gateway.

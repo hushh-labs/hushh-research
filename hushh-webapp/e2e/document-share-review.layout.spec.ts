@@ -1161,9 +1161,6 @@ for (const width of [320, 390, 1440]) {
     await page.route("http://localhost/request-scope-fixture", (route) =>
       route.fulfill({ contentType: "text/html", body: fixtureHtml() }),
     );
-    await page.route("**/api/one/answer-requests/availability", (route) =>
-      route.fulfill({ contentType: "application/json", body: '{"enabled":true}' }),
-    );
     await page.route("**/api/one/answer-requests", (route) => {
       expect(route.request().headers().authorization).toBe("Bearer synthetic-firebase-proof");
       submissions.push(route.request().postDataJSON());

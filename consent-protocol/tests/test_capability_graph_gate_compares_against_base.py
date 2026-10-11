@@ -210,6 +210,14 @@ def test_merged_branch_history_is_selected_from_the_base_merge(repo: Repo) -> No
 
     assert generator._merged_workflow_predecessor_refs("main") == (feature_tip,)
 
+    # A verification merge can carry the main merge through its second parent.
+    repo.git("checkout", "-q", "-b", "verification", feature_tip)
+    (repo.root / "verification.txt").write_text("isolated verification\n", encoding="utf-8")
+    repo.commit("prepare isolated verification")
+    repo.git("merge", "--no-ff", "--no-edit", "feature")
+
+    assert generator._merged_workflow_predecessor_refs("main") == (feature_tip,)
+
 
 def test_base_ref_comparison_names_the_changed_action_and_fails(
     repo: Repo, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

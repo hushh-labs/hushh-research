@@ -169,6 +169,17 @@ assertions, timeouts and gate configuration remain unchanged.
 
 ## Owners and next gate
 
+The exact sixteen size slots in `canonical_dev_origin_main_sync_20261011`
+were reviewed against main `c3dad00c` and combined source `b7228c98`.
+Incoming optional-date validation, Finance/Location presentation and their
+nearest contract coverage preserve existing authority. Combined Profile owner
+fences, fixture isolation and the executable Dev-origin negative control remain
+intact. One redundant availability mock was removed without removing assertions.
+All other finding occurrences and prior reviews remain unchanged; the 500/250/80
+budgets, scanner and exclusions are unchanged. Focused checks pass 281 backend,
+129 frontend and 422 Back cases. These receipts do not establish deployed
+commerce acceptance; combined core and exact hosted CI remain required.
+
 | Owner | Required receipt |
 | --- | --- |
 | Engineering / release | Source and live dev build repairs, normal Dev 15 installation and post-update Files transfer are verified. Prove active-work update drain separately; retain dated organization evidence and the failed cold target. Canonical 249 stays deferred. |

@@ -2382,6 +2382,17 @@ UIKit delivery, provider settlement or the two-reviewer paid-scope lifecycle.
 
 ### Sandbox capital and acceptance continuation — 2026-10-11 UTC
 
+Fresh main `c3dad00c` and concurrent private-cloud/release fixes are preserved
+in the combined candidate. Focused checks pass 281 backend, 129 frontend and
+422 Back cases; generated UI parity passes. An actual nested-merge negative
+control identified dropped workflow compatibility history. The canonical
+generator now searches committed merge ancestors across both parents, preserving
+all eight setup workflows and their previously supported revisions. Its 18
+base-comparison and 28 workflow-policy cases pass; authored retirements remain
+authoritative. The combined local core, exact hosted CI and Dev release still
+need qualification. Branch-owned workflow changes do not activate until their
+main-owned definition lands and is read back.
+
 Candidate `14876c2a3b` passed the canonical local core in 1,443 seconds and all
 23 hosted jobs in [CI run 38132031368](https://github.com/hushh-labs/hushh-research/actions/runs/38132031368),
 including browser contracts, the full frontend suite, Python, iOS and Android.
