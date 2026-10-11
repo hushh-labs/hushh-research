@@ -6,6 +6,8 @@ import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixture
 
 let css: string;
 let script: string;
+let saveActionClass: string;
+let stickyOffsets: string[];
 
 test.beforeAll(async () => {
   const root = process.cwd();
@@ -13,6 +15,13 @@ test.beforeAll(async () => {
   const { Scanner } = await import("@tailwindcss/oxide");
   const scanner = new Scanner({});
   const candidates = new Set<string>();
+  const providerSource = fs.readFileSync(path.join(root, "app/providers.tsx"), "utf8");
+  const offsets = providerSource.match(/"--app-sticky-bottom-offset": shouldLockFullscreenRoot && !hideGlobalChrome\s+\? "([^"]+)"\s+: "([^"]+)"/)!;
+  stickyOffsets = [offsets[1], offsets[2]];
+  const reviewSource = fs.readFileSync(path.join(root, "components/kai/views/portfolio-review-view.tsx"), "utf8");
+  saveActionClass = reviewSource.match(/data-portfolio-review-save\s+className="([^"]+)"/)![1];
+  for (const candidate of scanner.scanFiles([{ content: saveActionClass, extension: "html" }])) candidates.add(candidate);
+
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-markdown-"));
   await build({
     configFile: false,
@@ -142,3 +151,28 @@ test("holding actions dismiss on ancestor scroll without jumping back and still 
   await page.getByRole("menuitem", { name: "Delete" }).click();
   await expect(page.getByTestId("action-result")).toHaveText("Delete TEST");
 });
+
+for (const width of [320, 393, 768]) {
+  test(`review save action clears the dock throughout scrolling at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 852 });
+    for (const dockHeight of [86, 152]) {
+      for (const [host, offset] of stickyOffsets.entries()) {
+        const rootPad = host === 0 ? 0 : dockHeight;
+        await page.setContent(`<style>${css}</style><style>
+          html,body{height:100%;margin:0} #scroll{height:100%;overflow:auto;padding-bottom:${rootPad}px;--app-scroll-bottom-pad:${dockHeight}px;--bottom-chrome-stack-height:${dockHeight}px;--app-sticky-bottom-offset:${offset}}
+          #review{position:relative;width:100%} #flow{padding-bottom:${host === 0 ? dockHeight : 0}px} #holdings{height:1600px;overflow:hidden} #save{height:52px;width:100%}
+          #dock{position:fixed;bottom:0;height:${dockHeight}px;width:100%}
+        </style><div id="scroll"><div id="flow"><div id="review"><div id="holdings">Holdings</div>
+        <div class="${saveActionClass}"><button id="save">Save to Vault</button></div></div></div></div><div id="dock">Talk to One</div>`);
+        for (const scrollTop of [0, 400, 10000, 650, 500]) {
+          await page.locator("#scroll").evaluate((el, top) => { el.scrollTop = top; }, scrollTop);
+          const save = await page.locator("#save").boundingBox();
+          const dock = await page.locator("#dock").boundingBox();
+          expect(save!.y).toBeGreaterThanOrEqual(0);
+          expect(save!.y + save!.height).toBeLessThanOrEqual(dock!.y - 11);
+          expect(dock!.y - (save!.y + save!.height)).toBeLessThanOrEqual(25);
+        }
+      }
+    }
+  });
+}
