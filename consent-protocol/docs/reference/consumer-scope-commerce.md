@@ -2327,3 +2327,16 @@ two negative controls reproduce unsafe rebinding with the original validator and
 refuse it with the correction. Combined Back review passes all 422 cases.
 The latest payout/scope presentation passes 96 frontend cases and 45 backend
 payout/answer cases; all seven generated UI contract checks pass.
+
+The synchronized candidate `d2c2d14359` passed the full local core in 604 seconds.
+Hosted CI passed every application, protocol, native and security lane, but its
+targeted browser job stopped on a payment-documentation Mermaid label. Replacing
+the label's semicolon preserves its meaning; all 188 maintained diagrams then
+render with the pinned renderer. Main subsequently advanced to `6dbecdc7f7` with
+deferred UAT/production revision retention. That source is merged on the same
+infrastructure branch; it changes no shared Dev targets, schema selectors or pod
+offers. Six exact incoming architecture spans receive independent operations and
+parent review, retaining all budgets and future growth enforcement. Its 24 nearest
+retention tests pass. The final combined source still requires core, hosted CI,
+governed Dev deployment and actual reviewer/provider receipts; no payment or MCP
+OAuth acceptance follows from these source results.

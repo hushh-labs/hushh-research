@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2395,
+  "finding_count": 2396,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1544,7 +1544,7 @@
       "limit": 250,
       "path": "scripts/ci/test_cloudrun_retention.py",
       "symbol": "MaintenanceAuthorityTest",
-      "value": 348
+      "value": 642
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1553,7 +1553,7 @@
       "limit": 250,
       "path": "scripts/ci/test_cloudrun_retention.py",
       "symbol": "RetentionSafetyTest",
-      "value": 295
+      "value": 297
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -12294,6 +12294,15 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/test_cloudrun_retention.py|test_source_is_authorized_before_any_cloud_access|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/test_cloudrun_retention.py",
+      "symbol": "test_source_is_authorized_before_any_cloud_access",
+      "value": 127
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|scripts/ci/test_distribute_testflight_build.py|request|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -12308,7 +12317,7 @@
       "limit": 80,
       "path": "scripts/ci/uat-retention-maintenance.py",
       "symbol": "main",
-      "value": 84
+      "value": 107
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -16178,7 +16187,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_account_deletion_release_workflow.py",
       "symbol": null,
-      "value": 926
+      "value": 930
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20885,7 +20894,7 @@
       "limit": 500,
       "path": "scripts/ci/test_cloudrun_retention.py",
       "symbol": null,
-      "value": 689
+      "value": 985
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -28887,6 +28896,50 @@
       "review": "Five inherited payout spans reviewed against current main: new-account create response, existing/concurrent-account re-read and US eligibility retained; one-bank readiness/recovery and retry keys covered by nearest tests. One synchronizer line adds missing-host and empty-userinfo rejection to the existing canonical origin authority. No module splitting by count, budget changes, scanner exclusions or blanket baseline refresh.",
       "source_revision": "8cd28de07033c5dc9e43805475c7aa11b2e02a17",
       "verification": "45 backend payout/answer cases and86 origin/admission cases pass; frontend review preserves scope panels and100displaycoins/USD. Combined Back/Search behavior and full core/hosted CI remain required."
+    },
+    "current_main_retention_20261011": {
+      "incoming_main": "6dbecdc7f7fb6ed75546f9a44eaf64602c924fd7",
+      "source_revision": "94de7e10fdefdc3dda1c3a35153dfd7172fdc36a",
+      "review": "Independent read-only operations review and parent source inspection accept six exact incoming main spans. Environment-limited deferred retention preserves trusted workflow/actor/artifact admission, pre-cloud rejection, release/traffic rechecks, rollback protection and environment locks. Shared Dev deployment/resources are unchanged. The extended nearest authority test covers denied actors/forks and missing receipts without cloud access; formatting adds two safety-test lines. No budget/scanner/exclusion changes, module splitting by count, blanket refresh or future-growth waiver.",
+      "verification": "24 focused Cloud Run retention tests pass; nearest account-release workflow and complete core/hosted CI qualification remain required.",
+      "changes": [
+        {
+          "key": "class_size|scripts/ci/test_cloudrun_retention.py|MaintenanceAuthorityTest|class exceeds the advisory operon budget",
+          "before": 348,
+          "after": 642,
+          "source_sha256": "a926e62015172a74e491a2aafe039be42d78695c7636b4a342d288e56a3a8e87"
+        },
+        {
+          "key": "class_size|scripts/ci/test_cloudrun_retention.py|RetentionSafetyTest|class exceeds the advisory operon budget",
+          "before": 295,
+          "after": 297,
+          "source_sha256": "a926e62015172a74e491a2aafe039be42d78695c7636b4a342d288e56a3a8e87"
+        },
+        {
+          "key": "module_size|scripts/ci/test_cloudrun_retention.py||module exceeds the advisory operon budget",
+          "before": 689,
+          "after": 985,
+          "source_sha256": "a926e62015172a74e491a2aafe039be42d78695c7636b4a342d288e56a3a8e87"
+        },
+        {
+          "key": "function_size|scripts/ci/uat-retention-maintenance.py|main|function exceeds the advisory gene budget",
+          "before": 84,
+          "after": 107,
+          "source_sha256": "dc84e743201657de3b04ebe7e98a32016cd1198d177e07035ec64f38f59302a9"
+        },
+        {
+          "key": "module_size|consent-protocol/tests/test_account_deletion_release_workflow.py||module exceeds the advisory operon budget",
+          "before": 926,
+          "after": 930,
+          "source_sha256": "19faabc7a97fa62fa927979b2578e8dcbd120c70e60711e084a5f2a872f10708"
+        },
+        {
+          "key": "function_size|scripts/ci/test_cloudrun_retention.py|test_source_is_authorized_before_any_cloud_access|function exceeds the advisory gene budget",
+          "before": null,
+          "after": 127,
+          "source_sha256": "a926e62015172a74e491a2aafe039be42d78695c7636b4a342d288e56a3a8e87"
+        }
+      ]
     }
   },
   "review": {
