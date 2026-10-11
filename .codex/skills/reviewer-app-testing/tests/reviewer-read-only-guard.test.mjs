@@ -315,6 +315,7 @@ test("unused calendar refunds retain half-up cents and a real partial term", () 
 test("financial buttons bind the reviewed USD amount while displaying coins", () => {
   const purchase = commerceMoneyButtonName("purchase", 1);
   assert.match("Confirm 1 Hussh coin ($0.01) from balance", purchase);
+  assert.doesNotMatch("Confirm 999 Hussh coins ($0.01) from balance", purchase);
   assert.doesNotMatch("Confirm 2 Hussh coins ($0.02) from balance", purchase);
   assert.doesNotMatch("Confirm free access", purchase);
   assert.doesNotMatch("Confirm 1 Hussh coin ($0x01) from balance", purchase);
