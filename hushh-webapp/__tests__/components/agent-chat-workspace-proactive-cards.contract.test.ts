@@ -26,6 +26,23 @@ const source = readFileSync(
  * the actual Gmail settings page, untouched.
  */
 describe("Agent One chat workspace wiring contract", () => {
+  it("mounts independent background capabilities from ordinary chat readiness", () => {
+    const readiness = source.slice(
+      source.indexOf("const backgroundCardsEnabled ="),
+      source.indexOf("const [businessSuggestionVisible"),
+    );
+    expect(readiness).toContain("hasChatAccess && !isPuppySurface && !sessionVerificationRequired");
+    expect(readiness).not.toMatch(/business|Business/);
+    const backgroundTurn = source.slice(
+      source.indexOf("const renderBackgroundCardTurn ="),
+      source.indexOf("const renderChatOnboarding ="),
+    );
+    expect(backgroundTurn).toContain("<OneBackgroundCards");
+    expect(backgroundTurn).toContain("enabled={backgroundCardsEnabled}");
+    expect(backgroundTurn).toContain("ephemeralCard={card}");
+    expect(backgroundTurn).not.toContain("businessSuggestionVisible");
+  });
+
   it("refreshes recent Drive sharing only while chat history is open", () => {
     const sidebar = source.slice(source.indexOf("const renderHistorySidebar ="), source.indexOf("const getEmailDeliveryAuth ="));
     expect(sidebar).toContain('<DriveRecentSharing presentation="sidebar" active={isHistoryDrawerOpen && drawerMode === "chats"} onNeedsReviewChange={onDriveNeedsReviewChange} />');

@@ -75,27 +75,48 @@ async def run_profile_research(
     source_receipts: dict[str, str] = {}
     suggestions: list[str] = []
     search_observed = False
+    attempt_search_observed = False
+    search_attempts = 0
 
     async def before_model(callback_context: Any, llm_request: Any) -> None:
         await require_access()
 
     async def after_model(callback_context: Any, llm_response: Any) -> None:
-        nonlocal search_observed
+        nonlocal search_observed, attempt_search_observed
         await require_access()
+        if callback_context.agent_name == "one_profile_research":
+            parts = getattr(getattr(llm_response, "content", None), "parts", None) or []
+            if sum(bool(getattr(part, "function_call", None)) for part in parts) > 1:
+                # ADK dispatches parallel calls concurrently. Keep each Search
+                # receipt bound to its own attempt, including task completion.
+                raise ValueError("Profile research tools must run sequentially")
         metadata = getattr(llm_response, "grounding_metadata", None)
         if getattr(metadata, "web_search_queries", None) or getattr(
             metadata, "grounding_chunks", None
         ):
             search_observed = True
+            if callback_context.agent_name == "google_search":
+                attempt_search_observed = True
         for chunk in getattr(metadata, "grounding_chunks", None) or []:
             web = getattr(chunk, "web", None)
             uri = getattr(web, "uri", None)
             if isinstance(uri, str):
                 grounded_urls.add(uri)
-                source_receipts[uri] = getattr(web, "title", None) or "Source"
+                if callback_context.agent_name == "google_search":
+                    source_receipts[uri] = getattr(web, "title", None) or "Source"
         html = getattr(getattr(metadata, "search_entry_point", None), "rendered_content", None)
         if isinstance(html, str) and html and len(html) <= 40_000 and html not in suggestions:
             suggestions.append(html)
+
+    async def before_tool(tool: Any, args: Any, tool_context: Any) -> None:
+        nonlocal attempt_search_observed, search_attempts
+        await require_access()
+        if tool.name == "google_search":
+            if search_attempts >= 2:
+                raise ValueError("Profile research allows only one Search follow-up")
+            search_attempts += 1
+            attempt_search_observed = False
+            source_receipts.clear()
 
     async def after_tool(tool: Any, args: Any, tool_context: Any, tool_response: Any) -> Any:
         await require_access()
@@ -105,6 +126,7 @@ async def run_profile_research(
             # transport metadata, not host-authored findings or a second search.
             return {
                 "answer": tool_response,
+                "search_performed": attempt_search_observed,
                 "sources": [
                     {"title": title, "url": url}
                     for url, title in list(source_receipts.items())[:20]
@@ -127,6 +149,7 @@ async def run_profile_research(
         output_schema=ProfileReport,
         before_model_callback=before_model,
         after_model_callback=after_model,
+        before_tool_callback=before_tool,
         after_tool_callback=after_tool,
     )
     turn = await run_specialist_adk_turn(
@@ -142,7 +165,7 @@ async def run_profile_research(
     )
     await require_access()
     report = ProfileReport.model_validate(turn.structured_output)
-    if not search_observed:
+    if not search_observed or (report.match_status == "no_match" and not attempt_search_observed):
         # A refusal or an offline answer is not evidence that no public match exists.
         raise ValueError("Profile research has no Search execution receipt")
     # A plausible URL invented by the model is not a source receipt. Refuse
