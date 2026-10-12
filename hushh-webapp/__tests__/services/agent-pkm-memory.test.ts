@@ -310,6 +310,8 @@ describe("agent PKM memory helpers", () => {
     const rejected = await save(review.cards[1]!);
     expect(rejected.saved).toBe(0);
     expect(rejected.results[0]?.message).toContain("different or unidentified");
+    pkmBlob = { professional: entity("business-A") };
+    expect((await save(review.cards[1]!)).saved).toBe(1);
   });
 
   it("never captures another owner's or incomplete inventory, and revokes the review witness on vault expiry", async () => {
