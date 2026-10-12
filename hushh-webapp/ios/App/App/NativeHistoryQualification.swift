@@ -27,8 +27,9 @@ final class NativeHistoryQualificationAppearance: ObservableObject {
 }
 
 /// All moving views and their material backdrop share this native owner.
-/// UIKit's owned over-full-screen presentation isolates the existing WK root;
-/// it is not a native plane coordinated with a moving React layer.
+/// The opaque, public-only fullscreen study has no backdrop dependency on WK.
+/// UIKit removes the covered root's views from the presentation hierarchy while
+/// retaining its controller/document; no React/native motion is coordinated.
 @available(iOS 26.0, *)
 final class NativeHistoryQualificationController: UIViewController, UIGestureRecognizerDelegate {
     private final class FrameTarget: NSObject {
@@ -55,7 +56,7 @@ final class NativeHistoryQualificationController: UIViewController, UIGestureRec
 
     init() {
         super.init(nibName: nil, bundle: nil)
-        modalPresentationStyle = .overFullScreen
+        modalPresentationStyle = .fullScreen
         modalPresentationCapturesStatusBarAppearance = true
         isModalInPresentation = true
     }
@@ -293,6 +294,7 @@ final class NativeHistoryQualificationController: UIViewController, UIGestureRec
 
     private func resetPublicSamples() {
         guard !motion.retired, motion.progress == 0, animator == nil, previousFrame == nil else { return }
+        dock.editor?.resignFirstResponder()
         dock.consumeText()
         frameCount = 0; slowFrames = 0; maxFrameMs = 0; measuredMs = 0
         publishFrameReceipt()
