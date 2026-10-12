@@ -28,6 +28,25 @@ are separately verified below; they do not prove a consumer purchase or payout.
 
 ### Shared Dev checkpoint — 2026-10-12 UTC
 
+- Read-only provider and Monitoring observations at `09:42Z` agree on $5.00
+  available operating capital, $9.60 pending funding backing, $10.50 requester
+  liabilities and $0.90 unallocated processing costs. All 17 required aggregate
+  metrics are present and fresh; backing shortfall, unbalanced journals,
+  unresolved obligations and receipt failures are zero. Both reviewer seller
+  journeys remain ineligible, with zero purchases and withdrawals.
+- The original infrastructure branch now includes main `2460f8524fd8` and the
+  concurrent branch head `656e666310b5` through normal merges. Review repaired
+  explicit structured-save compatibility after Soul integration: new and
+  resumed jobs load their own structured reconciliation inventory, resumed
+  results cannot repopulate retired-session review state, and receipt context
+  binds to the job's actual bubble in the displayed conversation. General
+  private-agent recall remains Soul-only. Combined-source core, hosted CI and
+  Dev promotion still require fresh qualification.
+- On the final composed source, all 86 focused memory/save cases, all 439 Back
+  cases and typecheck pass using CI's Node 24. The host's default Node 22 caused
+  earlier save/navigation timeouts; the unchanged assertions pass after matching
+  the declared runtime. Back/Search and capability projections are regenerated;
+  this remains local source evidence, not hosted or financial acceptance.
 - At `08:54:12Z`, the counterpart's $10 Sandbox funding completed through the
   same normal headless Checkout flow. Signed settlement and read-only provider
   receipts agree on the payer, recorded attempt, pinned test account, amount and

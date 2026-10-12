@@ -78,6 +78,17 @@ export function agentPkmCaptureJobKey(params: {
   return JSON.stringify([params.assistantMessageId, params.sourceMessage, authority]);
 }
 
+/** A resumed owner job may finish outside the conversation that created it. */
+export function resumedAgentPkmCaptureMessageId(
+  assistantMessageId: string | undefined,
+  requestedMessageId: string | undefined,
+  visibleMessageIds: ReadonlySet<string>,
+): string | null {
+  if (!assistantMessageId || !visibleMessageIds.has(assistantMessageId)) return null;
+  if (requestedMessageId && requestedMessageId !== assistantMessageId) return null;
+  return assistantMessageId;
+}
+
 /** Re-evaluate at each effect: time can expire without a React render. */
 export function isAgentPkmProcessingReady(state: {
   authLoading: boolean;

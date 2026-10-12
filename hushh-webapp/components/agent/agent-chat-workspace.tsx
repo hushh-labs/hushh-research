@@ -17,7 +17,7 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
-import { agentPkmCaptureJobKey, aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, describeAgentPkmCapture, isAgentPkmCaptureRunning, isAgentPkmProcessingReady, shouldPresentAgentPkmCapture, shouldPublishAgentPkmCapture, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
+import { agentPkmCaptureJobKey, aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, describeAgentPkmCapture, isAgentPkmCaptureRunning, isAgentPkmProcessingReady, resumedAgentPkmCaptureMessageId, shouldPresentAgentPkmCapture, shouldPublishAgentPkmCapture, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
 import {
   applyOwnerConfirmedSave,
   describeOwnerMemoryReview,
@@ -474,8 +474,8 @@ import {
   type GmailInformationRequestSourcePreview,
 } from "@/lib/services/gmail-information-requests-service";
 
-// Every memory capture job ends. Automatic capture includes semantic
-// preparation; an explicit owner save writes the selected passage directly.
+// Every memory capture job ends. Automatic and explicit captures both use
+// semantic preparation; an explicit owner save may pause and resume.
 const AGENT_PKM_CAPTURE_DEADLINE_MS = 4 * 60_000;
 const AGENT_PKM_EXPLICIT_SAVE_DEADLINE_MS = 8 * 60_000;
 const AGENT_PKM_EXPLICIT_SAVE_PAUSE_MARGIN_MS = 20_000;
@@ -2698,6 +2698,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [messages, setMessages] = useState<AgentMessage[]>(() => [
     createGreetingMessage(),
   ]);
+  const pkmCaptureMessageIdsRef = useRef<ReadonlySet<string>>(new Set());
+  pkmCaptureMessageIdsRef.current = new Set(messages.map((message) => message.id));
   const compiledDriveMarkdownRef = useRef(new Map<string, string>());
   const driveCompilationAbortRef = useRef<AbortController | null>(null);
   const [queuedHandoffPrompt, setQueuedHandoffPrompt] = useState<string | null>(
@@ -5376,8 +5378,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           await guard.assertCurrent();
           settle({ phase: "preparing", saved: 0 });
           if (explicitRequest) {
-            await AgentPkmContextStore.load({ userId, vaultKey, vaultOwnerToken: token });
+            const structuredContext = await AgentPkmContextStore.load({ userId, vaultKey, vaultOwnerToken: token });
             await guard.assertCurrent();
+            if (!structuredContext) throw new DOMException("Memory inventory changed.", "AbortError");
             const labContext = await loadPkmAgentLabContext({ userId, vaultOwnerToken: token });
             await guard.assertCurrent();
             // A resumable job: a relock, reconnect or the deadline pauses it,
@@ -5385,7 +5388,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             const { receipt, needsOwnerCards } = await startExplicitPkmSaveJob({
               userId,
               message: params.sourceMessage,
-              currentDomains: params.currentDomains,
+              currentDomains: structuredContext.domains,
               currentManifests: Object.values(labContext.manifests || {}).filter(Boolean),
               vaultKey,
               vaultOwnerToken: token,
@@ -5553,7 +5556,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       userId, signal: new AbortController().signal,
       isEnabled: () => scopeIsCurrent() && isAgentPkmProcessingReady(pkmCaptureReadinessRef.current, token),
     });
+    await guard.assertCurrent();
+    const structuredContext = await AgentPkmContextStore.load({ userId, vaultKey, vaultOwnerToken: token });
+    await guard.assertCurrent();
+    if (!structuredContext) throw new DOMException("Memory inventory changed.", "AbortError");
     const labContext = await loadPkmAgentLabContext({ userId, vaultOwnerToken: token });
+    await guard.assertCurrent();
     const outcome: ExplicitPkmSaveJobResult | null = await resumeExplicitPkmSaveJob({
       userId, jobId, retry: options.retry, vaultKey, vaultOwnerToken: token,
       currentManifests: Object.values(labContext.manifests || {}).filter(Boolean),
@@ -5562,12 +5570,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         AgentPkmContextStore.findReconciliationCandidates({ userId, text: passage }),
       beforeEffect: guard.assertCurrent, isEffectCurrent: guard.isCurrent, mayPublish: guard.isCurrent,
     });
-    const messageId = options.messageId ?? outcome?.assistantMessageId;
-    if (!outcome || !messageId) return;
+    if (!outcome || !scopeIsCurrent() || !guard.isCurrent()) return;
+    const messageId = resumedAgentPkmCaptureMessageId(
+      outcome.assistantMessageId, options.messageId, pkmCaptureMessageIdsRef.current,
+    );
+    if (!messageId) return;
     if (outcome.needsOwnerCards.length) {
       pkmNeedsOwnerCardsRef.current.set(messageId, { cards: outcome.needsOwnerCards, sourceMessage: outcome.sourceMessage });
-    }
-    if (!scopeIsCurrent() || !guard.isCurrent()) return;
+    } else pkmNeedsOwnerCardsRef.current.delete(messageId);
     latestPkmSaveReceiptRef.current = outcome.receipt;
     setMessages((current) => current.map((message) => message.id === messageId
       ? {
