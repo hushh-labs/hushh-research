@@ -15,8 +15,13 @@ another navigation stack, WebView, session, or information store.
 
 ### Integrated native shell candidate — 2026-10-12
 
-Source candidate `6e77827fe6` extends `57b9e39ecb` on
-`feat/adk-orchestration-runtime`.
+Merged implementation source `855e6fcc73` contains fetched `main` at
+`bf6ec5d728` on the ADK verification lane. The live development branch remains
+`feat/adk-orchestration-runtime`; it advances only after combined verification.
+The merge preserves retained native controls and their authored operation ports,
+while integrating current Wallet network lookup, Profile review and routing.
+History keeps leading Close and inline age; shared inset panes reconcile their
+geometry with acknowledged native seats rather than overriding them.
 Normal product admission remains **off**. The document-start coherent-shell
 bootstrap is available only through the explicit qualification launch switch;
 old experiment flags do not enable it. Web, Android, older wrappers and iPad
@@ -78,12 +83,19 @@ Source `523d016849` exports, syncs, signs and builds as Debug/UAT
 `f7ba5cc5853fd866839df76499165defd9764c1d059deb6ee203f9493c5903e6`;
 the UI-test executable is
 `ea748335aa25c46d208d91487b6f0ac0111eb752ef48f9500f1975a233a7bd55`.
-Packaged-CSS and static plugin/Siri checks pass. It is **not installed or physically
-accepted**: CoreDevice reports the paired iPhone unavailable, service admission
-fails with 4016, and a bounded paired reconnect fails with 4000. Neither account
-reset nor another credential retry was performed. The adoption flag remains off.
-The branch also lacks the canonical `ui:doctor` command; resolve that governance
-alignment before pushing rather than substituting an ad-hoc alias.
+Packaged-CSS and static plugin/Siri checks pass. This product is now installed on
+both physical devices. On iPhone, normal passphrase unlock and nine Profile
+destinations pass; on iPad, public vault rotation/resume, protected admission,
+Memory and the Connect/Finance/Consent/Wallet batch pass. These are bounded
+functional receipts, not acceptance of every route or transition.
+
+The follow-up runner at `4211c4f01d` fails initial iPhone composition admission
+and the iPad Profile-frame lookup. The harness now returns through authored Chat
+before admission and locates the actual Profile dialog across WebKit's accessible
+container types; neither correction is a physical pass until rerun. The product
+remained `523d016849` during those runner-only checks. No account reset or sign-out
+was performed. The merged source has canonical `ui:doctor` and UI-contract commands;
+regeneration and generator checks use its committed `main` merge base.
 
 `components/profile/profile-menu-model.ts` now authors the roster, labels and
 availability for both renderers. Callbacks remain in the Profile workspace;

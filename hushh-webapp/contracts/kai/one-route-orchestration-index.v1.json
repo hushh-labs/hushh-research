@@ -314,7 +314,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": null
+      "native_surface_id": "native-route-connected-systems"
     },
     {
       "route_pattern": "/connected-systems/[systemId]",
@@ -706,7 +706,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-kai-home"
+      "native_surface_id": "native-route-kai-portfolio"
     },
     {
       "route_pattern": "/kai/dashboard/analysis",
@@ -1050,7 +1050,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-kai-home"
+      "native_surface_id": "native-route-kai-portfolio"
     },
     {
       "route_pattern": "/login",
@@ -1651,7 +1651,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-profile"
+      "native_surface_id": "native-route-connect-settings"
     },
     {
       "route_pattern": "/one/connected-systems",
@@ -1699,7 +1699,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": null
+      "native_surface_id": "native-route-connected-systems"
     },
     {
       "route_pattern": "/one/connected-systems/[systemId]",
@@ -2648,7 +2648,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-kai-home"
+      "native_surface_id": "native-route-kai-portfolio"
     },
     {
       "route_pattern": "/one/kai/portfolio/allocation",
@@ -3951,7 +3951,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-gmail"
+      "native_surface_id": "native-route-profile"
     },
     {
       "route_pattern": "/one/profile/gmail/actions",
@@ -3994,7 +3994,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-gmail"
+      "native_surface_id": "native-route-profile"
     },
     {
       "route_pattern": "/one/profile/gmail/connection",
@@ -4037,7 +4037,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "native-route-gmail"
+      "native_surface_id": "native-route-profile"
     },
     {
       "route_pattern": "/one/profile/gmail/oauth/return",
@@ -4840,7 +4840,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "ria-profile-page"
+      "native_surface_id": "native-route-profile"
     },
     {
       "route_pattern": "/one/profile/request-pricing",
@@ -5495,7 +5495,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "auth",
-      "native_surface_id": null
+      "native_surface_id": "native-route-connected-systems"
     },
     {
       "route_pattern": "/one/setup/connections",
@@ -6536,7 +6536,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": "ria-profile-page"
+      "native_surface_id": "native-route-ria-home"
     },
     {
       "route_pattern": "/ria/claim",
@@ -6926,7 +6926,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "auth",
-      "native_surface_id": "ria-profile-page"
+      "native_surface_id": "native-route-profile"
     },
     {
       "route_pattern": "/ria/requests",
