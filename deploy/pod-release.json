@@ -1,11 +1,12 @@
 {
-  "version": "2026.10-dev.16",
+  "version": "2026.10-dev.17",
   "channel": "dev",
   "summary": "Clearer Puppy responses and safer private-agent conversations.",
   "notes": {
     "improvements": [
       "Puppy keeps the answering device\u2019s model visible after a response.",
-      "Files organization preserves the original filename while allowing reversible display names."
+      "Files organization preserves the original filename while allowing reversible display names.",
+      "Updates from the qualified earlier release preserve Files, conversations and private-agent settings."
     ],
     "fixes": [
       "Puppy distinguishes device timeouts from private-agent deadlines.",
@@ -17,5 +18,7 @@
       "Files analysis remains opt-in; Computer Use stays disabled until its cloud gates pass."
     ]
   },
-  "supportedUpgradeDigests": []
+  "supportedUpgradeDigests": [
+    "sha256:cdcf8dc27204c1386fa5cec076df81c7ffded8fbb953c8f5345faa510ed24839"
+  ]
 }
