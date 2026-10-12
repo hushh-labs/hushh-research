@@ -8,7 +8,7 @@ All mutations serialize on a wallet row, with immutable source references.
 from __future__ import annotations
 
 import asyncio
-import json
+import logging
 import os
 from typing import Any, Callable
 from uuid import UUID, uuid4
@@ -16,7 +16,16 @@ from uuid import UUID, uuid4
 from sqlalchemy import text
 
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
+from hushh_mcp.services.payout_doorbell import PayoutDoorbellError, notify_payout_changed
+from hushh_mcp.services.payout_request_labels import owner_request_labels
+from hushh_mcp.services.payout_review import (
+    review_for_balance,
+    review_for_earning,
+    review_for_redemption,
+)
 from hushh_mcp.services.stripe_mode import live_hashcoin_redemption_enabled
+
+logger = logging.getLogger(__name__)
 
 
 class HashcoinError(ValueError):
@@ -70,19 +79,14 @@ class HashcoinWalletService(ExternalConnectorLifecycleStore):
 
     @staticmethod
     def _notify(connection, wallet: dict) -> None:
-        if wallet.get("user_id"):
-            connection.execute(
-                text("SELECT pg_notify('one_user_state_changed',:payload)"),
-                {
-                    "payload": json.dumps(
-                        {
-                            "type": "bank_payout_changed",
-                            "event_id": str(uuid4()),
-                            "user_id": wallet["user_id"],
-                        }
-                    ),
-                },
-            )
+        """Queue the owner's wallet doorbell; an erased wallet has no owner to tell."""
+        if not wallet.get("user_id"):
+            return
+        try:
+            notify_payout_changed(connection, wallet["user_id"], ["wallet"])
+        except PayoutDoorbellError:
+            # A doorbell is advisory and readers also poll; it never fails a ledger write.
+            logger.warning("hashcoin.doorbell_skipped reason=invalid_owner")
 
     @classmethod
     def _post(cls, connection, *, wallet_id: str, kind: str, source: str, amount: int) -> bool:
@@ -291,6 +295,173 @@ class HashcoinWalletService(ExternalConnectorLifecycleStore):
             {"wallet": wallet_id, "available": available, "exact_amount": exact_amount},
         )
 
+    @staticmethod
+    def _summary_redeemable(
+        connection, *, wallet_id: str, available: int, next_coins: int
+    ) -> tuple[int, int]:
+        """Coins and sources sequential cash-outs can spend now, as (coins, count).
+
+        Replays _next_live_source's predicate and order without LIMIT 1. Each
+        cash-out spends one whole source, oldest first, while it fits what is
+        still available; a source that no longer fits never fits later.
+        """
+        redeemable = count = 0
+        remaining = available
+        for row in connection.execute(
+            text("""SELECT p.request_id,p.owner_earning_cents
+          FROM drive_request_owner_payouts p
+          WHERE p.wallet_id=:wallet AND p.stripe_mode='live'
+            AND p.settlement_method='hashcoins' AND p.status='hashcoins_credited'
+            AND p.stripe_charge_id LIKE 'ch_%'
+            AND p.owner_earning_cents BETWEEN 1 AND LEAST(:available,50000)
+            AND NOT EXISTS (SELECT 1 FROM hashcoin_redemptions r
+              WHERE r.source_request_id=p.request_id AND r.stripe_mode='live'
+                AND r.status IN ('reserved','dispatching','unknown','succeeded'))
+          ORDER BY p.credited_at,p.request_id LIMIT 500"""),
+            {"wallet": wallet_id, "available": available},
+        ).mappings():
+            amount = int(row["owner_earning_cents"])
+            if amount <= min(remaining, 50000):
+                redeemable, remaining, count = redeemable + amount, remaining - amount, count + 1
+        # Separate statements can straddle a concurrent hold; never report less
+        # than the one cash-out the Redeem button offers.
+        return max(redeemable, next_coins), max(count, 1)
+
+    @staticmethod
+    def _summary_holds(connection, *, wallet: dict, live: dict[str, Any]) -> list[dict[str, Any]]:
+        """Why a live wallet is held, mirroring its hold and release predicates.
+
+        Reasons come only from payout_review. Each hold keeps its raw request ID
+        and start time; the caller resolves labels and formats times.
+        """
+        # Every hold predicate sets the wallet flag before it applies, and the
+        # release clears it only once none applies. "held" also covers a debt.
+        if not live["held"]:
+            return []
+        params = {"wallet": str(wallet["wallet_id"])}
+        holds: list[dict[str, Any]] = []
+        for row in connection.execute(
+            text("""SELECT request_id,status,safe_error_code,owner_earning_cents,held_at
+          FROM drive_request_owner_payouts
+          WHERE wallet_id=:wallet AND status='hashcoins_held'
+          ORDER BY held_at NULLS LAST,request_id LIMIT 20"""),
+            params,
+        ).mappings():
+            review = review_for_earning(row)
+            if review is not None:
+                holds.append(
+                    {
+                        "id": f"earning:{row['request_id']}",
+                        **review,
+                        "coins": int(row["owner_earning_cents"] or 0),
+                        "requestId": str(row["request_id"]),
+                        "since": row["held_at"],
+                    }
+                )
+        for row in connection.execute(
+            text("""SELECT r.redemption_id,r.stripe_mode,r.status,r.reversal_status,
+            r.provider_review_reason,r.amount_coins,r.source_request_id,
+            r.last_provider_checked_at,p.status AS source_status,
+            e.created_at AS source_reversed_at
+          FROM hashcoin_redemptions r
+          LEFT JOIN drive_request_owner_payouts p ON p.request_id=r.source_request_id
+          LEFT JOIN hashcoin_ledger_entries e ON e.wallet_id=r.wallet_id
+            AND e.entry_kind='reversal' AND e.source_ref=r.source_request_id
+          WHERE r.wallet_id=:wallet AND r.stripe_mode='live'
+            AND r.reversal_status<>'reversed'
+            AND (r.provider_review_reason IS NOT NULL OR
+              (p.status='hashcoins_reversed' AND
+                r.status IN ('dispatching','unknown','succeeded')))
+          ORDER BY r.created_at,r.redemption_id LIMIT 20"""),
+            params,
+        ).mappings():
+            review = review_for_redemption(row, {"status": row["source_status"]})
+            if review is not None:
+                holds.append(
+                    {
+                        "id": f"redemption:{row['redemption_id']}",
+                        **review,
+                        "coins": int(row["amount_coins"]),
+                        "requestId": str(row["source_request_id"])
+                        if row["source_request_id"]
+                        else None,
+                        # Flagged by the transfer check, or refunded after cash-out.
+                        "since": row["last_provider_checked_at"]
+                        if row["provider_review_reason"] is not None
+                        else row["source_reversed_at"],
+                    }
+                )
+        balance = live["balanceCoins"]
+        review = review_for_balance(
+            balance_coins=balance, held=bool(wallet["held"]), explained=bool(holds)
+        )
+        if review is not None:
+            # A debt holds its deficit; an unexplained hold freezes what would be available.
+            coins = -balance if balance < 0 else max(balance - live["reservedCoins"], 0)
+            holds.insert(
+                0,
+                {"id": "balance", **review, "coins": coins, "requestId": None, "since": None},
+            )
+        return holds[:20]
+
+    @classmethod
+    def _summary_live_review(
+        cls,
+        connection,
+        *,
+        user_id: str,
+        wallet: dict | None,
+        live: dict[str, Any],
+        source: dict | None,
+    ) -> dict[str, Any]:
+        """Additive live summary fields (#8 holds, #9 redeemable totals).
+
+        Invariants: nextRedeemCoins <= redeemableCoins <= availableCoins.
+        """
+        available, next_coins = live["availableCoins"], live["nextRedeemCoins"]
+        redeemable, count = (
+            cls._summary_redeemable(
+                connection,
+                wallet_id=str(wallet["wallet_id"]),
+                available=available,
+                next_coins=next_coins,
+            )
+            if wallet is not None and next_coins > 0
+            else (0, 0)
+        )
+        holds = cls._summary_holds(connection, wallet=wallet, live=live) if wallet else []
+        source_id = str(source["request_id"]) if source is not None and next_coins > 0 else None
+        request_ids = [hold["requestId"] for hold in holds if hold["requestId"]]
+        if source_id:
+            request_ids.append(source_id)
+        # Only the owner's own, unerased requests keep an ID and a label.
+        labels = (
+            owner_request_labels(connection, user_id=user_id, request_ids=request_ids)
+            if request_ids
+            else {}
+        )
+        return {
+            "holds": [
+                {
+                    "id": hold["id"],
+                    "reason": hold["reason"],
+                    "nextStep": hold["nextStep"],
+                    "coins": hold["coins"],
+                    "requestId": hold["requestId"] if hold["requestId"] in labels else None,
+                    "requestLabel": labels.get(hold["requestId"]) if hold["requestId"] else None,
+                    "since": hold["since"].isoformat() if hold["since"] is not None else None,
+                }
+                for hold in holds
+            ],
+            "redeemableCoins": redeemable,
+            "redeemableCount": count,
+            "remainingAfterNextCoins": available - next_coins,
+            "notRedeemableCoins": available - redeemable,
+            "nextRedeemSource": {"requestId": source_id, "label": labels[source_id]}
+            if source_id in labels
+            else None,
+        }
+
     async def summary(self, *, user_id: str) -> dict[str, Any]:
         if not user_id:
             raise HashcoinError("invalid_owner")
@@ -320,6 +491,15 @@ class HashcoinWalletService(ExternalConnectorLifecycleStore):
                 live_source["owner_earning_cents"]
                 if live_source and live_hashcoin_redemption_enabled()
                 else 0
+            )
+            live.update(
+                self._summary_live_review(
+                    connection,
+                    user_id=user_id,
+                    wallet=wallets.get("live"),
+                    live=live,
+                    source=live_source,
+                )
             )
             return {
                 "coinName": "Hussh Coins",

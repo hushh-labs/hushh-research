@@ -29,9 +29,11 @@ import { DocumentRequestQuoteNotice, useDocumentRequestQuote } from "@/component
 import { DriveQueryRequestCard } from "@/components/consent/drive-query-request-card";
 import {
   FILE_REQUEST_HELPER,
+  RecipientIdentityNotice,
   RequestFilesButton,
   fileRequestLabel,
   useFileRequest,
+  useRecipientIdentityPreview,
   validFileRequest,
 } from "@/components/consent/document-file-request";
 import {
@@ -120,6 +122,11 @@ function UnlockedRequestButton({
     ownerPersonRef: personRef,
     getToken,
   });
+  const fileIdentity = useRecipientIdentityPreview({
+    active: Boolean(draftTerms && enabled && !fileRequestId),
+    userId,
+    getToken,
+  });
   const files = useFileRequest({
     userId,
     personRef,
@@ -128,6 +135,8 @@ function UnlockedRequestButton({
       ? { terms: draftTerms, clientRequestId: draft.clientRequestId }
       : undefined,
     onQuoteChanged: fileQuote.refresh,
+    identityMissing: fileIdentity.state === "missing",
+    onIdentityLinked: fileIdentity.refresh,
   });
   const alive = useRef(false);
   const serial = useRef(0);
@@ -279,6 +288,7 @@ function UnlockedRequestButton({
           Ask {personName}: “{question}”
         </BodyText>
         <HelperText>Request files: {FILE_REQUEST_HELPER}</HelperText>
+        <RecipientIdentityNotice preview={fileIdentity} />
         <DocumentRequestQuoteNotice quote={fileQuote.quote} loading={fileQuote.loading}
           error={fileQuote.error} onRetry={fileQuote.refresh} />
         <HelperText>Ask as a question: {ASK_HELPER}</HelperText>

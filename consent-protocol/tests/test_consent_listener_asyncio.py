@@ -334,6 +334,84 @@ class TestCrossProcessUserStateNotifications:
 
         asyncio.run(_run())
 
+    def test_unanswered_probe_relistens_and_resyncs_local_streams(self):
+        """A LISTEN connection that stops answering is replaced, and streams reread.
+
+        The stalled connection never reports is_closed(); only a round trip
+        reveals it. NOTIFYs sent meanwhile are lost, so each activation pushes
+        a local resync to every stream this worker holds.
+        """
+
+        async def _run():
+            from api import consent_listener
+
+            consent_listener._consent_notify_queues.clear()
+            stream_queue = await consent_listener.subscribe_consent_queue("member-1")
+            probed_after_recovery = asyncio.Event()
+            listens: list[str] = []
+
+            class Connection:
+                def __init__(self, name: str, answers: bool):
+                    self.name = name
+                    self.answers = answers
+
+                async def execute(self, sql):
+                    if sql == f"LISTEN {USER_STATE_CHANNEL}":
+                        listens.append(self.name)
+
+                async def add_listener(self, channel, callback):
+                    return None
+
+                async def remove_listener(self, channel, callback):
+                    return None
+
+                async def fetchval(self, sql):
+                    assert sql == "SELECT 1"
+                    if not self.answers:
+                        await asyncio.Event().wait()
+                    probed_after_recovery.set()
+                    return 1
+
+            connections = iter([Connection("stalled", False), Connection("healthy", True)])
+
+            class Pool:
+                async def acquire(self, timeout=None):
+                    return next(connections)
+
+                async def release(self, released):
+                    return None
+
+            async def get_pool():
+                return Pool()
+
+            async def dormant_loop():
+                await asyncio.Event().wait()
+
+            with (
+                patch("db.connection.get_pool", side_effect=get_pool),
+                patch("api.consent_listener._timeout_job_loop", new=dormant_loop),
+                patch("api.consent_listener._notification_job_loop", new=dormant_loop),
+                patch("api.consent_listener.LISTENER_HEALTHCHECK_INTERVAL_SECONDS", 0.01),
+                patch("api.consent_listener.LISTENER_PROBE_TIMEOUT_SECONDS", 0.02),
+                patch("api.consent_listener.JOB_DB_RECOVERY_DELAY_SECONDS", 0),
+            ):
+                task = asyncio.create_task(consent_listener.run_consent_listener())
+                await asyncio.wait_for(probed_after_recovery.wait(), timeout=1)
+                assert consent_listener.is_listener_active() is True
+                task.cancel()
+                await task
+
+            assert listens == ["stalled", "healthy"]
+            resync = {"type": consent_listener.LOCAL_RESYNC_EVENT_TYPE}
+            assert [stream_queue.get_nowait() for _ in range(stream_queue.qsize())] == [
+                resync,
+                resync,
+            ]
+            assert consent_listener.is_listener_active() is False
+            consent_listener._consent_notify_queues.clear()
+
+        asyncio.run(_run())
+
 
 # ===========================================================================
 # cancel-without-await fix — DB pool failure path

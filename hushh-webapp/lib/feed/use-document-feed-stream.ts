@@ -2,60 +2,73 @@
 
 import { useEffect } from "react";
 import type { User } from "firebase/auth";
+import { Capacitor } from "@capacitor/core";
 
+import { useAuth } from "@/hooks/use-auth";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
-import { DOCUMENT_REQUEST_UUID } from "@/lib/consent/document-share-consent";
-import { ApiService } from "@/lib/services/api-service";
-import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
-
-const MAX_FRAME_REMAINDER = 16_384;
-const MAX_RECONNECT_DELAY_MS = 30_000;
-const PERMANENT_STATUSES = new Set([400, 403, 404, 410]);
-// A burst's trailing reread waits for this much quiet, but never longer than
-// the cap after its first frame, so a continuous stream still rereads.
-const REFRESH_SETTLE_MS = 1_000;
-const REFRESH_MAX_WAIT_MS = 5_000;
+import {
+  createDocumentFeedStreamManager,
+  type DocumentFeedStreamManager,
+} from "@/lib/feed/document-feed-stream-manager";
+import { dispatchPayoutStateChanged } from "@/lib/payouts/payout-events";
+import { setPayoutStreamState } from "@/lib/payouts/payout-live-store";
+import {
+  createDocumentFeedTransport,
+  createFeedStreamCoordinator,
+  observeIdTokenChanges,
+  type DocumentFeedPlatform,
+} from "@/lib/services/document-feed-transport";
 
 type FeedUser = Pick<User, "uid" | "getIdToken">;
-type SharedStream = { subscribers: number; user: FeedUser; stop: () => void };
+type SharedStream = {
+  subscribers: number;
+  user: FeedUser;
+  manager: DocumentFeedStreamManager;
+  stop: () => void;
+};
 const sharedStreams = new Map<string, SharedStream>();
 
 /** Feed and Profile share one authenticated stream; frames are invalidation hints. */
 export function useDocumentFeedStream(user: FeedUser | null): void {
+  const { sessionVerificationRequired } = useAuth();
+
   useEffect(() => {
     if (!user || typeof window === "undefined") return;
     let shared = sharedStreams.get(user.uid);
     if (!shared) {
-      shared = { subscribers: 0, user, stop: () => {} };
+      shared = openSharedStream(user);
       sharedStreams.set(user.uid, shared);
-      shared.stop = startDocumentFeedStream(shared);
     }
     shared.user = user;
     shared.subscribers += 1;
+    const entry = shared;
     return () => {
-      shared.subscribers -= 1;
-      if (shared.subscribers === 0) {
-        shared.stop();
-        sharedStreams.delete(user.uid);
-      }
+      entry.subscribers -= 1;
+      if (entry.subscribers > 0) return;
+      entry.stop();
+      if (sharedStreams.get(user.uid) === entry) sharedStreams.delete(user.uid);
     };
   }, [user]);
+
+  // A verified session after a failed check is one auth recovery signal.
+  useEffect(() => {
+    if (!user) return;
+    sharedStreams.get(user.uid)?.manager.sessionVerification(Boolean(sessionVerificationRequired));
+  }, [user, sessionVerificationRequired]);
 }
 
-function startDocumentFeedStream(shared: SharedStream): () => void {
-    const uid = shared.user.uid;
-
-    let stopped = false;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
-    let attempts = 0;
-    let forceTokenRefresh = false;
-    const controller = new AbortController();
-    let activeReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-    let settleTimer: ReturnType<typeof setTimeout> | null = null;
-    let burstStartedAt = 0;
-    let burstRequestId: string | undefined;
-    const emit = (requestId?: string) => {
+function openSharedStream(user: FeedUser): SharedStream {
+  const uid = user.uid;
+  const platform: DocumentFeedPlatform = Capacitor.isNativePlatform() ? "native" : "web";
+  let stopTokenWatch: (() => void) | null = null;
+  const shared = { subscribers: 0, user } as SharedStream;
+  const manager = createDocumentFeedStreamManager({
+    uid,
+    transport: createDocumentFeedTransport(platform),
+    coordinator: createFeedStreamCoordinator(uid, platform),
+    getToken: (forceRefresh) => shared.user.getIdToken(forceRefresh),
+    dispatchFeed: ({ requestId }) => {
       CacheSyncService.onConsentMutated(uid);
       // All Feed surfaces listen to this one signal and perform a forced
       // authenticated reread. Consent Center also repairs its current view.
@@ -64,114 +77,60 @@ function startDocumentFeedStream(shared: SharedStream): () => void {
         requestId: requestId ? `document_share_request:${requestId}` : undefined,
         reconcile: true,
       });
-    };
-    // Every frame fans out to each Feed surface. A burst's first frame
-    // refreshes at once; the burst then gets one trailing reread after it goes
-    // quiet, because a forced reread joins any read already in flight and that
-    // read may predate the burst's last change. Request ids that differ within
-    // a burst widen the trailing reread to the whole account.
-    const refresh = (requestId?: string) => {
-      const now = Date.now();
-      if (settleTimer === null) {
-        burstStartedAt = now;
-        burstRequestId = requestId;
-        emit(requestId);
-      } else {
-        clearTimeout(settleTimer);
-        if (burstRequestId !== requestId) burstRequestId = undefined;
+    },
+    dispatchPayout: (detail) => dispatchPayoutStateChanged(detail),
+    onStreamState: (state) => setPayoutStreamState(state),
+    onPhase: (phase) => {
+      // A new web ID token is a recovery signal; watch only while blocked.
+      if (phase === "auth_blocked" && platform === "web") {
+        stopTokenWatch ??= observeIdTokenChanges(uid, () => manager.tokenChanged());
+      } else if (phase !== "auth_blocked" && stopTokenWatch) {
+        stopTokenWatch();
+        stopTokenWatch = null;
       }
-      settleTimer = setTimeout(() => {
-        settleTimer = null;
-        if (!stopped) emit(burstRequestId);
-      }, Math.min(REFRESH_SETTLE_MS, burstStartedAt + REFRESH_MAX_WAIT_MS - now));
-    };
+    },
+  });
+  const detachLifecycle = attachLifecycle(manager, platform);
+  shared.manager = manager;
+  shared.stop = () => {
+    detachLifecycle();
+    manager.stop();
+    stopTokenWatch?.();
+    stopTokenWatch = null;
+  };
+  manager.start();
+  return shared;
+}
 
-    const connect = async () => {
-      let connectedAt: number | null = null;
-      let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-      try {
-        const idToken = await shared.user.getIdToken(forceTokenRefresh);
-        if (stopped) return;
-        const response = await ApiService.apiFetchStream(
-          `/api/consent/document-feed/${encodeURIComponent(uid)}`,
-          {
-            method: "GET",
-            headers: { Authorization: `Bearer ${idToken}` },
-            signal: controller.signal,
-            cache: "no-store",
-          },
-        );
-        if (stopped) {
-          await response.body?.cancel().catch(() => {});
+function attachLifecycle(manager: DocumentFeedStreamManager, platform: DocumentFeedPlatform): () => void {
+  const onOnline = () => manager.online();
+  const onFocus = () => manager.focus();
+  const onVisibility = () => manager.visibility(document.visibilityState === "visible");
+  window.addEventListener("online", onOnline);
+  window.addEventListener("focus", onFocus);
+  document.addEventListener("visibilitychange", onVisibility);
+  let detached = false;
+  let removeAppListener: (() => void) | null = null;
+  if (platform === "native") {
+    // Background cancels the native request (frees its backend slot); resume reconnects.
+    void import("@capacitor/app")
+      .then(({ App }) =>
+        App.addListener("appStateChange", ({ isActive }) => manager.appActive(isActive)),
+      )
+      .then((handle) => {
+        if (detached) {
+          void handle.remove();
           return;
         }
-        if (!response.ok || !response.body) {
-          if (response.status === 401) {
-            // A token can expire between opening Feed and the handshake.
-            // Retry once with a fresh Firebase token, then leave recovery to
-            // focus/poll/FCM instead of making an authentication request storm.
-            if (forceTokenRefresh) return;
-            forceTokenRefresh = true;
-            throw new Error("document_feed_token_expired");
-          }
-          if (PERMANENT_STATUSES.has(response.status)) return;
-          throw new Error("document_feed_stream_unavailable");
-        }
-        connectedAt = Date.now();
-        forceTokenRefresh = false;
-        reader = response.body.getReader();
-        activeReader = reader;
-        const decoder = new TextDecoder();
-        let remainder = "";
-        while (!stopped) {
-          const { done, value } = await reader.read();
-          if (stopped || done) break;
-          const parsed = parseSSEBlocks(decoder.decode(value, { stream: true }), remainder);
-          remainder = parsed.remainder;
-          if (remainder.length > MAX_FRAME_REMAINDER) {
-            throw new Error("document_feed_frame_too_large");
-          }
-          for (const frame of parsed.events) {
-            if (frame.event === "feed_reset") {
-              refresh();
-            } else if (frame.event === "feed_changed") {
-              try {
-                const payload = JSON.parse(frame.data) as { request_id?: unknown };
-                const requestId = typeof payload.request_id === "string" ? payload.request_id : "";
-                if (DOCUMENT_REQUEST_UUID.test(requestId)) refresh(requestId);
-              } catch {
-                // Invalid stream metadata cannot select a request or suppress
-                // the periodic, focus and push recovery paths.
-              }
-            }
-          }
-        }
-        if (stopped) return;
-        throw new Error("document_feed_stream_closed");
-      } catch {
-        if (stopped || controller.signal.aborted) return;
-      } finally {
-        if (reader) {
-          await reader.cancel().catch(() => {});
-          reader.releaseLock();
-          if (activeReader === reader) activeReader = null;
-        }
-      }
-      if (connectedAt !== null && Date.now() - connectedAt >= MAX_RECONNECT_DELAY_MS) {
-        attempts = 0;
-      }
-      attempts += 1;
-      retryTimer = setTimeout(() => {
-        retryTimer = null;
-        void connect();
-      }, Math.min(1_000 * 2 ** Math.min(attempts - 1, 5), MAX_RECONNECT_DELAY_MS));
-    };
-    void connect();
-    return () => {
-      stopped = true;
-      controller.abort();
-      void activeReader?.cancel().catch(() => {});
-      if (retryTimer) clearTimeout(retryTimer);
-      if (settleTimer) clearTimeout(settleTimer);
-    };
+        removeAppListener = () => void handle.remove();
+      })
+      .catch(() => undefined);
+  }
+  return () => {
+    detached = true;
+    window.removeEventListener("online", onOnline);
+    window.removeEventListener("focus", onFocus);
+    document.removeEventListener("visibilitychange", onVisibility);
+    removeAppListener?.();
+  };
 }

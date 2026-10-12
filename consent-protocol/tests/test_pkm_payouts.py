@@ -60,6 +60,8 @@ class _Stripe:
             "has_more": False,
         }
         self.external_accounts_visible = True
+        # Extra Account fields a test sets, e.g. requirements lists or settings.
+        self.requirements, self.account_extra = {}, {}
         outer = self
 
         class _Account:
@@ -78,12 +80,16 @@ class _Stripe:
                     "details_submitted": True,
                     "payouts_enabled": outer.payouts_enabled,
                     "capabilities": {"transfers": outer.transfers_capability},
-                    "requirements": {"disabled_reason": outer.disabled_reason},
+                    "requirements": {
+                        "disabled_reason": outer.disabled_reason,
+                        **outer.requirements,
+                    },
                     **(
                         {"external_accounts": outer.external_accounts}
                         if outer.external_accounts_visible
                         else {}
                     ),
+                    **outer.account_extra,
                 }
 
             @staticmethod
@@ -223,6 +229,15 @@ async def test_document_status_requires_live_transfer_and_payout_readiness(world
         "canManageBank": True,
         "bankStatus": "linked",
         "bank": {"name": "Example Bank", "last4": "6789", "status": "new"},
+        "verification": {
+            "state": "none",
+            "deadline": None,
+            "items": [],
+            "eventuallyDue": False,
+            "hasErrors": False,
+            "disabledReason": None,
+        },
+        "payoutSchedule": None,
     }
 
     fake.payouts_enabled = True
@@ -430,8 +445,8 @@ def test_document_money_routes_require_owner_and_sanitize_history_failure(monkey
 
     calls = []
 
-    async def history(self, *, user_id, cursor=None):
-        calls.append((user_id, cursor))
+    async def history(self, *, user_id, cursor=None, modes=None):
+        calls.append((user_id, cursor, modes))
         if cursor:
             raise RuntimeError("private_provider_or_database_detail")
         return {"currency": "USD", "transactions": [], "nextCursor": None}
@@ -447,13 +462,19 @@ def test_document_money_routes_require_owner_and_sanitize_history_failure(monkey
     response = client.get("/api/one/payouts/account/earnings?user_id=other")
     assert response.status_code == 200
     assert response.headers["Cache-Control"] == "private, no-store"
-    assert calls == [("owner", None)]
+    # No mode means the configured one (test here), which keeps legacy rows.
+    assert response.json()["mode"] == "test"
+    assert calls == [("owner", None, ("test", "legacy"))]
+    live = client.get("/api/one/payouts/account/earnings?mode=live")
+    assert live.json()["mode"] == "live" and calls[-1] == ("owner", None, ("live",))
+    assert client.get("/api/one/payouts/account/earnings?mode=legacy").status_code == 422
     assert client.get("/api/one/payouts/account/earnings?cursor=invalid").status_code == 422
     failed = client.get(
         "/api/one/payouts/account/earnings?cursor=00000000-0000-4000-8000-000000000001"
     )
     assert failed.status_code == 503
     assert failed.json() == {"detail": "Transactions are unavailable."}
+    assert failed.headers["Cache-Control"] == "private, no-store"
 
 
 async def test_switch_to_live_does_not_reuse_test_bank_or_transfer_test_earnings(
@@ -647,3 +668,227 @@ async def test_explicit_sandbox_bank_keeps_live_marketplace_settlement_isolated(
     with pytest.raises(PacketOrderError, match="mode does not match"):
         await sandbox.transfer_due()
     assert fake.transfers == []
+
+
+async def test_account_verification_projects_closed_categories_never_provider_text(world):
+    svc, _db, fake = world
+    await svc.onboarding_link(user_id="owner", surface="documents")
+    fake.payouts_enabled = True
+    fake.transfers_capability = "active"
+    fake.requirements = {
+        "currently_due": [
+            "individual.verification.document",
+            "individual.address.city",
+            "external_account",
+        ],
+        "eventually_due": [
+            "individual.verification.document",
+            "individual.address.city",
+            "external_account",
+            "individual.id_number",
+        ],
+        "current_deadline": 1793318400,
+        "errors": [
+            {
+                "code": "verification_document_failed_copy",
+                "reason": "Private provider text 123-45-6789",
+                "requirement": "individual.verification.document",
+            }
+        ],
+    }
+    fake.account_extra = {
+        "settings": {"payouts": {"schedule": {"interval": "daily", "delay_days": 2}}}
+    }
+    account = (await svc.account_status(user_id="owner"))["account"]
+    # Stripe still pays out until the deadline; readiness is unchanged.
+    assert account["ready"] is True
+    assert account["verification"] == {
+        "state": "due",
+        "deadline": "2026-10-30T00:00:00+00:00",
+        "items": ["identity", "address", "bank_account"],
+        "eventuallyDue": True,
+        "hasErrors": True,
+        "disabledReason": None,
+    }
+    assert account["payoutSchedule"] == {"interval": "daily", "delayDays": 2}
+    serialized = json.dumps(account)
+    assert "Private provider text" not in serialized
+    assert "individual." not in serialized and "external_account" not in serialized
+
+
+@pytest.mark.parametrize(
+    ("requirements", "extra", "expected"),
+    [
+        (
+            {
+                "past_due": ["tos_acceptance.date"],
+                "currently_due": ["tos_acceptance.date"],
+                "disabled_reason": "requirements.past_due",
+            },
+            {},
+            ("past_due", ["terms"], "requirements_past_due", None),
+        ),
+        (
+            {"pending_verification": ["individual.verification.document"]},
+            {},
+            ("in_review", [], None, None),
+        ),
+        ({"disabled_reason": "under_review"}, {}, ("in_review", [], "under_review", None)),
+        (
+            {"disabled_reason": "rejected.fraud", "currently_due": ["company.tax_id"]},
+            {},
+            ("disabled", ["tax_id"], "rejected", None),
+        ),
+        ({"disabled_reason": "a.newer_reason"}, {}, ("disabled", [], "other", None)),
+        (
+            {"eventually_due": ["individual.id_number"]},
+            {"future_requirements": {"currently_due": [], "current_deadline": 1793318400}},
+            ("none", [], None, None),
+        ),
+        (
+            {},
+            {
+                "future_requirements": {
+                    "currently_due": ["individual.id_number", "business_profile.url"],
+                    "current_deadline": 1793318400,
+                },
+                "settings": {"payouts": {"schedule": {"interval": "hourly", "delay_days": 2}}},
+            },
+            ("upcoming", ["tax_id", "business"], None, "2026-10-30T00:00:00+00:00"),
+        ),
+    ],
+)
+async def test_account_verification_state_follows_stripe_requirements(
+    world, requirements, extra, expected
+):
+    svc, _db, fake = world
+    await svc.onboarding_link(user_id="owner", surface="documents")
+    fake.requirements, fake.account_extra = requirements, extra
+    account = (await svc.account_status(user_id="owner"))["account"]
+    verification = account["verification"]
+    assert (
+        verification["state"],
+        verification["items"],
+        verification["disabledReason"],
+        verification["deadline"],
+    ) == expected
+    # An unknown payout interval is omitted, never guessed.
+    assert account["payoutSchedule"] is None
+
+
+async def test_verify_link_collects_upcoming_requirements_for_existing_accounts_only(world):
+    svc, _db, fake = world
+    with pytest.raises(PacketOrderError) as missing:
+        await svc.onboarding_link(user_id="owner", surface="documents", purpose="verify")
+    assert missing.value.code == "PAYOUT_ACCOUNT_REQUIRED"
+    assert fake.accounts == [] and fake.links == []
+    await svc.onboarding_link(user_id="owner", surface="documents")
+    assert "collection_options" not in fake.links[-1]
+    await svc.onboarding_link(user_id="owner", surface="documents", purpose="verify")
+    assert fake.links[-1]["type"] == "account_onboarding"
+    assert fake.links[-1]["collection_options"] == {
+        "fields": "eventually_due",
+        "future_requirements": "include",
+    }
+    assert len(fake.accounts) == 1
+
+
+def test_onboard_route_accepts_only_an_optional_verify_purpose(world, monkeypatch):
+    svc, _db, fake = world
+    monkeypatch.setattr(payouts_routes, "_service", lambda: svc)
+    app = FastAPI()
+    app.include_router(payouts_routes.router)
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner"}
+    client = TestClient(app)
+    onboard = "/api/one/payouts/account/onboard"
+    missing = client.post(onboard, json={"purpose": "verify"})
+    assert missing.status_code == 503
+    assert missing.json()["detail"]["code"] == "PAYOUT_ACCOUNT_REQUIRED"
+    assert missing.headers["Cache-Control"] == "private, no-store"
+    for body in (None, {}):
+        assert client.post(onboard, json=body).status_code == 200
+        assert "collection_options" not in fake.links[-1]
+    assert client.post(onboard, json={"purpose": "verify"}).status_code == 200
+    assert fake.links[-1]["collection_options"]["fields"] == "eventually_due"
+    for body in ({"purpose": "update"}, {"purpose": "verify", "account": "acct_other"}):
+        assert client.post(onboard, json=body).status_code == 422
+    assert len(fake.links) == 3 and len(fake.accounts) == 1
+
+
+def test_bank_payout_route_pages_by_cursor_for_the_token_owner_only(monkeypatch):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services.stripe_connect_bank_payouts import ConnectBankPayoutError
+
+    calls = []
+
+    async def owner_summary(*, user_id, cursor=None):
+        calls.append((user_id, cursor))
+        if cursor == "stale":
+            raise ConnectBankPayoutError("invalid_cursor")
+        return {"currency": "USD", "stripeMode": "test", "payouts": [], "nextCursor": None}
+
+    monkeypatch.setattr(
+        payouts_routes,
+        "StripeConnectBankPayouts",
+        lambda **_: SimpleNamespace(owner_summary=owner_summary),
+    )
+    app = FastAPI()
+    app.include_router(payouts_routes.router)
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner"}
+    client = TestClient(app)
+    deposits = "/api/one/payouts/account/bank-payouts"
+    assert client.get(f"{deposits}?user_id=other").json()["nextCursor"] is None
+    assert client.get(f"{deposits}?cursor=page_2").status_code == 200
+    assert calls == [("owner", None), ("owner", "page_2")]
+    for cursor in ("", "x" * 257):
+        assert client.get(deposits, params={"cursor": cursor}).status_code == 422
+    stale = client.get(f"{deposits}?cursor=stale")
+    assert stale.status_code == 422
+    assert stale.json() == {"detail": "Bank payout page is unavailable."}
+    assert stale.headers["Cache-Control"] == "private, no-store"
+    assert calls[-1] == ("owner", "stale") and len(calls) == 3
+
+
+@pytest.mark.parametrize(
+    ("route", "path"), [("live", "/connect/webhook"), ("sandbox", "/connect/sandbox-webhook")]
+)
+def test_connect_webhook_rejections_log_closed_codes_only(monkeypatch, caplog, route, path):
+    from types import SimpleNamespace
+
+    from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
+    from hushh_mcp.services.stripe_connect_bank_payouts import ConnectBankPayoutError
+
+    failures = iter(
+        [
+            ConnectBankPayoutError("provider_mismatch"),
+            ConnectBankPayoutError("Provider said acct_private failed"),
+            ConnectorLifecycleError("private storage detail"),
+        ]
+    )
+
+    async def process_webhook(**_):
+        raise next(failures)
+
+    monkeypatch.setattr(
+        payouts_routes,
+        "StripeConnectBankPayouts",
+        lambda **_: SimpleNamespace(process_webhook=process_webhook),
+    )
+    app = FastAPI()
+    app.include_router(payouts_routes.router)
+    client = TestClient(app)
+    caplog.set_level("WARNING", logger=payouts_routes.logger.name)
+    statuses = [
+        client.post(
+            f"/api/one/payouts{path}", content=b"{}", headers={"Stripe-Signature": "t=1,v1=x"}
+        ).status_code
+        for _ in range(3)
+    ]
+    assert statuses == [409, 503, 503]
+    assert [record.getMessage() for record in caplog.records] == [
+        f"connect_webhook.rejected route={route} status=409 code=provider_mismatch",
+        f"connect_webhook.rejected route={route} status=503 code=other",
+        f"connect_webhook.rejected route={route} status=503 code=storage_unavailable",
+    ]
+    assert "acct_private" not in caplog.text and "private storage" not in caplog.text

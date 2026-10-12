@@ -1,6 +1,6 @@
 import { isNative } from "@/lib/capacitor/platform";
 import { apiErrorCode } from "@/lib/services/api-client";
-import type { HashcoinRedemption } from "@/lib/services/document-payout-service";
+import type { HashcoinBalance, HashcoinRedemption } from "@/lib/services/document-payout-service";
 
 import type { PayoutAccountState } from "./payout-bank-row";
 
@@ -47,9 +47,9 @@ export function redemptionCopy(item: HashcoinRedemption): string {
   }
 }
 /**
- * Why a new live cash-out can't start yet; null once the bank is ready. The
- * bank card below names the bank's state, so this only points to it. The
- * server checks again.
+ * Why a new live redemption can't start yet; null once the bank is ready. The
+ * bank row names the bank's state, so this only points to it. The server
+ * checks again.
  */
 export function cashOutBlock(bank: PayoutAccountState | null, openTransferUnreadable: boolean): string | null {
   // This build couldn't read the open transfer; a newer one can.
@@ -57,7 +57,18 @@ export function cashOutBlock(bank: PayoutAccountState | null, openTransferUnread
   if (!bank || bank.loading) return "Checking your bank…";
   if (bank.failed || bank.stripeMode === "test") return "Bank check unavailable";
   const { account } = bank;
-  if (!account) return "Link a bank below to cash out";
+  if (!account) return "Link a bank to redeem";
   if (account.ready) return null;
-  return account.bankStatus === "unavailable" ? "Bank check unavailable" : "Fix your bank below to cash out";
+  return account.bankStatus === "unavailable" ? "Bank check unavailable" : "Fix your bank to redeem";
+}
+
+/**
+ * Coins ready to redeem now, one paid request at a time. A server without
+ * redeemableCoins sends only the next amount; then the available balance
+ * stands in for the total, and nothing is ready when no next amount is.
+ */
+export function readyCoins(live: HashcoinBalance): number {
+  const next = live.nextRedeemCoins ?? 0;
+  if (live.redeemableCoins !== undefined) return Math.max(live.redeemableCoins, next);
+  return next >= 1 ? Math.max(live.availableCoins, next) : 0;
 }

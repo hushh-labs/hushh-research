@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
@@ -16,6 +17,7 @@ from uuid import UUID, uuid4
 import stripe
 from sqlalchemy import text
 
+from hushh_mcp.services import payout_doorbell
 from hushh_mcp.services.drive_request_payment_service import _config, _stripe_dict
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
 from hushh_mcp.services.hashcoin_wallet_service import HashcoinWalletService, hashcoins_enabled
@@ -23,6 +25,21 @@ from hushh_mcp.services.stripe_mode import configured_stripe_mode, stripe_enviro
 
 _SAFE_RETRY_WINDOW = timedelta(hours=20)
 _TERMINAL_REQUESTS = {"completed", "partial", "no_match"}
+# Closed before any delivery: withdrawn, declined, or past its deadline while
+# still open. Such a request can never earn, so an unpaid or fully refunded
+# earning is void. Never used for transfer authority (_TERMINAL_REQUESTS is).
+_CLOSED_REQUESTS = frozenset({"cancelled", "declined", "expired"})
+_CLOSED_WHEN_EXPIRED = frozenset({"pending", "preparing", "review_ready", "approved"})
+_UNPAID_ORDER_STATUSES = frozenset({"awaiting_payment", "checkout_open", "expired"})
+
+
+def _request_closed(request: dict) -> bool:
+    expires_at = request.get("expires_at")
+    return request["status"] in _CLOSED_REQUESTS or (
+        request["status"] in _CLOSED_WHEN_EXPIRED
+        and isinstance(expires_at, datetime)
+        and expires_at <= datetime.now(UTC)
+    )
 
 
 class PayoutTransientError(ValueError):
@@ -144,11 +161,32 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
         super().__init__(db)
         self.stripe_api = stripe_api or stripe
 
-    async def owner_history(self, *, user_id: str, cursor: str | None = None) -> dict[str, Any]:
-        """Owner-scoped, bounded earnings; a transfer is never a bank deposit."""
+    async def owner_history(
+        self,
+        *,
+        user_id: str,
+        cursor: str | None = None,
+        modes: Sequence[str] | None = None,
+    ) -> dict[str, Any]:
+        """Owner-scoped, bounded earnings; a transfer is never a bank deposit.
+
+        modes defaults to the configured Stripe mode. Test history also lists
+        legacy rows, whose mode was never proven live; live never mixes in.
+        """
         if not user_id:
             raise ValueError("invalid owner")
         cursor_id = str(UUID(cursor)) if cursor else None
+        if isinstance(modes, str):
+            raise ValueError("invalid payout mode")
+        requested = set(modes) if modes is not None else {configured_stripe_mode()}
+        if (
+            not requested
+            or not requested <= {"live", "test", "legacy"}
+            or ("live" in requested and len(requested) > 1)
+        ):
+            raise ValueError("invalid payout mode")
+        mode = "live" if "live" in requested else "test"
+        stripe_modes = sorted(requested | ({"legacy"} if "test" in requested else set()))
 
         def operation(connection):
             rows = (
@@ -162,12 +200,13 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                   JOIN drive_request_payment_orders o ON o.request_id=p.request_id
                   WHERE r.user_id=:owner AND p.erased_at IS NULL
                     AND o.stripe_payment_intent_id IS NOT NULL
+                    AND p.stripe_mode=ANY(CAST(:modes AS text[]))
                     AND (CAST(:cursor AS uuid) IS NULL OR (p.created_at,p.request_id) < (
                       SELECT c.created_at,c.request_id FROM drive_request_owner_payouts c
                       JOIN drive_share_requests cr ON cr.request_id=c.request_id
                       WHERE c.request_id=CAST(:cursor AS uuid) AND cr.user_id=:owner))
                   ORDER BY p.created_at DESC,p.request_id DESC LIMIT 21"""),
-                    {"owner": user_id, "cursor": cursor_id},
+                    {"owner": user_id, "cursor": cursor_id, "modes": stripe_modes},
                 )
                 .mappings()
                 .all()
@@ -223,6 +262,7 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             "currency": "USD",
             "transactions": items,
             "stripeMode": configured_stripe_mode(),
+            "mode": mode,
             "nextCursor": str(rows[19]["request_id"]) if len(rows) > 20 else None,
         }
 
@@ -488,6 +528,23 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
             and order["amount_cents"] == obligation["amount_cents"] == payout["gross_amount_cents"]
         )
         if payout["status"] == "awaiting_delivery":
+            if _request_closed(request):
+                # Nothing can be delivered for a closed request. Void only an
+                # earning whose charge never happened or came back in full; a
+                # paid, unrefunded one waits for the refund (or review).
+                unpaid = all(
+                    row["status"] in _UNPAID_ORDER_STATUSES and row.get("paid_at") is None
+                    for row in (order, obligation)
+                )
+                if not (unpaid or full_refund_confirmed):
+                    return "held"
+                connection.execute(
+                    text("""UPDATE drive_request_owner_payouts SET status='void',
+                      next_check_at=clock_timestamp(),updated_at=clock_timestamp()
+                      WHERE request_id=:request AND status='awaiting_delivery'"""),
+                    {"request": request_id},
+                )
+                return "void"
             if request["status"] not in _TERMINAL_REQUESTS or order["status"] not in {
                 "paid",
                 "refunded",
@@ -961,7 +1018,10 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                   WHERE wallet_id IN (:wallet,:sandbox) AND user_id IS NOT NULL"""),
                 {"wallet": row["wallet_id"], "sandbox": row["sandbox_wallet_id"]},
             ).mappings():
-                HashcoinWalletService._notify(connection, dict(wallet))
+                # A hold or release changes both the coin wallet and this earning.
+                payout_doorbell.notify_payout_changed(
+                    connection, wallet["user_id"], ["wallet", "earnings"], request_id
+                )
 
     async def _adopt_production_transfer_accounts(self, request_ids: list[str]) -> None:
         """Existing live earnings must not wait for the owner to reopen Profile.

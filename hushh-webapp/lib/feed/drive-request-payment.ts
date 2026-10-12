@@ -5,8 +5,17 @@ import {
   formatDocumentRequestPrice,
   isValidDocumentRequestPriceCents,
 } from "@/lib/consent/document-request-price";
+import {
+  effectiveRequesterPaymentState,
+  formatPaymentRemaining,
+  parseRequesterPaymentView,
+  type RequesterPaymentView,
+} from "@/lib/consent/document-request-payment-view";
 import type { ConsentCenterEntry } from "@/lib/services/consent-center-service";
 import type { SharingRequestContext } from "@/lib/services/drive-sharing-service";
+
+/** The one countdown formatter, shared with the request details. */
+export { formatPaymentRemaining };
 
 export type FeedDrivePaymentStatus = "ready" | "waiting_owner_setup" | "link_expired" | "expired";
 
@@ -128,14 +137,32 @@ function paymentState(entry: ConsentCenterEntry, now = Date.now()): FeedDrivePay
   return "ready";
 }
 
-/** Compact deadline copy that stays readable in a narrow Feed row. */
-export function formatPaymentRemaining(remainingMs: number): string {
-  const seconds = Math.max(0, Math.ceil(remainingMs / 1000));
-  if (seconds < 60) return `${seconds}s left`;
-  const minutes = Math.ceil(seconds / 60);
-  if (minutes < 60) return `${minutes}m left`;
-  const hours = Math.ceil(minutes / 60);
-  return `${hours}h left`;
+/**
+ * The Feed status of the server's shared payment view (one definition of
+ * link vs request expiry). `null` hides the row; "settled" suppresses any
+ * older duplicate of the same request.
+ */
+function viewPaymentState(
+  view: RequesterPaymentView,
+  now: number,
+): FeedDrivePaymentStatus | "settled" | null {
+  switch (effectiveRequesterPaymentState(view, now)) {
+    case "payable":
+      return "ready";
+    case "link_expired":
+      return "link_expired";
+    case "request_expired":
+      return "expired";
+    case "awaiting_owner":
+      return "waiting_owner_setup";
+    case "paid":
+    case "refund_pending":
+    case "refunded":
+    case "partially_refunded":
+      return "settled";
+    default:
+      return null;
+  }
 }
 
 /** Recompute copy/status from the local clock without waiting for a refetch. */
@@ -285,21 +312,43 @@ export function projectFeedDrivePayments(entries: ConsentCenterEntry[], now = Da
       continue;
     }
     if (settledRequestIds.has(requestId)) continue;
-    const status = paymentState(entry, now);
-    if (!status) {
-      // Expired request rows may be emitted as history, but must retain a
-      // payment row if their order is still present in the projection.
-      if (nonEmptyString(entry.status).toLowerCase() !== "expired") continue;
+    // A current server also projects the shared payment view: the same state
+    // and deadline the request details show. Older servers keep the legacy read.
+    const view = parseRequesterPaymentView(metadata.paymentView);
+    let status: FeedDrivePaymentStatus | null;
+    if (view) {
+      const fromView = viewPaymentState(view, now);
+      if (fromView === "settled") {
+        settledRequestIds.add(requestId);
+        byRequest.delete(requestId);
+        continue;
+      }
+      if (
+        fromView === null ||
+        isTruthyMetadata(metadata.accessStopped) ||
+        metadata.ownerPriceRequired === true ||
+        metadata.paymentsReady === false
+      ) continue;
+      status = fromView;
+    } else {
+      status = paymentState(entry, now);
+      if (!status) {
+        // Expired request rows may be emitted as history, but must retain a
+        // payment row if their order is still present in the projection.
+        if (nonEmptyString(entry.status).toLowerCase() !== "expired") continue;
+      }
     }
     const effectiveStatus = status || "expired";
     const requestedAt = parseConsentInstant(entry.issued_at);
     const ownerLabel = counterpartLabel(entry);
-    const expiresAt = expiryTimestamp(
-      metadata.paymentCheckoutExpiresAt ??
-        metadata.payment_checkout_expires_at ??
-        metadata.checkoutExpiresAt ??
-        metadata.checkout_expires_at,
-    );
+    const expiresAt = view
+      ? view.checkoutExpiresAt === null ? null : Date.parse(view.checkoutExpiresAt)
+      : expiryTimestamp(
+        metadata.paymentCheckoutExpiresAt ??
+          metadata.payment_checkout_expires_at ??
+          metadata.checkoutExpiresAt ??
+          metadata.checkout_expires_at,
+      );
     const copy = paymentCopy(
       effectiveStatus,
       amountCents,

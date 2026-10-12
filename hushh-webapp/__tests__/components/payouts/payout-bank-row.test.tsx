@@ -37,8 +37,11 @@ vi.mock("@/lib/services/document-payout-service", async (importOriginal) => ({
   DocumentPayoutService: { account: state.account, onboard: state.onboard, bankPayouts: state.bankPayouts, manage: state.manage, earnings: state.earnings, hashcoins: state.hashcoins, redeemTest: state.redeemTest, redeemLive: state.redeemLive },
 }));
 
+import { SettingsGroup } from "@/components/app-ui/settings-ui";
 import { DocumentPayoutAccountCard } from "@/components/consent/document-payout-account";
+import { PayoutBankRows } from "@/components/consent/payouts/payout-bank-row";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
+import { dispatchPayoutStateChanged } from "@/lib/payouts/payout-events";
 import { ApiError } from "@/lib/services/api-client";
 import { readyAccount, settle } from "./payout-fixtures";
 
@@ -351,5 +354,119 @@ describe("document payout account", () => {
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
     expect(state.account).toHaveBeenCalledTimes(2);
     expect(state.onboard).not.toHaveBeenCalled();
+  });
+});
+
+describe("payout bank rows", () => {
+  const verified = { ...readyAccount, bank: { name: "Example Bank", last4: "6789", status: "verified" } };
+  const due = { state: "due", deadline: "2026-10-30T12:00:00+00:00", items: ["identity"],
+    eventuallyDue: false, hasErrors: false, disabledReason: null };
+  const assign = vi.fn();
+  const realLocation = window.location;
+  const rows = () => render(<SettingsGroup title="Your money"><PayoutBankRows handleReturn /></SettingsGroup>);
+  beforeEach(() => {
+    state.query = "";
+    state.pathname = "/one/profile/payouts";
+    state.router.replace.mockReset();
+    window.sessionStorage.clear();
+    state.epoch = 1;
+    state.native = false;
+    state.token = "owner-token";
+    state.account.mockReset().mockResolvedValue({ stripeMode: "live", account: verified });
+    state.manage.mockReset().mockResolvedValue({ url: "https://stripe.com/express/acct_owner/login_token" });
+    state.onboard.mockReset().mockResolvedValue({ url: "https://connect.stripe.com/setup/safe_link" });
+    assign.mockReset();
+    Object.defineProperty(window, "location", { configurable: true, value: { assign } });
+    vi.spyOn(window, "open").mockReturnValue(null);
+  });
+  afterEach(() => {
+    Object.defineProperty(window, "location", { configurable: true, value: realLocation });
+    vi.restoreAllMocks();
+  });
+
+  it("names the default bank with an inline Manage, and no Verify row while Stripe needs nothing", async () => {
+    state.account.mockResolvedValue({ stripeMode: "live", account: { ...verified,
+      verification: { ...due, state: "none", deadline: null, items: [], eventuallyDue: true } } });
+    rows();
+    const manage = await screen.findByRole("button", { name: "Manage bank" });
+    expect(manage).toHaveTextContent("Example Bank •••• 6789");
+    expect(manage).toHaveTextContent("Default for deposits");
+    expect(manage).toHaveTextContent(/Manage$/);
+    expect(screen.queryByText("Bank linked")).toBeNull();
+    expect(screen.queryByText("Verify details")).toBeNull();
+    fireEvent.click(manage);
+    await waitFor(() => expect(assign).toHaveBeenCalledExactlyOnceWith("https://stripe.com/express/acct_owner/login_token"));
+    expect(state.onboard).not.toHaveBeenCalled();
+  });
+
+  it("opens a verify link that collects everything Stripe will need", async () => {
+    state.account.mockResolvedValue({ stripeMode: "live", account: { ...verified, verification: due } });
+    rows();
+    const verify = await screen.findByRole("button", { name: /Verify details/ });
+    expect(verify).toHaveTextContent("Due Oct 30");
+    fireEvent.click(verify);
+    await waitFor(() => expect(assign).toHaveBeenCalledExactlyOnceWith("https://connect.stripe.com/setup/safe_link"));
+    expect(state.onboard).toHaveBeenCalledExactlyOnceWith("owner-token", "verify");
+    expect(state.manage).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["past_due", "Overdue · payouts paused", true],
+    ["upcoming", "Stripe needs more information", true],
+    ["disabled", "Payouts paused", true],
+    ["in_review", "In review", false],
+  ])("describes a %s verification in one line", async (verificationState, copy, actionable) => {
+    state.account.mockResolvedValue({ stripeMode: "live", account: { ...verified, ready: false, status: "restricted",
+      verification: { ...due, state: verificationState, deadline: null } } });
+    rows();
+    expect(await screen.findByText(copy)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Manage bank" })).toHaveTextContent("Default for deposits");
+    // Nothing to do while Stripe reviews, so that row is not a control.
+    expect(screen.queryByRole("button", { name: /Verify details/ }) !== null).toBe(actionable);
+  });
+
+  it("shows a failed verify link on its own row and keeps bank management working", async () => {
+    state.account.mockResolvedValue({ stripeMode: "live", account: { ...verified, verification: due } });
+    state.onboard.mockRejectedValueOnce(new ApiError("Private provider details", 503));
+    rows();
+    fireEvent.click(await screen.findByRole("button", { name: /Verify details/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't open bank setup. Try again.");
+    expect(screen.getByRole("button", { name: /Verify details/ })).toHaveTextContent("Couldn't open bank setup");
+    expect(screen.queryByText(/Private provider details/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Manage bank" })).toBeEnabled();
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it("offers a bank re-check, not setup, when the first read fails", async () => {
+    state.account.mockRejectedValueOnce(new ApiError("private", 503));
+    rows();
+    const retry = await screen.findByRole("button", { name: "Retry bank check" });
+    expect(retry).toHaveTextContent("Bank status unavailable");
+    fireEvent.click(retry);
+    expect(await screen.findByRole("button", { name: "Manage bank" })).toHaveTextContent("Example Bank •••• 6789");
+    expect(state.onboard).not.toHaveBeenCalled();
+  });
+
+  it("rereads the bank for account doorbells only", async () => {
+    rows();
+    await screen.findByRole("button", { name: "Manage bank" });
+    await settle();
+    expect(state.account).toHaveBeenCalledOnce();
+    act(() => { dispatchPayoutStateChanged({ kinds: ["wallet", "earnings"], source: "sse" }); });
+    await settle();
+    expect(state.account).toHaveBeenCalledOnce();
+    act(() => { dispatchPayoutStateChanged({ kinds: ["account"], source: "sse" }); });
+    await waitFor(() => expect(state.account).toHaveBeenCalledTimes(2));
+  });
+
+  it("keeps the compact card's Bank linked only while Stripe needs nothing now", async () => {
+    state.account.mockResolvedValueOnce({ stripeMode: "live", account: { ...verified, verification: due } })
+      .mockResolvedValueOnce({ stripeMode: "live", account: { ...verified, verification: { ...due, state: "upcoming" } } });
+    render(<DocumentPayoutAccountCard compact />);
+    expect(await screen.findByText("Payout bank")).toBeVisible();
+    expect(screen.queryByText("Bank linked")).toBeNull();
+    act(() => { dispatchPayoutStateChanged({ kinds: ["account"], source: "sse" }); });
+    expect(await screen.findByText("Bank linked")).toBeVisible();
+    expect(screen.getByText("Example Bank •••• 6789 · Default for deposits")).toBeVisible();
   });
 });

@@ -73,6 +73,11 @@ TIMEOUT_JOB_INTERVAL = 120
 NOTIFICATION_JOB_INTERVAL = 60
 JOB_DB_RECOVERY_DELAY_SECONDS = 15
 LISTENER_HEALTHCHECK_INTERVAL_SECONDS = 30
+# A LISTEN connection can look open while the server no longer delivers to it;
+# a round trip proves it. NOTIFYs sent while LISTEN is down are lost, so every
+# (re)activation tells this worker's open streams to reread their snapshot.
+LISTENER_PROBE_TIMEOUT_SECONDS = 5
+LOCAL_RESYNC_EVENT_TYPE = "__resync__"
 FINAL_REMINDER_LEAD_MS = 30 * 60 * 1000
 MIN_FINAL_REMINDER_WINDOW_MS = 2 * 60 * 60 * 1000
 
@@ -183,6 +188,19 @@ async def _push_to_consent_queue(user_id: str, data: Dict[str, Any]) -> None:
                 "consent notify queue full; dropped oldest event to bound memory user_id=%s",
                 user_id,
             )
+
+
+async def broadcast_local_resync() -> int:
+    """Ask every stream on this worker to reread its snapshot (no NOTIFY involved).
+
+    Consumers that do not know the sentinel type ignore it. Returns the number
+    of accounts reached.
+    """
+    async with _consent_notify_queues_lock:
+        user_ids = list(_consent_notify_queues)
+    for user_id in user_ids:
+        await _push_to_consent_queue(user_id, {"type": LOCAL_RESYNC_EVENT_TYPE})
+    return len(user_ids)
 
 
 async def _publish_user_state_event(user_id: str, data: Dict[str, Any]) -> bool:
@@ -375,6 +393,11 @@ async def unsubscribe_developer_consent_queue(
         queues.discard(queue)
         if not queues:
             _developer_consent_subscribers.pop(key, None)
+
+
+def is_listener_active() -> bool:
+    """True while this worker's LISTEN connection is established and probed."""
+    return _listener_active
 
 
 def get_consent_listener_status() -> dict:
@@ -1101,6 +1124,17 @@ async def _timeout_job_loop():
             logger.warning("Timeout job error: %s", e)
 
 
+async def _probe_listen_connection(conn) -> None:
+    """Raise unless the LISTEN connection still answers a round trip in time."""
+    is_closed = getattr(conn, "is_closed", None)
+    if callable(is_closed) and is_closed():
+        raise ConnectionError("Consent LISTEN connection closed")
+    try:
+        await asyncio.wait_for(conn.fetchval("SELECT 1"), timeout=LISTENER_PROBE_TIMEOUT_SECONDS)
+    except TimeoutError as exc:
+        raise ConnectionError("Consent LISTEN probe timed out") from exc
+
+
 async def run_consent_listener():
     """
     Long-running task: LISTEN consent_audit_new and dispatch to FCM + in-app queues.
@@ -1138,11 +1172,11 @@ async def run_consent_listener():
                     "Consent NOTIFY listener active (consent_audit_new, %s)",
                     USER_STATE_CHANNEL,
                 )
+                # Streams opened while LISTEN was down may have missed NOTIFYs.
+                await broadcast_local_resync()
                 while True:
                     await asyncio.sleep(LISTENER_HEALTHCHECK_INTERVAL_SECONDS)
-                    is_closed = getattr(conn, "is_closed", None)
-                    if callable(is_closed) and is_closed():
-                        raise ConnectionError("Consent LISTEN connection closed")
+                    await _probe_listen_connection(conn)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001 - listener must self-heal

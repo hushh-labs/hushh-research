@@ -37,7 +37,9 @@ vi.mock("@/lib/services/document-payout-service", async (importOriginal) => ({
   DocumentPayoutService: { account: state.account, onboard: state.onboard, bankPayouts: state.bankPayouts, manage: state.manage, earnings: state.earnings, hashcoins: state.hashcoins, redeemTest: state.redeemTest, redeemLive: state.redeemLive },
 }));
 
-import { PAYOUT_FALLBACK_POLL_MS, usePayoutSnapshot } from "@/components/consent/document-payout-account";
+import { PAYOUT_FALLBACK_POLL_MS, PAYOUT_READY_SOURCE, usePayoutSnapshot } from "@/components/consent/document-payout-account";
+import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
+import { dispatchPayoutStateChanged } from "@/lib/payouts/payout-events";
 
 function PayoutPollHarness() {
   usePayoutSnapshot(state.hashcoins);
@@ -73,6 +75,8 @@ describe("document payout account", () => {
 
   it("recovers visible payout snapshots on a bounded poll, coalesces slow reads, and stops for hidden or changed owners", async () => {
     vi.useFakeTimers();
+    // Polls ride the shared idle clock, which wakes on 45 s boundaries: mount 5 s past one.
+    vi.setSystemTime(Date.UTC(2026, 9, 11, 10) + 5_000);
     let hidden = false;
     const hiddenSpy = vi.spyOn(document, "hidden", "get").mockImplementation(() => hidden);
     let finishSlowWallet!: (value: unknown) => void;
@@ -113,6 +117,47 @@ describe("document payout account", () => {
       expect([state.hashcoins.mock.calls.length, state.earnings.mock.calls.length, state.bankPayouts.mock.calls.length]).toEqual(afterUnmount);
     } finally {
       hiddenSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("shares one store read per payout loader and follows only that resource's payout changes", async () => {
+    vi.useFakeTimers();
+    // The compact bank card (request review, price sheet), the Feed's bank cue and earnings.
+    function CompactReaders() {
+      usePayoutSnapshot(state.account, { bankOnly: true, ignoreReadyEvent: true });
+      usePayoutSnapshot(state.account, { bankOnly: true, ignoreReadyEvent: true });
+      usePayoutSnapshot(state.bankPayouts, { bankOnly: true, refreshOnFeedChange: true, ignoreReadyEvent: true });
+      usePayoutSnapshot(state.earnings);
+      return null;
+    }
+    const reads = () => [state.account, state.bankPayouts, state.earnings].map((load) => load.mock.calls.length);
+    const settleWindow = () => act(async () => { await vi.advanceTimersByTimeAsync(200); });
+    try {
+      render(<CompactReaders />);
+      await act(async () => { await Promise.resolve(); });
+      expect(reads()).toEqual([1, 1, 1]);
+
+      // An earning credit rereads earnings only: no Stripe account read, no deposit read.
+      act(() => { dispatchPayoutStateChanged({ kinds: ["earnings", "wallet"], source: "sse" }); });
+      await settleWindow();
+      expect(reads()).toEqual([1, 1, 2]);
+
+      // Feed frames, consent decisions and the ignored bank-ready announcement read nothing.
+      act(() => {
+        dispatchConsentStateChanged({ source: "sse_document_feed", reconcile: true });
+        dispatchConsentStateChanged({ source: PAYOUT_READY_SOURCE });
+      });
+      await settleWindow();
+      expect(reads()).toEqual([1, 1, 2]);
+
+      act(() => {
+        dispatchPayoutStateChanged({ kinds: ["bank_payouts"], source: "sse" });
+        dispatchPayoutStateChanged({ kinds: ["account"], source: "sse" });
+      });
+      await settleWindow();
+      expect(reads()).toEqual([2, 2, 2]);
+    } finally {
       vi.useRealTimers();
     }
   });

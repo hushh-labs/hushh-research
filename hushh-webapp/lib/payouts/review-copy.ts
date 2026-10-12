@@ -29,24 +29,26 @@ export function parseHoldNextStep(value: unknown): HoldNextStep {
   return (HOLD_NEXT_STEPS as readonly unknown[]).includes(value) ? (value as HoldNextStep) : "none";
 }
 
+// Hussh runs the payment, refund and transfer checks; Stripe's data is what disagreed.
 const REASON_COPY: Record<HoldReason, string> = {
   payment_disputed: "The buyer's bank is reviewing this payment.",
-  payment_check: "Stripe is confirming this payment.",
-  refund_check: "A refund on this payment is being checked.",
+  payment_check: "Hussh is checking this payment.",
+  refund_check: "Hussh is checking a refund on this payment.",
   transfer_reversed: "Stripe reversed this transfer.",
-  transfer_check: "Stripe is confirming this transfer.",
+  transfer_check: "Hussh is checking this transfer.",
   refund_recovery: "This payment was refunded after you cashed out.",
-  recovery_review: "The refund recovery needs a check.",
+  recovery_review: "Recovering this refund needs a manual check.",
   negative_balance: "A refund left your balance below zero.",
   under_review: "Hussh is checking this.",
 };
 
+// Short enough for a row's trailing value.
 const NEXT_STEP_COPY: Record<HoldNextStep, string> = {
   none: "No action needed",
-  wait_for_bank: "No action needed while the bank decides",
+  wait_for_bank: "Wait for the bank",
   contact_support: "Contact support",
   update_bank: "Update your bank",
-  verify_details: "Verify your details",
+  verify_details: "Verify details",
 };
 
 export function holdReasonCopy(reason: HoldReason): string {

@@ -8,6 +8,11 @@ from sqlalchemy import text
 
 from hushh_mcp.services.drive_bulk_share_store import bulk_outcome_summary
 from hushh_mcp.services.drive_live_query_store import STALE_CLAIM_SECONDS
+from hushh_mcp.services.drive_request_recovery_view import (
+    RECOVERY_REQUEST_STATUSES,
+    owner_review_request_view,
+)
+from hushh_mcp.services.drive_request_requester_store import recovery_for
 from hushh_mcp.services.drive_revocation_store import DriveRevocationStore
 from hushh_mcp.services.drive_sharing_contract import MAX_FILES, DriveSharingError
 from hushh_mcp.services.google_drive_adapter import FILE_ID
@@ -170,17 +175,20 @@ class DriveSharingProjectionStore(DriveRevocationStore):
                             'awaiting_fee','awaiting_refund'))
                          THEN (COALESCE(account.details_submitted,FALSE)
                            AND COALESCE(account.payouts_enabled,FALSE))
-                       END AS owner_payout_account_ready
+                       END AS owner_payout_account_ready,
+                       r.initial_quote_cents,r.owner_allowed_at,
+                       o.amount_cents AS order_amount_cents
                 FROM drive_share_requests r
                 LEFT JOIN drive_request_owner_payouts p ON p.request_id=r.request_id
                   AND p.erased_at IS NULL
                 LEFT JOIN stripe_owner_payout_accounts account ON account.user_id=r.user_id
                   AND account.stripe_mode=:stripe_mode
+                LEFT JOIN drive_request_payment_orders o ON o.request_id=r.request_id
                 WHERE (:outgoing=TRUE AND r.recipient_user_id=:user)
                    OR (:outgoing=FALSE AND r.user_id=:user)
                 UNION ALL
                 SELECT request_id,'management_only',revocation_revision,created_at,NULL,
-                       NULL,NULL,NULL,NULL,NULL
+                       NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL
                 FROM drive_share_management_contexts
                 WHERE :outgoing=FALSE AND user_id=:user AND private_request_erased_at IS NOT NULL
                 ORDER BY created_at DESC,request_id DESC LIMIT :limit OFFSET :offset
@@ -226,11 +234,13 @@ class DriveSharingProjectionStore(DriveRevocationStore):
 
         return await self._transaction(operation)
 
-    async def delivery_snapshot(self, *, user_id, request_id):
+    async def delivery_snapshot(self, *, user_id, request_id, views=False):
         """Internal only: the service verifies recipient identity before release.
 
         The request and exact receipts are read under one lock. Status is the
         recorded provider outcome, never a promise about Google's current ACL.
+        ``views`` (GET /delivery only) adds the requester's price and recovery,
+        or the owner's review-request notice; file pages skip those reads.
         """
         request_id = str(UUID(request_id))
 
@@ -386,11 +396,37 @@ class DriveSharingProjectionStore(DriveRevocationStore):
                         }
                     )
                 files.append(item)
+            # The legacy paymentAmountCents is the order amount, present only
+            # once an order exists; the requester's price view reads it as final.
+            summary_row = (
+                {**request, "order_amount_cents": payment.get("paymentAmountCents")}
+                if views and recipient
+                else request
+            )
+            recovery = (
+                recovery_for(connection, request)
+                if views
+                and request.get("recipient_user_id")
+                and (
+                    request["status"] in RECOVERY_REQUEST_STATUSES
+                    or request.get("review_requested_at") is not None
+                )
+                else None
+            )
+            notice = (
+                None
+                if recipient
+                else owner_review_request_view(
+                    recovery, review_request_count=int(request.get("review_request_count") or 0)
+                )
+            )
             return {
                 "recipient": private["recipient"] if recipient and private else None,
                 "result": {
-                    **self._summary(request, recipient=recipient),
+                    **self._summary(summary_row, recipient=recipient),
                     **payment,
+                    **({"recovery": recovery} if recipient and recovery else {}),
+                    **({"reviewRequest": notice} if notice else {}),
                     "accessStopStatus": access_stop_status,
                     "canStopAccess": can_stop_access,
                     "files": [] if bulks else files,

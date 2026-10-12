@@ -1,83 +1,46 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  PAYOUT_POLL_MS,
+  PAYOUT_READY_SOURCE,
+  usePayoutStoreResource,
+  type PayoutResourceKey,
+} from "@/lib/payouts/payout-live-store";
+import { DocumentPayoutService } from "@/lib/services/document-payout-service";
 
-import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
-import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
-import { useVault } from "@/lib/vault/vault-context";
+export { PAYOUT_READY_SOURCE };
+export const PAYOUT_FALLBACK_POLL_MS = PAYOUT_POLL_MS;
 
-export const PAYOUT_READY_SOURCE = "document_payout_ready";
-export const PAYOUT_FALLBACK_POLL_MS = 45_000;
-// Focus and visibilitychange both fire on one return to the tab.
-const RESUME_REFRESH_GAP_MS = 1_000;
+/** The shared resource a payout loader reads; any other loader keeps an entry of its own. */
+function resourceFor(load: unknown): PayoutResourceKey | null {
+  try {
+    const service = DocumentPayoutService as unknown as Partial<Record<string, unknown>>;
+    if (load === service.hashcoins) return "wallet";
+    if (load === service.account) return "account";
+    if (load === service.bankPayouts) return "bank_payouts";
+    if (load === service.earnings) return "earnings";
+    if (load === service.balance) return "balance";
+  } catch {
+    // A partial module mock without the service: the loader keeps its own entry.
+  }
+  return null;
+}
 
-/** Coalesces live invalidations and fences every response to its vault session. */
+/**
+ * The compact readers' view of the payout store (request review, the price
+ * sheet, the Feed's bank cue). Reads are shared with every other reader of the
+ * same resource and fenced to the vault session. Changes arrive on the payout
+ * bus, never from unrelated consent changes: `refreshOnFeedChange` follows the
+ * resource's payout changes, `bankOnly` keeps a loader outside the known
+ * resources off request-scoped changes, and `ignoreReadyEvent` skips the
+ * account's bank-ready reread.
+ */
 export function usePayoutSnapshot<T>(load: (token: string) => Promise<T>, {
   active = true, refreshKey = "", bankOnly = false, refreshOnFeedChange = true, ignoreReadyEvent = false,
 }: { active?: boolean; refreshKey?: string; bankOnly?: boolean; refreshOnFeedChange?: boolean; ignoreReadyEvent?: boolean } = {}) {
-  const { vaultOwnerToken } = useVault();
-  const scope = useMemo(() => ({ token: vaultOwnerToken, active }), [vaultOwnerToken, active]);
-  const liveScope = useRef<typeof scope | null>(null);
-  const [snapshot, setSnapshot] = useState<{ scope: typeof scope; value: T } | null>(null);
-  const [error, setError] = useState<{ scope: typeof scope; cause: unknown } | null>(null);
-  const [retry, setRetry] = useState(0);
-  useEffect(() => {
-    liveScope.current = scope;
-    if (!active || !vaultOwnerToken) return;
-    const epoch = snapshotVaultSessionEpoch();
-    let cancelled = false;
-    let pending = false;
-    let queued = false;
-    let resumedAt = -Infinity;
-    const current = () => !cancelled && isVaultSessionEpochCurrent(epoch);
-    const refresh = async () => {
-      if (!current()) return;
-      if (pending) { queued = true; return; }
-      pending = true;
-      try {
-        const value = await load(vaultOwnerToken);
-        if (current()) { setSnapshot({ scope, value }); setError(null); }
-      } catch (cause) {
-        if (current()) setError({ scope, cause });
-      } finally {
-        pending = false;
-        if (queued && current()) { queued = false; void refresh(); }
-      }
-    };
-    void refresh();
-    // SSE is the fast path. A bounded visible-page read repairs a missed
-    // notification while Payouts remains open, without polling in background.
-    const poll = window.setInterval(() => {
-      if (!document.hidden) void refresh();
-    }, PAYOUT_FALLBACK_POLL_MS);
-    const onChange = (event: Event) => {
-      const detail = (event as CustomEvent<{ source?: string; requestId?: string }>).detail;
-      if ((ignoreReadyEvent && detail?.source === PAYOUT_READY_SOURCE) || (bankOnly && detail?.requestId)) return;
-      void refresh();
-    };
-    // One read per return to the tab. A read already in flight is fresh
-    // enough, so a return never queues another behind it.
-    const onResume = () => {
-      if (document.hidden || pending || Date.now() - resumedAt < RESUME_REFRESH_GAP_MS) return;
-      resumedAt = Date.now();
-      void refresh();
-    };
-    if (refreshOnFeedChange) window.addEventListener(CONSENT_STATE_CHANGED_EVENT, onChange);
-    window.addEventListener("focus", onResume);
-    document.addEventListener("visibilitychange", onResume);
-    return () => {
-      cancelled = true;
-      liveScope.current = null;
-      window.clearInterval(poll);
-      window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, onChange);
-      window.removeEventListener("focus", onResume);
-      document.removeEventListener("visibilitychange", onResume);
-    };
-  }, [active, vaultOwnerToken, scope, load, refreshKey, retry, bankOnly, refreshOnFeedChange, ignoreReadyEvent]);
-  const data = snapshot?.scope === scope ? snapshot.value : null;
-  return { data, failed: error?.scope === scope, loading: data === null && error?.scope !== scope,
-    error: error?.scope === scope ? error.cause : null,
-    token: vaultOwnerToken, scope,
-    isCurrent: () => liveScope.current === scope,
-    retry: () => setRetry((value) => value + 1) };
+  const resource = usePayoutStoreResource(resourceFor(load), load, {
+    active, refreshKey, bankOnly, refreshOnChange: refreshOnFeedChange, refreshOnReady: !ignoreReadyEvent,
+  });
+  const { data, failed, loading, error, token, scope, isCurrent, retry } = resource;
+  return { data, failed, loading, error, token, scope, isCurrent, retry };
 }

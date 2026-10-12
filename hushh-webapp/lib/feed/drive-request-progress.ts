@@ -2,7 +2,10 @@ import { documentRequestEntrySetup, documentRequestSetupLabel } from "@/lib/cons
 import { isDocumentShareEntry, documentShareRequestId } from "@/lib/consent/document-share-consent";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { parseConsentInstant } from "@/lib/consent/consent-owner-copy";
-import { formatDocumentRequestPrice, isValidDocumentRequestPriceCents } from "@/lib/consent/document-request-price";
+import {
+  priceViewFromEntryMetadata,
+  requesterPriceLine,
+} from "@/lib/consent/document-request-requester-view";
 import type { ConsentCenterEntry } from "@/lib/services/consent-center-service";
 
 export interface FeedDriveProgress {
@@ -58,10 +61,10 @@ export function projectFeedDriveProgress(
       continue;
     }
     if (setup) continue;
-    const quote = direction === "outgoing" && metadata.paymentRequired === true &&
-      isValidDocumentRequestPriceCents(metadata.quotedAmountCents)
-      ? formatDocumentRequestPrice(metadata.quotedAmountCents)
-      : null;
+    // "Estimate $10", "Price $25 · estimate was $10" or "Final price $25":
+    // the owner may set the price until an order freezes it.
+    const priceView = direction === "outgoing" ? priceViewFromEntryMetadata(metadata) : null;
+    const quote = priceView ? requesterPriceLine(priceView) : null;
     const automatic = metadata.automatic_progress_active === true;
     if (!automatic && !quote) continue;
     // Checkout must never be described as if sharing is already running.
@@ -78,7 +81,7 @@ export function projectFeedDriveProgress(
       id: entry.id,
       title: automatic ? progressTitle(metadata.automatic_progress_stage) : "Document request sent",
       description: [
-        quote ? `Quote locked at ${quote}` : null,
+        quote,
         automatic
           ? progressDescription(direction, metadata.owner_allowed === true)
           : "Waiting for the owner to review your request.",

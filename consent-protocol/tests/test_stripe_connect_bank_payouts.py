@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import hmac
 import json
 import time
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -19,6 +21,7 @@ from sqlalchemy import event as sa_event
 from sqlalchemy.pool import StaticPool
 
 import api.routes.one.payouts as payout_routes
+import hushh_mcp.services.stripe_connect_balances as connect_balances
 import hushh_mcp.services.stripe_connect_bank_payouts as bank_payouts
 from api.middleware import require_vault_owner_token
 from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
@@ -29,6 +32,21 @@ from hushh_mcp.services.stripe_connect_bank_payouts import (
 
 CONNECT_WEBHOOK_SECRET = "whsec_" + "c" * 30
 PAYMENT_WEBHOOK_SECRET = "whsec_" + "p" * 30
+EXAMPLE_BANK = {
+    "id": "ba_first",
+    "object": "bank_account",
+    "bank_name": "Example Bank",
+    "last4": "6789",
+}
+
+
+def doorbell(*kinds, owner="owner"):
+    payload = json.dumps(
+        {"kinds": sorted(kinds), "type": "bank_payout_changed", "user_id": owner},
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return ("one_user_state_changed", payload)
 
 
 class FakeStripe:
@@ -40,6 +58,8 @@ class FakeStripe:
         self.list_error = None
         self.on_list = None
         self.payout_status = "pending"
+        self.payout_arrival = 1_800_000_000
+        self.payout_details = {}  # destination, method, trace_id, reconciliation_status...
         self.account_payouts_enabled = True
         self.external_accounts = {
             "data": [
@@ -92,8 +112,9 @@ class FakeStripe:
                     "amount": 911,
                     "currency": "usd",
                     "created": 1_700_000_000,
-                    "arrival_date": 1_800_000_000,
+                    "arrival_date": outer.payout_arrival,
                     "failure_code": "no_account" if outer.payout_status == "failed" else None,
+                    **outer.payout_details,
                 }
 
         class Account:
@@ -121,6 +142,17 @@ class FakeStripe:
 def event(*, event_id="evt_one", account="acct_owner", kind="payout.created", live=False):
     external = kind.startswith("account.external_account.")
     obj_id = account if kind == "account.updated" else "ba_one" if external else "po_one"
+    obj = {
+        "id": obj_id,
+        "object": "account"
+        if kind == "account.updated"
+        else "bank_account"
+        if external
+        else "payout",
+    }
+    if kind == "balance.available":
+        # A Balance has no ID; Stripe names the connected account on the event.
+        obj = {"object": "balance", "livemode": live, "available": [{"amount": 911}]}
     return json.dumps(
         {
             "id": event_id,
@@ -128,16 +160,7 @@ def event(*, event_id="evt_one", account="acct_owner", kind="payout.created", li
             "type": kind,
             "account": account,
             "livemode": live,
-            "data": {
-                "object": {
-                    "id": obj_id,
-                    "object": "account"
-                    if kind == "account.updated"
-                    else "bank_account"
-                    if external
-                    else "payout",
-                }
-            },
+            "data": {"object": obj},
         }
     ).encode()
 
@@ -199,7 +222,11 @@ def world(monkeypatch, request):
           status TEXT NOT NULL,status_rank SMALLINT NOT NULL,
           expected_arrival_at TIMESTAMP,failure_code TEXT,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          destination_id TEXT,destination_kind TEXT,destination_bank_name TEXT,
+          destination_last4 TEXT,payout_method TEXT,automatic BOOLEAN,trace_status TEXT,
+          trace_value TEXT,reconciliation_status TEXT,provider_observed_at TIMESTAMP,
+          status_changed_at TIMESTAMP,paid_at TIMESTAMP,failed_at TIMESTAMP)""")
         )
         connection.execute(
             text("""INSERT INTO stripe_owner_payout_accounts
@@ -221,8 +248,22 @@ def world(monkeypatch, request):
         with engine.begin() as connection:
             return operation(connection)
 
+    # The Connect balance ledger (migration 308) has its own suite; record the
+    # contract calls made on this webhook transaction instead.
+    ledger_calls = []
+    monkeypatch.setattr(
+        connect_balances,
+        "mark_balance_refresh_due",
+        lambda connection, **kwargs: ledger_calls.append(("refresh_due", kwargs)),
+    )
+    monkeypatch.setattr(
+        connect_balances,
+        "enqueue_payout_reconciliation",
+        lambda connection, **kwargs: ledger_calls.append(("reconcile", kwargs)),
+    )
     service._transaction = transaction
     service.notices = notices
+    service.ledger_calls = ledger_calls
     yield service, fake, engine
     engine.dispose()
 
@@ -243,8 +284,12 @@ async def test_account_update_refreshes_owner_readiness_and_rejects_replayed_id_
             )
         ).first()
         assert tuple(account) == (1, 1, 1)
+    # The doorbell names only the changed payout kind, never the account.
     assert service.notices == [
-        ("one_user_state_changed", '{"type":"bank_payout_changed","user_id":"owner"}')
+        (
+            "one_user_state_changed",
+            '{"kinds":["account"],"type":"bank_payout_changed","user_id":"owner"}',
+        )
     ]
     with pytest.raises(ConnectBankPayoutError, match="provider_mismatch"):
         await service.process_webhook(**signed_event(event_id="evt_account", kind="payout.updated"))
@@ -267,9 +312,7 @@ async def test_bank_change_reconciles_current_account_and_notifies_owner(world, 
     fake.external_accounts = {"data": [], "has_more": False}
     assert await service.process_webhook(**signed_event(kind=kind)) == "updated"
     assert fake.retrieve_calls[0][0] == "acct_owner"  # deleted bank cannot be retrieved
-    assert service.notices == [
-        ("one_user_state_changed", '{"type":"bank_payout_changed","user_id":"owner"}')
-    ]
+    assert service.notices == [doorbell("account")]
     with engine.begin() as connection:
         assert (
             connection.execute(
@@ -372,9 +415,7 @@ def test_signed_bank_flow_keeps_terminal_state_and_owner_mode_boundaries(world, 
     assert accepted.json() == {"status": "updated"}
     assert post().json() == {"status": "duplicate"}
     assert len(fake.retrieve_calls) == 1
-    assert service.notices == [
-        ("one_user_state_changed", '{"type":"bank_payout_changed","user_id":"owner"}')
-    ]
+    assert service.notices == [doorbell("bank_payouts")]
 
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner"}
     response = client.get(f"{history}?user_id=other")
@@ -404,11 +445,15 @@ def test_signed_bank_flow_keeps_terminal_state_and_owner_mode_boundaries(world, 
         assert len(payout) == 1
         assert payout[0]["status"] == expected
         assert payout[0]["failureCode"] == ("no_account" if expected == "failed" else None)
+    # Stale reads change no row, so they ring no doorbell: create, in transit,
+    # paid and failed only.
+    assert service.notices == [doorbell("bank_payouts")] * 4
 
     expected_key = ("sk_live_" if fake.livemode else "sk_test_") + "x" * 30
     assert all(
         payout_id == "po_one"
-        and options == {"stripe_account": "acct_owner", "api_key": expected_key}
+        and options
+        == {"stripe_account": "acct_owner", "api_key": expected_key, "expand": ["destination"]}
         for payout_id, options in fake.retrieve_calls
     )
     with engine.begin() as connection:
@@ -477,9 +522,7 @@ def test_signed_provider_timeout_retries_same_event_without_duplicate_payout(wor
     assert duplicate.status_code == 200
     assert duplicate.json() == {"status": "duplicate"}
     assert len(provider_reads) == 2
-    assert service.notices == [
-        ("one_user_state_changed", '{"type":"bank_payout_changed","user_id":"owner"}')
-    ]
+    assert service.notices == [doorbell("bank_payouts")]
     with engine.begin() as connection:
         assert (
             connection.execute(
@@ -566,10 +609,20 @@ async def test_bank_summary_exposes_mode_for_both_empty_and_existing_accounts(wo
     service, fake, _ = world
     expected = "live" if fake.livemode else "test"
     for owner in ("owner", "absent"):
-        assert (await service.owner_summary(user_id=owner))["stripeMode"] == expected
+        summary = await service.owner_summary(user_id=owner)
+        assert (summary["stripeMode"], summary["nextCursor"]) == (expected, None)
 
 
-def listed_payout(payout_id, *, live=False, status="pending", amount=911, created=1_700_000_000):
+def listed_payout(
+    payout_id,
+    *,
+    live=False,
+    status="pending",
+    amount=911,
+    created=1_700_000_000,
+    arrival=1_800_000_000,
+    **details,
+):
     return {
         "id": payout_id,
         "object": "payout",
@@ -578,8 +631,9 @@ def listed_payout(payout_id, *, live=False, status="pending", amount=911, create
         "amount": amount,
         "currency": "usd",
         "created": created,
-        "arrival_date": 1_800_000_000,
+        "arrival_date": arrival,
         "failure_code": "no_account" if status == "failed" else None,
+        **details,
     }
 
 
@@ -641,6 +695,7 @@ async def test_scan_recovers_missed_creation_and_paginates_without_crossing_mode
         call["stripe_account"] == "acct_owner"
         and call["api_key"] == expected_key
         and call["max_network_retries"] == 0
+        and call["expand"] == ["data.destination"]
         for call in fake.list_calls
     )
     assert len(service.notices) == 2  # repeat scan is idempotent
@@ -777,3 +832,346 @@ async def test_scan_timeout_does_not_advance_cursor_after_provider_thread_finish
             ).scalar_one()
             == 0
         )
+
+
+def stored_payout(engine, payout_id="po_one"):
+    with engine.begin() as connection:
+        row = (
+            connection.execute(
+                text("""SELECT status,expected_arrival_at,status_changed_at,paid_at,failed_at,
+                  provider_observed_at,destination_id,destination_kind,payout_method,automatic,
+                  trace_status FROM stripe_connect_bank_payouts WHERE stripe_payout_id=:id"""),
+                {"id": payout_id},
+            )
+            .mappings()
+            .one()
+        )
+    return dict(row)
+
+
+@pytest.mark.asyncio
+async def test_same_status_read_keeps_newer_detail_and_ignores_older_reads(world):
+    # Regression: an equal-rank Stripe read was dropped, so a moved arrival
+    # date never reached the owner while the event was consumed as handled.
+    service, fake, engine = world
+    fake.payout_status = "in_transit"
+    sent = signed_event(event_id="evt_sent", kind="payout.updated")
+    assert await service.process_webhook(**sent) == "updated"
+    moved = 1_800_000_000 + 2 * 86_400
+    fake.payout_arrival = moved
+    later = signed_event(event_id="evt_moved", kind="payout.updated")
+    assert await service.process_webhook(**later) == "updated"
+    arrival = datetime.fromtimestamp(moved, UTC).isoformat()
+    summary = await service.owner_summary(user_id="owner")
+    assert summary["payouts"][0]["expectedArrivalAt"] == arrival
+    assert service.notices == [doorbell("bank_payouts")] * 2
+
+    # A replayed event is consumed once: no provider read, no write, no doorbell.
+    reads = len(fake.retrieve_calls)
+    assert await service.process_webhook(**later) == "duplicate"
+    assert len(fake.retrieve_calls) == reads
+    # A newer read that adds nothing changes no row and rings no doorbell.
+    same = signed_event(event_id="evt_same", kind="payout.updated")
+    assert await service.process_webhook(**same) == "updated"
+    assert len(service.notices) == 2
+
+    # A read taken earlier but stored last cannot restore the old arrival date.
+    observed = bank_payouts._as_utc(stored_payout(engine)["provider_observed_at"])
+    stale = bank_payouts._payout_fields(
+        listed_payout("po_one", live=fake.livemode, status="in_transit"),
+        payout_id="po_one",
+        livemode=fake.livemode,
+        observed_at=observed - timedelta(seconds=1),
+    )
+    with engine.begin() as connection:
+        assert not StripeConnectBankPayouts._store_payout(
+            connection, account_id="acct_owner", livemode=fake.livemode, snapshot=stale
+        )
+    summary = await service.owner_summary(user_id="owner")
+    assert summary["payouts"][0]["expectedArrivalAt"] == arrival
+    assert service.ledger_calls == []
+
+
+@pytest.mark.asyncio
+async def test_status_times_move_only_when_the_status_rises(world):
+    service, fake, engine = world
+
+    def times():
+        row = stored_payout(engine)
+        return row["status"], row["status_changed_at"], row["paid_at"], row["failed_at"]
+
+    fake.payout_status = "in_transit"
+    assert (
+        await service.process_webhook(**signed_event(event_id="evt_sent", kind="payout.updated"))
+        == "updated"
+    )
+    status, sent_at, paid_at, failed_at = times()
+    assert (status, paid_at, failed_at) == ("in_transit", None, None) and sent_at is not None
+    fake.payout_arrival += 86_400  # same status, new detail
+    assert (
+        await service.process_webhook(**signed_event(event_id="evt_moved", kind="payout.updated"))
+        == "updated"
+    )
+    assert times() == ("in_transit", sent_at, None, None)
+
+    fake.payout_status = "paid"
+    assert (
+        await service.process_webhook(**signed_event(event_id="evt_paid", kind="payout.paid"))
+        == "updated"
+    )
+    status, paid_changed_at, paid_at, failed_at = times()
+    assert (status, failed_at) == ("paid", None)
+    assert paid_at == paid_changed_at != sent_at
+    fake.payout_status = "failed"  # the bank returns a paid deposit
+    assert (
+        await service.process_webhook(**signed_event(event_id="evt_failed", kind="payout.failed"))
+        == "updated"
+    )
+    final = times()
+    assert final[0] == "failed" and final[2] == paid_at
+    assert final[3] == final[1] != paid_changed_at
+    fake.payout_status = "paid"  # a late paid read cannot reopen it
+    assert (
+        await service.process_webhook(**signed_event(event_id="evt_late", kind="payout.paid"))
+        == "updated"
+    )
+    assert times() == final
+
+    # A deposit first read already paid has no observed paid time to show.
+    first_read_paid = bank_payouts._payout_fields(
+        listed_payout("po_history", live=fake.livemode, status="paid"),
+        payout_id="po_history",
+        livemode=fake.livemode,
+        observed_at=datetime.now(UTC),
+    )
+    with engine.begin() as connection:
+        assert StripeConnectBankPayouts._store_payout(
+            connection, account_id="acct_owner", livemode=fake.livemode, snapshot=first_read_paid
+        )
+    history = stored_payout(engine, "po_history")
+    assert (history["status"], history["paid_at"]) == ("paid", None)
+
+
+@pytest.mark.asyncio
+async def test_bank_snapshot_is_write_once_and_survives_ids_and_deleted_bank_stubs(world):
+    # A deposit keeps showing the bank it went to after the owner removes or
+    # replaces that bank at Stripe.
+    service, fake, engine = world
+    fake.payout_status = "paid"
+    fake.payout_details = {
+        "destination": "ba_first",  # not expanded
+        "method": "standard",
+        "automatic": True,
+        "trace_id": {"status": "pending", "value": None},
+    }
+    assert (
+        await service.process_webhook(**signed_event(event_id="evt_paid", kind="payout.paid"))
+        == "updated"
+    )
+    payout = (await service.owner_summary(user_id="owner"))["payouts"][0]
+    assert (payout["bank"], payout["bankReference"]) == (None, None)
+
+    fake.payout_details = {
+        "destination": EXAMPLE_BANK,
+        "trace_id": {"status": "supported", "value": "TRACE 0042"},
+    }
+    assert (
+        await service.process_webhook(
+            **signed_event(event_id="evt_expanded", kind="payout.updated")
+        )
+        == "updated"
+    )
+    for index, destination in enumerate(
+        [
+            {"id": "ba_first", "object": "bank_account", "deleted": True},
+            {"id": "ba_other", "object": "bank_account", "bank_name": "Other", "last4": "1111"},
+            {"id": "acct_owner", "object": "bank_account", "bank_name": "Odd", "last4": "0000"},
+            None,
+        ]
+    ):
+        # Each later read also moves the arrival date, so it is applied.
+        fake.payout_arrival += 86_400
+        fake.payout_details = {"destination": destination}
+        assert (
+            await service.process_webhook(
+                **signed_event(event_id=f"evt_later_{index}", kind="payout.updated")
+            )
+            == "updated"
+        )
+
+    response = await service.owner_summary(user_id="owner")
+    payout = response["payouts"][0]
+    assert (
+        payout["expectedArrivalAt"] == datetime.fromtimestamp(fake.payout_arrival, UTC).isoformat()
+    )
+    assert payout["bank"] == {"name": "Example Bank", "last4": "6789"}
+    assert payout["bankReference"] == "TRACE 0042"
+    assert "ba_" not in json.dumps(response) and "acct_" not in json.dumps(response)
+    row = stored_payout(engine)
+    assert (
+        row["destination_id"],
+        row["destination_kind"],
+        row["payout_method"],
+        bool(row["automatic"]),
+        row["trace_status"],
+    ) == ("ba_first", "bank_account", "standard", True, "supported")
+    assert service.notices == [doorbell("bank_payouts")] * 6
+
+
+@pytest.mark.asyncio
+async def test_scan_backfills_the_snapshot_of_deposits_recorded_before_it(world):
+    service, fake, engine = world
+    with engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO stripe_connect_bank_payouts
+              (stripe_payout_id,stripe_account_id,livemode,amount_cents,currency,status,
+               status_rank,expected_arrival_at,created_at)
+              VALUES ('po_before','acct_owner',:live,911,'usd','paid',2,:arrival,:created)"""),
+            {
+                "live": fake.livemode,
+                "arrival": datetime.fromtimestamp(1_800_000_000, UTC),
+                "created": datetime.fromtimestamp(1_700_000_000, UTC),
+            },
+        )
+    fake.list_payouts = [
+        listed_payout(
+            "po_before",
+            live=fake.livemode,
+            status="paid",
+            destination=EXAMPLE_BANK,
+            method="standard",
+            automatic=True,
+        )
+    ]
+    assert (await service.reconcile_due())["bank_payouts_changed"] == 1
+    payout = (await service.owner_summary(user_id="owner"))["payouts"][0]
+    assert (payout["id"], payout["status"], payout["paidAt"]) == ("po_before", "paid", None)
+    assert payout["bank"] == {"name": "Example Bank", "last4": "6789"}
+    assert service.notices == [doorbell("bank_payouts")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("world", ["test", "live"], indirect=True)
+async def test_owner_summary_pages_by_cursor_without_duplicates_or_gaps(world):
+    service, fake, engine = world
+    base = datetime(2026, 10, 1, tzinfo=UTC)
+    created = {f"po_{index:03d}": base + timedelta(seconds=index // 2) for index in range(45)}
+    insert = text("""INSERT INTO stripe_connect_bank_payouts
+      (stripe_payout_id,stripe_account_id,livemode,amount_cents,currency,status,status_rank,
+       created_at) VALUES (:id,:account,:live,100,'usd','paid',2,:created)""")
+    with engine.begin() as connection:
+        for payout_id, at in created.items():  # pairs share a creation second
+            connection.execute(
+                insert,
+                {"id": payout_id, "account": "acct_owner", "live": fake.livemode, "created": at},
+            )
+        for payout_id, account, live in (
+            ("po_other_owner", "acct_other", fake.livemode),
+            ("po_other_mode", "acct_owner", not fake.livemode),
+        ):
+            connection.execute(
+                insert, {"id": payout_id, "account": account, "live": live, "created": base}
+            )
+    expected = sorted(created, key=lambda payout_id: (created[payout_id], payout_id), reverse=True)
+
+    seen, sizes, cursor = [], [], None
+    while True:
+        page = await service.owner_summary(user_id="owner", cursor=cursor)
+        sizes.append(len(page["payouts"]))
+        seen.extend(payout["id"] for payout in page["payouts"])
+        cursor = page["nextCursor"]
+        if cursor is None:
+            break
+        if len(sizes) == 1:
+            # A deposit created between pages joins the head, never a later page.
+            with engine.begin() as connection:
+                connection.execute(
+                    insert,
+                    {
+                        "id": "po_new",
+                        "account": "acct_owner",
+                        "live": fake.livemode,
+                        "created": base + timedelta(days=1),
+                    },
+                )
+    assert sizes == [20, 20, 5]
+    assert seen == expected
+    head = (await service.owner_summary(user_id="owner"))["payouts"][0]
+    assert set(head) == {
+        "id",
+        "amountCents",
+        "status",
+        "expectedArrivalAt",
+        "failureCode",
+        "createdAt",
+        "paidAt",
+        "failedAt",
+        "bank",
+        "bankReference",
+    }
+    assert (head["id"], head["createdAt"]) == ("po_new", (base + timedelta(days=1)).isoformat())
+
+    def opaque(body):
+        return base64.urlsafe_b64encode(json.dumps(body).encode()).decode().rstrip("=")
+
+    other_mode = "live" if service.mode == "test" else "test"
+    for cursor in (
+        "",
+        "not a cursor!",
+        "A" * 257,
+        opaque([1]),
+        opaque({"v": 1, "m": service.mode, "t": 0, "id": "acct_owner"}),
+        opaque({"v": True, "m": service.mode, "t": 0, "id": "po_001"}),
+        opaque({"v": 1, "m": other_mode, "t": 0, "id": "po_001"}),
+        opaque({"v": 1, "m": service.mode, "t": -1, "id": "po_001"}),
+        opaque({"v": 1, "m": service.mode, "t": 0, "id": "po_001", "x": 1}),
+    ):
+        with pytest.raises(ConnectBankPayoutError, match="invalid_cursor"):
+            await service.owner_summary(user_id="owner", cursor=cursor)
+
+
+@pytest.mark.asyncio
+async def test_balance_and_reconciliation_events_reach_the_connect_ledger(world):
+    service, fake, engine = world
+    balance = signed_event(event_id="evt_balance", kind="balance.available")
+    assert await service.process_webhook(**balance) == "updated"
+    due = ("refresh_due", {"stripe_account_id": "acct_owner", "livemode": False})
+    assert service.ledger_calls == [due]
+    assert service.notices == [doorbell("balance")]
+    assert fake.retrieve_calls == []  # the worker reads the balance, not the webhook
+    # Redelivery repeats only idempotent effects; unknown accounts never reach the ledger.
+    assert await service.process_webhook(**balance) == "updated"
+    unknown = signed_event(event_id="evt_unknown", kind="balance.available", account="acct_x1")
+    assert await service.process_webhook(**unknown) == "ignored_account"
+    assert service.ledger_calls == [due, due]
+    malformed = json.loads(event(event_id="evt_malformed", kind="balance.available"))
+    malformed["data"]["object"]["object"] = "payout"
+    raw = json.dumps(malformed).encode()
+    with pytest.raises(ConnectBankPayoutError, match="invalid_event"):
+        await service.process_webhook(payload=raw, signature=signature(raw))
+
+    service.notices.clear()
+    service.ledger_calls.clear()
+    fake.payout_status = "paid"
+    fake.payout_details = {"automatic": True, "reconciliation_status": "in_progress"}
+    paid = signed_event(event_id="evt_paid", kind="payout.paid")
+    assert await service.process_webhook(**paid) == "updated"
+    assert service.ledger_calls == []  # Stripe has not itemised it yet
+    fake.payout_details = {"automatic": True, "reconciliation_status": "completed"}
+    reconciled = signed_event(event_id="evt_reconciled", kind="payout.reconciliation_completed")
+    assert await service.process_webhook(**reconciled) == "updated"
+    queued = ("reconcile", {"stripe_payout_id": "po_one", "stripe_account_id": "acct_owner"})
+    assert service.ledger_calls == [queued]
+    assert fake.retrieve_calls[-1][1]["expand"] == ["destination"]
+    paid_again = signed_event(event_id="evt_paid_again", kind="payout.paid")
+    assert await service.process_webhook(**paid_again) == "updated"
+    updated = signed_event(event_id="evt_updated", kind="payout.updated")
+    assert await service.process_webhook(**updated) == "updated"
+    assert service.ledger_calls == [queued, queued]  # idempotent queue; updates never queue
+    assert service.notices == [doorbell("bank_payouts")] * 2
+    with engine.begin() as connection:
+        ledgered = connection.execute(
+            text("SELECT event_type FROM stripe_connect_bank_payout_events")
+        ).scalars()
+        # Release replay of migrations 298/304 would reject rows of the new types.
+        assert sorted(ledgered) == ["payout.paid", "payout.paid", "payout.updated"]

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
@@ -12,16 +12,19 @@ import { isNative } from "@/lib/capacitor/platform";
 import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 import { resolveProfileRouteState } from "@/lib/navigation/profile-routes";
 import { normalizeInternalRouteHref } from "@/lib/navigation/routes";
+import { payoutChangeTouches, subscribePayoutStateChanged } from "@/lib/payouts/payout-events";
 import {
   DocumentPayoutService,
   documentPayoutLinkUrl,
   type DocumentPayoutAccount,
+  type PayoutVerification,
 } from "@/lib/services/document-payout-service";
 import { getSessionItem, removeSessionItem, setSessionItem } from "@/lib/utils/session-storage";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 import { DocumentEarningsHistory } from "./earnings-history";
 import { payoutErrorCopy } from "./payout-copy";
+import { shortDate } from "./payout-format";
 import { PAYOUT_READY_SOURCE, usePayoutSnapshot } from "./use-payout-snapshot";
 
 // Stripe returns to a fixed Payouts URL, so the screen that sent the owner
@@ -49,11 +52,30 @@ export type PayoutAccountState = {
   account: DocumentPayoutAccount | null; loading: boolean; failed: boolean; stripeMode?: "test" | "live";
 };
 
-/** One Connect account serves packet and document earnings; each keeps its ledger. */
-export function DocumentPayoutAccountCard({
-  active = true, compact = false, handleReturn = false, disabled = false, showHistory = true, onAccountChange,
-}: {
-  active?: boolean; compact?: boolean; handleReturn?: boolean; disabled?: boolean; showHistory?: boolean;
+type BankAction = "bank" | "verify";
+
+/** Stripe needs details now or soon; "none" means nothing to show. */
+function verificationShown(verification: PayoutVerification | undefined): verification is PayoutVerification {
+  return verification !== undefined && verification.state !== "none";
+}
+
+/** One short line for the Verify details row. */
+export function verificationCopy(verification: PayoutVerification): string {
+  switch (verification.state) {
+    case "past_due": return "Overdue · payouts paused";
+    case "in_review": return "In review";
+    case "disabled": return "Payouts paused";
+    default: return verification.deadline ? `Due ${shortDate(verification.deadline)}` : "Stripe needs more information";
+  }
+}
+
+/**
+ * The owner's payout bank: one account read, Stripe's return markers, and the
+ * actions that open Stripe. Shared by the "Your money" rows and the
+ * standalone card, so both read and act the same way.
+ */
+export function usePayoutBank({ active = true, handleReturn = false, disabled = false, onAccountChange }: {
+  active?: boolean; handleReturn?: boolean; disabled?: boolean;
   onAccountChange?: (state: PayoutAccountState) => void;
 }) {
   const router = useRouter();
@@ -74,8 +96,17 @@ export function DocumentPayoutAccountCard({
   useEffect(() => {
     onAccountChange?.({ account, loading, failed, stripeMode });
   }, [onAccountChange, account, loading, failed, stripeMode]);
-  const [busyScope, setBusyScope] = useState<typeof scope | null>(null);
-  const [actionError, setActionError] = useState<{ scope: typeof scope; text: string } | null>(null);
+  // A payout doorbell for the connected account (bank or verification) rereads it.
+  const reread = useRef(resource.retry);
+  useEffect(() => { reread.current = resource.retry; });
+  useEffect(() => {
+    if (!active) return;
+    return subscribePayoutStateChanged((detail) => {
+      if (payoutChangeTouches(detail, ["account"])) reread.current();
+    });
+  }, [active]);
+  const [busy, setBusy] = useState<{ scope: typeof scope; action: BankAction } | null>(null);
+  const [actionError, setActionError] = useState<{ scope: typeof scope; action: BankAction; text: string } | null>(null);
   const inFlight = useRef<typeof scope | null>(null);
   const refreshed = useRef<typeof scope | null>(null);
   const announced = useRef<{ scope: typeof scope; ready: boolean } | null>(null);
@@ -97,8 +128,9 @@ export function DocumentPayoutAccountCard({
     const from = takePayoutReturn();
     if (from) router.replace(from);
   }, [returnState, ready, router]);
-  const start = useCallback(async (manage = false, expiredLink = false) => {
+  const start = useCallback(async (manage = false, expiredLink = false, purpose?: "verify") => {
     if (!token || !active || disabled || inFlight.current === scope) return;
+    const action: BankAction = purpose === "verify" ? "verify" : "bank";
     // Stripe's bank settings never return here, so on the web they open in a
     // new tab and this one keeps its unlocked vault. Opened inside the click.
     const tab = manage && !isNative() ? window.open("about:blank", "_blank") : null;
@@ -106,10 +138,11 @@ export function DocumentPayoutAccountCard({
     const epoch = snapshotVaultSessionEpoch();
     const current = () => currentScope.current === scope && isVaultSessionEpochCurrent(epoch);
     inFlight.current = scope;
-    setBusyScope(scope);
+    setBusy({ scope, action });
     setActionError(null);
     try {
-      const { url } = await (manage ? DocumentPayoutService.manage(token) : DocumentPayoutService.onboard(token));
+      const { url } = await (manage ? DocumentPayoutService.manage(token)
+        : purpose ? DocumentPayoutService.onboard(token, purpose) : DocumentPayoutService.onboard(token));
       if (!current()) { tab?.close(); return; }
       const link = documentPayoutLinkUrl(url, manage ? "management" : "onboarding");
       // Only onboarding returns here. A retry after that return keeps the first origin.
@@ -120,10 +153,10 @@ export function DocumentPayoutAccountCard({
       else window.location.assign(link);
     } catch (error) {
       tab?.close();
-      if (current()) setActionError({ scope, text: payoutErrorCopy(error, "Couldn't open bank setup. Try again.") });
+      if (current()) setActionError({ scope, action, text: payoutErrorCopy(error, "Couldn't open bank setup. Try again.") });
     } finally {
       if (inFlight.current === scope) inFlight.current = null;
-      if (current()) setBusyScope(null);
+      if (current()) setBusy(null);
     }
   }, [token, active, disabled, scope, returnState, origin]);
   useEffect(() => {
@@ -136,15 +169,35 @@ export function DocumentPayoutAccountCard({
     router.replace(rest ? `${pathname}?${rest}` : pathname, { scroll: false });
     void start(false, true);
   }, [active, returnState, start, token, scope, searchParams, pathname, router]);
-  if (!active || !token) return null;
-  const busy = busyScope === scope;
   const canManage = Boolean(account?.detailsSubmitted && (account.canManageBank ?? ready));
-  const retryBankCheck = resource.failed && !canManage;
-  const bankCheckUnavailable = account?.bankStatus === "unavailable";
-  const label = canManage ? "Manage bank" : account ? "Finish setup" : "Link bank";
-  const bankLabel = account?.bank
-    ? [account.bank.name || "Bank", account.bank.last4 ? `•••• ${account.bank.last4}` : null].filter(Boolean).join(" ")
-    : null;
+  const verification = account?.verification;
+  return {
+    resource, account, ready, stripeMode, canManage, verification, start,
+    shown: active && Boolean(token),
+    busyAction: busy?.scope === scope ? busy.action : null,
+    actionError: actionError?.scope === scope ? actionError : null,
+    retryBankCheck: resource.failed && !canManage,
+    bankCheckUnavailable: account?.bankStatus === "unavailable",
+    label: canManage ? "Manage bank" : account ? "Finish setup" : "Link bank",
+    bankLabel: account?.bank
+      ? [account.bank.name || "Bank", account.bank.last4 ? `•••• ${account.bank.last4}` : null].filter(Boolean).join(" ")
+      : null,
+    // Payouts may still run while Stripe asks for details; never call that "Bank linked".
+    linked: ready && !resource.failed && !["due", "past_due", "disabled"].includes(verification?.state ?? "none"),
+  };
+}
+
+/** One Connect account serves packet and document earnings; each keeps its ledger. */
+export function DocumentPayoutAccountCard({
+  active = true, compact = false, handleReturn = false, disabled = false, showHistory = true, onAccountChange,
+}: {
+  active?: boolean; compact?: boolean; handleReturn?: boolean; disabled?: boolean; showHistory?: boolean;
+  onAccountChange?: (state: PayoutAccountState) => void;
+}) {
+  const bank = usePayoutBank({ active, handleReturn, disabled, onAccountChange });
+  if (!bank.shown) return null;
+  const { resource, account, ready, stripeMode, canManage, retryBankCheck, bankCheckUnavailable, label, bankLabel } = bank;
+  const busy = bank.busyAction !== null;
   // Stripe reports only the default bank, the one that receives deposits.
   const description = resource.failed ? "Bank status unavailable"
     : account?.bankStatus === "needs_attention" ? "Update your bank"
@@ -157,16 +210,16 @@ export function DocumentPayoutAccountCard({
     <section aria-label="Document payouts" className="space-y-4">
       <SettingsGroup title={compact ? undefined : stripeMode === "test" ? "Test bank account" : "Bank account"} embedded={compact} density="compact">
         <SettingsRow icon={ProfileAccountBankIcon} iconTone="capability"
-          title={ready && !resource.failed ? "Bank linked" : "Payout bank"} description={description}
+          title={bank.linked ? "Bank linked" : "Payout bank"} description={description}
           ariaLabel={retryBankCheck ? "Retry bank check" : label} chevron disabled={busy || disabled || resource.loading}
-          onClick={retryBankCheck ? resource.retry : () => void start(canManage)}
+          onClick={retryBankCheck ? resource.retry : () => void bank.start(canManage)}
           trailing={<span className="profile-account-inline-action" role={resource.loading ? "status" : undefined}>
             {resource.loading ? "Checking…" : busy ? "Opening…" : retryBankCheck ? "Retry" : label}
           </span>} />
         {canManage && !ready && !bankCheckUnavailable && account?.bankStatus !== "missing" && account?.bankStatus !== "needs_attention" ? (
           <SettingsRow icon={ProfileInnerReviewIcon} iconTone="capability" title="Verify details"
             description="Finish setup to receive payouts." chevron disabled={busy || disabled || resource.failed}
-            onClick={() => void start()} />
+            onClick={() => void bank.start()} />
         ) : null}
       </SettingsGroup>
       {bankCheckUnavailable && !resource.failed ? <Button type="button" size="sm" effect="fade" variant="none"
@@ -174,21 +227,53 @@ export function DocumentPayoutAccountCard({
       {canManage && !compact ? <HelperText className="profile-account-note">Change your bank in Stripe. Deposits go to the bank shown here.</HelperText> : null}
       {resource.failed ? <div><HelperText role="alert" className="profile-account-note">{payoutErrorCopy(resource.error, "Couldn't check your bank. Try again.")}</HelperText>
         {canManage ? <Button type="button" size="sm" effect="fade" variant="none" onClick={resource.retry}>Retry</Button> : null}</div> : null}
-      {actionError?.scope === scope ? <HelperText role="alert" className="profile-account-note">{actionError.text}</HelperText> : null}
+      {bank.actionError ? <HelperText role="alert" className="profile-account-note">{bank.actionError.text}</HelperText> : null}
       {!compact && showHistory ? <DocumentEarningsHistory /> : null}
     </section>
   );
 }
 
 /**
- * CONTRACT (account-holds lane): the payout bank as SettingsRows for use
- * INSIDE a SettingsGroup ("Your money"): bank + last4 · Manage, and a
- * "Verify details" row when Stripe needs more information. This scaffold
- * renders the standalone card until that lane lands the row version.
+ * The payout bank as SettingsRows for use INSIDE a SettingsGroup ("Your
+ * money"): the masked bank with an inline Manage, and "Verify details" while
+ * Stripe needs more information. Mount it once per screen with handleReturn.
  */
 export function PayoutBankRows({ handleReturn = false, onAccountChange }: {
   handleReturn?: boolean;
   onAccountChange?: (state: PayoutAccountState) => void;
 }) {
-  return <DocumentPayoutAccountCard handleReturn={handleReturn} showHistory={false} onAccountChange={onAccountChange} />;
+  const bank = usePayoutBank({ handleReturn, onAccountChange });
+  if (!bank.shown) return null;
+  const { resource, account, stripeMode, canManage, retryBankCheck, label, bankLabel, verification } = bank;
+  const busy = bank.busyAction !== null;
+  const failure = (action: BankAction): ReactNode =>
+    bank.actionError?.action === action ? <span role="alert">{bank.actionError.text}</span> : null;
+  const description = failure("bank") ?? (resource.failed ? "Bank status unavailable"
+    : account?.bankStatus === "needs_attention" ? "Update your bank"
+    : account?.bankStatus === "missing" ? "Bank needed"
+    : account?.bankStatus === "unavailable" ? "Bank check unavailable"
+    // The Verify details row names what Stripe needs when the server says.
+    : account?.status === "restricted" && !verificationShown(verification) ? "Verification needed"
+    : bankLabel ? "Default for deposits"
+    : resource.loading ? undefined
+    : stripeMode === "test" ? "Test payouts" : "US payouts");
+  const verify = account && verificationShown(verification) ? verification : null;
+  // Nothing to do while Stripe reviews; the row only reports it.
+  const canVerify = verify !== null && verify.state !== "in_review";
+  return <>
+    <SettingsRow testId="payout-bank-row" icon={ProfileAccountBankIcon} iconTone="capability"
+      title={bankLabel ?? "Payout bank"} description={description}
+      ariaLabel={retryBankCheck ? "Retry bank check" : label} chevron disabled={busy || resource.loading}
+      onClick={retryBankCheck ? resource.retry : () => void bank.start(canManage)}
+      trailing={<span className="profile-account-inline-action" role={resource.loading ? "status" : undefined}>
+        {resource.loading ? "Checking…" : bank.busyAction === "bank" ? "Opening…" : retryBankCheck ? "Retry"
+          : canManage ? "Manage" : label}
+      </span>} />
+    {verify ? <SettingsRow testId="payout-verify-row" icon={ProfileInnerReviewIcon} iconTone="capability"
+      title="Verify details" description={failure("verify") ?? verificationCopy(verify)}
+      chevron={canVerify} disabled={canVerify && (busy || resource.failed)}
+      onClick={canVerify ? () => void bank.start(false, false, "verify") : undefined}
+      trailing={bank.busyAction === "verify"
+        ? <span className="profile-account-inline-action">Opening…</span> : undefined} /> : null}
+  </>;
 }

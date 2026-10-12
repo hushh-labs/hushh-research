@@ -2,10 +2,11 @@
 
   GET  /api/one/payouts          -> payout account readiness + earnings totals
   POST /api/one/payouts/onboard  -> {url} Stripe-hosted Express onboarding
-  GET  /api/one/payouts/account  -> account readiness only, for document owners
+  GET  /api/one/payouts/account  -> account readiness and verification, for document owners
   POST /api/one/payouts/account/onboard -> {url} document-owner onboarding
-  GET  /api/one/payouts/account/bank-payouts -> owner's aggregate bank deposits
-  GET  /api/one/payouts/account/earnings -> paginated document transactions
+       (optional body {"purpose":"verify"} collects upcoming requirements too)
+  GET  /api/one/payouts/account/bank-payouts?cursor= -> owner's aggregate bank deposits
+  GET  /api/one/payouts/account/earnings?cursor=&mode=live|test -> paginated document transactions
   POST /api/one/payouts/account/manage -> owner's Express bank settings
   POST /api/one/payouts/connect/webhook -> signed connected-account events
 
@@ -17,10 +18,11 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from api.middleware import require_vault_owner_token
@@ -39,6 +41,26 @@ from hushh_mcp.services.stripe_mode import (
 
 router = APIRouter(prefix="/api/one/payouts", tags=["One Packet Payouts"])
 logger = logging.getLogger(__name__)
+
+_NO_STORE = {"Cache-Control": "private, no-store"}
+# "test" history also shows rows recorded before Stripe mode isolation.
+_EARNING_MODES = {"live": ("live",), "test": ("test", "legacy")}
+_SAFE_CODE = re.compile(r"[a-z][a-z0-9_]{0,63}")
+
+
+class OnboardBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    purpose: Literal["verify"] | None = None
+
+
+def _connect_event_rejected(route: str, status: int, code: str) -> None:
+    """Name the closed failure code; never the event, account or provider text."""
+    logger.warning(
+        "connect_webhook.rejected route=%s status=%s code=%s",
+        route,
+        status,
+        code if _SAFE_CODE.fullmatch(code) else "other",
+    )
 
 
 def _service() -> PkmPayoutService:
@@ -109,31 +131,43 @@ async def get_payout_account(
 
 @router.post("/account/onboard")
 async def onboard_payout_account(
-    response: Response, token_data: dict = Depends(require_vault_owner_token)
+    response: Response,
+    body: OnboardBody | None = Body(default=None),
+    token_data: dict = Depends(require_vault_owner_token),
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "private, no-store"
+    purpose: Literal["onboarding", "verify"] = (
+        "verify" if body is not None and body.purpose == "verify" else "onboarding"
+    )
     try:
         link: dict[str, Any] = await _document_service().onboarding_link(
-            user_id=token_data["user_id"], surface="documents"
+            user_id=token_data["user_id"], surface="documents", purpose=purpose
         )
         return link
     except PacketOrderError as exc:
         raise HTTPException(
-            status_code=503, detail={"code": exc.code, "message": str(exc)}
+            status_code=503, detail={"code": exc.code, "message": str(exc)}, headers=_NO_STORE
         ) from None
 
 
 @router.get("/account/bank-payouts")
 async def get_bank_payouts(
-    response: Response, token_data: dict = Depends(require_vault_owner_token)
+    response: Response,
+    cursor: str | None = Query(default=None, min_length=1, max_length=256),
+    token_data: dict = Depends(require_vault_owner_token),
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "private, no-store"
     try:
         summary: dict[str, Any] = await _document_bank_service().owner_summary(
-            user_id=token_data["user_id"]
+            user_id=token_data["user_id"], cursor=cursor
         )
         return summary
-    except (ConnectBankPayoutError, ConnectorLifecycleError):
+    except (ConnectBankPayoutError, ConnectorLifecycleError) as exc:
+        if isinstance(exc, ConnectBankPayoutError) and exc.code == "invalid_cursor":
+            # A cursor this server did not issue for this owner.
+            raise HTTPException(
+                status_code=422, detail="Bank payout page is unavailable.", headers=_NO_STORE
+            ) from None
         raise HTTPException(
             status_code=503,
             detail="Bank payout status is unavailable.",
@@ -161,19 +195,26 @@ async def manage_payout_account(
 async def document_earnings(
     response: Response,
     cursor: UUID | None = None,
+    mode: Literal["live", "test"] | None = None,
     token_data: dict = Depends(require_vault_owner_token),
 ) -> dict[str, Any]:
     from hushh_mcp.services.drive_request_owner_payout_service import DriveRequestOwnerPayoutService
 
     response.headers["Cache-Control"] = "private, no-store"
     try:
+        # Old builds send no mode and see only the configured mode's earnings.
+        selected = mode or configured_stripe_mode()
         history: dict[str, Any] = await DriveRequestOwnerPayoutService().owner_history(
-            user_id=token_data["user_id"], cursor=str(cursor) if cursor else None
+            user_id=token_data["user_id"],
+            cursor=str(cursor) if cursor else None,
+            modes=_EARNING_MODES[selected],
         )
-        return history
+        return {**history, "mode": selected}
     except Exception as exc:
         logger.warning("document_earnings.unavailable type=%s", type(exc).__name__)
-        raise HTTPException(status_code=503, detail="Transactions are unavailable.") from None
+        raise HTTPException(
+            status_code=503, detail="Transactions are unavailable.", headers=_NO_STORE
+        ) from None
 
 
 @router.post("/connect/webhook")
@@ -183,17 +224,20 @@ async def stripe_connect_webhook(
 ) -> dict[str, str]:
     payload = await request.body()
     if len(payload) > 128_000:
+        _connect_event_rejected("live", 413, "payload_too_large")
         raise HTTPException(status_code=413, detail="Event is too large.")
     try:
         result = await StripeConnectBankPayouts().process_webhook(
             payload=payload, signature=stripe_signature
         )
     except (ConnectBankPayoutError, ConnectorLifecycleError) as exc:
+        code = exc.code if isinstance(exc, ConnectBankPayoutError) else "storage_unavailable"
         status = {
             "invalid_signature": 400,
             "invalid_event": 400,
             "provider_mismatch": 409,
-        }.get(exc.code if isinstance(exc, ConnectBankPayoutError) else "storage_unavailable", 503)
+        }.get(code, 503)
+        _connect_event_rejected("live", status, code)
         raise HTTPException(
             status_code=status,
             detail="Connect event could not be processed.",
@@ -209,9 +253,11 @@ async def stripe_connect_sandbox_webhook(
 ) -> dict[str, str]:
     """Test Connect events cannot update live financial or bank bindings."""
     if configured_connect_mode() != "test":
+        _connect_event_rejected("sandbox", 404, "sandbox_disabled")
         raise HTTPException(status_code=404, detail="Sandbox payouts are unavailable.")
     payload = await request.body()
     if len(payload) > 128_000:
+        _connect_event_rejected("sandbox", 413, "payload_too_large")
         raise HTTPException(status_code=413, detail="Event is too large.")
     try:
         result = await StripeConnectBankPayouts(connect_mode=True).process_webhook(
@@ -222,6 +268,7 @@ async def stripe_connect_sandbox_webhook(
         status = {"invalid_signature": 400, "invalid_event": 400, "provider_mismatch": 409}.get(
             code, 503
         )
+        _connect_event_rejected("sandbox", status, code)
         raise HTTPException(
             status_code=status, detail="Connect event could not be processed."
         ) from None

@@ -56,6 +56,7 @@ describe("GET /api/consent/events/[userId]", () => {
     expect(res.headers.get("Cache-Control")).toBe("no-cache");
     expect(res.headers.get("Connection")).toBe("keep-alive");
     expect(res.headers.get("X-Accel-Buffering")).toBe("no");
+    expect(res.headers.get("Content-Encoding")).toBe("none");
 
     expect(mockFetch).toHaveBeenCalledWith(
       "http://backend.test/api/consent/events/user_123",
@@ -65,9 +66,34 @@ describe("GET /api/consent/events/[userId]", () => {
           "Cache-Control": "no-cache",
           Connection: "keep-alive",
         }),
+        signal: req.signal,
       })
     );
 
+    mockFetch.mockRestore();
+  });
+
+  // Next decodes params before the route sees them, so "..%2F..%2F..%2Fdebug"
+  // arrives as "../../../debug" and would normalise to the backend's /debug.
+  it.each([
+    "../../../debug/consent-listener",
+    "a/b",
+    "..",
+    ".",
+    "a\\b",
+    "user?x=1",
+    "user#frag",
+    "user%2F..",
+    "user\u0000",
+    "x".repeat(129),
+  ])("refuses %j before reaching the backend", async (userId) => {
+    const mockFetch = vi.spyOn(globalThis, "fetch");
+    const req = createMockGET("/api/consent/events/x", {}, { authorization: "Bearer token" });
+    const res = await eventsRoute.GET(req, { params: Promise.resolve({ userId }) });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/userId/i);
+    expect(mockFetch).not.toHaveBeenCalled();
     mockFetch.mockRestore();
   });
 

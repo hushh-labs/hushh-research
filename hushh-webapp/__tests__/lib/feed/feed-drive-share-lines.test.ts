@@ -159,6 +159,49 @@ describe("Drive rows in the Feed", () => {
     })).description).toBe("Payment due for your document request");
   });
 
+  it("reads the shared payment view state before the older payment fields", () => {
+    const line = (metadata: Record<string, unknown>) =>
+      presentFeedItem(item("document_share_payment_ready", metadata)).description;
+    // The order is paid, but the money is going back: never "Payment confirmed".
+    expect(line({ current_payment_state: "refund_pending", current_payment_status: "paid" }))
+      .toBe("Refund pending");
+    expect(line({ current_payment_state: "closed", current_payment_status: "expired" }))
+      .toBe("Document request closed");
+    expect(line({ current_payment_state: "link_expired" })).toBe("Payment link expired");
+    expect(line({ current_payment_state: "request_expired" })).toBe("Document request expired");
+    // Payable still honours the live deadline the row carries.
+    expect(line({
+      current_payment_state: "payable",
+      current_payment_status: "checkout_open",
+      current_checkout_expires_at: "2026-09-25T15:00:00.000Z",
+    })).toBe("Payment link expired");
+    expect(line({ current_payment_state: "payable", current_payment_status: "checkout_open" }))
+      .toBe("Payment due for your document request");
+  });
+
+  it("never confirms a payment that goes back after the request closed", () => {
+    const line = (metadata: Record<string, unknown>) =>
+      presentFeedItem(item("document_share_payment_confirmed", metadata)).description;
+    expect(line({})).toBe("Payment confirmed for your document request");
+    expect(line({
+      current_payment_state: "refund_pending",
+      current_request_status: "cancelled",
+      current_refund_amount_cents: 2500,
+    })).toBe("Payment received after you withdrew · Refund of $25 pending");
+    expect(line({
+      current_payment_state: "refunded",
+      current_request_status: "declined",
+      current_refund_amount_cents: 2500,
+    })).toBe("Payment received after the request closed · Refunded $25");
+  });
+
+  it("tells the owner the requester asked for a review of unshared files", () => {
+    const row = presentFeedItem(item("document_share_review_requested"));
+    expect(row.description).toBe("Asked you to review unshared files");
+    expect(row.label).toBe("Ankit");
+    expect(row.domainLabel).toBe("Google Drive");
+  });
+
   it("opens the Drive question card for question rows", () => {
     const question = presentFeedItem(item("document_share_question"));
     expect(question.description).toBe("Asked a question about your Drive");

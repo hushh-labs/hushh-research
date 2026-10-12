@@ -12,6 +12,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
+import { safePathSegment } from "@/app/api/_utils/upstream-path";
 
 export const dynamic = "force-dynamic";
 
@@ -26,9 +27,14 @@ export async function GET(
       { status: 400 }
     );
   }
+  // The param is already decoded: "..%2F" arrives as "../". Refuse, never forward.
+  const userSegment = safePathSegment(userId);
+  if (!userSegment) {
+    return NextResponse.json({ error: "Invalid userId" }, { status: 400 });
+  }
 
   const backendUrl = getPythonApiUrl();
-  const sseUrl = `${backendUrl}/api/consent/events/${userId}`;
+  const sseUrl = `${backendUrl}/api/consent/events/${userSegment}`;
   const authorization = request.headers.get("authorization");
 
   try {
@@ -39,6 +45,8 @@ export async function GET(
         Connection: "keep-alive",
         ...(authorization ? { Authorization: authorization } : {}),
       },
+      // A closed tab cancels the backend stream instead of orphaning it.
+      signal: request.signal,
     });
 
     if (!backendResponse.ok) {
@@ -73,6 +81,8 @@ export async function GET(
         Connection: "keep-alive",
         "Content-Type": "text/event-stream",
         "X-Accel-Buffering": "no",
+        // next.config compress:true would otherwise buffer the stream in gzip.
+        "Content-Encoding": "none",
       },
     });
   } catch (error) {

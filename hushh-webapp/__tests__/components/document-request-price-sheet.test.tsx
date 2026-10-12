@@ -127,15 +127,18 @@ describe("DocumentRequestPriceSheet", () => {
     expect(props.onSubmit).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps a new request's sent quote fixed when the owner allows it", () => {
-    const { props } = renderSheet({ lockedAmountCents: 2500 });
-    expect(
-      screen.getByLabelText("Locked document request quote"),
-    ).toHaveTextContent("$25");
-    expect(screen.queryByRole("group", { name: "Price" })).toBeNull();
-    expect(screen.queryByLabelText("Custom price")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Allow · $25" }));
-    expect(props.onSubmit).toHaveBeenCalledExactlyOnceWith(2500);
+  it("shows the estimate the requester saw and still lets the owner choose the price", () => {
+    // The estimate is never a fixed price; the old locked prop no longer locks.
+    const { props } = renderSheet({
+      estimateCents: 1000,
+      initialAmountCents: 1000,
+      lockedAmountCents: 1000,
+    });
+    expect(screen.getByText("Requester saw an estimate of $10")).toBeVisible();
+    expect(document.body.textContent).not.toMatch(/fixed|lock/i);
+    fireEvent.click(screen.getByRole("button", { name: "$30" }));
+    fireEvent.click(screen.getByRole("button", { name: "Allow · $30" }));
+    expect(props.onSubmit).toHaveBeenCalledExactlyOnceWith(3000);
   });
 
   it("shows what Allow grants, and holds Allow until those terms have loaded", () => {

@@ -7,6 +7,7 @@ order row, and a paid event must match that order's amount and currency.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from datetime import UTC, datetime
 from urllib.parse import quote, urlsplit
@@ -39,8 +40,12 @@ from hushh_mcp.services.stripe_mode import (
     stripe_key_mode,
 )
 
+logger = logging.getLogger(__name__)
+
 # Stripe requires at least 30 minutes; keep a minute of transport/clock slack.
 CHECKOUT_HOLD_SECONDS = 31 * 60
+# Retiring a withdrawn request's Checkout is best-effort and never blocks it.
+CHECKOUT_RETIRE_TIMEOUT_SECONDS = 4
 
 
 def _stripe_dict(value) -> dict:
@@ -110,6 +115,80 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
 
         await self.repair_paid_request_authority(limit=min(256, max_orders * 16))
         return await reconcile_refunds(self, max_orders=max_orders)
+
+    def _retire_session(self, session_id: str, key: str) -> str:
+        """Prove a Checkout session can no longer be charged.
+
+        Returns ``"dead"``, ``"paid"`` or ``"unknown"``. A failed or timed-out
+        expire call is ``"unknown"``, never success: the outcome at Stripe is
+        undetermined, so the request_closed webhook and refund stay in charge.
+        """
+
+        def classify(session: object) -> str | None:
+            try:
+                data = _stripe_dict(session)
+            except (AttributeError, TypeError, ValueError):
+                return None
+            if not isinstance(data, dict):
+                return None
+            if data.get("status") == "expired":
+                return "dead"
+            if data.get("status") == "complete" or data.get("payment_status") == "paid":
+                return "paid"
+            return None
+
+        verdict: str | None = None
+        try:
+            verdict = classify(self.stripe_api.checkout.Session.expire(session_id, api_key=key))
+        except Exception:  # noqa: BLE001 - every failure mode is "not proven dead"
+            logger.info("drive_request.checkout_expire_unconfirmed")
+        if verdict is None:
+            # Expire also fails for a session that already expired or completed.
+            # Read the authoritative state rather than parsing the error.
+            try:
+                verdict = classify(
+                    self.stripe_api.checkout.Session.retrieve(session_id, api_key=key)
+                )
+            except Exception:  # noqa: BLE001
+                logger.info("drive_request.checkout_state_unreadable")
+        return verdict or "unknown"
+
+    async def retire_checkout(self, *, requester_user_id: str, request_id: str) -> str:
+        """After a withdrawal commits, make its open Checkout page unpayable.
+
+        Returns ``"none"`` (no bound session), ``"dead"``, ``"paid"`` or
+        ``"unknown"`` and never raises. Stripe I/O runs outside any database
+        transaction and is bounded; correctness never depends on it, because a
+        late paid event settles as request_closed and is refunded in full.
+        """
+        try:
+            request_id = _request_id(request_id)
+
+            def read(connection):
+                return self._row(
+                    connection,
+                    """SELECT o.status,o.stripe_checkout_session_id,r.status AS request_status
+                       FROM drive_request_payment_orders o
+                       JOIN drive_share_requests r ON r.request_id=o.request_id
+                       WHERE o.request_id=:request AND o.requester_user_id=:requester""",
+                    {"request": request_id, "requester": requester_user_id},
+                )
+
+            order = await self._transaction(read)
+            if order is None or not order["stripe_checkout_session_id"]:
+                return "none"
+            if order["status"] in {"paid", "refunded"}:
+                return "paid"
+            if order["request_status"] != "cancelled":
+                return "none"
+            key, _, _ = _config()
+            async with asyncio.timeout(CHECKOUT_RETIRE_TIMEOUT_SECONDS):
+                return await asyncio.to_thread(
+                    self._retire_session, order["stripe_checkout_session_id"], key
+                )
+        except Exception as error:  # noqa: BLE001 - never fail the withdrawal
+            logger.info("drive_request.checkout_retire_unknown error=%s", type(error).__name__)
+            return "unknown"
 
     def _current_checkout_authority(
         self, connection, *, request_id: str, requester_user_id: str
@@ -715,7 +794,11 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                             "session": session["id"],
                         },
                     )
-                    self._event(connection, request, "document_share_payment_confirmed")
+                    # A payment that must be reconciled (e.g. it arrived after
+                    # the request closed) is refunded, not confirmed; its
+                    # refund event is the requester's news.
+                    if reconciliation_reason is None:
+                        self._event(connection, request, "document_share_payment_confirmed")
             connection.execute(
                 text("""INSERT INTO drive_request_payment_webhook_events
                    (stripe_event_id,stripe_checkout_session_id,request_id)

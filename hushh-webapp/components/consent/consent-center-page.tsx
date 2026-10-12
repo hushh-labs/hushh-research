@@ -94,9 +94,9 @@ import {
   isDocumentShareSelection,
 } from "@/lib/consent/document-share-consent";
 import {
-  formatDocumentRequestPrice,
-  isValidDocumentRequestPriceCents,
-} from "@/lib/consent/document-request-price";
+  priceViewFromEntryMetadata,
+  requesterPriceLine,
+} from "@/lib/consent/document-request-requester-view";
 import {
   driveQueryRequestId,
   driveSharingSelectionId,
@@ -458,12 +458,11 @@ export function formatLifecycleEventLabel(event: ConsentTrailEvent) {
 }
 
 function entrySummary(entry: ConsentCenterEntry) {
-  if (
-    isDocumentShareEntry(entry) &&
-    entry.metadata?.direction === "outgoing" &&
-    isValidDocumentRequestPriceCents(entry.metadata.quotedAmountCents)
-  ) {
-    return `Quote locked at ${formatDocumentRequestPrice(entry.metadata.quotedAmountCents)}`;
+  if (isDocumentShareEntry(entry) && entry.metadata?.direction === "outgoing") {
+    // Estimate, owner price or final price; the owner may reprice until an order exists.
+    const price = priceViewFromEntryMetadata(entry.metadata);
+    const line = price ? requesterPriceLine(price) : null;
+    if (line) return line;
   }
   if (entry.consent_trails && entry.consent_trails.length > 0) {
     const trailCount = entry.trail_count || entry.consent_trails.length;

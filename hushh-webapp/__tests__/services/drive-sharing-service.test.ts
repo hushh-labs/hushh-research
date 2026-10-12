@@ -106,6 +106,45 @@ describe("requester document payment boundary", () => {
     fetcher.mockResolvedValueOnce(reply({ status: "not_required", amountCents: 1000, currency: "usd" }));
     await expect(DriveRequestPaymentService.status("firebase", requestId)).rejects.toThrow("Invalid payment response");
   });
+
+  it("keeps the requester's payment and price views, failing closed on malformed ones", async () => {
+    const payment = {
+      state: "payable", amountCents: 2500, currency: "usd",
+      checkoutExpiresAt: "2026-10-11T12:30:00.000Z", requestExpiresAt: "2026-10-12T12:00:00.000Z",
+      refund: null, nextAction: "pay", withdrawn: false,
+    };
+    const price = { estimateCents: 1000, currentCents: 2500, finalCents: 2500, state: "final" };
+    const status = { requestId, status: "pending", revision: 2, paymentRequired: true };
+    fetcher.mockResolvedValueOnce(reply({ ...status, direction: "outgoing", payment, price }));
+    expect(await DriveSharingService.status("vault", requestId, guard)).toMatchObject({ payment, price });
+    fetcher.mockResolvedValueOnce(reply({
+      ...status, direction: "outgoing",
+      payment: { ...payment, amountCents: 2550 }, price: { ...price, state: "locked" },
+    }));
+    // The request still loads; a bad view never becomes a Pay action.
+    expect(await DriveSharingService.status("vault", requestId, guard))
+      .toMatchObject({ status: "pending", payment: null, price: null });
+    fetcher.mockResolvedValueOnce(reply({ ...status, direction: "incoming", payment, price }));
+    const owner = await DriveSharingService.status("vault", requestId, guard);
+    expect(owner).not.toHaveProperty("payment");
+    expect(owner).not.toHaveProperty("price");
+  });
+
+  it("returns a withdrawal's payment view and surfaces a paid refusal", async () => {
+    const payment = {
+      state: "refund_pending", amountCents: 2500, currency: "usd",
+      checkoutExpiresAt: null, requestExpiresAt: null,
+      refund: { status: "queued", amountCents: 2500 }, nextAction: "none", withdrawn: true,
+    };
+    fetcher.mockResolvedValueOnce(reply({ requestId, status: "cancelled", revision: 2, payment }));
+    expect(await DriveSharingService.decide("vault", requestId, "cancel", 2, guard))
+      .toMatchObject({ status: "cancelled", payment });
+    expect(fetcher.mock.calls[0][0]).toBe(`/api/connectors/google_drive/sharing/requests/${requestId}/cancel`);
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ revision: 2 });
+    fetcher.mockResolvedValueOnce(reply({ detail: { code: "request_paid", message: "Paid." } }, 409));
+    await expect(DriveSharingService.decide("vault", requestId, "cancel", 2, guard))
+      .rejects.toMatchObject({ code: "request_paid" });
+  });
 });
 const rawReview = () => ({
   requestId,
@@ -1386,5 +1425,51 @@ describe("streamed preparation", () => {
     await expect(pending).rejects.toMatchObject({ code: "session_changed" });
     expect(stream.cancelled()).toBe(true);
     expect(onStage).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("requester terms and recovery transport", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it("reads the sealed Google account and send time from newer context replies", async () => {
+    const purpose = { purpose: "Standup notes", periodStart: "2026-10-01", periodEnd: "2026-10-08" };
+    const terms = { recipientEmail: "b@gmail.test", requestedAt: "2026-10-09T10:00:00+00:00", timeZone: "Asia/Kolkata" };
+    fetcher.mockResolvedValueOnce(reply({ requestId, purpose, ...terms }));
+    expect(await DriveSharingService.requesterContext("vault", requestId, guard))
+      .toEqual({ requestId, purpose, ...terms });
+    fetcher.mockResolvedValueOnce(reply({ requestId, purpose, recipientEmail: "not an email" }));
+    await expect(DriveSharingService.requesterContext("vault", requestId, guard))
+      .rejects.toMatchObject({ code: "invalid_response" });
+  });
+
+  it("keeps a delivery readable but drops a malformed recovery, so no action or refund is claimed", async () => {
+    const recovery = {
+      undeliveredCount: 1,
+      reasons: [{ reasonCode: "provider_unavailable", count: 1 }],
+      ownerRetry: { state: "available", retryableCount: 1, requestedAt: null },
+      refund: { state: "none", amountCents: null, grossCents: 1000, expectedFiles: null, confirmedFiles: null },
+    };
+    const price = { estimateCents: 1000, currentCents: 2500, finalCents: 2500, state: "final" };
+    fetcher.mockResolvedValueOnce(reply({ requestId, status: "partial", files: [], recovery, price }));
+    const delivered = await DriveSharingService.delivery("vault", requestId, guard);
+    expect(delivered.recovery).toEqual(recovery);
+    expect(delivered.price).toEqual(price);
+    for (const broken of [
+      { ...recovery, refund: { ...recovery.refund, state: "refunded" } },
+      { ...recovery, ownerRetry: { ...recovery.ownerRetry, state: "soon" } },
+      { ...recovery, refund: { ...recovery.refund, amountCents: 50_001 } },
+      { ...recovery, reasons: [{ reasonCode: "<b>", count: 1 }] },
+    ]) {
+      fetcher.mockResolvedValueOnce(reply({ requestId, status: "partial", files: [], recovery: broken }));
+      const result = await DriveSharingService.delivery("vault", requestId, guard);
+      expect(result.status).toBe("partial");
+      expect(result.recovery).toBeNull();
+    }
+    const notice = {
+      requestedAt: "2026-10-11T08:00:00Z", count: 1, unsharedCount: 1,
+      refund: { state: "succeeded", amountCents: 500 },
+    };
+    fetcher.mockResolvedValueOnce(reply({ requestId, status: "partial", files: [], reviewRequest: notice }));
+    expect((await DriveSharingService.delivery("vault", requestId, guard)).reviewRequest).toEqual(notice);
   });
 });

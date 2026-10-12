@@ -66,22 +66,87 @@ the app's lifecycle/card/audio frames are distinct from provider token streaming
 
 ### Document request Feed wake-ups
 
-`GET /api/consent/document-feed/{user_id}` is a separate Firebase-bearer-authenticated
-SSE channel for an open web Feed. A committed `drive_share_events` insert projects
-the durable Feed row and sends one PostgreSQL `one_user_state_changed` doorbell.
-The doorbell contains only the addressed user ID, opaque request ID and event
-UUID. The SSE endpoint strips even the user ID and emits `feed_changed` with
-`id: <event UUID>` and `data: {"request_id":"<UUID>"}`. It emits `feed_reset`
-immediately on every connection. The client treats both as reread signals;
-neither authorizes payment, consent, file access or a user-facing state label.
+One SSE channel wakes the Feed and Profile Payouts. Native apps use
+`GET /api/consent/document-feed/{user_id}` (Firebase bearer whose uid must equal
+the path). Web uses `GET /api/one/feed/events?v=2`, where the owner comes only
+from the verified token. Both live in
+`consent-protocol/api/routes/document_feed_stream.py` and
+`consent-protocol/api/routes/one/feed_events.py`.
+
+A committed `drive_share_events` insert projects the durable Feed row and sends
+one PostgreSQL `one_user_state_changed` doorbell with only the addressed user ID,
+opaque request ID and event UUID. Payout producers send `bank_payout_changed`
+through `consent-protocol/hushh_mcp/services/payout_doorbell.py`: the owner, the
+closed `kinds` (`wallet`, `earnings`, `bank_payouts`, `account`, `balance`) and
+optionally one request ID. The payload is deterministic, so identical doorbells
+in one transaction collapse; the owner-earning trigger
+(`consent-protocol/db/migrations/309_payout_doorbell_kinds.sql`) sends the same
+bytes. Missing or unknown kinds mean every kind.
+
+Frames with `?v=2`:
+
+| Frame | Data | When |
+|---|---|---|
+| `hello` | `{"v":2,"heartbeat_ms":15000,"max_lifetime_ms":<ms>,"live":bool}` | first |
+| `feed_reset` | `{}` | on connect and after a LISTEN recovery |
+| `feed_changed` | `id: <event UUID>`, `{"request_id":"<UUID>"}` | per Drive doorbell |
+| `payout_changed` | `{"kinds":[...],"request_ids":[...]}` | per payout burst |
+| `heartbeat` | `{"ts":<epoch ms>,"live":bool}` | every 15 s, time-based |
+| `reconnect` | `{"after_ms":0..2000}` | just before the server closes |
+
+`: ping` comments still arrive every 15 s. Payout doorbells coalesce per stream
+(500 ms trailing debounce, 2 s maximum wait); `request_ids` holds at most 20 IDs
+and is empty when a burst is not tied to specific requests. `live` is false
+while the worker's LISTEN is down. A v2 stream lives 840 s plus or minus 60 s,
+below the iOS stream plugin's 900 s limit.
+
+Without `v=2` (installed builds) the stream sends only `feed_reset`,
+`feed_changed` and `heartbeat`. A payout burst becomes one `feed_reset`. The
+stream lives at most 120 s and closes about 500 ms after its first post-connect
+frame, so a build that buffers the whole body sees a change within seconds and
+frees its backend slot.
+
+Admission is per backend worker: at most 6 document-feed streams, and at most 3
+per user (a fourth evicts that user's oldest). A new stream on a full worker
+gets 503 with `Retry-After: 60`. `DOCUMENT_FEED_WEB_STREAM_ENABLED` turns the web
+endpoint on or off; unset, it is on everywhere except production, and a disabled
+endpoint answers 404.
+
+`consent-protocol/api/consent_listener.py` probes its LISTEN connection with
+`SELECT 1` (5 s timeout) every 30 s and re-listens when the probe fails. Every
+activation pushes a local resync to each stream on that worker, which sends
+`feed_reset`, because NOTIFYs sent while LISTEN was down are lost.
 
 The reset is the recovery path when a tab or backend instance missed NOTIFY:
 subscribe first, then tell the client to fetch the authenticated Feed and
 Consent Center snapshots, then drain queued changes. FCM and the visible
 Feed's periodic/focus refresh remain fallbacks. No filenames, request reason,
-provider identifiers, Stripe data, counterpart identity or secret material
-may enter the stream. The legacy consent SSE fallback switch does not govern
-this dedicated Feed endpoint.
+amounts, provider identifiers, Stripe data, counterpart identity or secret
+material may enter the stream. Frames never authorize payment, consent, file
+access or a user-facing state label. The legacy consent SSE fallback switch
+does not govern these endpoints.
+
+The client state machine is `hushh-webapp/lib/feed/document-feed-stream-manager.ts`;
+`hushh-webapp/lib/services/document-feed-transport.ts` adapts it per platform.
+On web one tab per browser streams from the backend origin (Web Locks elect it;
+a BroadcastChannel relays its frames to other tabs). On native the HushhStream
+plugin streams and cancels when the app goes to the background. Each attempt
+has its own AbortController and a 45 s watchdog on received bytes (comments
+count); a silent stream is aborted, payout data is reread once, and the client
+reconnects. Failures back off 1, 2, 4, 8, 16, then 30 s with 20% jitter, reset
+after 60 s of healthy streaming; after 8 failures the client polls and retries
+on network, focus or visibility, or every 5 minutes. A 401 gets one token
+refresh, then the stream waits for a recovery signal (session verified again,
+a new ID token, network back, or visible 60 s after the last attempt), at most
+3 times per 15 minutes. A stream 401 never signs anyone out.
+`payout_changed` rings only the payout bus (`hushh-webapp/lib/payouts/payout-events.ts`);
+`feed_reset` rereads the Feed once and every payout kind; `feed_changed` rereads
+the Feed. A burst gets one reread, plus one trailing reread only when more frames
+arrived.
+
+Next.js proxies that forward a path parameter upstream must pass it through
+`hushh-webapp/app/api/_utils/upstream-path.ts`: route params arrive decoded, so
+`..%2F` would otherwise walk out of the intended backend route.
 
 The first owner Stop access transition updates the request row rather than
 writing a Drive outbox event. Its transaction sends the same opaque doorbell

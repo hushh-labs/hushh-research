@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections import Counter
 
@@ -21,6 +22,7 @@ class DriveRequestOwnerPayoutWorker:
     async def run(self, *, max_jobs: int, deadline_seconds: int) -> dict:
         if type(max_jobs) is not int or not 1 <= max_jobs <= 4 or not 20 <= deadline_seconds <= 45:
             raise ValueError("invalid owner payout worker bounds")
+        started = asyncio.get_running_loop().time()
         outcomes: Counter[str] = Counter()
         for result in (
             await self.service.reconcile_due(max_orders=max_jobs),
@@ -50,6 +52,21 @@ class DriveRequestOwnerPayoutWorker:
                 # Bank status polling cannot interrupt financial reconciliation.
                 logger.warning("bank_payout.reconcile_deferred type=%s", type(exc).__name__)
                 outcomes["bank_provider_deferred"] += 1
+            # Read-only Connect ledger upkeep spends only what this tick has left:
+            # at most two due balance refreshes and one payout itemisation.
+            remaining = deadline_seconds - (asyncio.get_running_loop().time() - started) - 2
+            try:
+                from hushh_mcp.services.stripe_connect_balances import StripeConnectBalances
+
+                async with asyncio.timeout(max(remaining, 0.1)):
+                    outcomes.update(
+                        await StripeConnectBalances().run_due(
+                            max_refreshes=2, max_reconciliations=1, budget_seconds=remaining
+                        )
+                    )
+            except Exception as exc:
+                logger.warning("connect_balance.run_deferred type=%s", type(exc).__name__)
+                outcomes["balance_refresh_deferred"] += 1
         if not payout_enabled() and not any(
             outcomes.get(key) for key in ("checked", "claimed", "reversal_due")
         ):
