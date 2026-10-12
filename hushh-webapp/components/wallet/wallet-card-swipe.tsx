@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { X } from "@/components/icons";
-import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { RowDescription, RowLabel } from "@/components/app-ui/typography";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
@@ -126,7 +125,7 @@ export function WalletCardSwipe({ card, children, disabled, hint, dismissHint, s
     <div ref={controls} className={`${profileStyles.walletContent} ${styles.controls}`} data-card-controls inert={!opened || undefined} aria-hidden={!opened || undefined}>
       <div className={styles.controlHeader}>
         <RowLabel as="p" compact className="min-w-0 [overflow-wrap:anywhere]">{label.title}</RowLabel>
-        <ShellActionSurface ref={closeButton} aria-label="Back to card" className="size-11 shrink-0" onClick={() => settle(false, true)}><X aria-hidden="true" className="size-4" /></ShellActionSurface>
+        <button type="button" ref={closeButton} aria-label="Back to card" className={styles.closeButton} onClick={() => settle(false, true)}><X aria-hidden="true" className="size-3" /></button>
       </div>
       {label.subtitle ? <RowDescription compact className="px-2">{label.subtitle}</RowDescription> : null}
       <SettingsGroup embedded density="compact" separatorInset shellClassName="bg-transparent shadow-none">

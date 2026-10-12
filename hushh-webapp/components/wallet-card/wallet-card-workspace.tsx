@@ -691,7 +691,7 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
           >
             <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
               {visitorPreview.status === "ready" ? (
-                <PublicWalletCardView card={visitorPreview.card} />
+                <PublicWalletCardView card={visitorPreview.card} embedded />
               ) : visitorPreview.status === "error" ? (
                 <div className="space-y-3 text-sm text-muted-foreground">
                   <p>{visitorPreview.message}</p>
