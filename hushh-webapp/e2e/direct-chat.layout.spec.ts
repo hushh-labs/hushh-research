@@ -110,6 +110,45 @@ test("chat theme follows the device, persists a choice, and keeps the shared nav
   expect(Math.abs(bounds.x + bounds.width / 2 - 393 / 2)).toBeLessThanOrEqual(1);
 });
 
+for (const [inset, width, height] of [[0, 393, 844], [59, 393, 844], [72, 393, 844], [0, 844, 390]] as const) {
+  test(`iOS Messages clears the status bar at ${inset}px in ${width}x${height} without covering the dock`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await mount(page, false, false, true);
+    await page.evaluate((value) => {
+      document.documentElement.classList.add("native-ios");
+      document.documentElement.style.setProperty("--app-native-safe-area-top", `${value}px`);
+    }, inset);
+    const minimumTop = (height > width ? Math.max(59, inset) : inset) + 8;
+    const canvas = page.locator("[data-direct-message-page]");
+    await expect.poll(async () => (await page.getByRole("heading", { name: "Messages" }).boundingBox())!.y).toBeGreaterThanOrEqual(minimumTop);
+    expect((await canvas.boundingBox())!.y).toBe(minimumTop);
+    await page.getByRole("button", { name: /Arjun Mehta/ }).click();
+    const title = page.getByRole("heading", { name: "Arjun Mehta with a very long display name", exact: true });
+    await expect(title).toBeVisible();
+    expect((await title.boundingBox())!.y).toBeGreaterThanOrEqual(minimumTop);
+    const dock = page.locator("[data-agent-bar-shell]");
+    const assertTranscriptClear = async () => {
+      const bounds = (await canvas.boundingBox())!;
+      expect(bounds.y).toBe(minimumTop);
+      expect(bounds.y + bounds.height).toBeLessThanOrEqual((await dock.boundingBox())!.y + 1);
+    };
+    await assertTranscriptClear();
+    await page.screenshot({ path: test.info().outputPath(`messages-ios-${width}-inset-${inset}.png`), animations: "disabled" });
+    await page.locator("[data-direct-message-composer-input]").fill("A draft above the keyboard");
+    const keyboardHeight = height < 500 ? 140 : 300;
+    await page.evaluate((value) => {
+      document.documentElement.classList.add("kb-open", "native-keyboard-inset");
+      document.documentElement.style.setProperty("--kb-height", `${value}px`);
+      window.dispatchEvent(new Event("resize"));
+    }, keyboardHeight);
+    await expect.poll(async () => {
+      const bounds = (await page.getByRole("button", { name: "Send message" }).boundingBox())!;
+      return bounds.y + bounds.height;
+    }).toBeLessThanOrEqual(height - keyboardHeight + 1);
+    await assertTranscriptClear();
+  });
+}
+
 test("system Back closes message search before returning from a People thread", async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 844 });
   await mount(page);

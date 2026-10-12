@@ -1,5 +1,7 @@
 import { createRoot } from "react-dom/client";
 import { useState } from "react";
+import { resolveTopShellRouteProfile } from "../../components/app-ui/top-shell-metrics";
+import { resolveSignedInShellContentOffset, resolveTopShellGeometryStyle } from "../../components/app-ui/signed-in-shell-content-offset";
 import { AgentDockProvider } from "../../components/agent/agent-dock";
 import { AppBottomShell } from "../../components/app-ui/app-bottom-shell";
 import { DirectMessagesRoute } from "../../components/direct-messages/direct-messages-route";
@@ -13,7 +15,9 @@ function OverlayFixture() {
 }
 (window as unknown as { directChatUnwindBack: () => boolean }).directChatUnwindBack = () =>
   unwindBackLayer("/one/messages", new URLSearchParams(location.search));
-createRoot(document.getElementById("root")!).render(<ThemeProvider attribute="class" defaultTheme="system" enableSystem><AgentDockProvider><div data-app-scroll-root="true" style={{ height: "100dvh", overflowY: "auto", paddingTop: "96px", paddingBottom: "var(--app-scroll-bottom-pad,112px)", "--app-top-content-offset": "96px" } as React.CSSProperties}>
+const shell = resolveTopShellRouteProfile("/one/messages");
+const offset = resolveSignedInShellContentOffset({ shellVisible: shell.metrics.shellVisible, routeLayoutMode: "standard" });
+createRoot(document.getElementById("root")!).render(<ThemeProvider attribute="class" defaultTheme="system" enableSystem><AgentDockProvider><div data-app-shell-root="true" style={{ ...offset.style, ...resolveTopShellGeometryStyle({ hasTabs: shell.metrics.hasTabs }) } as React.CSSProperties}><div data-app-scroll-root="true" data-app-scroll-mode={offset.mode} style={{ height: "100dvh", overflowY: "auto", paddingBottom: "var(--app-scroll-bottom-pad,112px)" } as React.CSSProperties}>
   <style>{`[data-app-scroll-root] { --app-scroll-bottom-pad: var(--app-bottom-shell-height,112px); }`}</style>
   <DirectMessagesRoute /><OverlayFixture />
-</div><AppBottomShell model={{ navigationHidden: false, agentBarHidden: true, includeComposerHeight: true }} /></AgentDockProvider></ThemeProvider>);
+</div></div><AppBottomShell model={{ navigationHidden: false, agentBarHidden: true, includeComposerHeight: true }} /></AgentDockProvider></ThemeProvider>);
