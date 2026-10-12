@@ -2381,6 +2381,7 @@ function ChatAgentSubtitle({ text, working, brand }: { text: string; working: bo
     const timer = window.setTimeout(() => { setDisplay(text); setVisible(true); }, 90);
     return () => window.clearTimeout(timer);
   }, [display, text]);
+  if (!display) return null;
   return <p aria-live="polite" className="flex max-w-48 items-center gap-1.5 truncate text-xs text-muted-foreground sm:max-w-64">
     {brand ? <ConnectorBrandMark brand={brand} size="sm" /> : working ? <Loader2 aria-hidden="true" className="size-3 shrink-0 animate-spin motion-reduce:animate-none" /> : null}
     <span className={`block truncate transition-opacity duration-100 motion-reduce:transition-none ${visible ? "opacity-100" : "opacity-0"}`}>{display}</span>
@@ -2389,7 +2390,7 @@ function ChatAgentSubtitle({ text, working, brand }: { text: string; working: bo
 
 export type ActiveToolCall = { id: string; label: string; activity?: string; brand?: ConnectorBrand | null };
 
-export const IDLE_AGENT_SUBTITLE = "Your private agent";
+export const IDLE_AGENT_SUBTITLE = "";
 
 /**
  * The line under the agent's name. While a turn runs it names what One is

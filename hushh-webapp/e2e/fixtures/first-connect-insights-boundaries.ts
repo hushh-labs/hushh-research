@@ -1,7 +1,7 @@
 export async function fetchFirstConnectInsights() {
   return { source: "calendar", sourceLabel: "Calendar", items: [
     { id: "one", label: "You have a recurring design review on Mondays.", memoryText: "Synthetic review", evidence: "4 Monday events" },
-    { id: "two", label: "You have a weekly planning meeting.", memoryText: "Synthetic planning", evidence: "4 weekly events" },
+    { id: "two", label: "Weekly planning", memoryText: "Synthetic planning", evidence: "" },
   ] };
 }
 export async function keepFirstConnectInsight() {
