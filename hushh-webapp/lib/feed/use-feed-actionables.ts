@@ -1602,9 +1602,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
                         // Paying is its own rollout gate: the request and its
                         // price stand even when checkout cannot open, and
                         // nothing has been charged.
-                        toast.error(
-                          "Checkout couldn't open, and you have not been charged. Open the request to see where it stands.",
-                        );
+                        toast.error("Checkout couldn't open. You weren't charged.");
                       }
                     },
                   },
