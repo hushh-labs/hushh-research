@@ -8,11 +8,12 @@ import { VaultContext } from "@/lib/vault/vault-context";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { OneLocationCircleSummary } from "@/lib/one-location/types";
 import { ROUTES } from "@/lib/navigation/routes";
+import { CONNECT_CIRCLES_LIST_HREF, CONNECT_CIRCLE_ACTION_PARAM } from "@/lib/navigation/connect-routes";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { writeLastMessagesSelection } from "@/lib/direct-messages/last-selection";
 import { CircleChat } from "./circle-chat";
 import { AgentDockPortal } from "@/components/agent/agent-dock";
-import { ArrowLeft, MessageCircle, Plus, UsersRound } from "@/components/icons";
+import { ArrowLeft, MessageCircle, Pencil, Plus, RefreshCw, Search, UsersRound } from "@/components/icons";
 import styles from "./circle-messages-pane.module.css";
 import peopleStyles from "@/components/direct-messages/direct-messages-page.module.css";
 
@@ -41,6 +42,8 @@ export function CircleMessagesPane({ active = true, initialCircleId = null, onTh
   const [selectedId, setSelectedId] = useState<string | null>(initialCircleId);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
+  const [search, setSearch] = useState("");
+  const [refreshRevision, setRefreshRevision] = useState(0);
 
   const closeThread = () => {
     setSelectedId(null);
@@ -63,7 +66,9 @@ export function CircleMessagesPane({ active = true, initialCircleId = null, onTh
   useEffect(() => {
     if (!token || !ownerId) return;
     let active = true;
+    let requestVersion = 0;
     const refresh = async () => {
+      const version = ++requestVersion;
       setLoading(true);
       try {
         // The directory also contains Trusted/SMS circles. Their private
@@ -71,22 +76,24 @@ export function CircleMessagesPane({ active = true, initialCircleId = null, onTh
         const circles = (await OneLocationService.listCircles(token)).filter(
           (circle) => !circle.isSystem && !circle.systemKind,
         );
-        if (!active) return;
+        if (!active || version !== requestVersion) return;
         setLoaded({ token, ownerId, circles });
         setError(false);
       } catch {
-        if (active) setError(true);
+        if (active && version === requestVersion) setError(true);
       } finally {
-        if (active) setLoading(false);
+        if (active && version === requestVersion) setLoading(false);
       }
     };
     void refresh();
     window.addEventListener("focus", refresh);
     return () => { active = false; window.removeEventListener("focus", refresh); };
-  }, [token, ownerId]);
+  }, [token, ownerId, refreshRevision]);
 
   const circles = loaded?.token === token && loaded.ownerId === ownerId ? loaded.circles : [];
   useEffect(() => { onCircleCountChange?.(circles.length); }, [circles.length, onCircleCountChange]);
+  const normalizedSearch = search.trim().toLocaleLowerCase();
+  const visibleCircles = circles.filter(circle => circle.name.toLocaleLowerCase().includes(normalizedSearch));
   const selected = circles.find((circle) => circle.id === selectedId) ?? null;
   const selectedCircleId = selected?.id ?? null;
   const vaultKey = vault?.vaultKey ?? null;
@@ -114,8 +121,33 @@ export function CircleMessagesPane({ active = true, initialCircleId = null, onTh
   return <div className={styles.pane} data-circle-messages-pane data-active={active ? "true" : "false"} aria-hidden={!active} inert={!active}>
     <AgentDockPortal enabled={active && (!selected || !session)} visible={false} suppressed>{null}</AgentDockPortal>
     <aside className={styles.list} data-thread-open={Boolean(selected) || undefined} aria-label="Circles">
-      <div className={styles.listHeader}><h1>Messages</h1><div className={styles.listHeaderActions}>{headerActions}<Link href={ROUTES.CONNECT} aria-label="Manage circles"><Plus aria-hidden="true" className="size-5" /></Link></div></div>
+      <header className={`${peopleStyles.inboxHeader} ${styles.listHeader}`}>
+        <h1>Messages</h1>
+        <div className={peopleStyles.inboxHeaderActions}>
+          {headerActions}
+          <Link href={CONNECT_CIRCLES_LIST_HREF} className={peopleStyles.refreshButton} aria-label="Edit circles">
+            <Pencil aria-hidden="true" className="size-5" />
+          </Link>
+          <Link href={`${CONNECT_CIRCLES_LIST_HREF}&${CONNECT_CIRCLE_ACTION_PARAM}=create-circle`}
+            className={peopleStyles.refreshButton} aria-label="Create circle">
+            <Plus aria-hidden="true" className="size-5" />
+          </Link>
+          <button type="button" className={peopleStyles.refreshButton} aria-label="Refresh circles"
+            disabled={loading || !token || !ownerId} onClick={() => setRefreshRevision(current => current + 1)}>
+            <RefreshCw aria-hidden="true" className={`size-4${loading ? " animate-spin motion-reduce:animate-none" : ""}`} />
+          </button>
+        </div>
+      </header>
+      <div className={peopleStyles.inboxSearch}>
+        <label className={peopleStyles.inboxSearchField}>
+          <Search className="size-4" aria-hidden="true" />
+          <span className="sr-only">Search circles</span>
+          <input className={styles.searchInput} type="search" value={search} onChange={event => setSearch(event.target.value)}
+            placeholder="Search circles" aria-label="Search circles" />
+        </label>
+      </div>
       {laneSwitcher}
+      <div className={styles.rows}>
       {!token || !vault?.vaultKey ? <p className={styles.notice}>Unlock One to view your circles.</p> : null}
       {loading && !circles.length ? <p role="status" className={styles.notice}>Loading circles…</p> : null}
       {error ? <p role="alert" className={styles.notice}>Circles are unavailable. Return to this tab to retry.</p> : null}
@@ -124,7 +156,10 @@ export function CircleMessagesPane({ active = true, initialCircleId = null, onTh
         <p>No circles yet</p>
         <Link href={ROUTES.CONNECT}>Create a circle</Link>
       </div> : null}
-      {circles.map((circle) => <button key={circle.id} type="button" className={styles.row}
+      {normalizedSearch && circles.length > 0 && visibleCircles.length === 0 ? <div className={styles.empty}>
+        <p>No matching circles</p><p>Try another name.</p>
+      </div> : null}
+      {visibleCircles.map((circle) => <button key={circle.id} type="button" className={styles.row}
         data-selected={selectedId === circle.id || undefined} onClick={() => {
           setSelectedId(circle.id);
           writeLastMessagesSelection(ownerId, { lane: "circles", circleId: circle.id });
@@ -133,6 +168,7 @@ export function CircleMessagesPane({ active = true, initialCircleId = null, onTh
         <span className={styles.rowText}><strong>{circle.name}</strong><span>{circle.memberCount} {circle.memberCount === 1 ? "member" : "members"}</span></span>
         <MessageCircle aria-hidden="true" className="size-4" />
       </button>)}
+      </div>
     </aside>
     <section className={styles.thread} data-thread-open={Boolean(selected) || undefined} aria-label={selected ? `${selected.name} messages` : "Circle messages"}>
       {selected && session ? <>
