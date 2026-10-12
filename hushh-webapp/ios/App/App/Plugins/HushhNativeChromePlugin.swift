@@ -424,7 +424,6 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     // Reuse the existing monotonic document/retirement fence. A prior page's
     // delayed appearance must not repaint the current document.
     private var canvasState = HushhNativeChromeState()
-    private var feedback = HushhAppHapticFeedbackState()
     private var compositor: NativePresentationContainer? { bridge?.viewController?.view as? NativePresentationContainer }
     #if DEBUG
     private var backContinuity: NativeBackContinuityProbe?
@@ -1238,23 +1237,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func interactionFeedback(_ call: CAPPluginCall) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { call.resolve(["played": false]); return }
-            let privacy = HushhSessionPrivacyShield.shared.snapshot()
-            let now = Date().timeIntervalSince1970 * 1000
-            guard let id = call.getString("intentId"),
-                  let document = call.getString("documentId"),
-                  let issued = call.getDouble("issuedAtMs"),
-                  let kind = call.getString("kind"), ["light", "selection"].contains(kind),
-                  call.getInt("privacyGeneration") == privacy.generation,
-                  privacy.appIsActive, !privacy.shielded,
-                  HushhSessionPrivacyShield.shared.acceptsDocument(document),
-                  HushhAppHaptics.enabled(), self.feedback.consume(id, issuedAt: issued, now: now) else {
-                call.resolve(["played": false]); return
-            }
-            HushhAppHaptics.play(kind)
-            call.resolve(["played": true])
-        }
+        DispatchQueue.main.async { call.resolve(["played": HushhAppHaptics.accept(call)]) }
     }
     // Preserve the owning host's existing entrypoint while covering every slot.
     func layoutBackControl() { layoutControls() }

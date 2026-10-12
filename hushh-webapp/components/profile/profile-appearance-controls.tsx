@@ -33,7 +33,7 @@ export function ProfileAppearanceControls({ value, nativeContext }: {
     <SettingsRow icon={AccentRowIcon} iconTone="capability" title="Accent"
       trailing={<NativeAccentChoice value={value} {...nativeContext} />} />
     {usesNativeHapticPreference() ? <SettingsRow icon={DevicesProfileIcon} iconTone="capability" title="App haptics"
-      trailing={<div className="flex min-h-11 items-center"><Switch size="ios" aria-label="App haptics"
+      trailing={<div className="flex min-h-11 items-center"><Switch size="ios" aria-label="App haptics" hapticFeedback={false}
         checked={settings?.hapticFeedback ?? false} disabled={!settings || saving}
         onCheckedChange={value => void changeHaptics(value)} /></div>} /> : null}
   </SettingsGroup>;

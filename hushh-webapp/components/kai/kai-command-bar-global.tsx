@@ -141,7 +141,7 @@ export function KaiCommandBarGlobal() {
     const openPalette = (event: Event) => {
       const request = (event as CustomEvent<KaiCommandBarOpenRequest>).detail;
       setOpenRequest(request && typeof request === "object" ? request : {});
-      setKaiCommandBarOpen(true);
+      setKaiCommandBarOpen(true, request?.feedback);
     };
     const togglePalette = () => setKaiCommandBarOpen(
       !isKaiCommandBarOpen(new URLSearchParams(window.location.search)),

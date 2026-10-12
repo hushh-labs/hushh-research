@@ -366,12 +366,15 @@ class MainActivity : BridgeActivity() {
         }
     }
 
+    /** Read-only admission; feedback cannot observe a document or release the cover. */
+    internal fun acceptsSessionPrivacyDocument(documentId: String): Boolean =
+        documentId in sessionPrivacyObservedDocuments && documentId !in sessionPrivacyRetiredDocuments
+
     internal fun completeSessionValidation(generation: Int, documentId: String): SessionPrivacyCompletion {
         val released =
             sessionPrivacyShielded &&
                 sessionPrivacyActivityResumed &&
-                documentId in sessionPrivacyObservedDocuments &&
-                documentId !in sessionPrivacyRetiredDocuments &&
+                acceptsSessionPrivacyDocument(documentId) &&
                 generation == sessionPrivacyGeneration
 
         if (released) {

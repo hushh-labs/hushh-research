@@ -24,6 +24,7 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
+import { appHaptic } from "@/lib/capacitor/app-haptics";
 
 // =============================================================================
 // TYPES
@@ -51,6 +52,8 @@ interface SegmentedControlProps {
   size?: "sm" | "default" | "lg";
   className?: string;
   disabled?: boolean;
+  /** Opt out when the accepted navigation owner emits its own cue. */
+  hapticFeedback?: boolean;
   /** Bounded choices can keep their authored two-column phone layout. */
   mobileColumns?: 2;
   /**
@@ -87,6 +90,7 @@ export function SegmentedControl({
   size = "default",
   className,
   disabled = false,
+  hapticFeedback = true,
   mobileColumns,
   ariaLabel,
   iconClassName,
@@ -134,7 +138,10 @@ export function SegmentedControl({
   const moveTo = (index: number) => {
     const option = options[index];
     if (!option || disabled) return;
-    if (option.value !== value) onValueChange(option.value);
+    if (option.value !== value) {
+      onValueChange(option.value);
+      if (hapticFeedback) appHaptic("selection");
+    }
     buttonsRef.current[index]?.focus();
   };
 
@@ -213,7 +220,7 @@ export function SegmentedControl({
             // move within it.
             tabIndex={!disabled && index === focusIndex ? 0 : -1}
             onKeyDown={(event) => handleKeyDown(event, index)}
-            onClick={() => { if (!disabled && !isActive) onValueChange(option.value); }}
+            onClick={() => moveTo(index)}
             className={cn(
               // Base styles
               "relative flex items-center justify-center rounded-full select-none",

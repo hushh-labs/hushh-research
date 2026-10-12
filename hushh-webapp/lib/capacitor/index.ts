@@ -693,6 +693,14 @@ export interface HushhSettingsData {
 }
 
 export interface HushhSettingsPlugin {
+  getFeedbackCapabilities(): Promise<{ interactionFeedback: boolean }>;
+  interactionFeedback(options: {
+    documentId: string;
+    privacyGeneration: number;
+    intentId: string;
+    kind: "light" | "selection";
+    issuedAtMs: number;
+  }): Promise<{ accepted: boolean }>;
   getSettings(): Promise<HushhSettingsData>;
   updateSettings(
     options: Partial<HushhSettingsData>,

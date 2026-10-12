@@ -63,6 +63,7 @@ vi.mock("@capacitor/core", () => ({
 }));
 const privacy = vi.hoisted(() => ({ callbacks: new Set<(event: { generation: number; shielded: boolean; appIsActive: boolean }) => void>() }));
 vi.mock("@/lib/capacitor/session-privacy", () => ({ nativeDocumentId: () => bridge.documentId,
+  nativePrivacyObservation: () => ({ state: { generation: 0, shielded: false, appIsActive: true }, epoch: 0 }),
   getNativeSessionPrivacyState: async () => ({ generation: 0, shielded: false, appIsActive: true }),
   subscribeNativeSessionPrivacy: async (callback: (event: { generation: number; shielded: boolean; appIsActive: boolean }) => void) => {
     privacy.callbacks.add(callback);
