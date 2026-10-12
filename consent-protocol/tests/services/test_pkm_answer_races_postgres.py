@@ -204,6 +204,34 @@ class TestRepeatedCheckoutThroughTheService:
                 {"r": request_id, "d": "c" * 64},
             )
 
+    async def test_the_payment_intent_carries_the_routing_kind_too(self, answer_engine):  # noqa: F811
+        """One Stripe endpoint routes on `data.object.metadata.payment_kind`.
+
+        A payment_intent or charge event carries the INTENT's metadata, not the
+        session's. Tagging only the session left those events routed to no lane
+        at all: the endpoint answered Stripe `{"received": true}` and settled
+        nothing -- the requester's money taken and no answer owed, which is the
+        exact failure the dispatcher's own comment warns about. Observed in UAT
+        as webhooks returning 200 with zero SQL.
+        """
+        service, request_id, digest = await _approved(answer_engine)
+        from hushh_mcp.services.pkm_answer_payment_service import (
+            PAYMENT_KIND,
+            PkmAnswerPaymentService,
+        )
+
+        api = self._stripe()
+        payments = PkmAnswerPaymentService(_db(answer_engine), stripe_api=api)
+        await payments.checkout(requester_user_id=REQUESTER, request_id=request_id)
+
+        kwargs = api.checkout.Session.create.call_args.kwargs
+        assert kwargs["metadata"]["payment_kind"] == PAYMENT_KIND
+        intent = kwargs["payment_intent_data"]
+        assert intent["metadata"]["payment_kind"] == PAYMENT_KIND
+        assert intent["metadata"]["request_id"] == str(request_id)
+        # The transfer group the payout lane reads must survive beside it.
+        assert intent["transfer_group"] == f"pkm-answer:{request_id}"
+
     async def test_an_unchanged_live_session_is_reused_not_reminted(self, answer_engine):  # noqa: F811
         service, request_id, digest = await _approved(answer_engine)
         from hushh_mcp.services.pkm_answer_payment_service import PkmAnswerPaymentService
