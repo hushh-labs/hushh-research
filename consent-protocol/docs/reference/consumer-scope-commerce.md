@@ -28,12 +28,45 @@ are separately verified below; they do not prove a consumer purchase or payout.
 
 ### Shared Dev checkpoint — 2026-10-12 UTC
 
+- Provider and application readback at `10:03:28Z` verify the counterpart's
+  completed US Sandbox payout eligibility. Its existing encrypted vault and
+  private Azure pod are intact and normal re-unlock succeeds. The primary has
+  no eligible payout account or active vault; its failed Azure setup still names
+  the original subscription. The newly available subscription has capacity,
+  but an admin CLI login does not complete owner-bound application setup.
+- The local hosted-return correction preopens an auxiliary Stripe window from
+  the trusted click and keeps the initiating document and memory-only vault key.
+  Exact attempt/purpose/deadline hints are advisory; authenticated reads alone
+  establish completion. Matched callback shells expose no Account information,
+  while unmatched/cold arrivals retain authentication and vault guards. Window
+  cancellation, session retirement and matched-record cleanup preserve sibling
+  flows. Native association claims include the exact Account return; physical
+  iOS/Android delivery and deployed warm-return continuity remain unverified.
+  The six nearest web suites pass 95 cases, and the final cleanup extension passes
+  all 16 service cases. All 66 nearest provider/Sandbox cases, typecheck,
+  generated UI validation and 439 authored Back cases pass.
+- New payout accounts declare `business_type=individual`, transfers only and a
+  truthful activity description. Incremental hosted onboarding collects currently
+  required information. Existing account creation/link operations replay their
+  original immutable requests, including recovery after an uncertain provider
+  response. These source changes neither reset existing accounts nor waive
+  Stripe's individual identity, tax, bank or activity verification requirements.
+- Core on composed source `02989d1c2fc4` stopped at inherited architecture
+  growth after the main merge, before application stages. Independent review
+  identifies 44 exact slots against both source parents. Final review reconciles
+  these and one provider-intent test-module span, preserving every other slot,
+  duplicate finding, budget, scanner and future-growth check. A lost main append
+  persistence timing wrapper is restored; all 75 nearest session/timing cases
+  pass, and the same real repository test fails on frozen `02989d1c2fc4` because
+  the timing is absent. The architecture ratchet now passes. Fresh complete core, exact-source
+  hosted CI and Dev promotion are still required before serving these corrections.
 - Read-only provider and Monitoring observations at `09:42Z` agree on $5.00
   available operating capital, $9.60 pending funding backing, $10.50 requester
   liabilities and $0.90 unallocated processing costs. All 17 required aggregate
   metrics are present and fresh; backing shortfall, unbalanced journals,
   unresolved obligations and receipt failures are zero. Both reviewer seller
-  journeys remain ineligible, with zero purchases and withdrawals.
+  journeys were ineligible at that observation, with zero purchases and withdrawals;
+  the counterpart's later eligibility is recorded above.
 - The original infrastructure branch now includes main `2460f8524fd8` and the
   concurrent branch head `656e666310b5` through normal merges. Review repaired
   explicit structured-save compatibility after Soul integration: new and
@@ -338,6 +371,14 @@ the existing consent audit records each phase once. Changed allocations require
 a new review. Terminal purchases carry no actionable acknowledgement prompt.
 
 Hosted Checkout uses `checkout.stripe.com`; onboarding uses `connect.stripe.com`.
+Both authenticated link responses include `return_url`, bound to the exact
+opaque operation identity. Web preopens a provider window from the trusted click;
+a blocked window stops before provider preparation. The original document retains
+its memory-only vault key. A same-origin matched callback emits only an advisory
+attempt/purpose/deadline hint, then closes; the initiating document cleans up its
+own records and refreshes authenticated status. Session retirement closes only
+the owned window and rejects late preparation. No key, credential or owner identity
+is written to callback storage.
 Native opens the system `Browser` and consumes a trusted App Link to
 `/one/profile/account?commerceReturn=1&commerceAttemptId=<opaque-attempt-id>`.
 The arrival closes the browser and refreshes server status; it proves no payment

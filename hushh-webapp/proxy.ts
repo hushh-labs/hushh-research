@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { ROUTES, isPublicRoute } from "./lib/navigation/routes";
 import { resolveProfileRouteState } from "./lib/navigation/profile-routes";
+import { commerceReturnAttempt } from "./lib/services/scope-commerce-return";
 import {
   LEGACY_PUBLIC_LOCATION_REQUEST_PREFIX,
   PUBLIC_LOCATION_VIEW_PREFIX,
@@ -98,6 +99,7 @@ export function proxy(request: NextRequest) {
       pathname.startsWith("/one/profile/") ||
       pathname.startsWith("/profile/")) &&
     !DIRECT_PROFILE_ROUTES.has(legacyRedirectPath) &&
+    !commerceReturnAttempt(pathname + request.nextUrl.search) &&
     !pathname.includes("oauth/return")
   ) {
     const rawSubpath = pathname

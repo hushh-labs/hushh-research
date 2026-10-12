@@ -553,17 +553,21 @@ class EncryptedAdkSessionService(BaseSessionService):
         session.last_update_time = time.time()
         for _attempt in range(3):
             revision = self._revision(session)
-            encoded = self._encode(session)
-            result = await self._repository.replace(
-                **{
-                    "app": session.app_name,
-                    "user": session.user_id,
-                    "session": session.id,
-                    "revision": revision,
-                    "chat_marker": CHAT_CIPHERTEXT_LIKE,
-                    **encoded,
-                }
-            )
+            persistence_started_at = time.perf_counter()
+            try:
+                encoded = self._encode(session)
+                result = await self._repository.replace(
+                    **{
+                        "app": session.app_name,
+                        "user": session.user_id,
+                        "session": session.id,
+                        "revision": revision,
+                        "chat_marker": CHAT_CIPHERTEXT_LIKE,
+                        **encoded,
+                    }
+                )
+            finally:
+                self._record_phase("persistence", persistence_started_at)
             if result.data:
                 self._set_revision(session, int(result.data[0]["revision"]))
                 return persisted_event

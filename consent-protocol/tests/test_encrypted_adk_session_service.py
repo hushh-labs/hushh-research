@@ -419,6 +419,21 @@ async def test_explicit_repository_keeps_owner_cipher_and_never_uses_hub_databas
     with pytest.raises(ChatKeyMismatchError):
         await foreign.get_session(app_name="one", user_id="owner", session_id="thread")
 
+    phases = []
+    monkeypatch.setattr(service, "_record_phase", lambda phase, _started: phases.append(phase))
+    repository.replace = AsyncMock(return_value=SimpleNamespace(data=[{"revision": 2}]))
+    await service.append_event(restored, Event(author="one", timestamp=1.0))
+    assert phases == ["append", "persistence"]
+    replaced = repository.replace.call_args.kwargs
+    assert replaced["user"] == "owner" and replaced["session"] == "thread"
+    assert "synthetic private note" not in str(replaced)
+
+    phases.clear()
+    repository.replace.side_effect = RuntimeError("synthetic persistence failure")
+    with pytest.raises(RuntimeError, match="synthetic persistence failure"):
+        await service.append_event(restored, Event(author="one", timestamp=2.0))
+    assert phases == ["append", "persistence"]
+
 
 @pytest.mark.asyncio
 async def test_pod_repository_recovers_owner_cipher_and_rejects_stale_or_revoked_access(

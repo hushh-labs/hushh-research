@@ -1,4 +1,9 @@
 import { Capacitor } from "@capacitor/core";
+import { openOAuthWindow } from "@/lib/connections/oauth-window";
+import { waitForOAuthPopup } from "@/lib/profile/drive-oauth-popup";
+import { parseCommerceReturn, type CommerceHostedSession, type CommerceReturn } from "./scope-commerce-return";
+export { commerceReturnAction, commerceReturnAttempt } from "./scope-commerce-return";
+export type { CommerceReturn, CommerceReturnAction } from "./scope-commerce-return";
 
 export type CommerceHostedPurpose = "checkout" | "onboarding";
 
@@ -14,43 +19,114 @@ export function validateCommerceHostedUrl(raw: string, purpose: CommerceHostedPu
   return url.href;
 }
 
-export async function openCommerceHostedUrl(raw: string, purpose: CommerceHostedPurpose): Promise<void> {
-  const url = validateCommerceHostedUrl(raw, purpose);
+/** Open directly inside the trusted click, before requesting a provider link. */
+export function openCommerceHostedWindow(): Window | null {
+  if (Capacitor.isNativePlatform()) return null;
+  const popup = openOAuthWindow(`one-commerce-${crypto.randomUUID()}`)?.target ?? null;
+  if (popup) {
+    try {
+      popup.opener = null;
+      popup.document.title = "Secure payment setup";
+      popup.document.body.textContent = "Opening Stripe… Your One session stays in its original window.";
+    } catch { /* The placeholder is cosmetic. */ }
+  }
+  return popup;
+}
+
+const MARKER_PREFIX = "one_commerce_popup_v1:";
+const RETURN_KEY = "one_commerce_popup_return_v1";
+const WINDOW_LIFETIME_MS = 10 * 60_000;
+type PopupMarker = { attemptId: string; purpose: CommerceHostedPurpose; expiresAt: number };
+
+function readMarker(attemptId: string): PopupMarker | null {
+  try {
+    const raw = window.localStorage.getItem(MARKER_PREFIX + attemptId);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as PopupMarker;
+    return value.attemptId === attemptId && ["checkout", "onboarding"].includes(value.purpose) &&
+      Number.isFinite(value.expiresAt) && value.expiresAt > Date.now() &&
+      value.expiresAt <= Date.now() + WINDOW_LIFETIME_MS &&
+      Object.keys(value).every(key => ["attemptId", "purpose", "expiresAt"].includes(key)) ? value : null;
+  } catch { return null; }
+}
+
+export function hasCommercePopupReturn(path: string): boolean {
+  const arrival = parseCommerceReturn(path);
+  if (!arrival || Capacitor.isNativePlatform()) return false;
+  const marker = readMarker(arrival.attemptId);
+  return Boolean(marker && (!arrival.action || marker.purpose === "onboarding"));
+}
+
+export async function openCommerceHostedUrl(session: CommerceHostedSession, purpose: CommerceHostedPurpose, popup: Window | null, signal: AbortSignal): Promise<void> {
+  const url = validateCommerceHostedUrl(session.url, purpose);
+  if (signal.aborted) return;
   if (Capacitor.isNativePlatform()) {
     const { Browser } = await import("@capacitor/browser");
+    if (signal.aborted) return;
     await Browser.open({ url });
     return;
   }
-  const { assignWindowLocation } = await import("@/lib/utils/browser-navigation");
-  assignWindowLocation(url);
+  const callback = new URL(session.returnUrl);
+  if (callback.origin !== window.location.origin || !popup || popup.closed ||
+      parseCommerceReturn(callback.pathname + callback.search + callback.hash)?.attemptId !== session.attemptId) {
+    throw new Error("Stripe cannot return to this window. Refresh before trying again.");
+  }
+  const marker: PopupMarker = { attemptId: session.attemptId, purpose, expiresAt: Date.now() + WINDOW_LIFETIME_MS };
+  const key = MARKER_PREFIX + marker.attemptId;
+  // Only opaque correlation persists. The owner, tokens and vault keys remain
+  // in the initiating document; all notifications require authenticated reads.
+  window.localStorage.setItem(key, JSON.stringify(marker));
+  try {
+    const matches = (value: unknown) => {
+      if (!value || typeof value !== "object") return false;
+      const hint = value as PopupMarker & { type?: string; action?: string };
+      return hint.type === "commerce_return" && hint.attemptId === marker.attemptId &&
+        hint.purpose === purpose && hint.expiresAt === marker.expiresAt &&
+        (!hint.action || (purpose === "onboarding" && hint.action === "onboarding_refresh")) &&
+        Object.keys(hint).every(name => ["type", "attemptId", "purpose", "expiresAt", "action"].includes(name));
+    };
+    const returned = waitForOAuthPopup({
+      popup, signal, expiresAt: marker.expiresAt,
+      matches,
+      storageValue: event => {
+        if (event.key !== RETURN_KEY || !event.newValue) return null;
+        try {
+          const value = JSON.parse(event.newValue) as CommerceReturn;
+          if (matches(value)) window.dispatchEvent(new CustomEvent(COMMERCE_RETURN_EVENT, { detail: value }));
+          return value;
+        } catch { return null; }
+      },
+    });
+    popup.location.replace(url);
+    await returned;
+  } finally {
+    window.localStorage.removeItem(key);
+    try {
+      const hint = JSON.parse(window.localStorage.getItem(RETURN_KEY) ?? "null") as PopupMarker | null;
+      if (hint?.attemptId === marker.attemptId && hint.purpose === marker.purpose && hint.expiresAt === marker.expiresAt) {
+        window.localStorage.removeItem(RETURN_KEY);
+      }
+    } catch { /* A malformed or another flow's hint belongs to neither this attempt nor its cleanup. */ }
+  }
 }
 
 export const COMMERCE_RETURN_EVENT = "hushh:commerce-return";
-export type CommerceReturnAction = "onboarding_refresh";
-export type CommerceReturn = { attemptId: string; action?: CommerceReturnAction };
 
-/** Opaque provider arrival is only a prompt to re-read server settlement. */
-function parseCommerceReturn(path: string): CommerceReturn | null {
-  // This parser consumes an in-app path after the native origin check, or web
-  // pathname + search. An absolute URL must never bypass that check.
-  if (!path.startsWith("/") || path.startsWith("//")) return null;
-  let url: URL;
-  try { url = new URL(path, "https://one.hushh.ai"); } catch { return null; }
-  if (url.origin !== "https://one.hushh.ai" || url.pathname !== "/one/profile/account" || [...url.searchParams.keys()].some(key => !["commerceReturn", "commerceAttemptId", "commerceAction"].includes(key)) || url.searchParams.getAll("commerceReturn").length !== 1 ||
-      url.searchParams.get("commerceReturn") !== "1" || url.searchParams.getAll("commerceAttemptId").length !== 1 || url.hash) return null;
-  const id = url.searchParams.get("commerceAttemptId") || "";
-  const actions = url.searchParams.getAll("commerceAction");
-  if (!/^[A-Za-z0-9_-]{16,128}$/.test(id) || actions.length > 1 ||
-      (actions.length === 1 && actions[0] !== "onboarding_refresh")) return null;
-  return { attemptId: id, ...(actions.length ? { action: "onboarding_refresh" as const } : {}) };
-}
-
-export function commerceReturnAttempt(path: string): string | null {
-  return parseCommerceReturn(path)?.attemptId ?? null;
-}
-
-export function commerceReturnAction(path: string): CommerceReturnAction | null {
-  return parseCommerceReturn(path)?.action ?? null;
+/** Callback-only shell: no authentication, keys or Account information here. */
+export function notifyCommercePopupReturn(path: string): boolean {
+  if (!hasCommercePopupReturn(path)) return false;
+  const arrival = parseCommerceReturn(path)!;
+  const marker = readMarker(arrival.attemptId)!;
+  const hint = { type: "commerce_return", ...marker, ...arrival };
+  try {
+    const serialized = JSON.stringify(hint);
+    window.localStorage.setItem(RETURN_KEY, serialized);
+    window.setTimeout(() => {
+      if (window.localStorage.getItem(RETURN_KEY) === serialized) window.localStorage.removeItem(RETURN_KEY);
+    }, 3000);
+    window.close();
+    return true;
+  } catch { return false; }
 }
 
 /** Presentation only: close the hosted browser and announce a validated arrival. */

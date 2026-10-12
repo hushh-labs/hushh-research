@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   user: { uid: "owner", getIdToken: vi.fn(async () => "owner-token") } as { uid: string; getIdToken: () => Promise<string> } | null,
   readiness: vi.fn(), sandboxVerified: vi.fn(), tariff: vi.fn(), saveTariff: vi.fn(), account: vi.fn(), activity: vi.fn(), onboarding: vi.fn(), hosted: vi.fn(), periodic: vi.fn(),
   scopeRequest: vi.fn(), quote: vi.fn(), purchase: vi.fn(), exporter: vi.fn(),
-  search: "", vaultKey: "memory-key",
+  search: "", vaultKey: "memory-key", openWindow: vi.fn(),
 }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user }) }));
 vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(mocks.search) }));
@@ -19,7 +19,7 @@ vi.mock("@/lib/services/scope-commerce-service", async importOriginal => ({
     scopeRequest: mocks.scopeRequest, quote: mocks.quote, purchase: mocks.purchase },
 }));
 vi.mock("@/lib/services/scope-commerce-browser", async importOriginal => ({
-  ...await importOriginal<typeof import("@/lib/services/scope-commerce-browser")>(), openCommerceHostedUrl: mocks.hosted,
+  ...await importOriginal<typeof import("@/lib/services/scope-commerce-browser")>(), openCommerceHostedUrl: mocks.hosted, openCommerceHostedWindow: mocks.openWindow,
 }));
 vi.mock("@/lib/perf/use-periodic-task", () => ({ usePeriodicTask: mocks.periodic, useCoarseClock: () => Date.now() }));
 vi.mock("@/components/ui/button", async () => {
@@ -214,14 +214,39 @@ describe("existing Account payment history", () => {
     expect(screen.queryByRole("button", { name: "Continue to secure checkout" })).not.toBeInTheDocument();
   });
 
+  it("blocks refused windows and retires a prepared payout link when the vault session changes", async () => {
+    mocks.openWindow.mockReturnValue(null);
+    const view = render(<ScopeCommerceAccountPanel />);
+    const button = await screen.findByRole("button", { name: "Set up payouts with Stripe" });
+    fireEvent.click(button);
+    expect(mocks.onboarding).not.toHaveBeenCalled();
+    expect(screen.getByText(/Allow pop-ups for One/)).toBeVisible();
+    const popup = { close: vi.fn() };
+    mocks.openWindow.mockReturnValue(popup);
+    const pending = deferred<{ url: string; returnUrl: string; attemptId: string }>();
+    mocks.onboarding.mockReturnValue(pending.promise);
+    fireEvent.click(button);
+    await waitFor(() => expect(mocks.onboarding).toHaveBeenCalledOnce());
+    act(() => advanceVaultSessionEpoch());
+    expect(popup.close).toHaveBeenCalled();
+    pending.resolve({ url: "https://connect.stripe.com/setup/retired", returnUrl: "https://example.test/one/profile/account", attemptId: "opaque_attempt_12345" });
+    await waitFor(() => expect(button).toBeEnabled());
+    expect(mocks.hosted).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
   it("treats an expired onboarding return as presentation and requests a fresh authenticated link only on click", async () => {
     mocks.search = "commerceReturn=1&commerceAttemptId=opaque_attempt_12345&commerceAction=onboarding_refresh";
-    mocks.onboarding.mockResolvedValue("https://connect.stripe.com/setup/new");
+    const popup = { close: vi.fn() };
+    const session = { url: "https://connect.stripe.com/setup/new", returnUrl: "https://example.test/one/profile/account", attemptId: "opaque_attempt_12345" };
+    mocks.openWindow.mockReturnValue(popup);
+    mocks.onboarding.mockResolvedValue(session);
     render(<ScopeCommerceAccountPanel />);
     await screen.findByRole("button", { name: "Get a new payout setup link" });
     expect(mocks.onboarding).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Get a new payout setup link" }));
-    await waitFor(() => expect(mocks.hosted).toHaveBeenCalledWith("https://connect.stripe.com/setup/new", "onboarding"));
+    await waitFor(() => expect(mocks.hosted).toHaveBeenCalledWith(session, "onboarding", popup, expect.any(AbortSignal)));
+    expect(mocks.openWindow.mock.invocationCallOrder[0]).toBeLessThan(mocks.onboarding.mock.invocationCallOrder[0]);
     expect(mocks.onboarding).toHaveBeenCalledWith("owner-token", "US", expect.any(String));
     const firstKey = mocks.onboarding.mock.calls[0][2];
     await waitFor(() => expect(screen.getByRole("button", { name: "Get a new payout setup link" })).toBeEnabled());

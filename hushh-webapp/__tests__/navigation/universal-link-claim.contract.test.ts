@@ -96,6 +96,11 @@ describe("Universal Link / App Link claim", () => {
     ]) {
       expect(commerceReturnAttempt(value)).toBeNull();
       expect(commerceReturnAction(value)).toBeNull();
+      if (value.startsWith("/one/profile/account")) expect(resolveDeepLinkPath(`https://one.hushh.ai${value}`)).toBeNull();
+    }
+    expect(resolveDeepLinkPath("https://one.hushh.ai/one/profile/account")).toBeNull();
+    for (const file of ["android/app/src/main/AndroidManifest.xml", "android/app/src/debug/AndroidManifest.xml"]) {
+      expect(read(file)).toContain('<data android:path="/one/profile/account" />');
     }
   });
   it("claims at least every OAuth return path", () => {

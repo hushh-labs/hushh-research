@@ -23,7 +23,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-import { announceCommerceReturn } from "@/lib/services/scope-commerce-browser";
+import { announceCommerceReturn, commerceReturnAttempt } from "@/lib/services/scope-commerce-browser";
 import { APP_FRONTEND_ORIGIN } from "@/lib/config";
 import { isNativePlaidLinkOpen } from "@/lib/kai/brokerage/native-plaid-session";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -97,6 +97,8 @@ export function resolveDeepLinkPath(rawUrl: string): string | null {
 
   const origin = `${parsed.protocol}//${parsed.host}`;
   if (!knownOrigins().includes(origin)) return null;
+  if (parsed.pathname === ROUTES.PROFILE_ACCOUNT &&
+      !commerceReturnAttempt(parsed.pathname + parsed.search + parsed.hash)) return null;
 
   // Never route a real invite token to a dynamic page that the native static
   // export did not emit. This is only a transport alias, not an acceptance.

@@ -1,14 +1,77 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const fetcher = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/services/api-service", () => ({ ApiService: { apiFetch: fetcher } }));
 import { ScopeCommerceService, parseCommerceReadiness, CommerceActionError, parseScopeQuote, parseCommerceDollarInput, parseCommerceTransferPreview, parseCommerceAccount, parseCommerceActivityPage, formatCommerceMoney, formatCommerceMicroUsd, commerceWithdrawalStatusCopy, commerceActivityStatusCopy } from "@/lib/services/scope-commerce-service";
-import { commerceReturnAttempt, validateCommerceHostedUrl } from "@/lib/services/scope-commerce-browser";
+import { commerceReturnAttempt, validateCommerceHostedUrl, openCommerceHostedUrl, hasCommercePopupReturn } from "@/lib/services/scope-commerce-browser";
+import { parseCommerceHostedSession } from "@/lib/services/scope-commerce-return";
 import { verifyCommerceSandbox } from "@/lib/services/scope-commerce-sandbox";
 const requestId = "11111111-1111-4111-8111-111111111111";
 const documentId = "22222222-2222-4222-8222-222222222222";
 function reply(value: unknown) { return Response.json(value); }
 
 describe("scope commerce review boundary", () => {
+  afterEach(() => { vi.unstubAllGlobals(); window.localStorage.clear(); });
+  it("binds hosted return metadata to the exact attempt and rejects domain aliases before launch", async () => {
+    const returnUrl = `https://one.hussh.ai/one/profile/account?commerceReturn=1&commerceAttemptId=${requestId}`;
+    const response = { url: "https://connect.stripe.com/setup/synthetic", return_url: returnUrl };
+    expect(parseCommerceHostedSession(response, requestId).attemptId).toBe(requestId);
+    for (const bad of [{ ...response, return_url: returnUrl + "&commerceReturn=1" }, { ...response, return_url: returnUrl.replace(requestId, documentId) }, { url: response.url }]) {
+      expect(() => parseCommerceHostedSession(bad, requestId)).toThrow();
+    }
+    const original = window;
+    vi.stubGlobal("window", { location: { origin: "https://one.hushh.ai" }, localStorage: original.localStorage });
+    const popup = { closed: false, location: { replace: vi.fn() }, close: vi.fn() } as unknown as Window;
+    await expect(openCommerceHostedUrl(parseCommerceHostedSession(response, requestId), "onboarding", popup, new AbortController().signal)).rejects.toThrow("cannot return to this window");
+    expect(popup.location.replace).not.toHaveBeenCalled();
+  });
+
+  it("keeps the original document while ignoring wrong-attempt and malformed return hints", async () => {
+    const original = window, before = window.location.href;
+    vi.stubGlobal("window", { location: { origin: "https://one.hushh.ai" }, localStorage: original.localStorage,
+      addEventListener: original.addEventListener.bind(original), removeEventListener: original.removeEventListener.bind(original),
+      dispatchEvent: original.dispatchEvent.bind(original), setTimeout: original.setTimeout.bind(original), clearTimeout: original.clearTimeout.bind(original) });
+    const path = `/one/profile/account?commerceReturn=1&commerceAttemptId=${requestId}`;
+    const popup = { closed: false, location: { replace: vi.fn() }, close: vi.fn() } as unknown as Window;
+    let completed = false;
+    const returned = openCommerceHostedUrl({ url: "https://connect.stripe.com/setup/synthetic", returnUrl: "https://one.hushh.ai" + path, attemptId: requestId }, "onboarding", popup, new AbortController().signal).then(() => { completed = true; });
+    const marker = JSON.parse(original.localStorage.getItem("one_commerce_popup_v1:" + requestId)!);
+    expect(Object.keys(marker).sort()).toEqual(["attemptId", "expiresAt", "purpose"]);
+    expect(hasCommercePopupReturn(path)).toBe(true);
+    expect(hasCommercePopupReturn(path.replace(requestId, documentId))).toBe(false);
+    const hint = { type: "commerce_return", ...marker };
+    const send = (data: unknown) => {
+      original.localStorage.setItem("one_commerce_popup_return_v1", JSON.stringify(data));
+      original.dispatchEvent(new StorageEvent("storage", { key: "one_commerce_popup_return_v1", newValue: JSON.stringify(data), storageArea: original.localStorage }));
+    };
+    send({ ...hint, attemptId: documentId });
+    send({ ...hint, status: "paid" });
+    await Promise.resolve();
+    expect(completed).toBe(false);
+    send(hint);
+    await returned;
+    expect(popup.close).toHaveBeenCalledOnce();
+    expect(original.location.href).toBe(before);
+    expect(original.localStorage.getItem("one_commerce_popup_v1:" + requestId)).toBeNull();
+    expect(original.localStorage.getItem("one_commerce_popup_return_v1")).toBeNull();
+    original.localStorage.setItem("one_commerce_popup_v1:" + requestId, JSON.stringify({ ...marker, expiresAt: Date.now() - 1 }));
+    expect(hasCommercePopupReturn(path)).toBe(false);
+  });
+  it("retires only its own attempt when cancellation overlaps another hosted flow", async () => {
+    const original = window;
+    vi.stubGlobal("window", { location: { origin: "https://one.hushh.ai" }, localStorage: original.localStorage,
+      addEventListener: original.addEventListener.bind(original), removeEventListener: original.removeEventListener.bind(original),
+      dispatchEvent: original.dispatchEvent.bind(original), setTimeout: original.setTimeout.bind(original), clearTimeout: original.clearTimeout.bind(original) });
+    const controller = new AbortController();
+    const popup = { closed: false, location: { replace: vi.fn() }, close: vi.fn() } as unknown as Window;
+    const returned = openCommerceHostedUrl({ url: "https://checkout.stripe.com/c/pay/synthetic", returnUrl: `https://one.hushh.ai/one/profile/account?commerceReturn=1&commerceAttemptId=${requestId}`, attemptId: requestId }, "checkout", popup, controller.signal);
+    const sibling = JSON.stringify({ type: "commerce_return", attemptId: documentId, purpose: "onboarding", expiresAt: Date.now() + 10_000 });
+    original.localStorage.setItem("one_commerce_popup_return_v1", sibling);
+    controller.abort();
+    await returned;
+    expect(popup.close).toHaveBeenCalledOnce();
+    expect(original.localStorage.getItem("one_commerce_popup_v1:" + requestId)).toBeNull();
+    expect(original.localStorage.getItem("one_commerce_popup_return_v1")).toBe(sibling);
+  });
   it("requires exact HTTPS app origin and a persisted test-mode Sandbox pin", () => {
     const origin = "https://preview.example.com";
     const proof = { app_origin: origin, environment: "sandbox", livemode: false, persisted_pin_matches: true, platform_account_id: "acct_synthetic" };

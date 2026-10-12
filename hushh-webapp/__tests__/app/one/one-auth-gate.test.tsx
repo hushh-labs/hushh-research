@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   pathname: "/one/location",
@@ -41,6 +41,25 @@ import { OneAuthGate } from "@/app/one/one-auth-gate";
 describe("OneAuthGate", () => {
   beforeEach(() => {
     mocks.pathname = "/one/location";
+  });
+  afterEach(() => {
+    window.localStorage.clear();
+    window.history.replaceState({}, "", "/");
+    vi.restoreAllMocks();
+  });
+
+  it("shows only an advisory popup return while an unmatched cold Account stays vault-gated", () => {
+    mocks.pathname = "/one/profile/account";
+    window.history.replaceState({}, "", mocks.pathname + "?commerceReturn=1&commerceAttemptId=opaque_attempt_12345");
+    const cold = render(<OneAuthGate><div>private payment information</div></OneAuthGate>);
+    expect(screen.getByTestId("vault-lock-guard")).toBeTruthy();
+    cold.unmount();
+    window.localStorage.setItem("one_commerce_popup_v1:opaque_attempt_12345", JSON.stringify({ attemptId: "opaque_attempt_12345", purpose: "onboarding", expiresAt: Date.now() + 60000 }));
+    vi.spyOn(window, "close").mockImplementation(() => undefined);
+    render(<OneAuthGate><div>private payment information</div></OneAuthGate>);
+    expect(screen.queryByText("private payment information")).toBeNull();
+    expect(screen.queryByTestId("vault-lock-guard")).toBeNull();
+    expect(screen.getByText(/Return to your original One window/)).toBeTruthy();
   });
 
   it("lets only the exact connector callback own Firebase completion without a popup vault", () => {

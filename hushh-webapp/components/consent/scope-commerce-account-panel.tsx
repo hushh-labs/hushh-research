@@ -17,6 +17,10 @@ export function ScopeCommerceAccountPanel() {
   return <SettingsGroup title="Payments and earnings" description="1 USD = 100 Hussh coins. Fund your balance to pay for approved information.">
     <div className="space-y-4 px-4 py-3">
       {message ? <p role="status" className="text-sm">{message}</p> : null}
+      {state.hostedPending ? <div className="space-y-2">
+        <p role="status" className="text-sm">Complete Stripe in its secure window. Your One session stays here; payment status is checked when you return.</p>
+        <Button variant="ghost" onClick={state.cancelHosted}>Close Stripe window</Button>
+      </div> : null}
       {account?.sandboxVerified === true ? <p role="status" className="text-sm">{COMMERCE_SANDBOX_COPY}</p> : null}
       {account ? <p role="status" className="text-sm">{commerceReadinessCopy(account.readiness)}</p> : null}
       {account?.enabled === false && !account.managed_balances ? <p role="status" className="text-sm">New purchases and funding are currently unavailable. Your sharing history remains below.</p> : null}

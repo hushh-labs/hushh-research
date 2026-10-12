@@ -128,7 +128,12 @@ class FundingCheckout(ProviderContext):
             request=request,
             validate=validate,
         )
-        return {"fundingId": operation_id, "checkoutUrl": session["url"], "status": "checkout_open"}
+        return {
+            "fundingId": operation_id,
+            "checkoutUrl": session["url"],
+            "returnUrl": return_path,
+            "status": "checkout_open",
+        }
 
 
 class FundingReceipt(ProviderContext):

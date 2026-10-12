@@ -111,6 +111,18 @@ reviewed spans, source hashes, parent revisions and rationale. Budgets
 500/250/80, scanner and exclusions remain unchanged. Reviewed inherited debt is
 not deployment acceptance; chronology remains in Git history.
 
+The Oct 12 scope-commerce reconciliation reviews exactly 45 finding slots:
+14 unchanged incoming-main spans, 27 compatibility compositions, three private
+`one_memory` guards and the nearest provider-intent regression test extension.
+Independent review found and repaired a lost main session-persistence timing
+wrapper before accepting its revised module/class spans. The real repository
+test fails on frozen `02989d1c2fc4` and passes after repair, including failure
+timing, owner binding and ciphertext assertions. Exact hashes, both parents,
+before/after values and qualifications are retained in the baseline's
+`scope_main_and_hosted_return_20261012` entry. Every other finding slot and all
+future-growth enforcement remain unchanged; full core and hosted CI are still
+release gates.
+
 ## GCP-only pod deployment correction — 2026-09-25
 
 Historical pointer: Anypoint pod deployment was removed; the CRM connector remains.

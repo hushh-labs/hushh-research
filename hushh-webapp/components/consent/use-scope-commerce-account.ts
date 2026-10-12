@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ScopeCommerceService, parseCommerceDollarInput, type CommerceAccount, type CommerceTransferPreview } from "@/lib/services/scope-commerce-service";
-import { COMMERCE_RETURN_EVENT, commerceReturnAction, openCommerceHostedUrl } from "@/lib/services/scope-commerce-browser";
+import { COMMERCE_RETURN_EVENT, commerceReturnAction } from "@/lib/services/scope-commerce-browser";
 import { useCommerceRead } from "@/components/consent/use-commerce-session";
 import { useCommerceAction } from "@/components/consent/use-commerce-action";
+import { useCommerceHostedFlow } from "@/components/consent/use-commerce-hosted-flow";
 
 type TransferReview = { kind: "withdraw" | "refund"; lotId?: string; preview: CommerceTransferPreview; key: string };
 
@@ -38,7 +39,8 @@ export function useScopeCommerceAccount() {
     value.recent_withdrawals?.some(item => ["queued", "pending", "processing", "transferred", "unknown"].includes(item.status)),
   ));
   const { user, data: account, refresh } = resource;
-  const { busy, message, setMessage, run } = useCommerceAction(resource, "account");
+  const actions = useCommerceAction(resource, "account");
+  const { busy, message, setMessage, run } = actions;
   const [amount, setAmount] = useState("10.00");
   const [country, setCountry] = useState("US");
   const [review, setReview] = useState<TransferReview | null>(null);
@@ -46,15 +48,19 @@ export function useScopeCommerceAccount() {
   const onboardingRefresh = useOnboardingRefresh(refresh);
   useEffect(() => { setReview(null); fundingKey.current = null; }, [user]);
   const changeAmount = (value: string) => { setAmount(value); fundingKey.current = null; };
-  const checkout = () => run(async (token, current) => {
-    const cents = parseCommerceDollarInput(amount, 50); fundingKey.current ??= crypto.randomUUID();
-    const url = await ScopeCommerceService.checkout(token, cents, fundingKey.current);
-    if (current()) { await openCommerceHostedUrl(url, "checkout"); fundingKey.current = null; }
+  const hosted = useCommerceHostedFlow(resource, actions, async (token, purpose) => {
+    if (purpose === "checkout") {
+      const cents = parseCommerceDollarInput(amount, 50);
+      fundingKey.current ??= crypto.randomUUID();
+      return ScopeCommerceService.checkout(token, cents, fundingKey.current);
+    }
+    return ScopeCommerceService.onboarding(token, account?.seller.country || country, crypto.randomUUID());
+  }, async purpose => {
+    if (purpose === "checkout") fundingKey.current = null;
+    await refresh();
   });
-  const onboarding = () => run(async (token, current) => {
-    const url = await ScopeCommerceService.onboarding(token, account?.seller.country || country, crypto.randomUUID());
-    if (current()) await openCommerceHostedUrl(url, "onboarding");
-  });
+  const checkout = () => hosted.startHosted("checkout");
+  const onboarding = () => hosted.startHosted("onboarding");
   const withdrawal = () => run(async (token, current) => {
     const preview = await ScopeCommerceService.withdrawalPreview(token);
     if (current()) setReview({ kind: "withdraw", preview, key: crypto.randomUUID() });
@@ -73,5 +79,5 @@ export function useScopeCommerceAccount() {
   });
   return { user, account, refresh, busy, message: message || resource.error, amount, country, changeAmount,
     changeCountry: setCountry, review, closeReview: () => { if (!busy) setReview(null); }, onboardingRefresh,
-    checkout, onboarding, withdrawal, refund, confirmTransfer };
+    checkout, onboarding, hostedPending: hosted.hostedPending, cancelHosted: hosted.cancelHosted, withdrawal, refund, confirmTransfer };
 }

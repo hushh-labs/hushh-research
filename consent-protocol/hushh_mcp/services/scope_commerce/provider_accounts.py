@@ -110,7 +110,24 @@ class ConnectOnboarding(ProviderContext):
             "account": saved["account_id"],
             "type": "account_onboarding",
             **onboarding_urls(self.config.frontend_origin, self.config.return_path, operation_id),
+            "collection_options": {"fields": "currently_due"},
         }
+
+        # Recover the exact original intent after a release; a new attempt uses
+        # incremental collection without changing an in-flight request hash.
+        existing = await self._existing_operation(operation_id)
+        if existing is not None:
+            if existing["user_id"] != user_id or existing["kind"] != "onboarding":
+                raise CommerceProviderError("provider_operation_conflict")
+            previous = self._saved_request(existing)
+            if (
+                previous.get("account") != saved["account_id"]
+                or previous.get("type") != "account_onboarding"
+                or previous.get("return_url") != request["return_url"]
+                or previous.get("refresh_url") != request["refresh_url"]
+            ):
+                raise CommerceProviderError("provider_operation_conflict")
+            request = previous
 
         link = await self._run_operation(
             user_id=user_id,
@@ -119,20 +136,53 @@ class ConnectOnboarding(ProviderContext):
             request=request,
             validate=validate_onboarding_link,
         )
-        return {"accountId": saved["account_id"], "onboardingUrl": link["url"], "eligible": False}
+        return {
+            "accountId": saved["account_id"],
+            "onboardingUrl": link["url"],
+            "returnUrl": request["return_url"],
+            "eligible": False,
+        }
+
+    async def _seller_creation_request(
+        self, user_id: str, country: str, operation_id: str
+    ) -> dict[str, Any]:
+        metadata = self._metadata(operation_id, user_id)
+        request = {
+            "type": "express",
+            "business_type": "individual",
+            "business_profile": {
+                "product_description": (
+                    "Individual providing consented, time-limited access to their own "
+                    "information through Hussh."
+                )
+            },
+            "country": country,
+            "capabilities": {"transfers": {"requested": True}},
+            "metadata": metadata,
+            "settings": {"payouts": {"schedule": {"interval": "manual"}}},
+        }
+        existing = await self._existing_operation(operation_id)
+        if existing is not None:
+            if existing["user_id"] != user_id or existing["kind"] != "seller_account":
+                raise CommerceProviderError("provider_operation_conflict")
+            previous = self._saved_request(existing)
+            if (
+                previous.get("type") != "express"
+                or previous.get("country") != country
+                or previous.get("metadata") != metadata
+                or previous.get("capabilities") != request["capabilities"]
+                or previous.get("settings") != request["settings"]
+            ):
+                raise CommerceProviderError("provider_operation_conflict")
+            request = previous
+        return request
 
     async def _prepare_seller_account(self, *, user_id: str, country: str) -> dict[str, Any]:
         saved = await self._seller_binding(user_id)
         if saved is None:
             account_operation = _derived_id(user_id, "seller_account")
             metadata = self._metadata(account_operation, user_id)
-            request = {
-                "type": "express",
-                "country": country,
-                "capabilities": {"transfers": {"requested": True}},
-                "metadata": metadata,
-                "settings": {"payouts": {"schedule": {"interval": "manual"}}},
-            }
+            request = await self._seller_creation_request(user_id, country, account_operation)
 
             def validate(account: dict[str, Any]) -> None:
                 self._validate_object(account, object_type="account", metadata=metadata)

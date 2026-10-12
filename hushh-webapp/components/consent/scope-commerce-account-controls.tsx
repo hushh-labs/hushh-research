@@ -40,6 +40,7 @@ export function CommercePayoutControls({ account, busy, country, changeCountry, 
   return <div className="space-y-[var(--app-form-related-gap)] border-t pt-4">
     <p className="text-sm">{ready ? "Your payout account is ready." : "Complete payout setup before charging for information."}</p>
     {!ready ? <>
+      <p className="text-xs text-muted-foreground">Set up payouts as an individual. Stripe verifies your identity, payout method and the information-access activity you earn from. Buying access only requires Checkout; linking Stripe tools is separate.</p>
       <p className="text-xs text-muted-foreground">{expiredLink ? "Your payout setup link expired. Get a new authenticated link to continue." : "Payout setup links expire. You can get a new link here without changing your payout account."}</p>
       <label className="block space-y-[var(--app-form-field-gap)] text-sm">Payout country (two-letter code)
         <Input value={savedCountry} maxLength={2} onChange={event => changeCountry(event.target.value.toUpperCase())} disabled={busy || Boolean(account.seller.country)} />
