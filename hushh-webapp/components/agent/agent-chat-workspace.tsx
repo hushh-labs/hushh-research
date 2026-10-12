@@ -8582,12 +8582,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     ref={oneProfileTriggerRef}
                     aria-expanded={isOneProfileOpen}
                     onClick={() => setIsOneProfileOpen(true)}
-                    className="!size-12 border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default)] shadow-[var(--app-card-shadow-standard)]"
+                    className="!size-16 border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default)] shadow-[var(--app-card-shadow-standard)]"
                   >
                     <HushhMark
                       aria-hidden="true"
-                      className="h-12 w-12 items-center justify-center overflow-visible"
-                      imageClassName="!h-10 !w-10"
+                      className="h-16 w-16 items-center justify-center overflow-visible"
+                      imageClassName="!h-14 !w-14"
                     />
                   </ShellActionSurface>
                 )}
