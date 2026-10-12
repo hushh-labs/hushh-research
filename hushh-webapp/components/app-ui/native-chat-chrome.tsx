@@ -41,6 +41,8 @@ type Props = {
   focusRef: RefObject<HTMLElement | null>;
   /** Layout/activation receipt only; never permission to invoke an operation. */
   onPresentationReady?: () => void;
+  /** Explicit feature layer; never inferred from a dialog or its DOM. */
+  interactionLayer?: string;
   ref?: Ref<NativeChatChromeHandle>;
 } & ({ kind: "close"; onActivate: () => void; label: string } |
   { kind: "profile-back"; onActivate: () => void; label: string } |
@@ -69,7 +71,7 @@ export function NativeChatChrome(props: Props) {
   // Only the current authored History layer may own Close. Anonymous/nested
   // overlays and the active drag still block it; Close is not globally exempt.
   const preference = kind === "appearance" || kind === "accent";
-  const owningLayer = props.kind === "close" || props.kind === "profile-back" || preference ? "profile-pane" : !coherent && props.kind === "history" && props.expanded ? "chat-history" : undefined;
+  const owningLayer = props.interactionLayer ?? (props.kind === "close" || props.kind === "profile-back" || preference ? "profile-pane" : !coherent && props.kind === "history" && props.expanded ? "chat-history" : undefined);
   const overlay = useNativeShellOverlayBlocked(owningLayer);
   const suppressed = useSessionChromeSuppressed();
   const surface = useVoiceSurfaceMetadata();
@@ -85,7 +87,7 @@ export function NativeChatChrome(props: Props) {
   const epoch = useMemo(() => retainedControls ? chromeOwnerEpoch(props.owner, controlId) : crypto.randomUUID(), [props.owner, controlId, retainedControls]);
   const value = "value" in props ? props.value : undefined;
   // Labels/options/family are immutable for a lease; changing them retires it.
-  const context = JSON.stringify([props.context, "label" in props ? props.label : null,
+  const context = JSON.stringify([props.context, owningLayer, "label" in props ? props.label : null,
     "options" in props ? props.options : null, props.kind === "date" ? [props.minimum, props.maximum] : null,
     props.kind === "accent" ? [props.fullTrigger, props.palette] : null]);
   const expanded = props.kind === "history" ? !coherent && (props.expanded ?? false) : undefined;
@@ -507,7 +509,7 @@ export function NativeChatChrome(props: Props) {
           props.kind === "selection" ? { kind: "selection", value: props.value, options: props.options, label: props.label } :
           { kind: "more", options: props.options, label: props.label };
         const retainHost = peekNativeChromeCapabilities()?.retainedControls === true &&
-          badgeAdmitted && !!props.owner && !isSessionChromeSuppressed() && retiring?.projection.ownerEpoch === epoch;
+          props.eligible && badgeAdmitted && !!props.owner && !isSessionChromeSuppressed() && retiring?.projection.ownerEpoch === epoch;
         // A compatible active handoff must stay visible. Suspension belongs to
         // an actually inactive surface, not a route/action revision change.
         // The native replacement contract fences interaction until activation.
@@ -619,11 +621,11 @@ export function NativeChatChrome(props: Props) {
     // Removal reserves its revision before another mounted slot can prepare.
     // A pending handoff may still own its predecessor, so remove either one.
     if (active) {
-      const retain = kind !== "profile-back" && peekNativeChromeCapabilities()?.retainedControls === true &&
-        !!current.current.props.owner && !isSessionChromeSuppressed() && active.projection.ownerEpoch === current.current.epoch;
-      void (retain ? suspendOwnedNativeChrome(active) : retireOwnedNativeChrome(active.projection)).catch(async () => {
-        await retireOwnedNativeChrome(active.projection).catch(() => undefined);
-      });
+      // An absent React owner is not an overlay. Suspension intentionally
+      // preserves visible pixels beneath native drawers, so it would leak
+      // Chat-only controls onto the next route. Covered mounted owners retain;
+      // actual unmount must acknowledge removal of this exact installation.
+      void retireOwnedNativeChrome(active.projection).catch(() => undefined);
     }
   }, [controlId, kind]);
 

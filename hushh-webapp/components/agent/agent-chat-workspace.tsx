@@ -1911,7 +1911,7 @@ export function AgentBubble({
   gmailInformationRequestAttachment?: ReactNode;
   driveMemoryReview?: ReactNode;
   /** "Edit and send again" on a sent paste: a new turn, never an edit of this one. */
-  onResendAttachment?: (index: number, editedText: string) => boolean | void;
+  onResendAttachment?: (index: number, editedText: string) => boolean | void | Promise<boolean | void>;
   onConfirmMemoryNeedsOwner?: () => Promise<void>;
   /** Continue a paused or gapped memory save job for this message. */
   onRetryMemorySave?: () => Promise<void>;
@@ -2915,6 +2915,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   }, [user?.uid, vaultSessionEpoch]);
   const driveReviewsPending = user && isVaultUnlocked && driveReviewSignal.ownerId === user.uid &&
     driveReviewSignal.epoch === vaultSessionEpoch ? driveReviewSignal.count : 0;
+  const [driveActivityPage, setDriveActivityPage] = useState<{ owner: string | null; epoch: number; open: boolean }>({ owner: null, epoch: -1, open: false });
+  const driveActivityPageOpen = driveActivityPage.open && driveActivityPage.owner === user?.uid &&
+    driveActivityPage.epoch === vaultSessionEpoch && isVaultUnlocked && !isPuppySurface;
   const [getAppOpen, setGetAppOpen] = useState(false);
   const getAppReturnFocusRef = useRef<HTMLElement | null>(null);
   // The installed app never offers to download itself.
@@ -7996,7 +7999,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const kept = await keepSecretsFromTurn([typedText, ...attachments.map((item) => item.text)]);
     if (!kept) {
       onRefused?.();
-      return;
+      return false;
     }
     const [submittedText = "", ...attachmentTexts] = kept;
     const submittedAttachments = attachments.map((item, index) =>
@@ -8007,16 +8010,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       driveSearchSelection,
       attachments: submittedAttachments,
     });
+    return true;
   };
 
   /** A sent message stays as it was; its edited paste goes out as a new turn. */
-  const resendTextAttachment = (message: AgentMessage, index: number, editedText: string) => {
+  const resendTextAttachment = async (message: AgentMessage, index: number, editedText: string) => {
     if (isVoiceConnecting || voiceActive) return false;
     const attachments = replaceTextAttachmentForResend(message.attachments ?? [], index, editedText);
     if (!attachments) return false;
+    const accepted = await enqueueGuardedTurn({ typedText: message.text, attachments, fromPaste: true });
+    if (!accepted) return false;
     transcriptUserScrollRef.current = false;
     scrollToSubmittedTurnRef.current = true;
-    void enqueueGuardedTurn({ typedText: message.text, attachments, fromPaste: true });
     return true;
   };
 
@@ -8634,7 +8639,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         : undefined}
       onGetApp={offerGetApp ? openGetApp : undefined}
       getAppOpen={getAppOpen}
-      driveActivity={!isPuppySurface
+      driveActivity={!isPuppySurface && !customNativePresentationEnabled()
         ? <DriveRecentSharing presentation="sidebar" active={isHistoryDrawerOpen && drawerMode === "chats"} onNeedsReviewChange={onDriveNeedsReviewChange} /> : null}
       onCreateNew={handleSidebarCreateNewChat}
       onSelectConversation={handleSidebarSelectConversation}
@@ -8658,6 +8663,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     remove: isPuppySurface ? handleDeletePuppyConversation : handleDeleteConversation,
     setOpen: handleHistoryDrawerOpenChange,
     openConnectors: () => { handleHistoryDrawerOpenChange(false); openConnectorSurface(); },
+    openDriveReview: () => { setDriveActivityPage({ owner: renderedWorkspaceOwnerId, epoch: vaultSessionEpoch, open: true }); },
   });
   const getEmailDeliveryAuth = async () => {
     if (!user || !isVaultUnlocked || !tokenIsFresh) return null;
@@ -8864,6 +8870,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           // this drawer only ever holds chat history.
           connections={null}
         />
+        {customNativePresentationEnabled() && isCanonicalChatRoute && hasChatAccess && !isPuppySurface ? <DriveRecentSharing
+          active={isHistoryDrawerOpen || driveActivityPageOpen} onNeedsReviewChange={onDriveNeedsReviewChange}
+          page={{ open: driveActivityPageOpen,
+            // Stage the bounded page while History still owns presentation.
+            // Its applied Back receipt, not a timer, releases the native menu.
+            onReady: () => { if (driveActivityPageOpen) handleHistoryDrawerOpenChange(false); },
+            onBack: () => {
+              setDriveActivityPage({ owner: null, epoch: -1, open: false });
+              handleHistoryDrawerOpenChange(true);
+            } }} /> : null}
 
         <section
           className={cn(
