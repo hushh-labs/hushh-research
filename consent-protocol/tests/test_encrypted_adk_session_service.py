@@ -510,6 +510,7 @@ async def test_stale_temp_state_is_reported_once_per_legacy_row_and_never_for_a_
 
 def test_reactions_never_enter_sealed_history_but_live_tool_results_remain():
     from hushh_mcp.one_adk.message_reactions import REACTION_TOOL_NAME
+    from hushh_mcp.one_adk.turn_completion import newest_turn_answered
 
     service = EncryptedAdkSessionService(static_chat_cipher())
     call = types.Part(
@@ -531,7 +532,9 @@ def test_reactions_never_enter_sealed_history_but_live_tool_results_remain():
             Event(
                 author="one",
                 content=types.Content(role="user", parts=[result]),
-                actions=EventActions(state_delta={"temp:message_reaction_shown": True}),
+                actions=EventActions(
+                    state_delta={"temp:message_reaction_shown": True}, skip_summarization=True
+                ),
             ),
         ],
     )
@@ -551,5 +554,6 @@ def test_reactions_never_enter_sealed_history_but_live_tool_results_remain():
     assert "💛" not in durable
     assert "message_reaction_shown" not in durable
     assert "Your answer" in durable
+    assert newest_turn_answered(decoded.events)
     assert session.events[0].content.parts[1].function_call.name == REACTION_TOOL_NAME
     assert session.events[1].content.parts[0].function_response.response["emoji"] == "💛"
