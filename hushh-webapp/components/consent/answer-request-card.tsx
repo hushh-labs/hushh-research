@@ -225,6 +225,14 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
                     vaultOwnerToken,
                     firebaseIdToken: token,
                     requestId,
+                    // What the requester already sees on the profile they
+                    // asked from, so the answer is a record of a person
+                    // rather than a bag of fields.
+                    ownerIdentity: {
+                      displayName: user.displayName ?? null,
+                      email: user.email ?? null,
+                      photoUrl: user.photoURL ?? null,
+                    },
                   },
                   snapshotVaultSessionEpoch(),
                 );
@@ -262,6 +270,14 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
                     vaultOwnerToken,
                     firebaseIdToken: token,
                     requestId,
+                    // What the requester already sees on the profile they
+                    // asked from, so the answer is a record of a person
+                    // rather than a bag of fields.
+                    ownerIdentity: {
+                      displayName: user.displayName ?? null,
+                      email: user.email ?? null,
+                      photoUrl: user.photoURL ?? null,
+                    },
                   },
                   epoch,
                 );
