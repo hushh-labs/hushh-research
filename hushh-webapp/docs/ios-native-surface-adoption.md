@@ -15,7 +15,7 @@ another navigation stack, WebView, session, or information store.
 
 ### Integrated native shell candidate — 2026-10-12
 
-Source candidate `57b9e39ecb` extends `5a07a2310e` on
+Source candidate `6e77827fe6` extends `57b9e39ecb` on
 `feat/adk-orchestration-runtime`.
 Normal product admission remains **off**. The document-start coherent-shell
 bootstrap is available only through the explicit qualification launch switch;
@@ -28,10 +28,11 @@ their named builds, not this candidate.
 | Bottom navigation | Existing native `UITabBar`; existing React tab intent | Retained beneath the keyboard and native drawers; integrated functional receipt below, visual/performance acceptance pending |
 | Chat History opener and One/Puppy | Retained NativeChrome v2; authored Chat callbacks | Foreground content-backed composition, coverage disables interaction rather than hiding hosts; qualification only |
 | Agent Dock | NativeDock v1; existing One and Puppy draft/submission ports | One editor/glass container; private final-draft reconciliation on native coverage; qualification only |
-| History | NativeDrawers v1 owns the complete panel/scrim/gesture; existing search/rename/delete callbacks | Shared owner/privacy admission; Connectors footer connected; Drive review handoff incomplete |
+| History | NativeDrawers v1 owns the complete panel/scrim/gesture; existing search/rename/delete callbacks | Anchored UIKit More menu, glass search, aligned Close; Drive activity/detail handoff wired, rich-path qualification pending |
 | Profile menu | Same native drawer family; existing authored Profile destinations | Account/preferences/security/devices/connectors/invite/support/legal/sign-out callbacks connected; root photo and developer-tools parity incomplete |
-| Profile details | Bounded full-page React content in the existing WebView; existing query/Back owner | Destination Back acknowledges layout before menu dismissal; viewing does not change vault authority |
-| Other rich Chat overlays | Existing feature owners | Full-page handoff classification/migration incomplete; not qualified above foreground chrome |
+| Profile details | Bounded full-page React content in the existing WebView; existing query/Back owner | Destination Back acknowledges layout before menu dismissal; scroll restoration targets the owning feature body; viewing does not change vault authority |
+| App haptics | Existing Settings preference/plugin; accepted React interaction owners | iOS/Android capability-negotiated feedback; no new generator/store on web; native/system accessibility behavior retained |
+| Other rich Chat overlays | Existing feature owners | Attachment editors/viewers and Drive activity/detail now use the shared bounded feature page in the qualification candidate; remaining rich paths are not qualified |
 
 Presentation identity is separate from interaction eligibility. Closed retained
 Profile content is inactive for voice/action metadata. Profile Back retires when
@@ -124,12 +125,11 @@ account, draft, URL or operation payload and is unavailable outside Debug. Its
 sampling configuration is diagnostic, not a physical Release performance receipt.
 
 The authored overlay audit confirms that Chat's Connectors destination already
-reuses Profile query/Back ownership. Pending/sent attachment editors and the Drive
-activity/detail owner still need bounded full-page envelopes. Native History must
-not mount a new auto-preparing Drive review merely to implement its footer. Its
-existing recent-sharing owner is currently inside the web-only History subtree;
-lift that owner deliberately before wiring native entry. Profile root photo and
-the existing development-gated tools entry remain separate parity gaps.
+reuses Profile query/Back ownership. The follow-up candidate below gives pending/
+sent attachment editors and the existing Drive activity/detail owner bounded
+full-page envelopes. Native History does not auto-prepare a new Drive review
+merely to implement its footer. Profile root photo and the existing
+development-gated tools entry remain separate parity gaps.
 
 Native Dock withdrawal also records a revision tombstone before its first apply;
 delayed admission cannot resurrect a cancelled replica or detach its successor.
@@ -151,6 +151,131 @@ and `backVerification`. Use the actual route/voice generators and behavioral
 checks for source validation; do not invent aliases or describe them as resolving
 the missing canonical governance. No merge, UAT dispatch or distribution is
 authorized by these local receipts.
+
+### Route retirement and History follow-up — 2026-10-12
+
+Source `6e77827fe6` includes the independently reversible handoff fix
+`7b83af7ce1`. Covered mounted controls retain their native hosts; an ineligible
+route or actual React unmount now retires its exact installation. The former
+suspend path intentionally withdrew touch/accessibility without removing visible
+pixels, explaining Chat's History and One/Puppy controls leaking onto other routes.
+Suspension is not route-owner retirement.
+
+The same bounded feature-page adapter now owns attachment and Drive envelopes.
+Each feature authors its interaction layer and Back callback. No native action
+is inferred from DOM or private content. Drive retains its existing loading,
+owner fencing and review callback; detail Back returns to activity before History.
+Attachment resend awaits guarded submission admission, preserves refused edits,
+deduplicates pending actions and rejects stale completions after reopen/owner
+changes. Normal web/Android/unqualified presentations are unchanged.
+
+Physical source `81f7f6a09a` reproduces and fixes a 17-point Close displacement:
+the authored header reserve was 64 points while UIKit's top safe area was 47.
+History now obtains the installed hamburger's frame from its existing container,
+not a guessed device offset. The physical warm test measures both controls at
+(16, 72), with 44-point hit regions, and passes ten cycles, keyboard continuity,
+More edge taps and the route-retirement ledger (1 passed, 0 failed, 0 skipped).
+This receipt predates the new system More menu and does not qualify that menu.
+
+History's leading circular Close shares the hamburger's actual 44-point seat.
+Its List buttons explicitly use independent borderless action ownership, including
+the 44-point More label hit area. Chat ages use a quiet single-line secondary
+caption rather than a wide trailing column; compact insets apply only to History.
+Search uses standard native editing inside one regular glass capsule on iOS 26+,
+with the existing material fallback on older versions. Profile row insets remain
+unchanged.
+
+Typecheck, 194 focused JavaScript tests, static/plugin contracts, design/render
+source checks, production mobile export, signed native build and packaged assets
+pass. The attach-only test exercises edge taps on More without saving or
+deleting a chat, leading-seat alignment and Chat → One/Connect/Feed → Chat. It
+checks the native install/removal ledger as well as AX withdrawal: the broken
+suspend path would pass an AX-only absence check.
+
+The follow-up native More trigger is a standard UIButton/UIMenu embedded in the
+SwiftUI row. Rename/Delete use icons and an anchored system presentation; the
+existing confirmed operation callbacks remain authoritative. Retirement waits
+for UIKit's menu disappearance completion before detaching the drawer or releasing
+its privacy-retirement token. Expired projection choices cannot open a replacement
+editor. All 63 native support tests pass, including a pending-menu negative control.
+
+The physical menu-delivery regression is distinct from popup retirement. UIKit's
+menu was visible, its covered Close was correctly noninteractive, and selecting
+Rename finished dismissal but failed the exact update-sequence fence. A temporary
+enum-only Debug probe measured that rejection and was then removed. The
+representable child held the model as an unobserved reference, allowing unchanged
+rows to retain UIAction closures from an earlier applied projection. Source
+`6e77827fe6` observes the retained model so bindings refresh; the stale-choice fence
+is unchanged. The existing warm test uses the menu's actual accessibility label
+across roles, selects Rename and cancels without mutating a chat. Its physical
+rerun passes: ten warm History/Profile/Preferences/One-Puppy cycles, held/cancelled
+drawer closing drags, actual Rename-to-Cancel delivery, keyboard continuity and
+Chat-only host retirement on One/Connect/Feed. Both the native installation ledger
+and AX eligibility are checked; drafts and one WebView/editor survive. The receipt
+is 1 passed, 0 failed, 0 skipped with no turn submission, sign-out or reset.
+
+That exact installed source `6e77827fe6` remains Debug/UAT `com.hushh.app`
+1.4.0 (69), executable SHA-256
+`1e7dc70ab028b20bc113e4c00ac9ea1d14bd84dd6af9e990acb270318203c48c`;
+runner SHA-256 `6ea3f3ac8338536eac23034d7c8ddcc9f336574393149a6460a130f87b689227`.
+Its packaged index and UAT runtime-contract hashes are unchanged from the Profile
+batch below. Signature and actual packaged assets pass. Installation/preparation
+and normal passphrase unlock are separate from the attach-only journey; diagnostic
+artifacts are removed. This proves functional continuity, not complete rendered
+transition, accessibility or physical Release performance acceptance.
+
+Profile's shared full-page envelope declares its scroll owner. The existing stack
+retains nested screens and restores their own position rather than consulting a
+global, possibly exiting pane. Its regression verifies that neither background
+Chat nor a retained web pane receives those scroll writes. The physical harness
+batches the nine authored menu destinations plus Gemini, Voice and Vault methods;
+it does not assume legacy Account access is a reachable Security row. WebView count
+is checked while detail content owns accessibility, not while the native menu
+correctly hides the covered WebView. A native-menu AX absence is not host teardown.
+
+On source `400ee3e8ae`, the installed Debug/UAT iPhone candidate passes that
+attach-only Profile batch: nine destinations, all three nested paths, native Back
+and return to the original Chat draft (1 passed, 0 failed, 0 skipped). It submits
+no setting, support, connector or vault operation. The exact installed product is
+`com.hushh.app` 1.4.0 (69), executable SHA-256
+`696d6778ef22231c03174a4f069b5a304a2b90af2ddf8017ca64c9aea5e1959d`;
+runner SHA-256 `7e8a15c65d5cbc99573ed02712a663522108ad04e197e7f9c33586e228f6a349`;
+packaged index SHA-256 `3e0a706d3ddb5c1e9768b82e00ddda36c053a4871e80d1593da3d465c6e70954`.
+The existing runtime contract remains UAT, SHA-256
+`aa822769e2547459e63e38784b039f3b80ed905c1d426cb7834606fab1fc3f69`.
+Signed build, packaged assets and normal passphrase unlock pass separately.
+Credential and warm-run diagnostics are removed. This is functional/Back evidence,
+not a claim of complete visual, accessibility or Release performance acceptance.
+
+Cross-platform app feedback uses additive HushhSettings capability/feedback methods.
+NativeChrome v2 remains the iOS compatibility entrypoint, sharing one deduplication
+ledger. Each cue is document/privacy-bound, expires after 250ms, and never retries
+an uncertain result. JavaScript captures lifecycle admission before discovery;
+interrupted discovery cannot vibrate in a newly resumed session. Shared finite
+controls and switches cue changed user choices only; navigation emits from the
+accepted intent, with the DOM navbar opted out to avoid duplication. Explicit
+disabled preferences win once during migration on both platforms; subsequent
+native Settings is authoritative. System feedback is not an app preference.
+Android's six focused admission/migration tests pass, as do the nearest JavaScript
+privacy, control and navigation contracts. Physical tactile acceptance is separate.
+
+S24 Ultra wireless ADB and its existing pre-install warm continuity harness pass
+without restarting the app. The subsequent isolated production export at source
+`400ee3e8ae` builds and installs `com.hussh.app` with one preserving `install -r`
+and one preparation launch. APK SHA-256:
+`dbfdc5071dda4ba2d247a6f7713cfad18aa271f0c495095b2b048726ae71ba40`.
+Installed signer/hash, production backend/Firebase and unchanged signed-in owner
+are verified; Settings reports `interactionFeedback: true`. Android preparation
+cannot copy iPhone UAT assets. Its current owner differs from the canonical
+reviewer; the user separately authorized normal passphrase unlock of that existing
+device account. The new candidate's protected warm comparison is not yet complete;
+no reviewer fixture, identity or stored credential is changed to make it pass.
+
+The existing parity-report validator still fails: the committed iOS report has
+13 result rows for 102 native-required inventory entries, a failed route and
+inconsistent summary totals. Android coverage is also incomplete. Do not inflate
+coverage, infer route acceptance from this focused journey, or weaken the report
+gate. Normal custom-native admission and release qualification remain disabled.
 
 ### History leading slot and native selector study — 2026-10-11
 
