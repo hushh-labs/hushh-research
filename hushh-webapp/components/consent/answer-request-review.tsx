@@ -199,12 +199,17 @@ export function AnswerRequestReview({
         }
       />
 
-      {/* Drive's price sheet, unchanged. paymentRequired is always true here:
-          a paid answer with no price is not a thing this lane can express. */}
+      {/* Drive's price sheet, with this lane's own description. Its whole-dollar
+          rule, presets and "Allow · $N" affordance are unchanged.
+          paymentRequired is always true here: a paid answer with no price is
+          not a thing this lane can express. */}
       <DocumentRequestPriceSheet
         open={priceOpen}
         requesterLabel={requesterLabel}
         purpose={request.question}
+        // This lane delivers one written answer, not files. The sheet's own
+        // sentence described a Drive search the owner is not authorizing.
+        description="They pay this price before the answer is written. Nothing from your memory is used until they pay."
         periodStart={request.periodStart}
         periodEnd={request.periodEnd}
         paymentRequired
