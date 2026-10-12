@@ -17,7 +17,7 @@ Keep One Voice, Kai runtime compatibility, typed search, UI actionables, persona
 7. Use authored multi-step workflows only when the UI really supports the same prerequisite chain.
 8. Keep durable voice memory vault-gated and encrypted client-side.
 9. Run the gateway verifier, targeted voice tests, backend voice contract test, and docs verification.
-10. Hand off to `frontend`, `backend-api-contracts`, `vault-pkm-governance`, `docs-governance`, or `quality-contracts` when the task becomes primarily theirs.
+10. Hand off to `frontend`, `backend-api-contracts`, `security-audit`, `docs-governance`, or `quality-contracts` when the task becomes primarily theirs.
 
 ## Common Drift Risks
 

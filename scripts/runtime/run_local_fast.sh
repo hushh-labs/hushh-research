@@ -4,6 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(git -C "$SCRIPT_DIR/../.." rev-parse --show-toplevel)"
 WEB_DIR="$REPO_ROOT/hushh-webapp"
+# Ordinary web/native verification must never replace the live fast server's files.
+FAST_DIST_DIR=".next-local-fast"
 
 usage() {
   cat <<'USAGE'
@@ -14,11 +16,11 @@ Starts the local stack in production-style fast mode:
   - activates the local runtime profile
   - starts the local Cloud SQL proxy on :6543 when one is not already running
   - starts the local backend on :8000 without Uvicorn reload
-  - builds the frontend once
+  - builds the frontend once in isolated .next-local-fast output
   - starts the optimized frontend on :3000 from its standalone build
 
 Options:
-  --skip-build       Reuse the existing frontend build.
+  --skip-build       Reuse the existing .next-local-fast frontend build.
   --skip-preflight   Skip backend preflight checks for faster startup.
 USAGE
 }
@@ -164,28 +166,28 @@ BACKEND_PID=$!
 wait_for_http "backend health" "http://127.0.0.1:8000/health" 90
 
 if [ "$SKIP_BUILD" != "true" ]; then
-  echo "Building optimized frontend..."
+  echo "Building optimized frontend in $FAST_DIST_DIR..."
   (
     cd "$WEB_DIR"
-    npm run build
+    NEXT_DIST_DIR="$FAST_DIST_DIR" npm run build
   )
 else
-  echo "Skipping frontend build and reusing the existing .next output..."
+  echo "Skipping frontend build and reusing the existing $FAST_DIST_DIR output..."
 fi
 
 echo "Starting optimized frontend on :3000..."
 STANDALONE_SERVER=""
-if [ -d "$WEB_DIR/.next/standalone" ]; then
-  STANDALONE_SERVER="$(find "$WEB_DIR/.next/standalone" -maxdepth 3 -type f -name server.js -print -quit)"
+if [ -d "$WEB_DIR/$FAST_DIST_DIR/standalone" ]; then
+  STANDALONE_SERVER="$(find "$WEB_DIR/$FAST_DIST_DIR/standalone" -maxdepth 3 -type f -name server.js -print -quit)"
 fi
 if [ -z "$STANDALONE_SERVER" ]; then
-  echo "Standalone frontend server is missing after build. Re-run without --skip-build." >&2
+  echo "Standalone frontend server is missing in $FAST_DIST_DIR. Re-run without --skip-build." >&2
   exit 1
 fi
 
 STANDALONE_APP_DIR="$(dirname "$STANDALONE_SERVER")"
-mkdir -p "$STANDALONE_APP_DIR/.next"
-cp -R "$WEB_DIR/.next/static" "$STANDALONE_APP_DIR/.next/"
+mkdir -p "$STANDALONE_APP_DIR/$FAST_DIST_DIR"
+cp -R "$WEB_DIR/$FAST_DIST_DIR/static" "$STANDALONE_APP_DIR/$FAST_DIST_DIR/"
 if [ -d "$WEB_DIR/public" ]; then
   mkdir -p "$STANDALONE_APP_DIR/public"
   cp -R "$WEB_DIR/public/." "$STANDALONE_APP_DIR/public/"

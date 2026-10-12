@@ -25,9 +25,9 @@ export type EmailDeliveryHistoryItem = {
 type EmailDeliveryHistoryCardProps = {
   item: EmailDeliveryHistoryItem;
   /**
-   * Starts an explicit, incremental Gmail send-consent request in place. On
-   * success the caller reopens this reviewed draft; nothing is sent until the
-   * person sends it again.
+   * Repairs a legacy Gmail connection that does not include its send grant.
+   * On success the caller reopens this reviewed draft; nothing is sent until
+   * the person sends it again.
    */
   onEnableGmailSend?: (item: EmailDeliveryHistoryItem) => void;
   /** True while this item's Google sign-in window is open. */
@@ -197,7 +197,7 @@ export function EmailDeliveryHistoryCard({
                     disabled={enablingGmailSend}
                     onClick={() => onEnableGmailSend(item)}
                   >
-                    {enablingGmailSend ? "Waiting for Google…" : "Enable sending"}
+                    {enablingGmailSend ? "Waiting for Google…" : "Reconnect Mail"}
                   </Button>
                   {enablingGmailSend && onCancelEnableGmailSend ? (
                     <Button type="button" variant="ghost" size="sm" onClick={onCancelEnableGmailSend}>

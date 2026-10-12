@@ -92,6 +92,130 @@ def _single_segment(message: str):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "mode,target_valid",
+    [
+        ("create_entity", True),
+        ("correct_entity", True),
+        ("extend_entity", True),
+        ("delete_entity", True),
+        ("delete_entity", False),
+    ],
+)
+async def test_soul_profile_preserves_model_fact_and_exact_offered_target(
+    monkeypatch, mode, target_valid
+):
+    service = PKMAgentLabService()
+    monkeypatch.setattr(
+        service, "_load_domain_registry_choices", AsyncMock(return_value=_registry_choices())
+    )
+    message = "My brother Alex now lives in Seattle."
+    intent = {
+        "save_class": "durable",
+        "intent_class": "relationship",
+        "mutation_intent": "create",
+        "requires_confirmation": True,
+        "confirmation_reason": "Review",
+        "candidate_domain_choices": [{"domain_key": "one_memory", "recommended": True}],
+        "confidence": 0.99,
+        "source_agent": "memory_intent_agent",
+        "contract_version": 1,
+    }
+    target_id = "soul_23" if target_valid else "invented"
+    merge = {
+        "merge_mode": mode,
+        "target_domain": "one_memory",
+        "target_entity_id": target_id if mode != "create_entity" else "",
+        "target_entity_path": f"markdown.entities.{target_id}" if mode != "create_entity" else "",
+        "match_confidence": 0.99,
+        "match_reason": "Same brother",
+        "source_agent": "memory_merge_agent",
+        "contract_version": 1,
+    }
+    payload = {
+        "soul_text": ""
+        if mode == "delete_entity"
+        else "My brother Alex lives in Seattle and likes tea.",
+        "soul_section": "Facts",
+    }
+    structure = {
+        "candidate_payload": payload,
+        "structure_decision": {
+            "action": "extend_domain",
+            "target_domain": "one_memory",
+            "json_paths": ["soul_text", "soul_section"],
+            "top_level_scope_paths": [],
+            "externalizable_paths": [],
+            "summary_projection": {},
+            "sensitivity_labels": {},
+            "confidence": 0.99,
+            "source_agent": "pkm_structure_agent",
+            "contract_version": 1,
+        },
+        "write_mode": "confirm_first",
+        "target_entity_scope": "markdown",
+        "primary_json_path": "soul_text",
+        "validation_hints": [],
+    }
+    run = AsyncMock(side_effect=[_single_segment(message), intent, merge, structure])
+    monkeypatch.setattr(service, "_run_agent_contract", run)
+    memories = [
+        {
+            "domain": "one_memory",
+            "entity_scope": "markdown",
+            "entity_id": f"soul_{index}",
+            "message": "My brother Alex lives in Boston and likes tea. "
+            + "qualified context " * 20,
+            "active": True,
+        }
+        for index in range(24)
+    ]
+    result = await service.generate_structure_preview(
+        user_id=f"soul-{mode}-{target_valid}",
+        message=message,
+        memory_profile="soul_markdown_v1",
+        simulated_state={"memories": memories},
+        current_domains=["one_memory"],
+    )
+    assert run.await_count == 4
+    assert all(
+        _request(call.kwargs["prompt"])["memory_profile"] == "soul_markdown_v1"
+        for call in run.await_args_list
+    )
+    offered = _request(run.await_args_list[2].kwargs["prompt"])["existing_entities"]
+    assert len(offered) == 24
+    assert len(offered[-1]["summary"]) > 200
+    assert result["merge_decision"] == merge
+    if target_valid:
+        assert result["candidate_payload"] == payload
+        assert result["write_mode"] == "confirm_first"
+        assert "soul_profile_contract_invalid" not in result["validation_hints"]
+    else:
+        assert result["write_mode"] == "do_not_save"
+        assert "soul_profile_contract_invalid" in result["validation_hints"]
+
+
+def test_soul_no_op_is_valid_without_a_structure_call():
+    result = PKMAgentLabService._normalize_structure_preview(
+        message="Hello",
+        current_domains=["one_memory"],
+        registry_choices=_registry_choices(),
+        intent_frame={
+            "mutation_intent": "no_op",
+            "save_class": "ephemeral",
+            "intent_class": "command",
+        },
+        merge_decision={"merge_mode": "no_op"},
+        parsed_structure=None,
+        fallback_target_domain="one_memory",
+        simulated_state=None,
+        memory_profile="soul_markdown_v1",
+    )
+    assert result["write_mode"] == "do_not_save"
+    assert result["validation_hints"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     "fields,entity_id",
     [
         ({"name": "Example business", "state": "TX", "category": "Restaurant"}, "example"),

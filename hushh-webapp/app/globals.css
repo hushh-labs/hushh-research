@@ -5349,6 +5349,55 @@ body:has([data-testid="one-location-onboarding"])
     letter-spacing: var(--foundation-headline-tracking) !important;
   }
 
+  /* Soul.md is a reading document, not a collection of settings rows. Scoped
+     heading rules must beat the page-shell heading locks in this same layer. */
+  .soul-memory-document,
+  .soul-memory-editor {
+    min-width: 0;
+    font-family: var(--font-app-body);
+    font-size: var(--foundation-body-size);
+    line-height: 1.7;
+    color: var(--foreground);
+    overflow-wrap: anywhere;
+  }
+
+  .soul-memory-document { max-width: 68ch; }
+  .soul-memory-editor { font-size: var(--foundation-body-size) !important; }
+  .soul-memory-document :is(p, ul, ol) { margin-block: 1rem; }
+  .soul-memory-document :is(ul, ol) { padding-left: 1.5rem; }
+  .soul-memory-document ul { list-style-type: disc; }
+  .soul-memory-document ol { list-style-type: decimal; }
+  .soul-memory-document li { margin-block: 0.75rem; padding-left: 0.25rem; }
+  .soul-memory-document li::marker { color: var(--foreground); }
+  .soul-memory-document strong { font-weight: 700; }
+  .soul-memory-document :is(h1, h2, h3, h4, h5, h6),
+  .app-page-shell .soul-memory-document :is(h1, h2, h3, h4, h5, h6) {
+    font-family: var(--font-app-display);
+    font-weight: 700 !important;
+    line-height: 1.3 !important;
+    letter-spacing: var(--foundation-title1-tracking) !important;
+    color: var(--foreground);
+    margin-block: 2rem 0.75rem;
+  }
+  .soul-memory-document h1,
+  .app-page-shell .soul-memory-document h1 {
+    font-size: var(--foundation-title2-size) !important;
+    margin-top: 0;
+  }
+  .soul-memory-document h2,
+  .app-page-shell .soul-memory-document h2 {
+    font-size: var(--type-major-section-title-size) !important;
+  }
+  .soul-memory-document :is(h3, h4, h5, h6),
+  .app-page-shell .soul-memory-document :is(h3, h4, h5, h6) {
+    font-size: var(--foundation-body-size) !important;
+  }
+  .soul-memory-document blockquote { border-left: 2px solid var(--border); padding-left: 1rem; color: var(--muted-foreground); }
+  .soul-memory-document a { color: var(--foreground); text-decoration: underline; }
+  .soul-memory-document pre { overflow-x: auto; padding: 1rem; background: var(--muted); }
+  .soul-memory-document code { font-family: var(--font-app-mono); }
+  .soul-memory-document hr { margin-block: 2rem; }
+
   .app-page-shell .font-black,
   .app-page-shell .font-extrabold,
   .font-black,

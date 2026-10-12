@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   user: null as { uid: string; getIdToken: () => Promise<string> } | null,
@@ -30,14 +30,33 @@ import { useFeedUnreadCount } from "@/lib/feed/use-feed-unread-count";
 import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 import { bumpFeedInvalidationEpoch } from "@/lib/cache/feed-invalidation-epoch";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
+import {
+  beginForegroundChatPriority,
+  resetForegroundChatPriorityForTests,
+} from "@/lib/agent/foreground-chat-priority";
 
 describe("useFeedUnreadCount account isolation", () => {
   beforeEach(() => {
+    resetForegroundChatPriorityForTests();
     CacheService.getInstance().clear();
     mocks.user = null;
     mocks.unreadCount.mockReset();
     mocks.liveRefresh = null;
     mocks.pathname = "/one";
+  });
+  afterEach(resetForegroundChatPriorityForTests);
+
+  it("pauses shell recounts while a foreground chat turn owns priority", async () => {
+    mocks.user = { uid: "user-a", getIdToken: async () => "token-a" };
+    mocks.unreadCount.mockResolvedValue(2);
+    const release = beginForegroundChatPriority();
+    const { result } = renderHook(() => useFeedUnreadCount());
+    expect(result.current).toBeNull();
+    expect(mocks.unreadCount).not.toHaveBeenCalled();
+
+    act(() => release());
+    await waitFor(() => expect(mocks.unreadCount).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current).toBe(2));
   });
 
   it("never shows a late count from the previous signed-in account", async () => {

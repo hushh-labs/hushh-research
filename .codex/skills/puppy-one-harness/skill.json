@@ -40,7 +40,7 @@
   "handoff_targets": [
     "backend",
     "backend-runtime-governance",
-    "vault-pkm-governance",
+    "security-audit",
     "quality-contracts"
   ],
   "adjacent_skills": [

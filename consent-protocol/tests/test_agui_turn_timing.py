@@ -886,9 +886,15 @@ async def test_first_model_call_is_split_into_session_and_request_build(monkeypa
     def bridge(*, start_agent: bool):
         async def run(self, input):
             yield RunStartedEvent(thread_id=THREAD_ID, run_id=RUN_ID)
+            agui_turn_timing.record_session_phase("read", 4.4)
+            agui_turn_timing.record_session_phase("decrypt", 2.6)
+            agui_turn_timing.record_session_phase("append", 1.7)
+            agui_turn_timing.record_session_phase("persistence", 3.2)
             await asyncio.sleep(0.02)
             if start_agent:
                 agui_turn_timing.timed_one_before_agent(object())
+                # Post-agent persistence is outside the session startup split.
+                agui_turn_timing.record_session_phase("persistence", 100)
             agui_turn_timing.record_instruction_build(7.4)
             await asyncio.sleep(0.02)
             agui_turn_timing.timed_one_before_model(object(), request)
@@ -916,6 +922,12 @@ async def test_first_model_call_is_split_into_session_and_request_build(monkeypa
         <= 1
     )
     assert split["instruction_ms"] == "7"
+    assert split["session_read_ms"] == "4"
+    assert split["session_decrypt_ms"] == "3"
+    assert split["session_append_ms"] == "2"
+    assert split["session_persistence_ms"] == "3"
+    assert split["session_persistence_count"] == "1"
+    assert int(split["session_other_ms"]) >= 0
     assert split["path_warmed"] == "false"
     assert unsplit["session_ms"] == "None" and unsplit["request_build_ms"] == "None"
     assert unsplit["path_warmed"] == "true"

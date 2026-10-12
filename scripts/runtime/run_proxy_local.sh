@@ -74,6 +74,16 @@ if [ ! -f "$BACKEND_ENV_FILE" ]; then
   exit 1
 fi
 
+# The proxy launcher needs python-dotenv only when it materializes the
+# short-lived Cloud SQL credential file. Use the managed backend interpreter,
+# never whichever Python happens to be first on the developer's PATH.
+BACKEND_VENV_PYTHON="$REPO_ROOT/consent-protocol/.venv/bin/python"
+if [ ! -x "$BACKEND_VENV_PYTHON" ]; then
+  echo "Missing backend virtual environment: $BACKEND_VENV_PYTHON" >&2
+  echo "Run './bin/hushh bootstrap --mode local' to install backend dependencies." >&2
+  exit 1
+fi
+
 read_env_value() {
   local file="$1"
   local key="$2"
@@ -161,7 +171,7 @@ proxy_cmd=(cloud-sql-proxy --address 127.0.0.1 --port "$PROXY_PORT")
 
 if [ -z "$PROXY_CREDENTIALS_FILE" ] && [ -n "$PROXY_CREDENTIALS_JSON" ]; then
   PROXY_CREDENTIALS_TEMP="$(mktemp /tmp/hushh-cloudsql-creds.XXXXXX)"
-  python3 - "$PROXY_CREDENTIALS_TEMP" "$BACKEND_ENV_FILE" <<'PY'
+  "$BACKEND_VENV_PYTHON" - "$PROXY_CREDENTIALS_TEMP" "$BACKEND_ENV_FILE" <<'PY'
 import json
 import sys
 from dotenv import dotenv_values

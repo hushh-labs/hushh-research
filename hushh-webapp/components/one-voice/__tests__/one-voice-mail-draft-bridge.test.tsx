@@ -203,13 +203,13 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("OneVoiceMailDraftBridge", () => {
-  it("retains an unprepared draft with an enable-sending action and never acknowledges send readiness", async () => {
+  it("retains an unprepared draft with a reconnect action and never acknowledges send readiness", async () => {
     enableRealCard();
     render(<OneVoiceMailDraftBridge />);
     const report = reviewStep({ ...reviewedPayload(), prepared: null, reason_code: "GMAIL_SEND_DISABLED" });
     expect(report).toHaveBeenCalledExactlyOnceWith("ok", { mounted: true, draft_ref: DRAFT_REF, revision: 1 });
     expect(screen.getByRole("textbox", { name: "Subject" })).toHaveValue("Demo tomorrow");
-    expect(screen.getByRole("link", { name: "Enable sending" })).toHaveAttribute("href", "/one/gmail");
+    expect(screen.getByRole("link", { name: "Reconnect Gmail" })).toHaveAttribute("href", "/one/gmail");
     expect(screen.getByRole("button", { name: /^Send$/ })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Review again" }));
     await waitFor(() => expect(draftSubmissions()).toHaveLength(1));

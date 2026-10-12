@@ -54,7 +54,7 @@
     },
     {
       "family_id": "pkm_encrypted_memory",
-      "owner": "vault-pkm-governance",
+      "owner": "security-audit",
       "mode": "report_only",
       "job_id": "pkm_revision_retention_report"
     },
@@ -98,7 +98,7 @@
   "table_families": [
     {
       "id": "vault_key_material",
-      "owner": "vault-pkm-governance",
+      "owner": "security-audit",
       "data_class": "personal_encrypted",
       "lifecycle_status": "current",
       "exact_tables": [
@@ -217,7 +217,7 @@
     },
     {
       "id": "pkm_encrypted_memory",
-      "owner": "vault-pkm-governance",
+      "owner": "security-audit",
       "data_class": "personal_encrypted",
       "lifecycle_status": "current",
       "exact_tables": [
@@ -331,7 +331,7 @@
     },
     {
       "id": "pkm_metadata_and_scope",
-      "owner": "vault-pkm-governance",
+      "owner": "security-audit",
       "data_class": "personal_metadata",
       "lifecycle_status": "current",
       "exact_tables": [
@@ -350,7 +350,7 @@
     },
     {
       "id": "pkm_default_available_projection",
-      "owner": "vault-pkm-governance",
+      "owner": "security-audit",
       "data_class": "personal_projection",
       "lifecycle_status": "current",
       "exact_tables": [
@@ -365,7 +365,7 @@
     },
     {
       "id": "pkm_upgrade_workflows",
-      "owner": "vault-pkm-governance",
+      "owner": "security-audit",
       "data_class": "workflow_state",
       "lifecycle_status": "current",
       "exact_tables": [
@@ -384,7 +384,7 @@
     },
     {
       "id": "legacy_memory_cutover",
-      "owner": "vault-pkm-governance",
+      "owner": "security-audit",
       "data_class": "personal_encrypted",
       "lifecycle_status": "legacy_migration",
       "exact_tables": [
@@ -408,7 +408,7 @@
     },
     {
       "id": "domain_reference_registry",
-      "owner": "vault-pkm-governance",
+      "owner": "security-audit",
       "data_class": "reference",
       "lifecycle_status": "transitional",
       "exact_tables": [
@@ -695,7 +695,7 @@
     },
     {
       "id": "pkm_packets",
-      "owner": "vault-pkm-governance",
+      "owner": "security-audit",
       "data_class": "personal_metadata",
       "lifecycle_status": "current",
       "exact_tables": [
@@ -1708,7 +1708,7 @@
     },
     {
       "id": "pkm_answer_deliveries",
-      "owner": "vault-pkm-governance",
+      "owner": "security-audit",
       "data_class": "personal_encrypted",
       "lifecycle_status": "customer0",
       "exact_tables": [

@@ -20,7 +20,6 @@ Use these repo-local skills when they fit the lane:
 - one-voice-governance
 - security-audit
 - iam-consent-governance
-- vault-pkm-governance
 
 Priorities:
 - actor model and consent policy drift
