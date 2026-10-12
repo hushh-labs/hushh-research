@@ -24,6 +24,24 @@ beforeEach(() => {
  mocks.state.mockResolvedValue({ eligible: true, grants: [grant("1")], nextCursor: "1", hasMore: true });
 });
 afterEach(() => vi.unstubAllGlobals());
+it("reloads sharing after a hidden tab invalidates an in-flight response", async () => {
+ let current = true;
+ let finish!: (value: unknown) => void;
+ const readContext = () => ({ ...context, isCurrent: () => current });
+ mocks.state.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+ render(<WalletSavedCardSharing card={card} getContext={readContext} disabled={false} />);
+ await waitFor(() => expect(finish).toBeTypeOf("function"));
+ current = false;
+ Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+ fireEvent(document, new Event("visibilitychange"));
+ await act(async () => finish({ eligible: true, grants: [grant("stale")], nextCursor: null }));
+ expect(screen.queryByText("Person stale")).toBeNull();
+ current = true;
+ Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+ fireEvent(document, new Event("visibilitychange"));
+ await screen.findByText("Person 1");
+ expect(mocks.state).toHaveBeenCalledTimes(2);
+});
 it("shows one-person icons and sharing dates without the sent-copies section", async () => {
  render(<WalletSavedCardSharing card={card} getContext={getContext} disabled={false} />);
  await screen.findByText("Person 1");
