@@ -121,7 +121,7 @@ def test_image_build_accepts_only_registered_environment_origins(environment, pr
     guard = guard.replace("${_DEPLOY_ENV}", environment).replace("$$", "$")
     hostname = f"{prefix}.{domain}"
     allowed = _run(
-        guard + '\nprintf "%s" "$PASSKEY_RP_ID_VAL"',
+        "set -e\n" + guard + '\nprintf "%s" "$PASSKEY_RP_ID_VAL"',
         env={"PASSKEY_RP_ID_VAL": hostname},
     )
     assert allowed.returncode == 0, allowed.stderr
