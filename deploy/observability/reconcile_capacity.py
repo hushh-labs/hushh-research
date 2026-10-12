@@ -175,7 +175,10 @@ def same_log_metric(current: dict[str, Any], desired: dict[str, Any]) -> bool:
     def authored_labels(labels: list[dict[str, Any]]) -> list[tuple[Any, Any, Any]]:
         return sorted(
             (
-                label.get("key"), label.get("valueType"), label.get("description", "")
+                # Cloud Monitoring omits the default STRING value type on readback.
+                label.get("key"),
+                label.get("valueType", "STRING"),
+                label.get("description", ""),
             )
             for label in labels
         )
