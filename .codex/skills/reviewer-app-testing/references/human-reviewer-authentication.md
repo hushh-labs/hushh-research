@@ -92,7 +92,8 @@ completion. Ordinary protected-route arrival remains exact. After admission, use
 same-session Next navigation through the normal setup surfaces. An explicit
 `/register-phone` visit disables only the route-audit phone shortcut and verifies
 the real account requirement; known verified or established owners still leave
-that form. For a new reviewer, choose Shared, verify phone, choose managed AI,
-then Finish setup to create the vault and acknowledge recovery. Account details
+that form. For a new reviewer, choose Shared and managed AI in the hosting wizard,
+then Finish agent setup to return to the setup hub. Verify phone and Finish setup
+to create the vault and acknowledge recovery. Account details
 open in the existing profile pane after unlock; a legacy Profile URL redirects
 to the pane on `/one`, and cannot stand in for first-run phone verification.

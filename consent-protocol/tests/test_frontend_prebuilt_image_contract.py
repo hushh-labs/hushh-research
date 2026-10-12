@@ -117,7 +117,7 @@ def test_image_build_steps_stay_identical_to_the_combined_build() -> None:
 @pytest.mark.parametrize("domain", ["hushh.ai", "hussh.ai", "hussh.si"])
 def test_image_build_accepts_only_registered_environment_origins(environment, prefix, domain):
     step = _body(_steps(FRONTEND_IMAGE_BUILD)["resolve-google-contacts-client-config"])
-    # Execute the actual catalog guard without invoking cloud services or writing /workspace.
+    # Run the actual catalog guard without cloud calls or writes to /workspace.
     guard = step[step.index('python3 - "${_DEPLOY_ENV}"') : step.index("\nPY_RP") + len("\nPY_RP")]
     guard = guard.replace("${_DEPLOY_ENV}", environment).replace("$$", "$")
     allowed = _run(guard, env={"PASSKEY_RP_ID_VAL": f"{prefix}.{domain}"})
@@ -264,7 +264,9 @@ def test_native_public_clients_resolve_only_in_dev_and_fail_closed(
     assert client not in built.stdout + built.stderr
 
 
-def test_frontend_resolver_rejects_retired_dev_origin_before_secret_reads(tmp_path: Path) -> None:
+def test_frontend_resolver_rejects_wrong_environment_origin_before_secret_reads(
+    tmp_path: Path,
+) -> None:
     config = yaml.safe_load(FRONTEND_IMAGE_BUILD.read_text(encoding="utf-8"))
     values = {name: str(value) for name, value in config["substitutions"].items()}
     values.update({"_DEPLOY_ENV": "dev", "_APP_ENV": "dev"})
@@ -278,12 +280,12 @@ def test_frontend_resolver_rejects_retired_dev_origin_before_secret_reads(tmp_pa
     result = _run(
         "gcloud() { echo UNEXPECTED_CLOUD_COMMAND >&2; return 1; };\n" + resolver,
         env={
-            "APP_FRONTEND_ORIGIN_VAL": "https://dev.one.hushh.ai",
+            "APP_FRONTEND_ORIGIN_VAL": "https://uat.one.hussh.si",
             "PROJECT_ID": "synthetic-project",
         },
     )
     assert result.returncode == 1
-    assert "APP_FRONTEND_ORIGIN host does not match the dev frontend domain." in result.stdout
+    assert "APP_FRONTEND_ORIGIN host does not match the deployment environment" in result.stderr
     assert "UNEXPECTED_CLOUD_COMMAND" not in result.stdout + result.stderr
 
 

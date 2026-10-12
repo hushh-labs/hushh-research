@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
   finance: vi.fn(),
   welcome: vi.fn(),
   hasFinanceIntent: false,
+  runtimeChoiceSaved: true,
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => state.router,
@@ -43,7 +44,7 @@ vi.mock("@/lib/services/vault-service", () => ({ VaultService: {} }));
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
   PreVaultUserStateService: {
     getCachedBootstrapState: () => ({ oneRuntimeSetupChoice: "managed" }),
-    hasOneRuntimeChoice: () => true,
+    hasOneRuntimeChoice: () => state.runtimeChoiceSaved,
   },
 }));
 vi.mock("@/lib/services/pre-vault-sensitive-draft-service", () => ({
@@ -79,6 +80,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   state.user = { uid: "recipient" };
   state.hasFinanceIntent = false;
+  state.runtimeChoiceSaved = true;
   state.finalize.mockResolvedValue(undefined);
   state.sync.mockResolvedValue(undefined);
   state.finance.mockResolvedValue(undefined);
@@ -91,6 +93,19 @@ beforeEach(() => {
 });
 
 describe("AI-choice setup invitation continuation", () => {
+  it.each([false, true])("embedded readiness requires the durable AI choice (%s)", (saved) => {
+    state.runtimeChoiceSaved = saved;
+    const ready = vi.fn();
+    render(<GeminiRuntimeConfigurationPage setupMode embeddedInCloudSetup onSetupReadyChange={ready} />);
+    expect(screen.getByRole("region", { name: "AI access" })).toBeVisible();
+    expect(screen.queryByRole("main")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Choose AI" }));
+    expect(ready).toHaveBeenLastCalledWith(saved);
+    if (!saved) expect(ready).not.toHaveBeenCalledWith(true);
+    expect(state.router.replace).not.toHaveBeenCalled();
+  });
+
   it("returns to the setup hub with the invitation preserved", () => {
     render(<GeminiRuntimeConfigurationPage setupMode />);
     fireEvent.click(screen.getByRole("button", { name: "Choose AI" }));

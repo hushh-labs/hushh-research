@@ -636,6 +636,12 @@ export function buildOneSetupConnectionsRoute(
   });
 }
 
+export function buildOneSetupCloudRoute(returnTo?: string | null): string {
+  return withQuery(ROUTES.ONE_SETUP_CLOUD, {
+    return_to: resolveOneSetupReturnTo(returnTo),
+  });
+}
+
 /** Resume the memory-only Finance selection without losing its later return. */
 export function buildOneSetupFinanceImportRoute(returnTo?: string | null): string {
   return withQuery(ROUTES.ONE_SETUP_FINANCE_IMPORT, {

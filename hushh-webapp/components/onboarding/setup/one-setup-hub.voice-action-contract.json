@@ -21,8 +21,8 @@
   "actions": [
     {
       "action_id": "setup.open_cloud",
-      "label": "Set up your cloud",
-      "meaning": "Opens the step where the person names and authorizes their own Google Cloud project for their private agent.",
+      "label": "Set up your private agent",
+      "meaning": "Opens one wizard to choose hosting, prove the cloud setup when required, and then select verified AI access.",
       "aliases": [
         "set up my cloud",
         "connect my cloud",
@@ -90,7 +90,7 @@
           "one_setup_hub",
           "one_setup"
         ],
-        "hidden_navigable": false,
+        "hidden_navigable": true,
         "navigation_prerequisites": []
       },
       "guard_ids": [
@@ -103,9 +103,7 @@
         "path": "route",
         "target": "/one/setup/connections"
       },
-      "control_ids": [
-        "one_setup_tile_connections"
-      ],
+      "control_ids": [],
       "state_exposure": [],
       "docs_references": []
     },

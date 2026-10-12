@@ -63,7 +63,7 @@ describe("PostAuthRouteService", () => {
     loadPendingOnboardingMock.mockResolvedValue(null);
     refreshIdentityMock.mockResolvedValue({ phone_verified: false });
     await expect(PostAuthRouteService.resolveAfterLogin({ userId: "new-user", idToken: "google-token", hostname: "one.hushh.ai" }))
-      .resolves.toBe(buildPhoneMandateRoute(ROUTES.ONE_SETUP_CONNECTIONS));
+      .resolves.toBe(buildPhoneMandateRoute(ROUTES.ONE_SETUP_CLOUD));
     expect(refreshIdentityMock).toHaveBeenCalledWith("new-user", "google-token");
   });
 
@@ -72,7 +72,7 @@ describe("PostAuthRouteService", () => {
     loadPendingOnboardingMock.mockResolvedValue(null);
     peekIdentityMock.mockReturnValue({ data: { phone_verified: true } });
     await expect(PostAuthRouteService.resolveAfterLogin({ userId: "user", hostname: "one.hushh.ai" }))
-      .resolves.toBe(ROUTES.ONE_SETUP_CONNECTIONS);
+      .resolves.toBe(ROUTES.ONE_SETUP_CLOUD);
     expect(refreshIdentityMock).not.toHaveBeenCalled();
   });
   it.each([
@@ -300,7 +300,7 @@ describe("PostAuthRouteService", () => {
     expect(normalizeInternalRouteHref(redirect)).toBe(redirect);
   });
 
-  it("routes vault users with unresolved onboarding straight to the AI-choice step", async () => {
+  it("routes vault users with unresolved onboarding straight to the hosting-first wizard", async () => {
     bootstrapStateMock.mockResolvedValue({
       hasVault: true,
       setupCompleted: false,
@@ -309,7 +309,7 @@ describe("PostAuthRouteService", () => {
 
     await expect(
       PostAuthRouteService.resolveAfterLogin({ userId: "user_123" }),
-    ).resolves.toBe(ROUTES.ONE_SETUP_CONNECTIONS);
+    ).resolves.toBe(ROUTES.ONE_SETUP_CLOUD);
   });
 
   it("keeps the provider token attached to the authoritative setup bootstrap", async () => {
@@ -497,7 +497,7 @@ describe("PostAuthRouteService", () => {
         userId: "user_123",
         phoneNumber: "+16505550101",
       }),
-    ).resolves.toBe(ROUTES.ONE_SETUP_CONNECTIONS);
+    ).resolves.toBe(ROUTES.ONE_SETUP_CLOUD);
     expect(updatePreVaultStateMock).not.toHaveBeenCalled();
   });
 
@@ -524,7 +524,7 @@ describe("PostAuthRouteService", () => {
         userId: "user_123",
         phoneNumber: "+16505550101",
       }),
-    ).resolves.toBe(ROUTES.ONE_SETUP_CONNECTIONS);
+    ).resolves.toBe(ROUTES.ONE_SETUP_CLOUD);
     expect(updatePreVaultStateMock).not.toHaveBeenCalled();
   });
 
@@ -571,7 +571,7 @@ describe("PostAuthRouteService", () => {
         userId: "user_123",
         phoneNumber: null,
       }),
-    ).resolves.toBe(buildPhoneMandateRoute(ROUTES.ONE_SETUP_CONNECTIONS));
+    ).resolves.toBe(buildPhoneMandateRoute(ROUTES.ONE_SETUP_CLOUD));
   });
 
   it("keeps completed no-vault accounts home without repeating phone onboarding", async () => {
@@ -784,7 +784,7 @@ describe("PostAuthRouteService", () => {
         phoneNumber: null,
         hostname: "dev.one.hushh.ai",
       })
-    ).resolves.toBe(buildPhoneMandateRoute(ROUTES.ONE_SETUP_CONNECTIONS));
+    ).resolves.toBe(buildPhoneMandateRoute(ROUTES.ONE_SETUP_CLOUD));
   });
 
   describe("first-run One Setup gate", () => {
@@ -883,7 +883,7 @@ describe("PostAuthRouteService", () => {
       ).resolves.toBe(ROUTES.KAI_PORTFOLIO);
     });
 
-    it("routes a user with unresolved onboarding straight to the AI-choice step", async () => {
+    it("routes a user with unresolved onboarding straight to the hosting-first wizard", async () => {
       bootstrapStateMock.mockResolvedValue({
         hasVault: true,
         setupCompleted: false,
@@ -896,7 +896,7 @@ describe("PostAuthRouteService", () => {
           phoneVerified: true,
           enableFirstRunSetupGate: true,
         }),
-      ).resolves.toBe(ROUTES.ONE_SETUP_CONNECTIONS);
+      ).resolves.toBe(ROUTES.ONE_SETUP_CLOUD);
     });
   });
   it.each([null, undefined])("does not interpret unknown phone status (%s) as a fresh-account challenge", async (phoneVerified) => {

@@ -49,25 +49,32 @@ def test_google_compatibility_callback_preserves_calendar_path_and_gmail_fallbac
     assert google_compatibility_callback("", calendar_path, gmail_callback) == gmail_callback
 
 
-def test_google_callback_alias_is_exact_and_environment_scoped(monkeypatch):
-    monkeypatch.setenv("APP_FRONTEND_ORIGIN", "https://uat.one.hushh.ai")
-    callback = "https://uat.one.hushh.ai/one/profile/google/oauth/return"
+@pytest.mark.parametrize("domain", ["hushh.ai", "hussh.ai", "hussh.si"])
+def test_google_callback_alias_is_exact_and_environment_scoped(monkeypatch, domain):
+    monkeypatch.setenv("APP_FRONTEND_ORIGIN", f"https://uat.one.{domain}")
+    callback = f"https://uat.one.{domain}/one/profile/google/oauth/return"
     monkeypatch.setenv("GOOGLE_OAUTH_REDIRECT_URI", callback)
     monkeypatch.setenv(
         "CORS_ALLOWED_ORIGINS",
-        "https://uat.one.hushh.ai,https://uat.one.hussh.ai,https://one.hussh.ai",
+        "https://uat.one.hushh.ai,https://uat.one.hussh.ai,https://uat.one.hussh.si,https://one.hussh.si",
     )
     service = GoogleConnectionService()
-    assert service._redirect_uri(callback.replace("hushh.ai", "hussh.ai")) == (
-        "https://uat.one.hussh.ai/one/profile/google/oauth/return"
-    )
+    for alias in ("hushh.ai", "hussh.ai", "hussh.si"):
+        expected = f"https://uat.one.{alias}/one/profile/google/oauth/return"
+        assert service._redirect_uri(expected) == expected
     for invalid in (
-        "https://one.hussh.ai/one/profile/google/oauth/return",
-        "https://uat.one.hussh.ai/other",
-        "https://uat.one.hussh.ai/one/profile/google/oauth/return?extra=1",
+        "https://one.hussh.si/one/profile/google/oauth/return",
+        "https://uat.one.hussh.si/other",
+        "https://uat.one.hussh.si/one/profile/google/oauth/return?extra=1",
+        "https://evil.uat.one.hussh.si/one/profile/google/oauth/return",
     ):
         with pytest.raises(GoogleConnectionError):
             service._redirect_uri(invalid)
+
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://uat.one.hussh.si")
+    other_domain = "hushh.ai" if domain == "hussh.si" else "hussh.si"
+    with pytest.raises(GoogleConnectionError):
+        service._redirect_uri(f"https://uat.one.{other_domain}/one/profile/google/oauth/return")
 
 
 def test_custom_callback_does_not_gain_a_spelling_alias_from_cors(monkeypatch):

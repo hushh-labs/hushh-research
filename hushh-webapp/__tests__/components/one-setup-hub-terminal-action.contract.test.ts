@@ -33,17 +33,9 @@ describe("One setup hub terminal action contract", () => {
     expect(source).toContain(
       "cloudComplete && phoneVerified && runtimeChoiceComplete",
     );
-    // The source order keeps agent home before phone and AI access.
-    // Broken on purpose: move the cloud tile below AI access and this goes red.
-    // The phone sits between them: the agent's record is minted from it.
-    expect(source.indexOf('cloudComplete ? "Agent home"')).toBeLessThan(
+    // Hosting and AI share one wizard; neither durable prerequisite is removed.
+    expect(source.indexOf('id="cloud"')).toBeLessThan(
       source.indexOf('title="Verify your phone"'),
-    );
-    expect(source.indexOf('title="Verify your phone"')).toBeLessThan(
-      source.indexOf('title="Choose your AI"'),
-    );
-    expect(source.indexOf('cloudComplete ? "Agent home"')).toBeLessThan(
-      source.indexOf('title="Choose your AI"'),
     );
     expect(source).toContain(
       "PreVaultUserStateService.hasOneRuntimeChoice(currentState)",
@@ -69,22 +61,6 @@ describe("One setup hub terminal action contract", () => {
     expect(styles).not.toContain("--app-bottom-inset");
   });
 
-  it("keeps AI access with the remaining setup work instead of a separate private configuration section", () => {
-    const source = readFileSync(
-      join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
-      "utf8",
-    );
-
-    expect(source).toContain('title="Remaining"');
-    expect(source).toContain('title="Choose your AI"');
-    expect(source).toContain("<SetupNavigationTile");
-    expect(source).toContain('voiceControlId="one_setup_tile_connections"');
-    expect(source).not.toContain("Private configuration");
-    expect(source.indexOf('title="Choose your AI"')).toBeLessThan(
-      source.indexOf('title="Complete"'),
-    );
-  });
-
   it("marks the one mandatory row as required rather than leaving it a quiet grey status", () => {
     const hub = readFileSync(
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
@@ -104,14 +80,13 @@ describe("One setup hub terminal action contract", () => {
     // row's label is dynamic now (it reads "Setting up (step N of 6)" while
     // the background job runs), and "Required" stays its resting default.
     // The cloud row is pinned first in both states; its label walks
-    // Connected -> setting-up stage -> Required, and the AI row's tone goes
-    // accent only once the cloud ahead of it is done.
+    // The combined row stays required until both durable choices are saved.
     expect(hub).toContain("? cloudSetupStageLabel");
     expect(hub).toContain(
-      'statusTone={cloudComplete ? undefined : "required"}',
+      'statusTone={cloudComplete && runtimeChoiceComplete ? undefined : "required"}',
     );
-    expect(hub).toContain("phoneVerified && !runtimeChoiceComplete");
-    expect(hub).toContain('"After agent home"');
+    expect(hub).toContain("isCurrent={!cloudComplete || !runtimeChoiceComplete}");
+    expect(hub).toContain("isComplete={cloudComplete && runtimeChoiceComplete}");
     expect(tile).toContain('statusTone === "required"');
     expect(tile).toContain("bg-[var(--app-accent-tint)]");
     expect(tile).toContain('aria-current={isCurrent ? "step" : undefined}');
@@ -196,7 +171,7 @@ describe("One setup hub terminal action contract", () => {
       /const isBlockedTappableAction =\s+blocked && !disabled && !busy && !isQuietSetupAction/,
     );
     // One block, not a stacked description -- the two-line toast ceiling.
-    expect(hub).toContain('toast.info("Choose your AI first."');
+    expect(hub).toContain('toast.info("Finish your agent setup."');
     expect(hub).not.toContain('description: "Pick how One gets its AI');
     expect(hub).not.toContain(
       "title={\n                !runtimeChoiceComplete",
@@ -207,7 +182,7 @@ describe("One setup hub terminal action contract", () => {
 
     // The header summary still names it on both layouts, so the blocker is
     // legible before the tap as well as after it.
-    expect(hub).toContain('"Choose your AI first."');
+    expect(hub).toContain('"Finish your agent setup."');
   });
 
   it("keeps the mandatory-step language out of system nouns", () => {
@@ -479,7 +454,7 @@ describe("One setup hub reaches the cloud choice", () => {
 
   it("renders a cloud tile aimed at the canonical setup route", () => {
     expect(source()).toContain('id="cloud"');
-    expect(source()).toContain("href={ROUTES.ONE_SETUP_CLOUD}");
+    expect(source()).toContain("href={buildOneSetupCloudRoute(returnTo)}");
     expect(source()).toContain('voiceControlId="one_setup_tile_cloud"');
   });
 

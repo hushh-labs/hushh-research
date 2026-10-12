@@ -16376,7 +16376,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_google_connection_account_binding.py",
       "symbol": null,
-      "value": 804
+      "value": 811
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16916,7 +16916,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_drive_uat_registry_provisioning.py",
       "symbol": null,
-      "value": 513
+      "value": 538
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16988,7 +16988,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_frontend_prebuilt_image_contract.py",
       "symbol": null,
-      "value": 655
+      "value": 695
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19184,7 +19184,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/connections/byoc-cloud-setup-page.tsx",
       "symbol": null,
-      "value": 782
+      "value": 811
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20633,7 +20633,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/navigation/routes.ts",
       "symbol": null,
-      "value": 966
+      "value": 972
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29126,7 +29126,40 @@
       "reviewed_at": "2026-10-08T19:51:43.522523+00:00",
       "source_sha256": "ede48565225ee7a9f7e9b739f774bb80a1f3ee1a95de91a3d8e7650fc7033186"
     },
-    "source_revision": "27375a3d27ff39506cc33949b09a386d8e87cb7d"
+    "source_revision": "27375a3d27ff39506cc33949b09a386d8e87cb7d",
+    "si_domain_auth_regressions_20261012": {
+      "after": 695,
+      "before": 655,
+      "evidence_revision": "86c1fded75f17b438211084d538806620b6be56b",
+      "key": "module_size|consent-protocol/tests/test_frontend_prebuilt_image_contract.py||module exceeds the advisory operon budget",
+      "path": "consent-protocol/tests/test_frontend_prebuilt_image_contract.py",
+      "review": "Two focused regressions execute existing shell guards to preserve same-environment domain admission and source-free prebuilt resolution; no runtime-module growth. Independent review found neither covered by existing prebuilt cases. Budgets, scanner, exclusions and all other findings unchanged.",
+      "reviewer": "si_compatibility_review",
+      "source_sha256": "1519641ed2da11dde757c456b38921c8456f818b993a681bcbcc83db69e30518",
+      "verification": "87 nearest backend cases passed; the new cases cover the observed Step1 catalog-read defect and foreign-environment negative controls."
+    },
+    "scope_main_domain_compatibility_20261012": {
+      "base_revision": "84cf7669ba3d5df4aaac2d6a26ade40d191cb7f3",
+      "preserved_branch_revision": "ed2f9dde2ee60ea73b4df9b522674b9828563851",
+      "measurements": [
+        {
+          "path": "consent-protocol/tests/services/test_google_connection_account_binding.py",
+          "before": 804,
+          "after": 811,
+          "source_sha256": "236da37d63cdd38029246155fc816e3334c1dec44fd4e3886b7c440375b5396a",
+          "reviewer": "sync_backend_review",
+          "evidence": "Read-only independent review: distinct exact-environment OAuth/CORS and Drive registry authority regressions imported from main. No production budget, scanner, exclusion or other finding changed."
+        },
+        {
+          "path": "consent-protocol/tests/test_drive_uat_registry_provisioning.py",
+          "before": 513,
+          "after": 538,
+          "source_sha256": "9183801cc51d3fbf877080eec72b6f34c3203fa2617da059c29ea16b5c986616",
+          "reviewer": "sync_backend_review",
+          "evidence": "Read-only independent review: distinct exact-environment OAuth/CORS and Drive registry authority regressions imported from main. No production budget, scanner, exclusion or other finding changed."
+        }
+      ]
+    }
   },
   "review": {
     "account_service_deprovision_fix": "Reviewed 2026-10-06: 2793 to 2797, the account erasure deprovision built as the route builds it (registry + backend); a bare constructor raised TypeError since 2026-09-08.",
@@ -32683,6 +32716,29 @@
           "after": 997,
           "source_sha256": "3d310accd68d86f598109ea3b08760f680a6fc2f66bcad03f04f130a8f9c2af4",
           "reason": "One regression protects the observed ambient profile-research refusal in dev381874 and mutation-authorized resumption in the nearest existing suite. 27 cases pass; old behavior fails the exact zero-request assertion."
+        }
+      ]
+    },
+    "hosting_ai_setup_consolidation_20261011": {
+      "parent_revision": "97830fa5b4af365b14b51acc64d4da3b6ccc27be",
+      "reviewer": "main_ui_fitness_review",
+      "scope": "Two existing module-size slots only; cohesive hosting/AI composition, validated owner fences, durable readiness, safe return navigation. Budgets and scanner unchanged.",
+      "slots": [
+        {
+          "key": "module_size|hushh-webapp/components/connections/byoc-cloud-setup-page.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/components/connections/byoc-cloud-setup-page.tsx",
+          "before": 782,
+          "after": 811,
+          "source_sha256": "801f095c2180e998e8b253df0cc92065e1588eb73993cf3d1d058b52cab7e271",
+          "reason": "Cohesive existing owner composition, durable hosting/AI readiness, validated generation fences and canonical internal return navigation."
+        },
+        {
+          "key": "module_size|hushh-webapp/lib/navigation/routes.ts||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/lib/navigation/routes.ts",
+          "before": 966,
+          "after": 972,
+          "source_sha256": "f7cad036c18fff9b5e45c2679991137fd73d88a914a76b97c7bdff3ad413f625",
+          "reason": "Cohesive existing owner composition, durable hosting/AI readiness, validated generation fences and canonical internal return navigation."
         }
       ]
     }

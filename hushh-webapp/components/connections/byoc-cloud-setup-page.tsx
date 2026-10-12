@@ -10,6 +10,7 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { ByocSetupFailedCard } from "@/components/connections/byoc-setup-failed-card";
+import { GeminiRuntimeConfigurationPage } from "@/components/connections/gemini-runtime-configuration-page";
 import { AzureFreeTrialNote, SetupStageChecklist } from "@/components/connections/byoc-setup-stage-checklist";
 import { HostingChoiceCards, type HostingChoice } from "@/components/connections/hosting-choice-cards";
 import {
@@ -24,6 +25,12 @@ import { OwnerCloudProviderChoice } from "@/components/connections/owner-cloud-p
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/firebase/auth-context";
+import {
+  isValidatedAuthSessionOwnerCurrent,
+  snapshotValidatedAuthSessionOwner,
+  type AuthSessionOwnerSnapshot,
+} from "@/lib/auth/session-owner";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import {
   azureSubscriptionFromRef,
   useAzureSetupStartedSignal,
@@ -51,7 +58,7 @@ import {
 } from "@/lib/one/owner-cloud";
 import { ApiService } from "@/lib/services/api-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildOneSetupRoute, resolveOneSetupReturnTo, ROUTES } from "@/lib/navigation/routes";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 
@@ -81,10 +88,20 @@ function azureConnected(location: string | null | undefined) {
 export const CLOUD_CHECK_TIMEOUT_MS = 15_000;
 
 export function ByocCloudSetupPage() {
+  const { user } = useAuth();
+  const owner = snapshotValidatedAuthSessionOwner();
+  return <OwnerCloudSetupPage key={`${user?.uid ?? "signed-out"}:${owner?.generation ?? "unresolved"}`} user={user} owner={owner} />;
+}
+
+function OwnerCloudSetupPage({ user, owner }: {
+  user: ReturnType<typeof useAuth>["user"];
+  owner: AuthSessionOwnerSnapshot | null;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user } = useAuth();
+  const ownerCurrent = useCallback(() => Boolean(owner && owner.userId === user?.uid && isValidatedAuthSessionOwnerCurrent(owner)), [owner, user?.uid]);
   const [saving, setSaving] = useState(false);
+  const [aiReady, setAiReady] = useState(false);
   const authorizationStarting = useRef(false);
   const [error, setError] = useState<string | null>(null);
   // The already-connected state, resolved on mount. This page used to hold all
@@ -119,7 +136,7 @@ export function ByocCloudSetupPage() {
   // Which owner cloud the registry names, so a reserved or assigned Azure home
   // is never sent down the Google authorization path.
   const [ownerProvider, setOwnerProvider] = useState<OwnerCloudProvider | null>(null);
-  const azureSignIn = useAzureSignIn();
+  const azureSignIn = useAzureSignIn({ isCurrent: ownerCurrent });
   const { start: startAzureSignIn } = azureSignIn;
   // The live stage record of the background setup job. Fetched on mount (a
   // person can leave and come back mid-job) and polled every 2s while running.
@@ -271,7 +288,9 @@ export function ByocCloudSetupPage() {
   }, [user?.uid, hostingMode, setupPollNonce]);
 
   useEffect(() => {
-    if (!user?.uid || hostingMode !== "byoc" || ownerProvider === "azure") return;
+    if (!user?.uid || (hostingMode !== "shared" && (hostingMode !== "byoc" || ownerProvider === "azure"))) return;
+    // A saved Shared choice cannot conceal an interrupted own-cloud setup.
+    if (hostingMode === "shared" && (!setupStatusReadOk || job !== null)) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -279,6 +298,10 @@ export function ByocCloudSetupPage() {
           PreVaultUserStateService.getCachedBootstrapState(user.uid) ??
           (await PreVaultUserStateService.bootstrapState(user.uid));
         if (cancelled || !PreVaultUserStateService.hasOneCloudProject(state)) {
+          return;
+        }
+        if (hostingMode === "shared") {
+          setSharedChosen(true);
           return;
         }
         const suggestion = await ApiService.suggestByocProject();
@@ -295,7 +318,7 @@ export function ByocCloudSetupPage() {
     return () => {
       cancelled = true;
     };
-  }, [user?.uid, hostingMode, ownerProvider]);
+  }, [user?.uid, hostingMode, ownerProvider, setupStatusReadOk, job]);
 
   usePublishVoiceSurfaceMetadata({ screenId: "one_setup_cloud" });
 
@@ -316,7 +339,7 @@ export function ByocCloudSetupPage() {
   }, [searchParams]);
 
   const handleProjectNamed = useCallback(async (projectId: string) => {
-    if (authorizationStarting.current) return;
+    if (!ownerCurrent() || authorizationStarting.current) return;
     authorizationStarting.current = true;
     setSaving(true);
     setError(null);
@@ -324,11 +347,12 @@ export function ByocCloudSetupPage() {
       // A transient suggestion failure must not strand someone who entered
       // an existing project. The backend alone admits Files to this setup.
       const suggestion = await ApiService.suggestByocProject().catch(() => null);
+      if (!ownerCurrent()) return;
       const begun = await ApiService.beginByocAuthorize({
         projectId,
         filesEnabled: suggestion?.filesAvailable === true,
       });
-      window.location.assign(begun.authUrl);
+      if (ownerCurrent()) window.location.assign(begun.authUrl);
       return;
     } catch (err) {
       const serverReason =
@@ -346,26 +370,29 @@ export function ByocCloudSetupPage() {
       authorizationStarting.current = false;
       setSaving(false);
     }
-  }, []);
+  }, [ownerCurrent]);
 
   // Azure's one-click setup: the Microsoft sign-in (in a popup), then the return
   // route. A retry names the failed job's subscription, which goes straight to its directory.
   const startAzureSetup = useCallback(
     (subscriptionId?: string | null) => {
+      if (!ownerCurrent()) return Promise.resolve();
       setError(null);
       const filesEnabled = job && azureSubscriptionFromRef(job.projectId)
         ? job.stages.some((entry) => entry.stage === "files_selection" && entry.enabled === true)
         : true;
       return startAzureSignIn("setup", subscriptionId ?? undefined, filesEnabled);
     },
-    [startAzureSignIn, job],
+    [startAzureSignIn, job, ownerCurrent],
   );
 
   const chooseHosted = useCallback(async () => {
+    if (!ownerCurrent()) return;
     setError(null);
     setHostedSaving(true);
     try {
       const result = await ApiService.selectHostedCloud();
+      if (!ownerCurrent()) return;
       setHosted(result);
       if (user?.uid) {
         // The server just wrote the durable `cloud` marker; refresh the shared
@@ -391,13 +418,15 @@ export function ByocCloudSetupPage() {
     } finally {
       setHostedSaving(false);
     }
-  }, [user?.uid]);
+  }, [ownerCurrent, user?.uid]);
 
   const chooseShared = useCallback(async () => {
+    if (!ownerCurrent()) return;
     setError(null);
     setSharedSaving(true);
     try {
       const result = await ApiService.selectSharedHosting();
+      if (!ownerCurrent()) return;
       setHostingMode(result.hostingMode);
       setSharedChosen(true);
       setJob(null); // a begun setup's intent is cleared by the choice
@@ -413,7 +442,7 @@ export function ByocCloudSetupPage() {
     } finally {
       setSharedSaving(false);
     }
-  }, [user?.uid]);
+  }, [ownerCurrent, user?.uid]);
 
   // A durable connected project or a selected hosting mode completes this step.
   const connectedBefore = existing !== null && reservedProjectId === null;
@@ -423,8 +452,9 @@ export function ByocCloudSetupPage() {
       job.projectId === reservedProjectId,
   );
   const authorized =
-    connectedBefore || recordedReservedProject || hostedChosen || sharedChosen ||
+    connectedBefore || recordedReservedProject || hostedChosen || (sharedChosen && hostingMode === "shared" && job === null) ||
     hostingMode === "hussh_pods";
+  const hostingSaving = saving || sharedSaving || hostedSaving || azureSignIn.starting;
   // One alert, whichever cloud's authorization refused.
   const shownError = error ?? azureSignIn.error;
 
@@ -461,15 +491,23 @@ export function ByocCloudSetupPage() {
         : null;
 
   const finish = useCallback(() => {
+    if (!ownerCurrent() || !authorized || !aiReady || hostingSaving) {
+      return { status: "blocked" as const, summary: "Finish your hosting and AI selection first." };
+    }
+    const href = buildOneSetupRoute({
+      returnTo: resolveOneSetupReturnTo(searchParams.get("return_to")),
+    });
     const requested = requestInternalAppNavigation({
-      href: ROUTES.ONE_SETUP,
+      href,
       replace: true,
       scroll: false,
       source: "programmatic",
       transitionMode: "full",
     });
-    if (!requested) router.replace(ROUTES.ONE_SETUP);
-  }, [router]);
+    if (!requested) router.replace(href);
+    return { status: "started" as const, summary: "Your agent setup is saved.", routeAfter: href };
+  }, [aiReady, authorized, hostingSaving, ownerCurrent, router, searchParams]);
+  useLocalOnboardingActionHandler("setup.finish_cloud", finish);
 
   return (
     <AppPageShell
@@ -749,33 +787,24 @@ export function ByocCloudSetupPage() {
         ) : null}
 
         {authorized ? (
-          <p
-            className="text-sm text-[var(--app-success)]"
-            data-testid="byoc-cloud-authorized"
-          >
-            Connected. Your private agent can be set up in your cloud.
-          </p>
+          <GeminiRuntimeConfigurationPage
+            key={user?.uid}
+            setupMode
+            embeddedInCloudSetup
+            onSetupReadyChange={setAiReady}
+          />
         ) : null}
       </AppPageContentRegion>
       <SetupCompletionFooter
-        label="Finish cloud setup"
+        label="Finish agent setup"
         onComplete={finish}
-        busy={saving}
-        // Gated on the PROVEN grant, not on the form. A person who advances here
-        // without it reaches AI access, chooses a model, and their provisioning is
-        // then refused for a reason they were never shown on this screen.
-        disabled={!authorized || saving}
+        busy={hostingSaving}
+        // The existing AI selector acknowledges only a saved, verified choice.
+        // Keeping both prerequisites here avoids a second setup trip from the hub.
+        disabled={!authorized || !aiReady || hostingSaving || !ownerCurrent()}
         controlId="one-setup-cloud-terminal"
         actionId="setup.finish_cloud"
-        purpose="Record the person's own cloud and return to setup."
-        // Only forward-looking copy earns a line here. The disabled reason is not
-        // restated (Restraint Charter: cut copy that repeats a control's own state);
-        // the authorize block above already says what is needed.
-        supportingText={
-          authorized
-            ? "Your agent will be built in your own cloud."
-            : undefined
-        }
+        purpose="Keep the verified hosting and AI choice, then return to setup."
       />
     </AppPageShell>
   );

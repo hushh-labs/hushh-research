@@ -2648,3 +2648,16 @@ candidate creation alone does not prove traffic promotion or terminal release
 success. Reviewer payments, private Azure setup, encrypted synthetic fixtures,
 Connect/Checkout journeys and One's separate Stripe OAuth remain acceptance work.
 The confirmed $5 Sandbox Topup is recorded once; do not repeat it while resuming.
+
+
+### Shared Dev continuation and restart recovery — 2026-10-12 UTC
+
+The deployed frontend release [38199862501](https://github.com/hushh-labs/hushh-research/actions/runs/38199862501) passed at `1aeb1b4e83b6`; the backend remained at `22e9146432a5`. Counterpart headless checks proved normal vault unlock, Saved/Add navigation, Memory earnings and Saved sharing, Account transaction filters, same-session key continuity and separate cold re-unlock. Exact-scope pricing and encrypted purchase delivery remain unverified.
+
+The account dashboard recovered through its normal Check payments control after an initial 429 and delayed release notices. No account-hook change was justified. Normal authenticated payout setup reached Stripe Connect after a current Sandbox attestation matched the expected account and test mode. Stripe rejected the contact step with `expected_hcaptcha_error`; a provider telemetry request was also refused by the rehearsal guard. This attempt is not clean onboarding acceptance. Complete provider human verification through the ordinary account flow; never substitute SDK-created eligibility.
+
+The last read at 04:42 UTC recorded no reviewer funding, purchases or withdrawals, one capital journal entry, three provider operations and one seller account. The already confirmed $5 Topup must not be repeated. Primary private Azure provisioning remained blocked by the subscription's one-environment quota; preserve the counterpart's environment and private processing. Owner Azure capacity, Connect onboarding, exact funding confirmations and One's authenticated Stripe reads remain acceptance prerequisites.
+
+Canonical core passed at `eb34af7b290b` in 554 seconds. The interrupted merged candidate had passed 200 focused backend cases and 18 capability-base cases; its later Back run timed out in one existing case. The host restart ended that run and its debugging client. The temporary verification checkout was lost, so recovery uses one ignored verification copy, the existing branch commits and fresh main `84cf7669ba3d`; no new branch or shared environment is introduced. Full combined core and exact-source hosted CI must qualify the recovered candidate before release.
+
+The concurrent verified-hosting/saved-AI setup contract changes completion semantics. Revision `8a957610367a7fda` therefore has one explicit fail-closed cloud-workflow retirement; unrelated workflow histories remain retained. Two incoming main test-module measurements are independently reviewed in the existing architecture baseline; budgets, scanner, exclusions and all other findings remain unchanged. Current prompt changes are source-qualified only: the installed counterpart pod remains `2026.10-dev.15+1d88a25b7e47.cdcf8dc2`, and no private-pod software update is implied by a shared Dev release.

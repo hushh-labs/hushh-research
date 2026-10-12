@@ -908,6 +908,22 @@ Local Android release signing:
 
 Related Origin Requests requires browser support. Keep passphrase/recovery available for unsupported browsers; do not replace or reset an existing vault. Firebase sign-in and HttpOnly cookies are origin-bound, and vault keys remain memory-only. A cross-domain navigation requires sign-in and unlock again; account-owned history is restored through the existing authenticated APIs. Never transfer tokens, keys or decrypted information in redirect URLs or browser storage.
 
+### Staging another public domain
+
+Register the environment-specific OAuth origins and exact callbacks with each
+existing provider application before directing browser navigation to the new
+domain. Preserve existing callback, authentication and `/.well-known` endpoints
+on their original hosts for in-flight requests and installed native clients.
+Firebase authorized domains, Contacts/Picker browser restrictions, provider
+registries, CORS and passkey RP allowlists are separate checks; a DNS alias does
+not grant any of them. The frontend build checks its host against the same
+environment-scoped passkey catalog used by runtime secret synchronization.
+
+Stage certificate validation, destination routing and application compatibility
+first. Verify the deployed destination and provider registrations before changing
+canonical application origins or enabling redirects. Domain preparation is not
+proof of a completed migration or an enabled connector.
+
 ### Document Hussh Coins and sandbox Connect
 
 `DRIVE_REQUEST_HASHCOINS_ENABLED` enrolls only new document requests in coin

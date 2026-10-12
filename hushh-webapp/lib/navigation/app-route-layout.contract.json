@@ -150,7 +150,6 @@
       "primaryActionId": "setup.open_cloud",
       "happyPathActionIds": [
         "setup.open_cloud",
-        "setup.open_connections",
         "setup.open_gmail",
         "setup.open_calendar",
         "setup.open_location",
@@ -3931,9 +3930,9 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.setup.cloud",
-      "purpose": "Choose and authorize the person's own cloud so their private agent can be built there, before any AI-access choice is made.",
+      "purpose": "Choose verified hosting, then configure AI access in the same agent setup wizard.",
       "screen": "one_setup_cloud",
-      "entryCue": "Choose where your agent lives, then sign in to your cloud so it can be built there.",
+      "entryCue": "Choose where your private agent lives, then choose its AI access.",
       "proactivity": "on_entry",
       "primaryActionId": "setup.finish_cloud",
       "happyPathActionIds": [
@@ -3948,7 +3947,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Setup records the project and the proven grant only. No credential is ever held: authorization is re-proven per operation with a short-lived impersonated token.",
+      "completionBoundary": "Finish returns to the hub only after verified hosting and a durable AI choice; it never acknowledges root onboarding.",
       "nextRoute": "/one/setup",
       "returnPolicy": "return_to_hub",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."

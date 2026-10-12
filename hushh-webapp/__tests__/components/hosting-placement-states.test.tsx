@@ -9,6 +9,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { ApiService } from "@/lib/services/api-service";
 import { ByocCloudSetupPage } from "@/components/connections/byoc-cloud-setup-page";
 import { readHostingMode } from "@/lib/one/hosting-placement";
@@ -42,6 +43,9 @@ vi.mock("@/lib/services/api-service", () => ({
     beginByocAuthorize: vi.fn(),
   },
 }));
+vi.mock("@/components/connections/gemini-runtime-configuration-page", () => ({
+  GeminiRuntimeConfigurationPage: () => <section aria-label="AI access" />,
+}));
 vi.mock("@/components/onboarding/setup/setup-completion-footer", () => ({
   SetupCompletionFooter: () => null,
 }));
@@ -67,6 +71,7 @@ function given(agent: Record<string, unknown>, job: Record<string, unknown> = NO
 describe("cloud step placement states", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    publishValidatedAuthSessionOwner("owner");
     vi.mocked(ApiService.suggestByocProject).mockResolvedValue(null as never);
   });
 
@@ -118,7 +123,7 @@ describe("cloud step placement states", () => {
     render(<ByocCloudSetupPage />);
     fireEvent.click(await screen.findByTestId("hosting-consent-choose-shared"));
     await waitFor(() => expect(ApiService.selectSharedHosting).toHaveBeenCalledTimes(1));
-    expect(await screen.findByTestId("byoc-cloud-authorized")).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "AI access" })).toBeInTheDocument();
   });
 
   it("shows Connecting to your agent while a recorded home attaches", async () => {

@@ -33,6 +33,8 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-
 
 type GeminiRuntimeConfigurationPageProps = {
   setupMode?: boolean;
+  embeddedInCloudSetup?: boolean;
+  onSetupReadyChange?: (ready: boolean) => void;
 };
 
 export function GeminiRuntimeConfigurationPage(props: GeminiRuntimeConfigurationPageProps) {
@@ -49,6 +51,8 @@ export function GeminiRuntimeConfigurationPage(props: GeminiRuntimeConfiguration
 
 function OwnerRuntimeConfigurationPage({
   setupMode = false,
+  embeddedInCloudSetup = false,
+  onSetupReadyChange,
   auth,
 }: GeminiRuntimeConfigurationPageProps & { auth: ReturnType<typeof useAuth> }) {
   const router = useRouter();
@@ -74,6 +78,12 @@ function OwnerRuntimeConfigurationPage({
   const [canContinue, setCanContinue] = useState(false);
   const [unlockOpen, setUnlockOpen] = useState(false);
   const [finishing, setFinishing] = useState(false);
+  const embedded = setupMode && embeddedInCloudSetup;
+
+  useEffect(() => {
+    onSetupReadyChange?.(canContinue && hasRuntimeChoice === true);
+    return () => onSetupReadyChange?.(false);
+  }, [canContinue, hasRuntimeChoice, onSetupReadyChange]);
 
   useEffect(() => {
     if (setupMode) {
@@ -180,10 +190,10 @@ function OwnerRuntimeConfigurationPage({
   useLocalOnboardingActionHandler(
     "setup.finish_connections",
     finishConnections,
-    { enabled: setupMode },
+    { enabled: setupMode && !embedded },
   );
 
-  usePublishVoiceSurfaceMetadata({
+  usePublishVoiceSurfaceMetadata(embedded ? null : {
     screenId: setupMode ? "one_setup_connections" : "one_connections_settings",
     title: setupMode ? "AI access setup" : "Gemini settings",
     purpose: "Choose how the private agent reaches Gemini.",
@@ -199,6 +209,67 @@ function OwnerRuntimeConfigurationPage({
           ]
         : [],
   });
+
+  const runtimeSettings = (
+        <GeminiRuntimeSettingsCard
+          userId={user?.uid}
+          vaultKey={vaultKey}
+          vaultOwnerToken={vaultOwnerToken}
+          needsVaultCreation={needsVaultCreation}
+          needsUnlock={needsUnlock}
+          onRequestVaultCreation={() => setUnlockOpen(true)}
+          onRequestVaultUnlock={() => setUnlockOpen(true)}
+          requiresExplicitSelection={setupMode}
+          initiallyConfigured={hasRuntimeChoice === true && (
+            setupChoice !== "byok_pending_vault" || isVaultUnlocked ||
+            Boolean(user?.uid && PreVaultSensitiveDraftService.hasGeminiRuntime(user.uid))
+          )}
+          onCanContinueChange={setupMode ? setCanContinue : undefined}
+          initialSetupChoice={setupChoice}
+          onSelectionReadyChange={
+            setupMode && user?.uid
+              ? async (choice) => {
+                  const owner = snapshotValidatedAuthSessionOwner();
+                  if (!mountedRef.current || !owner || owner.userId !== user.uid) return;
+                  const state =
+                    await PreVaultUserStateService.markOneRuntimeChoice(
+                      user.uid,
+                      choice,
+                    );
+                  if (!mountedRef.current || !isValidatedAuthSessionOwnerCurrent(owner)) return;
+                  setSetupChoice(state.oneRuntimeSetupChoice);
+                  setHasRuntimeChoice(true);
+                  if (choice === "hushh_managed_vertex") {
+                    PreVaultSensitiveDraftService.clearGeminiRuntime(user.uid);
+                  }
+                }
+              : undefined
+          }
+          onPreVaultDraftStaged={
+            setupMode && user?.uid
+              ? (draft) =>
+                  PreVaultSensitiveDraftService.stageGeminiRuntime(
+                    user.uid,
+                    draft,
+                  )
+              : undefined
+          }
+          onPreVaultDraftCleared={
+            setupMode && user?.uid
+              ? () => PreVaultSensitiveDraftService.clearGeminiRuntime(user.uid)
+              : undefined
+          }
+        />
+  );
+
+  if (embedded) {
+    return (
+      <section aria-label="AI access" className="space-y-4">
+        <h2 className="text-base font-semibold">AI access</h2>
+        {runtimeSettings}
+      </section>
+    );
+  }
 
   const content = (
     <AppPageShell
@@ -274,55 +345,7 @@ function OwnerRuntimeConfigurationPage({
           surface rhythm; without it the two SettingsGroups render flush and the
           "Coming soon" heading looks cramped against the Gemini card (#1940). */}
       <AppPageContentRegion className={setupMode ? setupStyles.aiSelectionContent : "space-y-6"}>
-        <GeminiRuntimeSettingsCard
-          userId={user?.uid}
-          vaultKey={vaultKey}
-          vaultOwnerToken={vaultOwnerToken}
-          needsVaultCreation={needsVaultCreation}
-          needsUnlock={needsUnlock}
-          onRequestVaultCreation={() => setUnlockOpen(true)}
-          onRequestVaultUnlock={() => setUnlockOpen(true)}
-          requiresExplicitSelection={setupMode}
-          initiallyConfigured={hasRuntimeChoice === true && (
-            setupChoice !== "byok_pending_vault" || isVaultUnlocked ||
-            Boolean(user?.uid && PreVaultSensitiveDraftService.hasGeminiRuntime(user.uid))
-          )}
-          onCanContinueChange={setupMode ? setCanContinue : undefined}
-          initialSetupChoice={setupChoice}
-          onSelectionReadyChange={
-            setupMode && user?.uid
-              ? async (choice) => {
-                  const owner = snapshotValidatedAuthSessionOwner();
-                  if (!mountedRef.current || !owner || owner.userId !== user.uid) return;
-                  const state =
-                    await PreVaultUserStateService.markOneRuntimeChoice(
-                      user.uid,
-                      choice,
-                    );
-                  if (!mountedRef.current || !isValidatedAuthSessionOwnerCurrent(owner)) return;
-                  setSetupChoice(state.oneRuntimeSetupChoice);
-                  setHasRuntimeChoice(true);
-                  if (choice === "hushh_managed_vertex") {
-                    PreVaultSensitiveDraftService.clearGeminiRuntime(user.uid);
-                  }
-                }
-              : undefined
-          }
-          onPreVaultDraftStaged={
-            setupMode && user?.uid
-              ? (draft) =>
-                  PreVaultSensitiveDraftService.stageGeminiRuntime(
-                    user.uid,
-                    draft,
-                  )
-              : undefined
-          }
-          onPreVaultDraftCleared={
-            setupMode && user?.uid
-              ? () => PreVaultSensitiveDraftService.clearGeminiRuntime(user.uid)
-              : undefined
-          }
-        />
+        {runtimeSettings}
         {/* Not shown during first-run setup: the person is still connecting the key
             the pod would run on, and offering to build one mid-flow would interrupt
             the journey they are already in. */}
@@ -363,9 +386,7 @@ function OwnerRuntimeConfigurationPage({
     </AppPageShell>
   );
 
-  // AI access is a root prerequisite rather than an agent capability, and it is
-  // the ONE step that blocks finishing setup. It deliberately does not sit
-  // behind the shared cinematic prologue: a mandatory two-option choice must be
-  // one tap from the hub, not a screen, a Continue, and then the choice.
+  // The standalone route remains available for existing bookmarks. New setup
+  // composes the same authority-bearing choice inside the hosting wizard.
   return content;
 }

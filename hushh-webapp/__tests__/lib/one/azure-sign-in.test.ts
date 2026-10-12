@@ -55,6 +55,22 @@ describe("starting the Microsoft sign-in", () => {
     expect(mocks.assign).not.toHaveBeenCalled();
   });
 
+  it("does not navigate or focus a popup after its owner or page becomes stale", async () => {
+    let current = true;
+    let settle!: (value: { authorizationUrl: string }) => void;
+    mocks.begin.mockReturnValue(new Promise((resolve) => { settle = resolve; }));
+    const assign = vi.fn();
+    const focus = vi.fn();
+    const popup = { closed: false, location: { assign }, focus } as unknown as Window;
+    const pending = startAzureSignIn("setup", undefined, popup, undefined, () => current);
+    current = false;
+    settle({ authorizationUrl: SIGN_IN });
+    await expect(pending).rejects.toThrow("AZURE_SIGN_IN_SUPERSEDED");
+    expect(assign).not.toHaveBeenCalled();
+    expect(focus).not.toHaveBeenCalled();
+    expect(mocks.assign).not.toHaveBeenCalled();
+  });
+
   it("refuses in the mobile shells, which have no return leg yet", async () => {
     mocks.native.mockReturnValue(true);
     await expect(startAzureSignIn("setup")).rejects.toBeInstanceOf(AzureSignInUnavailableError);

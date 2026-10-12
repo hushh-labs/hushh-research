@@ -85,8 +85,10 @@ export async function startAzureSignIn(
   subscriptionId?: string,
   popup: Window | null = null,
   filesEnabled?: boolean,
+  isCurrent: () => boolean = () => true,
 ): Promise<"popup" | "tab"> {
   if (!isAzureSignInAvailable()) throw new AzureSignInUnavailableError();
+  if (!isCurrent()) throw new Error("AZURE_SIGN_IN_SUPERSEDED");
   const begun =
     kind === "upgrade"
       ? await ApiService.beginAzureByocUpgrade()
@@ -96,6 +98,7 @@ export async function startAzureSignIn(
             ...(subscriptionId ? { subscriptionId } : {}),
             ...(filesEnabled !== undefined ? { filesEnabled } : {}),
           });
+  if (!isCurrent()) throw new Error("AZURE_SIGN_IN_SUPERSEDED");
   if (popup && !popup.closed) {
     popup.location.assign(begun.authorizationUrl);
     popup.focus();
@@ -269,8 +272,9 @@ export const UPDATE_POPUP_CLOSED_NOTICE =
  * `inPlace` keeps the sign-in in this window: the return page passes it, because it
  * already IS the popup, and opening another from it stacked a second window.
  */
-export function useAzureSignIn({ inPlace = false }: { inPlace?: boolean } = {}) {
+export function useAzureSignIn({ inPlace = false, isCurrent = () => true }: { inPlace?: boolean; isCurrent?: () => boolean } = {}) {
   const inFlight = useRef(false);
+  const mounted = useRef(true);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -280,7 +284,10 @@ export function useAzureSignIn({ inPlace = false }: { inPlace?: boolean } = {}) 
     if (watch.current) clearInterval(watch.current);
     watch.current = null;
   }, []);
-  useEffect(() => stopWatching, [stopWatching]);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; stopWatching(); };
+  }, [stopWatching]);
 
   // A popup closed before setup started (the person closed it, or Microsoft stopped
   // them on its own page) leaves this tab waiting forever unless it notices.
@@ -306,7 +313,7 @@ export function useAzureSignIn({ inPlace = false }: { inPlace?: boolean } = {}) 
 
   const start = useCallback(
     async (kind: AzureSignInKind, subscriptionId?: string, filesEnabled?: boolean) => {
-      if (inFlight.current) return;
+      if (!mounted.current || !isCurrent() || inFlight.current) return;
       inFlight.current = true;
       setStarting(true);
       setError(null);
@@ -315,17 +322,17 @@ export function useAzureSignIn({ inPlace = false }: { inPlace?: boolean } = {}) 
       // are; the popup must open before the first await.
       const popup = !inPlace && isAzureSignInAvailable() ? openSignInPopup() : null;
       try {
-        const where = await startAzureSignIn(kind, subscriptionId, popup, filesEnabled);
+        const where = await startAzureSignIn(kind, subscriptionId, popup, filesEnabled, () => mounted.current && isCurrent());
         if (popup && where === "popup") watchPopup(popup, kind);
       } catch (cause) {
         popup?.close();
-        setError(azureSignInErrorMessage(cause, kind));
+        if (mounted.current && isCurrent()) setError(azureSignInErrorMessage(cause, kind));
       } finally {
         inFlight.current = false;
-        setStarting(false);
+        if (mounted.current && isCurrent()) setStarting(false);
       }
     },
-    [inPlace, watchPopup],
+    [inPlace, isCurrent, watchPopup],
   );
 
   const clearError = useCallback(() => {
