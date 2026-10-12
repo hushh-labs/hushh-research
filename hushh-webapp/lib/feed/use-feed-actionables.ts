@@ -1,6 +1,8 @@
 "use client";
 
 import { isAnswerRequestEntry } from "@/lib/consent/answer-request-consent";
+import { AnswerRequestService } from "@/lib/services/answer-request-service";
+import { AuthService } from "@/lib/services/auth-service";
 import {
   documentRequestEntrySetup,
   documentRequestSetupHref,
@@ -967,6 +969,38 @@ export function useFeedActionables(): UseFeedActionablesResult {
     ],
   );
 
+  /**
+   * Refuse a Request scope question from the Feed row.
+   *
+   * Only the refusal is inline. Allow is not: approving this question binds
+   * the exact information it may use and a price, and neither fits on a row.
+   * Allow opens the review that shows both, so nothing is ever granted from a
+   * control that did not show what it was granting.
+   */
+  const declineAnswerRequest = useCallback(
+    async (requestId: string) => {
+      try {
+        const token = await AuthService.getIdToken();
+        if (!token) throw new Error("Sign in to decline this question.");
+        await AnswerRequestService.decline(token, requestId);
+      } catch (cause) {
+        toast.error(
+          cause instanceof Error
+            ? cause.message
+            : "That could not be declined.",
+        );
+        return;
+      }
+      // The row leaves "Needs you" on the next read: a declined request is
+      // terminal, so it moves to history rather than being hidden locally.
+      dispatchConsentStateChanged({
+        userId: user?.uid,
+        requestId: `answer_request:${requestId}`,
+      });
+    },
+    [user?.uid],
+  );
+
   // The Feed row carries no request text. Allow therefore reads the owner's
   // vault-protected review first: the sheet shows its purpose, period,
   // recipient and access, and Allow answers that review's revision. A request
@@ -1478,31 +1512,130 @@ export function useFeedActionables(): UseFeedActionablesResult {
         if (isAnswerRequestEntry(entry)) {
           const state = String(entry.metadata?.request_status || entry.status);
           const owner = entry.metadata?.role === "owner";
-          const label = owner
-            ? state === "answering"
-              ? "Write answer"
-              : "Review question"
-            : "Review price and pay";
+          const requestId = entry.request_id || "";
+          const question = String(entry.metadata?.question || "").trim();
+          const amountCents =
+            typeof entry.metadata?.amount_cents === "number"
+              ? entry.metadata.amount_cents
+              : null;
+          // What the resolver suggested is not evidence that an answer
+          // exists. The owner's device prepares the answer at approval and
+          // says whether the approved information yielded anything; only that
+          // decides whether there is something to buy.
+          const staged = entry.metadata?.answer_staged === true;
+          const stagedEmpty = staged && entry.metadata?.answer_has_content === false;
+          // Approved, but the owner's device has not reported yet: it may be
+          // locked, offline or still reading. Saying "not found" here would
+          // be a guess, and offering a price would be one too.
+          const preparing = state === "approved" && !staged;
           const href = buildConsentCenterHref("pending", {
             requestId: entry.id,
             from: "/one/feed",
           });
+          // "Pay $5 · what is your age?" reads as one sentence, the way the
+          // document lane's row does, so the price is decided before the tap.
+          const payLabel =
+            amountCents === null
+              ? null
+              : `Pay ${formatDocumentRequestPrice(amountCents)}`;
+          const description = owner
+            ? state === "answering"
+              ? "Write answer"
+              : stagedEmpty
+                ? "Nothing of yours answers this question"
+                : "Set price"
+            : stagedEmpty
+              ? "Answer not found"
+              : preparing
+                ? "Checking their memory for an answer"
+                : state === "approved"
+                  ? // Approved and prepared: a price exists. Without the
+                    // amount in this projection the row still reaches the card.
+                    (payLabel ?? "Review price and pay")
+                  : state === "answered"
+                    ? "Open the answer"
+                    : "Waiting for them to set a price";
+          // Deny is inline because a refusal grants nothing. Allow opens the
+          // review: approving binds the exact information and the price, and
+          // neither can be shown on a row.
+          const ownerDeciding = owner && state === "awaiting_owner" && !stagedEmpty;
+          // Pay is offered only against a prepared answer that has content.
+          const requesterPaying =
+            !owner &&
+            state === "approved" &&
+            staged &&
+            !stagedEmpty &&
+            Boolean(payLabel);
+          const actions: FeedActionButton[] = ownerDeciding
+            ? [
+                {
+                  key: "deny-answer",
+                  label: "Deny",
+                  tone: "danger",
+                  confirm: true,
+                  run: () => declineAnswerRequest(requestId),
+                },
+                {
+                  key: "allow-answer",
+                  label: "Allow",
+                  tone: "success",
+                  run: () => router.push(href),
+                },
+              ]
+            : requesterPaying
+              ? [
+                  {
+                    key: "pay-answer",
+                    label: payLabel!,
+                    tone: "primary",
+                    // Straight to Checkout, like the document lane's Pay. The
+                    // price was decided before the tap, so a second screen
+                    // only to press Pay again is a step with no decision in it.
+                    run: async () => {
+                      try {
+                        const token = await AuthService.getIdToken();
+                        if (!token) throw new Error("Sign in to continue");
+                        window.location.assign(
+                          await AnswerRequestService.checkout(token, requestId),
+                        );
+                      } catch {
+                        // Paying is its own rollout gate: the request and its
+                        // price stand even when checkout cannot open, and
+                        // nothing has been charged.
+                        toast.error("Checkout couldn't open. You weren't charged.");
+                      }
+                    },
+                  },
+                ]
+              : stagedEmpty || preparing
+                ? []
+                : [
+                    {
+                      key: "review-answer",
+                      label: owner
+                        ? state === "answering"
+                          ? "Write answer"
+                          : "Review question"
+                        : state === "approved"
+                          ? "Review price and pay"
+                          : "Open",
+                      tone: "primary",
+                      run: () => router.push(href),
+                    },
+                  ];
           items.push({
             id: `consent:${entry.id}`,
             icon: ConsentAgentIcon,
             iconTone: "capability",
-            title: requesterLabel,
-            description: label,
+            title:
+              requesterPaying && question
+                ? `${payLabel} · ${question}`
+                : requesterLabel,
+            description,
             href,
-            chevron: true,
-            actions: [
-              {
-                key: "review-answer",
-                label,
-                tone: "primary",
-                run: () => router.push(href),
-              },
-            ],
+            ...(actions.length ? { onSelect: () => router.push(href) } : {}),
+            chevron: actions.length === 0,
+            actions,
             sortAt:
               parseConsentInstant(entry.issued_at) ??
               firstSeenAt(`consent:${entry.id}`),
@@ -2085,6 +2218,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
     consentDecision.allow,
     declineConsentRequest,
     declineDocumentRequest,
+    declineAnswerRequest,
     openDocumentPrice,
     markConsentSettled,
     settledConsentKeys,

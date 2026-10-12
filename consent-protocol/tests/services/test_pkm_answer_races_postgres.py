@@ -1096,3 +1096,57 @@ class TestDisabledLane:
         assert await worker.run_timeouts() == {"disabled": 1}
         assert await worker.run_refunds() == {"disabled": 1}
         assert await worker.run_payouts() == {"disabled": 1}
+
+
+class TestStagedAnswerIsWithheldUntilPaid:
+    """Preparing the answer at approval, and releasing it only for money.
+
+    The owner's device prepares the answer while it is unlocked and present,
+    so nobody is asked to pay for an answer that turns out not to exist. That
+    moves the envelope into the database BEFORE the money, and the envelope is
+    sealed to the requester's own key -- so the read gate is the only thing
+    between them and a free answer. These hold that line.
+    """
+
+    async def test_a_staged_answer_cannot_be_read_before_payment(self, answer_engine):  # noqa: F811
+        service, request_id, _ = await _approved(answer_engine)
+        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
+
+        # Staged, not delivered: the request has not moved and nothing is owed.
+        with answer_engine.begin() as connection:
+            assert (
+                connection.execute(
+                    text("SELECT status FROM pkm_answer_requests WHERE request_id=:r"),
+                    {"r": request_id},
+                ).scalar()
+                == "approved"
+            )
+            assert (
+                connection.execute(
+                    text("SELECT count(*) FROM pkm_answer_deliveries WHERE request_id=:r"),
+                    {"r": request_id},
+                ).scalar()
+                == 1
+            )
+
+        with pytest.raises(AnswerRequestError, match="answer_unavailable"):
+            await service.fetch_answer(requester_user_id=REQUESTER, request_id=request_id)
+
+    async def test_an_empty_staged_answer_is_never_offered_for_sale(self, answer_engine):  # noqa: F811
+        from hushh_mcp.services.pkm_answer_payment_service import (
+            AnswerPaymentError,
+            PkmAnswerPaymentService,
+        )
+
+        service, request_id, _ = await _approved(answer_engine)
+        # The approved information yielded nothing. One payment buys one
+        # answer, so there is nothing here to sell and no refund to owe later.
+        await service.deliver(
+            owner_user_id=OWNER,
+            request_id=request_id,
+            envelope=ENVELOPE,
+            has_content=False,
+        )
+        payments = PkmAnswerPaymentService(db=_db(answer_engine))
+        with pytest.raises(AnswerPaymentError, match="answer_not_found"):
+            await payments.checkout(requester_user_id=REQUESTER, request_id=request_id)

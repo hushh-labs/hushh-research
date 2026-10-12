@@ -9034,3 +9034,86 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   --referral-medal-deep: #b8894d;
   --referral-medal-light: #d4a574;
 }
+
+/* Equal outer tracks center One with the controls on wide screens;
+   narrow phones keep a separate control row to prevent overlap. */
+.agent-chat-header[data-one-centered-header="true"] {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-rows: 120px 44px;
+  column-gap: 12px;
+  row-gap: 8px;
+  height: calc(184px + var(--agent-chat-header-safe-top));
+  padding-top: calc(4px + var(--agent-chat-header-safe-top));
+  padding-bottom: 8px;
+}
+.agent-chat-header[data-one-centered-header="true"] > :first-child {
+  grid-column: 1;
+  grid-row: 2;
+}
+.agent-chat-header[data-one-centered-header="true"] > :last-child {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: end;
+}
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+}
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-brand-tile] {
+  width: 64px;
+  height: 64px;
+}
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child {
+  max-width: 100%;
+}
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] p {
+  justify-content: center;
+}
+
+@media (min-width: 768px) {
+  .agent-chat-header[data-one-centered-header="true"] {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    grid-template-rows: 120px;
+    height: calc(136px + var(--agent-chat-header-safe-top));
+    padding-top: calc(8px + var(--agent-chat-header-safe-top));
+  }
+  .agent-chat-header[data-one-centered-header="true"] > :first-child {
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: start;
+    align-self: start;
+    margin-top: 10px;
+  }
+  .agent-chat-header[data-one-centered-header="true"] > :last-child {
+    grid-column: 3;
+    grid-row: 1;
+    align-self: start;
+    margin-top: 10px;
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] {
+    grid-column: 2;
+    align-self: start;
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] p {
+    max-width: 128px;
+  }
+}
+@media (min-width: 1024px) {
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] p {
+    max-width: 256px;
+  }
+}
+
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child > div {
+  display: table;
+  margin-inline: auto;
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: var(--app-card-surface-default);
+  box-shadow: var(--app-card-shadow-standard);
+}
