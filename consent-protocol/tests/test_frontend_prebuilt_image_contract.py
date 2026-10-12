@@ -516,3 +516,46 @@ def test_uat_and_production_verify_the_candidate_runs_the_pinned_digest() -> Non
         run = str(_lane_step(lane, verify)["run"])
         assert "spec.containers[0].image" in run
         assert '"${deployed_image}" != "${EXPECTED_IMAGE_REFERENCE}"' in run
+
+
+@pytest.mark.parametrize(
+    "configured,expected",
+    [
+        ({}, {"python": "https://api.example.com", "developer": "https://api.example.com"}),
+        (
+            {"BACKEND_URL": "https://shared.example.com"},
+            {"python": "https://shared.example.com", "developer": "https://shared.example.com"},
+        ),
+        (
+            {
+                "BACKEND_URL": "https://shared.example.com",
+                "PYTHON_API_URL": "https://python.example.com",
+                "DEVELOPER_API_URL": "https://developer.example.com",
+            },
+            {"python": "https://python.example.com", "developer": "https://developer.example.com"},
+        ),
+    ],
+)
+def test_web_ci_build_binds_explicit_server_origins(configured, expected) -> None:
+    # Exercise the real CI adapter without building or contacting a backend.
+    # Public client configuration must never become server routing authority.
+    script = """
+source scripts/ci/web-common.sh
+npm() {
+  python3 -c 'import json,os; print(json.dumps({"python":os.environ.get("PYTHON_API_URL"),"developer":os.environ.get("DEVELOPER_API_URL")}))'
+}
+web_ci_build
+"""
+    result = _run(
+        script,
+        env={
+            "PYTHON_API_URL": "",
+            "DEVELOPER_API_URL": "",
+            "BACKEND_URL": "",
+            "NEXT_PUBLIC_BACKEND_URL": "https://client-only.example.com",
+            "NEXT_PUBLIC_DEVELOPER_API_URL": "https://client-only.example.com",
+            **configured,
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == expected
