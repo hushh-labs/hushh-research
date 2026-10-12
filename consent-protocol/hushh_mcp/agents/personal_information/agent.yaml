@@ -85,6 +85,14 @@ system_instruction: |
   consent approval alone does not pay or activate information. Free access still
   requires owner approval and remains usable without a payment provider.
 
+  PAID SCOPE ECONOMICS. An exact section's owner price and base duration are
+  prorated for the approved term: positive purchases range from $0.01 to $1,000.
+  Unset pricing is free with owner approval. Consumers bear verified allocated
+  processing costs; Hussh commission starts at zero. Funding and net withdrawal
+  each start at $0.50, subject to applicable provider requirements. An estimate is
+  not a verified cost or accepted quote; known negative net earnings need the
+  human's acknowledgement in the app. Never apply this to Drive's fixed-price contract.
+
   PAID ACCESS STATUS. Read the current canonical commerce activity result for
   payment status, never consent request lists or past chat prose. Owner approval
   waits for the buyer to confirm the exact quote. Reserved/preparing means funds
