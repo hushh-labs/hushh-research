@@ -297,6 +297,27 @@ describe("actual paid-answer coherent reads and encrypted projection reuse", () 
     expect(await SecureResourceCacheService.listResourceKeys(OWNER, "answer_scope_projection:v1:")).toEqual([]);
   });
 
+  it("prepares a name-only answer after confirmed source absence without inventing profile facts", async () => {
+    transport.apiFetch.mockImplementation(async (url: string) => {
+      if (url.includes("/domain-snapshot/")) return new Response("", { status: 404 });
+      if (url.endsWith("/compose")) return Response.json({ answerMode: "agent", answer: "My name is Synthetic Public Name.", covers: [], gaps: [] });
+      throw new Error("Unexpected transport route");
+    });
+    const result = await buildAnswerPayload({
+      requestId: "11111111-2222-3333-4444-555555555555", question: "What is your name?",
+      periodStart: null, periodEnd: null, approvedScopes: [NAME_SCOPE], scopeLabels: {}, answerDeadlineAt: null,
+      requesterUserId: "synthetic-requester", recipientKey: { keyId: "fixture-key-id", publicKeyJwk: {} },
+      ownerIdentity: { displayName: "Synthetic Public Name" },
+    }, { ...PARAMS, ownerIdentity: { displayName: "Wrong caller name" } }, "synthetic-firebase-token");
+    expect(result.hasContent).toBe(true);
+    expect(result.payload.answer).toBe("My name is Synthetic Public Name.");
+    expect(result.payload.unavailableScopes).toEqual([]);
+    expect(result.payload.memory).toContain("Synthetic Public Name");
+    expect(result.payload.memory).not.toContain("Wrong caller name");
+    expect(result.payload.approvedInformation).toEqual({ [NAME_SCOPE]: {} });
+    expect(transport.apiFetch.mock.calls.filter(([url]) => String(url).endsWith("/compose"))).toHaveLength(1);
+  });
+
   it("measures cold/warm actual answer preparation and still composes each question separately", async () => {
     const state = { stored: await storedDomain({
       data: { profile: { name: "Synthetic Ava", age: 35, sex: "female", photo: "https://example.test/avatar.png", private_note: "unapproved note" } },
