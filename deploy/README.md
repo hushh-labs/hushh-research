@@ -15,7 +15,8 @@ Runtime traffic authority belongs to these workflows:
 
 1. [Deploy to Dev](../.github/workflows/deploy-dev.yml)
 2. [Deploy to UAT](../.github/workflows/deploy-uat.yml)
-3. [Deploy to Production](../.github/workflows/deploy-production.yml)
+3. [Deploy UAT One Chat Backend Only](../.github/workflows/deploy-uat-one-chat.yml)
+4. [Deploy to Production](../.github/workflows/deploy-production.yml)
 
 Humans dispatch governed workflows. Do not deploy images, mutate Cloud Run
 traffic, or repair CORS/runtime variables with direct `gcloud builds submit`,
@@ -48,6 +49,24 @@ Selection runs before entering the UAT environment, so this no-op
 creates no deployment record, builds, traffic changes, or release tag updates.
 Unknown deployment state and unavailable or failed gates still block selection.
 An explicit SHA continues through the existing exact-SHA deployment validator.
+
+For the One chat external Vertex cutover, including its pre-vault intro head,
+the reviewed deploy-uat-one-chat.yml workflow updates the existing consent-protocol service
+without touching the frontend, Drive worker, schedulers, secrets, or database.
+Dispatch it with an exact green main SHA after the Main Post-Merge Smoke Gate
+succeeds. It rejects accumulated backend image and release-input changes outside
+its cutover allowlist. Four Location files already on main are admitted only at
+their reviewed Git blob IDs; a later edit to those files blocks this lane. It
+creates a zero-traffic backend candidate, and uses a temporary Cloud Run Job
+under the UAT runtime identity to require a synthetic Gemini response from the
+external project. The Job must be deleted before traffic promotion. The workflow
+then promotes only the backend revision, verifies full traffic, and removes the
+candidate's direct tag URL. On failure it removes that tag, attempts to restore
+the prior backend traffic, and publishes the result as a release artifact. This
+partial deployment does not advance the full UAT release tag; normal UAT
+selection ignores its environment record when resolving the full-release
+baseline. The synthetic model check is a deployment gate, not an authenticated
+end-to-end chat acceptance test.
 
 Production is a separate explicit authority transition. UAT success does not
 authorize it, and UAT credentials or runtime identities must never be reused in
