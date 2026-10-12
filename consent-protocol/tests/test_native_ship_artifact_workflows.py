@@ -25,15 +25,18 @@ def _named(steps: list[dict], name: str) -> dict:
     return next(step for step in steps if step.get("name") == name)
 
 
-def test_android_release_is_green_main_uat_backed_play_production_and_fail_closed() -> None:
+def test_android_release_is_green_main_uat_backed_and_fail_closed() -> None:
     workflow = _workflow("ship-android-playstore-v1.yml")
     # PyYAML 1.1 treats the unquoted Actions `on` key as a boolean.
     assert set(workflow.get("on", workflow.get(True))) == {"workflow_dispatch"}
     inputs = workflow.get("on", workflow.get(True))["workflow_dispatch"]["inputs"]
-    assert set(inputs) == {"sha", "dry_run", "notes"}
+    assert set(inputs) == {"track", "sha", "dry_run", "notes"}
+    assert inputs["track"]["type"] == "choice"
+    assert inputs["track"]["default"] == "production"
+    assert set(inputs["track"]["options"]) == {"internal", "production"}
     assert workflow["permissions"]["checks"] == "read"
     assert workflow["env"]["GCP_PROJECT_ID"] == "hushh-pda-uat"
-    assert workflow["env"]["TARGET_TRACK"] == "production"
+    assert workflow["env"]["TARGET_TRACK"] == "${{ inputs.track }}"
     assert workflow["jobs"]["ship"]["environment"] == "uat"
     # Negative control: the lane never reads, authenticates to, or names the
     # production project; the binary is pointed at UAT only.
@@ -44,6 +47,7 @@ def test_android_release_is_green_main_uat_backed_play_production_and_fail_close
     steps = _steps(workflow, "ship")
     assert all("${{" not in step.get("run", "") for step in steps)
     names = [step["name"] for step in steps]
+    assert names[0] == "Validate target track"
     assert names.index("Resolve release SHA") < names.index("Check out exact release SHA")
     assert names.index("Check out exact release SHA") < names.index("Assert source SHA")
     assert names.index("Assert source SHA") < names.index(
@@ -157,7 +161,7 @@ def test_android_release_is_green_main_uat_backed_play_production_and_fail_close
     upload = _named(steps, "Upload .aab to Google Play Console")
     assert "github.event_name == 'workflow_dispatch'" in upload["if"]
     assert "inputs.dry_run != true" in upload["if"]
-    assert upload["with"]["tracks"] == "production"
+    assert upload["with"]["tracks"] == "${{ env.TARGET_TRACK }}"
     assert upload["with"]["status"] == "completed"
     summary = _named(steps, "Publish job summary")
     assert "printf -- '- **Target Track**: `%s`" in summary["run"]
@@ -179,6 +183,20 @@ def _run_step(step: dict, *, cwd: Path, env: dict[str, str]) -> subprocess.Compl
         text=True,
         check=False,
     )
+
+
+def test_android_release_refuses_unsupported_tracks_before_any_upload(tmp_path: Path) -> None:
+    step = _named(
+        _steps(_workflow("ship-android-playstore-v1.yml"), "ship"),
+        "Validate target track",
+    )
+    for track in ("internal", "production"):
+        result = _run_step(step, cwd=tmp_path, env={"TARGET_TRACK": track})
+        assert result.returncode == 0, result.stderr
+    for track in ("", "alpha", "beta", "production,internal", "internal; echo unsafe"):
+        result = _run_step(step, cwd=tmp_path, env={"TARGET_TRACK": track})
+        assert result.returncode != 0
+        assert "Refusing unsupported Google Play track" in result.stderr
 
 
 def test_android_uat_contract_refuses_every_non_uat_backend(tmp_path: Path) -> None:
@@ -327,13 +345,16 @@ def test_android_dry_run_still_queries_play_for_the_version_floor(tmp_path: Path
     assert "--update-gradle" in arguments
 
 
-def test_android_dispatcher_has_no_test_track_or_confirmation_bypass() -> None:
+def test_android_dispatcher_binds_selected_track_without_confirmation_bypass() -> None:
     dispatcher = (ROOT / "scripts/release/dispatch-android-playstore.mjs").read_text(
         encoding="utf-8"
     )
-    assert "--track" not in dispatcher
+    assert "--track" in dispatcher
+    assert 'track: "production"' in dispatcher
+    assert '["internal", "production"]' in dispatcher
+    assert 'track: options.track' in dispatcher
     assert "--yes" not in dispatcher
-    assert '"release production"' in dispatcher
+    assert '`release ${options.track}`' in dispatcher
     assert '"dry run"' in dispatcher
     assert "workflow_run_id" in dispatcher
 
@@ -364,11 +385,18 @@ def test_ios_dry_run_retains_ipa_without_requiring_upload_receipts() -> None:
     assert export_options["destination"] == "upload"
     assert export_options["method"] == "app-store-connect"
     assert export_options["signingStyle"] == "automatic"
-    ipa = _named(steps, "Preserve dry-run UAT IPA")
+    ipa = _named(steps, "Preserve dry-run UAT IPA in private bucket")
     assert "inputs.dry_run == true" in ipa["if"]
-    assert ipa["with"]["path"] == "${{ runner.temp }}/export/*.ipa"
-    assert ipa["with"]["if-no-files-found"] == "error"
-    assert "${{ needs.preflight.outputs.release_sha }}" in ipa["with"]["name"]
+    assert "upload-private-native-artifact.py" in ipa["run"]
+    assert '--source-sha "$RELEASE_SHA"' in ipa["run"]
+    assert ipa["env"]["RELEASE_SHA"] == "${{ needs.preflight.outputs.release_sha }}"
+    receipt = _named(steps, "Upload redacted private IPA receipt")
+    assert "inputs.dry_run == true" in receipt["if"]
+    assert receipt["with"]["path"].endswith("private-native-artifact-receipt.json")
+    assert receipt["with"]["if-no-files-found"] == "error"
+    for step in steps:
+        if str(step.get("uses", "")).startswith("actions/upload-artifact"):
+            assert ".ipa" not in str(step.get("with", {}).get("path", ""))
 
     for name in (
         "Preserve uploaded build identity for recovery",
