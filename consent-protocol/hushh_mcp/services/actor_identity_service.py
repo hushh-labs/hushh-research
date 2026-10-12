@@ -1473,11 +1473,77 @@ class ActorIdentityService:
         if cached and not force and not self._is_stale(cached):
             return cached
 
+        user_record = await self._get_firebase_user_record(
+            normalized_user_id, require_success=require_success
+        )
+        if user_record is None:
+            return cached
+        updated = await self._upsert_firebase_user_record(
+            normalized_user_id, user_record, require_success=require_success
+        )
+        return updated or cached
+
+    async def sync_contact_sync_requester_from_firebase(self, user_id: str) -> str | None:
+        """Return fresh provider email evidence only for phone-less requesters.
+
+        Phone-backed web/native accounts retain their existing cached admission.
+        Established Google/Apple accounts can instead prove their identity with
+        the provider's current verified email. This does not verify a phone or
+        make the requester discoverable by phone. The graph service separately
+        rechecks the same email and established-account state at both boundaries.
+        """
+        try:
+            identity = await self.sync_from_firebase(user_id, force=False)
+            if identity is None:
+                # Imported/custom Firebase UIDs may miss the background sync
+                # heuristic. A current app phone claim still keeps the same
+                # provider-independent path as every other verified account.
+                identity = (await self.get_many([user_id])).get(user_id)
+            if (
+                identity
+                and identity.get("phone_verified") is True
+                and str(identity.get("phone_number") or "").strip()
+            ):
+                return None
+
+            # The route already authenticated this exact UID. Background UID
+            # heuristics must not stand in for Firebase's own identity lookup.
+            normalized_user_id = str(user_id or "").strip()
+            user_record = await self._get_firebase_user_record(
+                normalized_user_id, require_success=True
+            )
+            updated = await self._upsert_firebase_user_record(
+                normalized_user_id, user_record, require_success=True
+            )
+            if updated is None:
+                raise ActorIdentitySyncUnavailableError()
+
+            current_email = str(resolve_firebase_email(user_record) or "").strip().lower()
+            social_provider = any(
+                getattr(provider, "provider_id", None) in {"google.com", "apple.com"}
+                for provider in (getattr(user_record, "provider_data", None) or [])
+            )
+            # Read current provider evidence, never COALESCE-retained display
+            # email from the shadow or a client bootstrap hint.
+            if (
+                social_provider
+                and getattr(user_record, "email_verified", False) is True
+                and current_email
+            ):
+                return current_email
+            return None
+        except ActorIdentitySyncUnavailableError:
+            raise
+        except Exception as exc:
+            logger.debug("contact identity recovery unavailable error=%s", type(exc).__name__)
+            raise ActorIdentitySyncUnavailableError() from None
+
+    async def _get_firebase_user_record(self, user_id: str, *, require_success: bool) -> Any | None:
         firebase_app = get_firebase_auth_app()
         if firebase_app is None:
             if require_success:
                 raise ActorIdentitySyncUnavailableError()
-            return cached
+            return None
 
         try:
             from firebase_admin import auth as firebase_auth
@@ -1486,9 +1552,7 @@ class ActorIdentityService:
             # Run it in a worker thread so it never stalls the asyncio event loop
             # (a blocked loop serialises every concurrent request and manifests as
             # multi-second latency and pool-acquire timeouts elsewhere).
-            user_record = await asyncio.to_thread(
-                firebase_auth.get_user, normalized_user_id, app=firebase_app
-            )
+            user_record = await asyncio.to_thread(firebase_auth.get_user, user_id, app=firebase_app)
         except Exception as exc:
             logger.debug(
                 "actor_identity_cache firebase sync skipped error=%s",
@@ -1496,17 +1560,22 @@ class ActorIdentityService:
             )
             if require_success:
                 raise ActorIdentitySyncUnavailableError() from None
-            return cached
+            return None
 
-        # Quarantined phone-session users must not create directory phone proof.
-        if getattr(user_record, "disabled", False) is True:
+        # Quarantined or unavailable users cannot create fresh identity proof.
+        if user_record is None or getattr(user_record, "disabled", False) is True:
             if require_success:
                 raise ActorIdentitySyncUnavailableError()
-            return cached
+            return None
 
+        return user_record
+
+    async def _upsert_firebase_user_record(
+        self, user_id: str, user_record: Any, *, require_success: bool
+    ) -> dict[str, Any] | None:
         firebase_phone_number = getattr(user_record, "phone_number", None)
         updated = await self.upsert_identity(
-            user_id=normalized_user_id,
+            user_id=user_id,
             display_name=getattr(user_record, "display_name", None),
             email=resolve_firebase_email(user_record),
             phone_number=firebase_phone_number,
@@ -1517,7 +1586,7 @@ class ActorIdentityService:
         )
         if updated is None and require_success:
             raise ActorIdentitySyncUnavailableError()
-        return updated or cached
+        return updated
 
     @staticmethod
     def validate_display_name(display_name: str) -> str:

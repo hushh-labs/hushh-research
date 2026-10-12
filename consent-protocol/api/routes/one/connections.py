@@ -218,10 +218,15 @@ async def sync_contacts(
     try:
         sync_started_at = await run_in_threadpool(service.begin_contact_sync)
         # Authentication background work runs after the response. Guarantee
-        # the requester's verified-phone shadow is ready in this request too,
+        # the requester's verified account evidence is ready in this request too,
         # so a first contact-sync tap cannot fail merely because no earlier
         # authenticated response finished its warmup yet.
-        await ActorIdentityService().sync_verified_phone_from_firebase(firebase_uid)
+        verified_email = await ActorIdentityService().sync_contact_sync_requester_from_firebase(
+            firebase_uid
+        )
+        requester_verification = (
+            {"verified_requester_email": verified_email} if verified_email else {}
+        )
         # Charge before querying the discovery index. This is intentionally a
         # Postgres authority rather than an in-process limiter so production
         # remains bounded across Cloud Run instances without paid Redis infra.
@@ -229,6 +234,7 @@ async def sync_contacts(
             service.reserve_contact_sync_lookup_budget,
             firebase_uid,
             len(lookups),
+            **requester_verification,
         )
         matches = await RIAIAMService().match_one_network_contact_lookups_exact(
             firebase_uid,
@@ -240,6 +246,7 @@ async def sync_contacts(
                 phone_lookups=lookups,
                 matches=matches,
                 sync_started_at=sync_started_at,
+                **requester_verification,
             )
         )
         # Metadata-only runtime evidence. Never log a uid, lookup id, digest,
