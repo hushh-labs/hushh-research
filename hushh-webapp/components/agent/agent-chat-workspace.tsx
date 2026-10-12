@@ -16,6 +16,7 @@ import {
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
+import { OneAgentProfileSheet } from "@/components/agent/one-agent-profile-sheet";
 import { createAgentPkmCaptureGuard, isAgentPkmProcessingReady, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
 import type { OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
 import {
@@ -2620,6 +2621,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [activeToolCalls, setActiveToolCalls] = useState<ActiveToolCall[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
+  const [isOneProfileOpen, setIsOneProfileOpen] = useState(false);
+  const oneProfileTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [drawerMode, setDrawerMode] = useState<ConnectionsDrawerMode>("chats");
   const handleHistoryDrawerOpenChange = useCallback((open: boolean) => {
     const next = transitionConnectionsDrawer(
@@ -8517,23 +8520,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           )}
         >
           <div
+            data-one-centered-header={!isPuppySurface ? "true" : undefined}
             className={cn(
               "agent-chat-header relative z-[540] flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-[color:var(--one-chat-canvas)] px-4 pt-[var(--agent-chat-header-safe-top)] sm:px-5",
               "h-[var(--agent-chat-header-height)] lg:px-6",
             )}
           >
-            {/*
-              Three flex regions, and only the middle one may give way:
-              [history] [identity: flex-1, clips] [actions: shrink-0].
-              The identity region used to share a group with the history
-              button and carried no clip, so on a 390px phone the actions
-              (then 281px, with a fixed-width picker slot) squeezed it below
-              its own minimum and the brand tile painted under the One | Puppy
-              toggle while the agent's name collapsed to zero width. Clipping
-              the identity horizontally makes that overlap impossible by
-              construction: whatever does not fit is cut at its own edge and
-              truncates, it never slides under a control.
-            */}
+            {/* One centers its stacked identity between balanced controls;
+                narrow phones reserve a separate control row. Puppy keeps
+                the compact history / clipped identity / actions row. */}
             {/* The same overlay drawer on every width keeps the transcript and
                 fixed navigation in place. */}
             <NativeChatChrome kind="history" owner={renderedWorkspaceOwnerId}
@@ -8568,9 +8563,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               data-agent-chat-header-region="identity"
               className="flex min-w-0 flex-1 items-center gap-3 overflow-x-clip"
             >
-              {/* Keep the active agent's mark visible at every viewport. The
-                  compact phone tile leaves the identity label room to clip
-                  before it can overlap the trailing controls. */}
+              {/* One stacks this identity above a separate control row;
+                  Puppy keeps its compact inline identity. */}
               <div
                 data-agent-chat-brand-tile
                 className="grid h-8 w-8 shrink-0 place-items-center sm:h-9 sm:w-9"
@@ -8581,11 +8575,21 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     aria-hidden
                   />
                 ) : (
-                  <HushhMark
-                    aria-hidden="true"
-                    className="h-7 w-7 items-center justify-center overflow-visible"
-                    imageClassName="!h-[23px] !w-[23px]"
-                  />
+                  <ShellActionSurface
+                    variant="icon"
+                    aria-label="Open One profile"
+                    aria-haspopup="dialog"
+                    ref={oneProfileTriggerRef}
+                    aria-expanded={isOneProfileOpen}
+                    onClick={() => setIsOneProfileOpen(true)}
+                    className="!size-12 border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default)] shadow-[var(--app-card-shadow-standard)]"
+                  >
+                    <HushhMark
+                      aria-hidden="true"
+                      className="h-12 w-12 items-center justify-center overflow-visible"
+                      imageClassName="!h-10 !w-10"
+                    />
+                  </ShellActionSurface>
                 )}
               </div>
               {/* The name in the header is the reader's only guarantee about
@@ -8761,6 +8765,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               </ShellActionSurface>
             </div>
           </div>
+
+          <OneAgentProfileSheet open={isOneProfileOpen} onOpenChange={setIsOneProfileOpen} triggerRef={oneProfileTriggerRef} />
 
           {/* Both transcripts are HIDDEN rather than unmounted, and the
               symmetry is the point: `hidden` is display:none, so the surface

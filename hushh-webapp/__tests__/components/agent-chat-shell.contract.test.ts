@@ -223,13 +223,13 @@ describe("private-agent chat shell contract", () => {
   it("keeps the active-agent mark visible in the compact chat header", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
     const brandTileStart = workspace.indexOf('data-agent-chat-brand-tile');
-    const brandTile = workspace.slice(brandTileStart, brandTileStart + 700);
+    const brandTile = workspace.slice(brandTileStart, workspace.indexOf("The name in the header", brandTileStart));
 
     expect(brandTileStart).toBeGreaterThan(0);
     expect(brandTile).toContain("<HushhMark");
     expect(brandTile).toContain('className="grid h-8 w-8 shrink-0 place-items-center sm:h-9 sm:w-9"');
-    expect(brandTile).toContain('className="h-7 w-7 items-center justify-center overflow-visible"');
-    expect(brandTile).toContain('imageClassName="!h-[23px] !w-[23px]"');
+    expect(brandTile).toContain('className="h-12 w-12 items-center justify-center overflow-visible"');
+    expect(brandTile).toContain('imageClassName="!h-10 !w-10"');
     expect(brandTile).not.toContain("max-sm:hidden");
   });
 
