@@ -5,10 +5,7 @@ import { isReservedRefusalHint } from "@/lib/pkm/reserved-branches";
 import type { AgentPkmReservedOffer } from "@/lib/pkm/reserved-offer";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { buildReadablePkmMetadata } from "@/lib/personal-knowledge-model/natural-language";
-import {
-  PersonalKnowledgeModelService,
-  type PersonalKnowledgeModelMetadata,
-} from "@/lib/services/personal-knowledge-model-service";
+import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
 import {
   PkmWriteCoordinator,
   type PkmWriteCoordinatorResult,
