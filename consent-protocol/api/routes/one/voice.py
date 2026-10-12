@@ -29,6 +29,7 @@ from api.middleware import (
 from api.middlewares.rate_limit import RateLimits, limiter
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
+from hushh_mcp.hushh_adk.single_turn import bind_single_turn_request_labels
 from hushh_mcp.one_voice import protocol
 from hushh_mcp.one_voice.config import (
     PROTOCOL_VERSION,
@@ -382,7 +383,17 @@ async def voice_live(websocket: WebSocket, ticket: str = Query(default="")) -> N
     try:
         # ContextVars follow VoiceSession's child tasks, including tool narration,
         # without changing the process-wide project used by unrelated chat turns.
-        with bind_managed_vertex_project(config.vertex_project):
+        # Vertex GenerateContent supports request labels for the nested ADK
+        # text genes. Live connect does not; its attribution is in server logs.
+        request_labels = (
+            {"environment": "uat", "component": "one_voice"}
+            if (os.getenv("HUSHH_DEPLOY_ENV") or "").strip().lower() == "uat"
+            else None
+        )
+        with (
+            bind_managed_vertex_project(config.vertex_project),
+            bind_single_turn_request_labels(request_labels),
+        ):
             await session.run()
     finally:
         async with _active_lock:
