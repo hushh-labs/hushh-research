@@ -1237,14 +1237,14 @@ describe("native chrome presentation lease", () => {
     await waitFor(() => expect(bridge.update).toHaveBeenCalledOnce());
     const newer = lease.update({ ...projection, accentHex: "#556677", enabled: true });
     await waitFor(() => expect(bridge.update).toHaveBeenCalledTimes(2));
-    await lease.choose({ ...choice(lease), updateSequence: 0 }, () => true, action);
+    expect(await lease.choose({ ...choice(lease), updateSequence: 0 }, () => true, action)).toBe("update-pending");
     expect(action).not.toHaveBeenCalled();
     second.resolve(bridge.update.mock.calls[1][0]); expect(await newer).toBe(true);
     first.resolve(bridge.update.mock.calls[0][0]); expect(await older).toBe(false);
     expect(lease.projection.accentHex).toBe("#556677");
-    await lease.choose({ ...choice(lease), updateSequence: 1 }, () => true, action);
+    expect(await lease.choose({ ...choice(lease), updateSequence: 1 }, () => true, action)).toBe("update-pending");
     expect(action).not.toHaveBeenCalled();
-    await lease.choose({ ...choice(lease), updateSequence: 2 }, () => true, action);
+    expect(await lease.choose({ ...choice(lease), updateSequence: 2 }, () => true, action)).toBe("applied");
     expect(action).toHaveBeenCalledOnce();
     await lease.update({ ...projection, enabled: false });
     await lease.choose({ ...choice(lease, 2), updateSequence: 3 }, () => true, action);

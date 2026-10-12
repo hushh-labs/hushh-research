@@ -9,7 +9,7 @@ import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
 import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref, type RefObject } from "react";
-import { NativeChromeLease, chromeControlId, chromeOwnerEpoch, currentChromeInstallation, canResumeNativeChrome, suspendOwnedNativeChrome, peekNativeChromeCapabilities, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome, retireOwnedNativeChrome, measureNativeChromeGeometry, type ChromeAgentSurface, type ChromeChoice, type ChromeOption, type ChromeControl, type ChromeAccentPalette } from "@/lib/capacitor/native-chrome";
+import { NativeChromeLease, chromeControlId, chromeOwnerEpoch, currentChromeInstallation, canResumeNativeChrome, suspendOwnedNativeChrome, peekNativeChromeCapabilities, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome, retireOwnedNativeChrome, measureNativeChromeGeometry, type ChromeAgentSurface, type ChromeChoice, type ChromeChoiceOutcome, type ChromeOption, type ChromeControl, type ChromeAccentPalette } from "@/lib/capacitor/native-chrome";
 import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
 import { nativeDocumentId, subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
 import { isCurrentNativeControlAppearance, NATIVE_CONTROL_CONTRACT_VERSION, useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
@@ -115,6 +115,7 @@ export function NativeChatChrome(props: Props) {
   const [prepared, setPrepared] = useState<NativeChromeLease | null>(null);
   const [measurement, remeasure] = useState(0);
   const rehearsalDiagnostics = useRef(false);
+  const rehearsalChoice = useRef<ChromeChoiceOutcome | "none">("none");
   const [rehearsalStatus, setRehearsalStatus] = useState<string | null>(null);
   // Explicit Debug admission only. This memory-only public geometry probe has
   // no owner/document/context, protected content, response bodies or raw errors.
@@ -124,12 +125,17 @@ export function NativeChatChrome(props: Props) {
     const frame = slot.current?.getBoundingClientRect();
     const dimension = (value: number | undefined) => value !== undefined && Number.isFinite(value)
       ? Math.max(0, Math.min(10000, Math.round(value))) : 0;
-    setRehearsalStatus(JSON.stringify({ stage, outcome, code,
+    setRehearsalStatus(JSON.stringify({ stage, outcome, code, choice: rehearsalChoice.current,
       eligible: current.current.props.eligible, supported, allowed: current.current.allowed,
       focusInside: !!slot.current?.contains(document.activeElement), heldFocus: heldFocus.current,
       width: dimension(frame?.width), height: dimension(frame?.height),
       inViewport: !!frame && frame.left >= 0 && frame.top >= 0 && frame.right <= window.innerWidth && frame.bottom <= window.innerHeight }));
   }, [supported]);
+  const reportChoice = useCallback((choice: ChromeChoiceOutcome) => {
+    if (!rehearsalDiagnostics.current || !mounted.current) return;
+    rehearsalChoice.current = choice;
+    setRehearsalStatus(previous => previous ? JSON.stringify({ ...JSON.parse(previous), choice }) : previous);
+  }, []);
 
   const canAct = useCallback(() => current.current.allowed && !nativeShellOverlayBlocked(current.current.owningLayer) &&
     !moving.current && !slot.current?.closest("[inert]") &&
@@ -342,6 +348,7 @@ export function NativeChatChrome(props: Props) {
         }
         rehearsalDiagnostics.current = capability.rehearsalDiagnostics === true;
         await Promise.all([retain(nativeChrome.addListener("choiceRequested", (event: ChromeChoice) => {
+          if (event.controlId !== controlId) return;
           const active = lease.current;
           void active?.choose(event, () => lease.current === active && current.current.epoch === active.projection.ownerEpoch &&
             current.current.context === active.context && isCurrentNativeControlAppearance(active.projection, foreground) && canAct(), () => {
@@ -354,7 +361,9 @@ export function NativeChatChrome(props: Props) {
             else if (callback.kind === "appearance") { if (event.value === "light" || event.value === "dark" || event.value === "system") callback.onValueChange(event.value); }
             else if (callback.kind === "accent") { if (event.value === "blue" || event.value === "gold") callback.onValueChange(event.value); }
             else if (event.value !== undefined) callback.onValueChange(event.value);
-          }).catch(() => undefined);
+          }).then(outcome => {
+            if (outcome && lease.current === active) reportChoice(outcome);
+          }).catch(() => { if (lease.current === active) reportChoice("uncertain"); });
         })), retain(nativeChrome.addListener("invalidated", invalidate)),
         retain(nativeChrome.addListener("readmissionRequested", readmit)), retain(subscribeNativeSessionPrivacy(invalidate))]);
         if (!cancelled) {
@@ -401,7 +410,7 @@ export function NativeChatChrome(props: Props) {
       window.removeEventListener(NATIVE_PANEL_LAYOUT_EVENT, reconcileGeometry);
       setSupported(false);
     };
-  }, [kind, controlId, foreground, canAct, canPrepare]);
+  }, [kind, controlId, foreground, canAct, canPrepare, reportChoice]);
 
   // Content preferences are public, but their coordinates are not stationary
   // while a retained Profile stack or scroll root moves. Fence choices at the

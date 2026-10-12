@@ -45,6 +45,9 @@ export type ChromeAcknowledgement = ChromeIdentity & {
   frame?: ChromeFrame;
 };
 export type ChromeChoice = ChromeIdentity & { sequence: number; privacyGeneration: number; updateSequence?: number; value?: string; presentationGeneration?: number; presentationSequence?: number };
+/** Bounded local diagnostics only; never echo an identity, value or provider error. */
+export type ChromeChoiceOutcome = "applied" | "inactive" | "disabled" | "not-allowed" | "update-pending" |
+  "identity-stale" | "sequence-stale" | "value-refused" | "confirmation-refused" | "isolation-changed" | "uncertain";
 export type ChromeUpdate = NativeControlAppearance & { enabled: boolean; value?: string; expanded?: boolean };
 export type ChromeUpdateAcknowledgement = ChromeIdentity & { updateSequence: number; presentationApplied?: boolean };
 type ChromeGeometry = Pick<ChromeControlProjection, "frame" | "viewport" | "presentationGroup" | "presentationOwnerEpoch" | "presentationGeneration">;
@@ -491,12 +494,14 @@ export class NativeChromeLease {
       throw error;
     }
   }
-  async choose(event: ChromeChoice, allowed: () => boolean, action: () => void): Promise<void> {
-    if (!this.active || !this.current || !this.projection.enabled || !allowed() ||
-        (this.inPlaceUpdates && (this.requestedUpdate !== this.appliedUpdate || event.updateSequence !== this.appliedUpdate)) ||
-        !matches({ ...event, phase: "active" }, this.projection, "active") ||
-        !Number.isSafeInteger(event.sequence) || event.sequence <= this.sequence) return;
-    if (!admittedValue(this.projection, event.value)) return;
+  async choose(event: ChromeChoice, allowed: () => boolean, action: () => void): Promise<ChromeChoiceOutcome> {
+    if (!this.active || !this.current) return "inactive";
+    if (!this.projection.enabled) return "disabled";
+    if (!allowed()) return "not-allowed";
+    if (this.inPlaceUpdates && (this.requestedUpdate !== this.appliedUpdate || event.updateSequence !== this.appliedUpdate)) return "update-pending";
+    if (!matches({ ...event, phase: "active" }, this.projection, "active")) return "identity-stale";
+    if (!Number.isSafeInteger(event.sequence) || event.sequence <= this.sequence) return "sequence-stale";
+    if (!admittedValue(this.projection, event.value)) return "value-refused";
     // Consume locally before awaiting: duplicate notifications cannot race.
     this.sequence = event.sequence;
     const isolation = nativeDrawerIsolation();
@@ -508,10 +513,14 @@ export class NativeChromeLease {
       ...(event.presentationSequence === undefined ? {} : { presentationSequence: event.presentationSequence }),
       ...(event.value === undefined ? {} : { value: event.value }),
     }));
-    if (valid && !isolation.isolated && !nativeDrawerIsolation().isolated && isolation.generation === nativeDrawerIsolation().generation && this.active && this.current && event.sequence === this.sequence &&
-        (!this.inPlaceUpdates || this.requestedUpdate === this.appliedUpdate && event.updateSequence === this.appliedUpdate) && allowed()) {
-      action();
-    }
+    if (!valid) return "confirmation-refused";
+    if (isolation.isolated || nativeDrawerIsolation().isolated || isolation.generation !== nativeDrawerIsolation().generation) return "isolation-changed";
+    if (!this.active || !this.current) return "inactive";
+    if (event.sequence !== this.sequence) return "sequence-stale";
+    if (this.inPlaceUpdates && (this.requestedUpdate !== this.appliedUpdate || event.updateSequence !== this.appliedUpdate)) return "update-pending";
+    if (!allowed()) return "not-allowed";
+    action();
+    return "applied";
   }
 }
 

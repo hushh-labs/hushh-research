@@ -73,6 +73,35 @@ installation evidence. Physical receipts must identify the rebuilt follow-up,
 not reuse the earlier `6e77827fe6` Profile/Chat acceptance below. Native photo and
 provider identity still use a generic fallback; no photo parity is claimed.
 
+Committed follow-up `0e8bbaeb4d` passes canonical core, 165 focused JavaScript
+cases, typecheck, eight production-CSS layout cases and 64 Simulator native
+support cases. Its iPhone 16e Debug/UAT build `com.hushh.app` 1.4.0 (69),
+executable SHA-256 `af66a025a3265d3eecef48c2aaade23491d041690203537b1f173960dd20228c`,
+passes the separate normal unlock and nine Profile destinations, including
+nested settings and native Back. This does not replace the integrated gate:
+the subsequent warm Chat run fails its first History opening despite an
+accessible, hittable opener. The finite choice diagnostic now distinguishes
+native emission, local refusal and confirmation without logging identities,
+editor content or raw errors; it does not relax fences or replay a tap.
+
+The same committed follow-up is installed on S24 Ultra as production-pointing
+`com.hussh.app` 1.3.9 (2), APK SHA-256
+`40c90ecf06c21afd4912324430e671deaca9886f84abb558de730ef4c2027d5b`.
+Normal passphrase unlock and the nine-destination Profile journey pass, with
+ten visible rows checked against the shared geometry. Owner, document, process
+and draft survive; no provider operation or account change occurs. The harness
+uses active stack state, not existence of intentionally retained inactive
+screens, and waits for hit admission before one touch rather than retrying an
+uncertain action. These are functional/geometry receipts, not visual or
+accessibility acceptance of every route.
+
+Native export preparation must serialize with same-worktree web compilation.
+In the locked Next.js version, a custom `distDir` selects static-export output
+but the build resets its compiler directory to `.next`. It is not an isolated
+cache. The canonical cache-clear plus fresh packaged-CSS check caught and
+corrected missing Profile selectors before installation; do not bypass that
+check or run simultaneous exports/dev builds in this worktree.
+
 The first diagnostic Debug/UAT candidate was `com.hushh.app` 1.4.0 (69),
 executable SHA-256 `80de429b8469eba4ddc2e0f3c6290d226a14a0329192938ca2a4fe61c27574bf`.
 Signature, packaged assets and installation pass. Credential-free XCTest admission

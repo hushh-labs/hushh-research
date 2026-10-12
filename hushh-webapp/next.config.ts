@@ -47,9 +47,9 @@ const config: NextConfig = {
     NEXT_PUBLIC_VAULT_WRITE_PROTOCOL_VERSION: vaultWriteProtocolVersion,
   },
 
-  // Native static exports may run while the local web dev server is active.
-  // Keep their compiler caches isolated so `next build` cannot corrupt the
-  // live `.next` module graph and turn local API routes into transient 500s.
+  // This selects the native export destination, not an isolated compiler cache:
+  // Next's static-export build still uses `.next` internally. Serialize native
+  // exports with same-worktree dev/CI compilation and verify fresh native CSS.
   distDir: process.env.NEXT_DIST_DIR || ".next",
 
   // Keep file tracing and workspace discovery scoped to this monorepo.

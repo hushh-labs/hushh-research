@@ -139,6 +139,15 @@ final class AppUITests: XCTestCase {
                   let width = Int(fields["width"] ?? ""), let height = Int(fields["height"] ?? ""), let top = Int(fields["top"] ?? ""),
                   [width, height, top].allSatisfy({ abs($0) <= 10_000 }) else { return }
             print("COHERENT_BACK_ADMISSION stage=\(stage) outcome=\(outcome) code=\(code) present=\(fields["present"]!) focused=\(fields["focused"]!) inert=\(fields["inert"]!) width=\(width) height=\(height) top=\(top)")
+            let historyStage = fields["historyStage"] ?? "none", historyOutcome = fields["historyOutcome"] ?? "none"
+            let historyChoice = fields["historyChoice"] ?? "none", historyNative = fields["historyNative"] ?? "none"
+            if ["none", "skip", "retire", "prepare", "activate", "update"].contains(historyStage),
+               ["none", "pending", "acknowledged", "rejected"].contains(historyOutcome),
+               ["none", "applied", "inactive", "disabled", "not-allowed", "update-pending", "identity-stale", "sequence-stale", "value-refused", "confirmation-refused", "isolation-changed", "uncertain"].contains(historyChoice),
+               ["none", "tap", "refused", "emitted", "confirmed", "confirmation-refused"].contains(historyNative),
+               ["historyAllowed", "historyPresent", "historyInert"].allSatisfy({ ["true", "false"].contains(fields[$0] ?? "") }) {
+                print("COHERENT_HISTORY_TRACE stage=\(historyStage) outcome=\(historyOutcome) choice=\(historyChoice) native=\(historyNative) allowed=\(fields["historyAllowed"]!) present=\(fields["historyPresent"]!) inert=\(fields["historyInert"]!)")
+            }
         }
     }
 
@@ -884,6 +893,10 @@ final class AppUITests: XCTestCase {
             history.coordinate(withNormalizedOffset: CGVector(dx: cycle % 2 == 0 ? 0.5 : 0.2, dy: 0.5)).tap()
             let close = app.buttons["Close chat history"].firstMatch
             guard waitForAdmittedControl(close), app.textFields["native-history-search"].firstMatch.exists else {
+                printCoherentPresentationAdmission(app)
+                printNativeControlStatuses(web)
+                let search = app.textFields["native-history-search"].firstMatch
+                print("COHERENT_HISTORY_ADMISSION search_present=\(search.exists) search_hittable=\(search.exists && search.isHittable) opener_hittable=\(history.exists && history.isHittable)")
                 XCTFail("COHERENT_HISTORY_NOT_ADMITTED"); return
             }
             print("NATIVE_HISTORY_LEADING_SLOT opener_x=\(Int(openerFrame.minX)) opener_y=\(Int(openerFrame.minY)) close_x=\(Int(close.frame.minX)) close_y=\(Int(close.frame.minY))")
