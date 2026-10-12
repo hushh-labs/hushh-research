@@ -5,11 +5,11 @@ import { formatCommerceMoney as money, type CommerceAccount } from "@/lib/servic
 export function CommerceBalanceSummary({ account }: { account: CommerceAccount }) {
   return <>
     <dl className="grid grid-cols-2 gap-2 text-sm">
-      <dt>Available balance</dt><dd>{money(account.balance.available_cents)}</dd>
+      <dt>Purchase balance</dt><dd>{money(account.balance.available_cents)}</dd>
       {account.balance.reserved_cents ? <><dt>Reserved for access</dt><dd>{money(account.balance.reserved_cents)}</dd></> : null}
       {account.balance.frozen_cents ? <><dt>Under payment review</dt><dd>{money(account.balance.frozen_cents)}</dd></> : null}
+      <dt>Information-access earnings</dt><dd>{money(account.earnings.available_cents)}</dd>
       {account.earnings.pending_cents ? <><dt>Pending earnings</dt><dd>{money(account.earnings.pending_cents)}</dd></> : null}
-      {account.earnings.available_cents ? <><dt>Available earnings</dt><dd>{money(account.earnings.available_cents)}</dd></> : null}
       {account.earnings.withdrawing_cents ? <><dt>Withdrawal in progress</dt><dd>{money(account.earnings.withdrawing_cents)}</dd></> : null}
       {account.earnings.debt_cents ? <><dt>Unrecovered costs</dt><dd>{money(account.earnings.debt_cents)}</dd></> : null}
     </dl>

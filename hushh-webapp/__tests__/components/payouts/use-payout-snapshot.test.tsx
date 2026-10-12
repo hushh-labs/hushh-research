@@ -31,6 +31,7 @@ vi.mock("@/lib/vault/vault-context", () => ({
 }));
 vi.mock("@/lib/vault/session-epoch", () => ({
   snapshotVaultSessionEpoch: () => state.epoch,
+  subscribeVaultSessionEpoch: () => () => {},
   isVaultSessionEpochCurrent: (epoch: number) => epoch === state.epoch,
 }));
 vi.mock("@/lib/services/document-payout-service", async (importOriginal) => ({

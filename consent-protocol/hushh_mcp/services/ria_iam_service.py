@@ -5290,7 +5290,7 @@ class RIAIAMService:
                 await self._ensure_vault_user_row(conn, user_id)
 
                 # ria_profiles.user_id already FK-proves that actor_profiles exists.
-                # Avoid locking that row before actor_identity_cache cleanup so this
+                # Avoid locking that row before actor_identity_cache so this
                 # path keeps the same identity-then-profile lock order as contact sync.
                 profile_row = await conn.fetchrow(
                     "SELECT id FROM ria_profiles WHERE user_id = $1", user_id
@@ -5398,15 +5398,20 @@ class RIAIAMService:
                         "DELETE FROM ria_license_verifications WHERE user_id = $1",
                         "ria_license_verifications",
                     ),
-                    (
-                        "DELETE FROM actor_identity_cache WHERE user_id = $1",
-                        "actor_identity_cache",
-                    ),
                 ):
                     try:
                         await conn.execute(stmt, user_id)
                     except asyncpg.exceptions.UndefinedTableError:
                         logger.warning("%s unavailable during RIA delete; skipping", label)
+
+                # Signup verification and account identity belong to the surviving
+                # One account. A Google Firebase user may have no phone field to
+                # recover a deleted app-level claim. Preserve identity and retain
+                # the identity-before-profile row lock order used by contact sync.
+                await conn.fetchrow(
+                    "SELECT user_id FROM actor_identity_cache WHERE user_id = $1 FOR UPDATE",
+                    user_id,
+                )
 
                 # (3) Marketplace public projection: keep as an investor listing if
                 # the user opted in, else remove so the deleted RIA disappears from

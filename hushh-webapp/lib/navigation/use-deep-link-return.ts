@@ -97,7 +97,7 @@ export function resolveDeepLinkPath(rawUrl: string): string | null {
 
   const origin = `${parsed.protocol}//${parsed.host}`;
   if (!knownOrigins().includes(origin)) return null;
-  if (parsed.pathname === ROUTES.PROFILE_ACCOUNT &&
+  if ([ROUTES.PROFILE_ACCOUNT, ROUTES.PROFILE_PAYOUTS].some(route => route === parsed.pathname) &&
       !commerceReturnAttempt(parsed.pathname + parsed.search + parsed.hash)) return null;
 
   // Never route a real invite token to a dynamic page that the native static

@@ -9,7 +9,10 @@ from pydantic import BaseModel, Field, validator
 
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import RateLimits, get_rate_limit_key, limiter
-from hushh_mcp.services.actor_identity_service import ActorIdentityService
+from hushh_mcp.services.actor_identity_service import (
+    ActorIdentityService,
+    ActorIdentitySyncUnavailableError,
+)
 from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
 from hushh_mcp.services.directory_identity_service import DirectoryIdentityUnavailableError
 from hushh_mcp.services.ria_iam_service import (
@@ -28,7 +31,10 @@ def _service() -> ConnectionsService:
 
 
 def _handle(exc: Exception) -> HTTPException:
-    if isinstance(exc, (ConnectionsError, DirectoryIdentityUnavailableError)):
+    if isinstance(
+        exc,
+        (ConnectionsError, DirectoryIdentityUnavailableError, ActorIdentitySyncUnavailableError),
+    ):
         # Expected, and already carries a code the client can act on.
         return HTTPException(
             status_code=exc.status_code, detail={"code": exc.code, "message": exc.message}
@@ -212,10 +218,15 @@ async def sync_contacts(
     try:
         sync_started_at = await run_in_threadpool(service.begin_contact_sync)
         # Authentication background work runs after the response. Guarantee
-        # the requester's verified-phone shadow is ready in this request too,
+        # the requester's verified account evidence is ready in this request too,
         # so a first contact-sync tap cannot fail merely because no earlier
         # authenticated response finished its warmup yet.
-        await ActorIdentityService().sync_verified_phone_from_firebase(firebase_uid)
+        verified_email = await ActorIdentityService().sync_contact_sync_requester_from_firebase(
+            firebase_uid
+        )
+        requester_verification = (
+            {"verified_requester_email": verified_email} if verified_email else {}
+        )
         # Charge before querying the discovery index. This is intentionally a
         # Postgres authority rather than an in-process limiter so production
         # remains bounded across Cloud Run instances without paid Redis infra.
@@ -223,6 +234,7 @@ async def sync_contacts(
             service.reserve_contact_sync_lookup_budget,
             firebase_uid,
             len(lookups),
+            **requester_verification,
         )
         matches = await RIAIAMService().match_one_network_contact_lookups_exact(
             firebase_uid,
@@ -234,6 +246,7 @@ async def sync_contacts(
                 phone_lookups=lookups,
                 matches=matches,
                 sync_started_at=sync_started_at,
+                **requester_verification,
             )
         )
         # Metadata-only runtime evidence. Never log a uid, lookup id, digest,
@@ -259,7 +272,7 @@ async def sync_contacts(
         ) from exc
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-    except ConnectionsError as exc:
+    except (ConnectionsError, ActorIdentitySyncUnavailableError) as exc:
         raise _handle(exc) from None
     except Exception as exc:  # noqa: BLE001 - SQL exceptions can contain submitted phone proofs
         # SQLAlchemy includes bound parameters in exception text/tracebacks.

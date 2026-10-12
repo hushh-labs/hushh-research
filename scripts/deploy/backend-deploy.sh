@@ -480,6 +480,7 @@ append_optional_env "APP_REVIEW_MODE" "${_APP_REVIEW_MODE}"
 # default. Ported from main 2026-09-02: the workflow passes it, this lane dropped it.
 append_optional_env "HUSSH_GEMINI_TEXT_MODEL" "${_HUSSH_GEMINI_TEXT_MODEL}"
 append_optional_env "HUSHH_ONE_CHAT_VERTEX_PROJECT" "${_HUSHH_ONE_CHAT_VERTEX_PROJECT}"
+append_optional_env "HUSHH_ONE_VOICE_VERTEX_PROJECT" "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}"
 append_optional_env "ONE_VOICE_LIVE_ENABLED" "${_ONE_VOICE_LIVE_ENABLED:-}"
 append_optional_env "ONE_VOICE_CALENDAR_NARRATION_ENABLED" "${_ONE_VOICE_CALENDAR_NARRATION_ENABLED:-false}"
 append_optional_env "VERTEX_LIVE_MODEL_ID" "${_VERTEX_LIVE_MODEL_ID:-}"
@@ -936,6 +937,13 @@ append_optional_secret "${dev_pod_key_master_secret}" "HUSSH_POD_KEY_MASTER"
 # Paired with gcloud's alternate-delimiter syntax on --set-env-vars below.
 env_var_string="$(IFS='|'; echo "${env_vars[*]}")"
 deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID},account-deletion-contract=v201"
+if [[ -n "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" ]]; then
+  deploy_labels="${deploy_labels},one-voice-vertex-project=${_HUSHH_ONE_VOICE_VERTEX_PROJECT}"
+  if [[ -n "${_VERTEX_LIVE_MODEL_ID}" ]]; then
+    live_model_label="$(printf '%s' "${_VERTEX_LIVE_MODEL_ID}" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_-' '-' | cut -c1-63)"
+    deploy_labels="${deploy_labels},one-voice-live-model=${live_model_label}"
+  fi
+fi
 
 # Dev hub uses UAT-sized resources; owner pods retain their own limits.
 # Max instances stays at the lane's declared value. The 2026-09-30 raise from 3 to

@@ -2238,7 +2238,7 @@ function ProfilePageContent({
     const profileHomeControls = [
       {
         id: "profile_payouts",
-        label: "Payouts",
+        label: "Payments and earnings",
         purpose:
           "opens payout setup, linked bank details, and transaction history.",
         actionId: "route.profile_payouts",
@@ -2402,7 +2402,7 @@ function ProfilePageContent({
           activePanel === "account"
             ? PROFILE_LABELS.account
             : activePanel === "payouts"
-              ? "Payouts"
+              ? "Payments and earnings"
               : activePanel === "request-pricing"
                 ? "Request pricing"
                 : activePanel === "my-data"
@@ -2423,7 +2423,7 @@ function ProfilePageContent({
           PROFILE_LABELS.preferences,
           "Hosting",
           "Software updates",
-          "Payouts",
+          "Payments and earnings",
           "Request pricing",
           "Memory",
           "Access & sharing",
@@ -2494,7 +2494,7 @@ function ProfilePageContent({
           ? activePanel === "account"
             ? PROFILE_LABELS.account
             : activePanel === "payouts"
-              ? "Payouts"
+              ? "Payments and earnings"
               : activePanel === "request-pricing"
                 ? "Request pricing"
             : activePanel === "my-data"
@@ -3589,7 +3589,13 @@ function ProfilePageContent({
           />
         ) : null}
       </SettingsGroup>
-      <ScopeCommerceAccountPanel key={user.uid} />
+      <SettingsGroup title="Payments">
+        <SettingsRow icon={ProfileAccountBankIcon} iconTone="capability"
+          title="Payments and earnings" description="Purchase balance, earnings and transactions."
+          voiceControlId="profile_payouts" voiceActionId="route.profile_payouts"
+          voiceLabel="Payments and earnings" voicePurpose="Opens purchase balance, payout setup and transaction history."
+          chevron onClick={() => openVaultBackedPanel("payouts")} />
+      </SettingsGroup>
       <SettingsGroup title="Account actions">
         <SettingsRow
           icon={isPanePresentation ? ProfileAccountResetIcon : ResetRowIcon}
@@ -4165,7 +4171,7 @@ function ProfilePageContent({
   } else if (!routeBlockedByVault && activePanel === "payouts") {
     profileStackEntries.push({
       key: "panel:payouts",
-      title: "Payouts",
+      title: "Payments and earnings",
       content: (
         <div
           className={cn(
@@ -4175,6 +4181,7 @@ function ProfilePageContent({
             isPanePresentation && accountStyles.managedContent,
           )}
         >
+          <ScopeCommerceAccountPanel key={user?.uid} />
           <DocumentHashcoinPayouts />
         </div>
       ),
@@ -4543,11 +4550,11 @@ function ProfilePageContent({
               <SettingsRow
                 icon={ProfileAccountBankIcon}
                 iconTone="capability"
-                title="Payouts"
+                title="Payments and earnings"
                 chevron
                 voiceControlId="profile_payouts"
                 voiceActionId="route.profile_payouts"
-                voiceLabel="Payouts"
+                voiceLabel="Payments and earnings"
                 voicePurpose="Opens bank setup and transaction history."
                 onClick={() => openVaultBackedPanel("payouts")}
               />

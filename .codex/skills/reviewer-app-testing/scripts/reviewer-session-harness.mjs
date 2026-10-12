@@ -54,6 +54,13 @@ const AUTH_ONLY_HOSTS = new Set([
   "securetoken.googleapis.com",
 ]);
 
+// Explicit owner OAuth continuation only. The callback further binds the
+// current PKCE attempt and exact provider endpoints; arbitrary external writes
+// and background requests remain outside reviewer mutation authority.
+const OWNER_OAUTH_ORIGINS = new Set([
+  "https://login.microsoftonline.com", "https://login.live.com", "https://account.live.com",
+]);
+
 function requestHostname(request) {
   try {
     return new URL(request.url()).hostname;
@@ -70,11 +77,12 @@ export async function installReadOnlyMutationGuard(context, {
   appOrigin,
   allowMemoryPreparation = false,
   admitMutation = null,
+  admitProviderOAuth = null,
   reviewerAuthMode = resolveReviewerAuthMode(process.env.REVIEWER_AUTH_MODE),
 } = {}) {
   const blockedMutations = [];
   let suppressedAnalytics = 0;
-  if (process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true" && !admitMutation) {
+  if (process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true" && !admitMutation && !admitProviderOAuth) {
     return {
       assertNoBlockedMutation() {},
       policy: "explicit_mutation_authorized",
@@ -90,6 +98,14 @@ export async function installReadOnlyMutationGuard(context, {
       (hostname === "www.google-analytics.com" ||
         hostname === "region1.google-analytics.com" ||
         hostname === "analytics.google.com")) {
+      suppressedAnalytics += 1;
+      await route.fulfill({ status: 204, body: "" });
+      return;
+    }
+    // Provider login telemetry is suppressed locally, never forwarded as an
+    // OAuth or financial mutation and never used as authentication evidence.
+    if (method === "POST" && pathname === "/OneCollector/1.0/" &&
+        new URL(request.url()).origin === "https://browser.events.data.microsoft.com") {
       suppressedAnalytics += 1;
       await route.fulfill({ status: 204, body: "" });
       return;
@@ -148,6 +164,17 @@ export async function installReadOnlyMutationGuard(context, {
         }
       } catch { /* Refusal is retained below without request bodies or errors. */ }
     }
+    if (admitProviderOAuth && admitMutation && process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true" && method === "POST") {
+      try {
+        const url = new URL(request.url());
+        if (OWNER_OAUTH_ORIGINS.has(url.origin) && !url.username && !url.password && !url.port &&
+            request.isNavigationRequest() && request.resourceType() === "document" &&
+            request.frame().parentFrame() === null && await admitProviderOAuth(request) === true) {
+          await route.continue();
+          return;
+        }
+      } catch { /* Provider admission fails closed without request diagnostics. */ }
+    }
 
     blockedMutations.push(`${method} ${pathname || "(unknown path)"}`);
     await route.fulfill({
@@ -202,6 +229,7 @@ export async function createReviewerSessionHarness({
   timeoutMs = 360_000,
   allowMemoryPreparation = false,
   admitMutation = null,
+  admitProviderOAuth = null,
   reviewerIdentity = /** @type {{ reviewerUid: string, reviewerVaultPassphrase: string } | null} */ (null),
   reviewerTokenProvider = /** @type {((uid: string) => Promise<string>) | null} */ (null),
 }) {
@@ -403,7 +431,7 @@ export async function createReviewerSessionHarness({
       page.setDefaultTimeout(attemptTimeoutMs);
       page.setDefaultNavigationTimeout(attemptTimeoutMs);
       try {
-        const readOnlyGuard = await installReadOnlyMutationGuard(context, { appOrigin: normalizedOrigin, allowMemoryPreparation, admitMutation, reviewerAuthMode });
+        const readOnlyGuard = await installReadOnlyMutationGuard(context, { appOrigin: normalizedOrigin, allowMemoryPreparation, admitMutation, admitProviderOAuth, reviewerAuthMode });
         const capture = attachMemoryOnlyCapture(page);
         await installBridge(page, { includePassphrase: requireVaultUnlocked });
         if (onPageCreated) onPageCreated(page);
@@ -440,7 +468,7 @@ export async function createReviewerSessionHarness({
     const challengeTimeoutMs = Math.min(timeoutMs, operatorIssued ? 180_000 : 60_000);
     page.setDefaultTimeout(challengeTimeoutMs);
     page.setDefaultNavigationTimeout(challengeTimeoutMs);
-    const readOnlyGuard = await installReadOnlyMutationGuard(context, { appOrigin: normalizedOrigin, allowMemoryPreparation, admitMutation, reviewerAuthMode });
+    const readOnlyGuard = await installReadOnlyMutationGuard(context, { appOrigin: normalizedOrigin, allowMemoryPreparation, admitMutation, admitProviderOAuth, reviewerAuthMode });
     const capture = attachMemoryOnlyCapture(page);
     try {
       // Authenticate the canonical reviewer through the test bridge, but do

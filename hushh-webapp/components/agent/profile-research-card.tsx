@@ -19,8 +19,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
-import { HelperText } from "@/components/app-ui/typography";
-import { AgentPkmReviewPanel } from "@/components/agent/agent-pkm-review-panel";
+import { HelperText, MediumRowLabel } from "@/components/app-ui/typography";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,9 +34,11 @@ import { createAgentPkmCaptureGuard } from "@/lib/agent/agent-pkm-capture-runtim
 import { connectorMemorySharingImpact } from "@/lib/agent/connector-memory-review";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import {
+  bindProfileSelectionSources,
   prepareProfileReview,
   profileReviewMessage,
   saveProfileReview,
+  selectedProfileDetails,
   type ReviewedProfile,
 } from "@/lib/agent/profile-research-review";
 import { useBackLayer } from "@/lib/navigation/back-layers";
@@ -62,16 +63,17 @@ type Props = {
   onBusinessAvailabilityChange?: (available: boolean) => void;
 };
 export type ProfileResearchAvailability =
-  "hidden" | "loading" | "offered" | "empty" | "failed" | "saved";
-type Phase =
+  | "hidden"
+  | "pending"
   | "loading"
-  | "draft"
-  | "preparing"
-  | "review"
-  | "saving"
-  | "saved"
+  | "offered"
+  | "empty"
   | "failed"
-  | "skipped";
+  | "saved"
+  | "low_confidence"
+  | "exhausted";
+type Phase =
+  "loading" | "draft" | "preparing" | "saving" | "saved" | "failed" | "skipped";
 
 /** Ephemeral One card: outside transcript persistence and automatic memory capture. */
 export function ProfileResearchCard({
@@ -97,11 +99,8 @@ export function ProfileResearchCard({
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState(false);
   const [review, setReview] = useState<ReviewedProfile | null>(null);
-  const [selectedCards, setSelectedCards] = useState<ReadonlySet<string>>(
-    new Set(),
-  );
+  const [saveStarted, setSaveStarted] = useState(false);
   const [sharingOpen, setSharingOpen] = useState(false);
-  const [retry, setRetry] = useState(0);
   const [visibleOwner, setVisibleOwner] = useState<{
     ownerId: string;
     vaultKey: string;
@@ -110,8 +109,8 @@ export function ProfileResearchCard({
   const credentials = useRef({ ownerId, vaultKey, vaultOwnerToken, enabled });
   credentials.current = { ownerId, vaultKey, vaultOwnerToken, enabled };
   const operations = useRef(new Set<AbortController>());
-  const attempted = useRef<string | null>(null);
   const busy = phase === "preparing" || phase === "saving";
+  const partiallySaved = Boolean(review?.committed.size);
   const hasOffer = result?.status === "offered";
   const visible =
     enabled &&
@@ -123,32 +122,36 @@ export function ProfileResearchCard({
     visibleOwner.vaultOwnerToken === vaultOwnerToken;
 
   const cancelReview = useCallback(() => {
-    if (busy) return true;
+    if (busy || saveStarted) return true;
     if (editing) {
       setEditing(false);
       return true;
     }
     if (review) {
       setReview(null);
-      setSelectedCards(new Set());
       setPhase("draft");
       return true;
     }
     return false;
-  }, [busy, editing, review]);
+  }, [busy, saveStarted, editing, review]);
   useBackLayer(
     pathname,
-    present && visible && (editing || review || busy) ? (embedded ? 3 : 2) : 0,
+    present && visible && (editing || busy || saveStarted)
+      ? embedded
+        ? 3
+        : 2
+      : 0,
     cancelReview,
   );
 
   useEffect(() => {
+    setPhase("loading");
     setResult(null);
     setReview(null);
+    setSaveStarted(false);
     setEditing(false);
     setSharingOpen(false);
     setVisibleOwner(null);
-    attempted.current = null;
     const activeOperations = operations.current;
     return () => {
       activeOperations.forEach((controller) => controller.abort());
@@ -158,8 +161,8 @@ export function ProfileResearchCard({
 
   useEffect(() => {
     if (!enabled || !ownerId || !vaultKey || !vaultOwnerToken) return;
-    const attempt = JSON.stringify([ownerId, vaultKey, vaultOwnerToken, retry]);
-    if (attempted.current === attempt) return;
+    // Cleanup cancels only this reader. A resumed effect must reconnect; the
+    // encrypted server lease, not a component ref, owns dispatch coalescing.
     const controller = new AbortController();
     const guard = createAgentPkmCaptureGuard({
       userId: ownerId,
@@ -173,18 +176,27 @@ export function ProfileResearchCard({
     // Defer dispatch one tick: StrictMode's trial mount cleans up before a paid request starts.
     const timer = setTimeout(() => {
       if (!guard.isCurrent()) return;
-      attempted.current = attempt;
+      setResult(null);
       setPhase("loading");
       void ProfileResearchService.research({
         vaultKey,
         vaultOwnerToken,
         signal: controller.signal,
+        isCurrent: guard.isCurrent,
       })
         .then((next) => {
           if (!guard.isCurrent()) return;
           setResult(next);
-          setPhase(next.status === "unavailable" ? "failed" : "draft");
-          if (next.status === "saved") {
+          setPhase(
+            next.status === "unavailable" && !next.retry_exhausted
+              ? "failed"
+              : "draft",
+          );
+          if (
+            next.status === "saved" ||
+            next.status === "low_confidence" ||
+            (next.status === "unavailable" && next.retry_exhausted)
+          ) {
             setVisibleOwner({ ownerId, vaultKey, vaultOwnerToken });
           }
           if (next.status === "offered") {
@@ -207,7 +219,8 @@ export function ProfileResearchCard({
             // Existing and newly onboarded owners share this path. Consuming
             // the optional setup marker must not dispatch another request.
             consume(ownerId);
-          } else if (next.status !== "unavailable") consume(ownerId);
+          } else if (next.status !== "unavailable" || next.retry_exhausted)
+            consume(ownerId);
         })
         .catch(() => {
           if (guard.isCurrent()) setPhase("failed");
@@ -217,7 +230,7 @@ export function ProfileResearchCard({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [enabled, ownerId, vaultKey, vaultOwnerToken, consume, retry]);
+  }, [enabled, ownerId, vaultKey, vaultOwnerToken, consume]);
 
   const withSession = async (
     operation: (
@@ -244,89 +257,93 @@ export function ProfileResearchCard({
       operations.current.delete(controller);
     }
   };
-  const prepare = () =>
+  const save = (sharingAcknowledged = false) =>
     void withSession(async (session) => {
-      if (result?.status !== "offered") return;
+      if (result?.status !== "offered" || !selected.size) return;
       setPhase("preparing");
+      let prepared: ReviewedProfile | null = review;
+      let writeStarted = saveStarted;
       try {
-        const prepared = await prepareProfileReview(
+        const message = profileReviewMessage(result.report, selected, edits);
+        if (!prepared || prepared.message !== message) {
+          prepared = await prepareProfileReview(session, message);
+        }
+        await session.assertCurrent();
+        bindProfileSelectionSources(
+          prepared,
+          selectedProfileDetails(result.report, selected, edits),
+        );
+        setReview(prepared);
+        setEditing(false);
+        if (
+          connectorMemorySharingImpact(prepared.cards) > 0 &&
+          !sharingAcknowledged
+        ) {
+          setPhase("draft");
+          setSharingOpen(true);
+          return;
+        }
+        setSharingOpen(false);
+        setPhase("saving");
+        writeStarted = true;
+        setSaveStarted(true);
+        const ids = new Set(prepared.cards.map((card) => card.card_id));
+        const outcome = await saveProfileReview(
           session,
-          profileReviewMessage(result.report, selected, edits),
+          prepared,
+          ids,
+          sharingAcknowledged,
         );
         await session.assertCurrent();
-        setReview(prepared);
-        setSelectedCards(new Set(prepared.cards.map((card) => card.card_id)));
-        setEditing(false);
-        setPhase("review");
+        if (outcome.committed.size !== ids.size) {
+          throw new Error("Some details still need saving. Retry to finish.");
+        }
+        setSaveStarted(false);
+        setReview(null);
+        setPhase("saved");
+        consume(session.userId);
+        morphyToast.success("Saved to Memory");
       } catch (error) {
         if (session.isCurrent()) {
+          // Retain exact scopes after a partial/lost response; Retry must never
+          // prepare a different payload or duplicate a committed write.
+          if (!writeStarted) setReview(null);
           setPhase("draft");
           morphyToast.error(
-            error instanceof Error ? error.message : "Please try again.",
+            error instanceof Error
+              ? error.message
+              : "Couldn't save. Try again.",
           );
         }
       }
     });
-  const save = (sharingAcknowledged = false) =>
-    void withSession(async (session) => {
-      if (!review || !selectedCards.size) return;
-      const cards = review.cards.filter((card) =>
-        selectedCards.has(card.card_id),
-      );
-      if (connectorMemorySharingImpact(cards) > 0 && !sharingAcknowledged) {
-        setSharingOpen(true);
-        return;
-      }
-      setSharingOpen(false);
-      setPhase("saving");
-      try {
-        const saving = (async () => {
-          const outcome = await saveProfileReview(
-            session,
-            review,
-            selectedCards,
-            sharingAcknowledged,
-          );
-          await session.assertCurrent();
-          const remaining = new Set(
-            [...selectedCards].filter((id) => !outcome.committed.has(id)),
-          );
-          setSelectedCards(remaining);
-          if (remaining.size) {
-            setPhase("review");
-            throw new Error("Some details still need saving. Retry to finish.");
-          }
-          setPhase("saved");
-          consume(session.userId);
-          return outcome;
-        })();
-        morphyToast.promise(saving, {
-          loading: "Saving your reviewed Magic Intelligence details…",
-          success: "Magic Intelligence saved privately.",
-          error: (error) =>
-            error instanceof Error
-              ? error.message
-              : "Couldn’t save Magic Intelligence. Please try again.",
-        });
-        await saving;
-      } catch {
-        if (session.isCurrent()) setPhase("review");
-      }
-    });
 
   const availability: ProfileResearchAvailability =
-    visible && (phase === "saved" || result?.status === "saved")
-      ? "saved"
-      : !visible || phase === "skipped" || (!hasOffer && phase === "draft")
-        ? "hidden"
-        : phase === "loading"
-          ? "loading"
-          : phase === "failed"
-            ? "failed"
-            : result?.status === "offered" &&
-                result.report.match_status === "no_match"
-              ? "empty"
-              : "offered";
+    enabled &&
+    ownerId &&
+    vaultKey &&
+    vaultOwnerToken &&
+    phase === "loading" &&
+    !result
+      ? "pending"
+      : visible && (phase === "saved" || result?.status === "saved")
+        ? "saved"
+        : visible && result?.status === "unavailable" && result.retry_exhausted
+          ? "exhausted"
+          : visible && result?.status === "low_confidence"
+            ? "low_confidence"
+            : !visible ||
+                phase === "skipped" ||
+                (!hasOffer && phase === "draft")
+              ? "hidden"
+              : phase === "loading"
+                ? "loading"
+                : phase === "failed"
+                  ? "failed"
+                  : result?.status === "offered" &&
+                      result.report.match_status === "no_match"
+                    ? "empty"
+                    : "offered";
   useEffect(() => {
     onAvailabilityChange?.(availability);
   }, [onAvailabilityChange, availability]);
@@ -347,7 +364,7 @@ export function ProfileResearchCard({
     return renderMessage ? renderMessage(null, null) : null;
   const report = result?.status === "offered" ? result.report : null;
   const dismiss = () => {
-    if (!busy) {
+    if (!busy && !saveStarted) {
       setPhase("skipped");
       setResult(null);
       setReview(null);
@@ -370,16 +387,17 @@ export function ProfileResearchCard({
               <label className="flex items-start gap-3">
                 <Checkbox
                   checked={selected.has(id)}
-                  disabled={busy || !!review}
+                  disabled={busy || saveStarted}
                   aria-label={`Keep ${fact.statement}`}
-                  onCheckedChange={(checked) =>
+                  onCheckedChange={(checked) => {
+                    setReview(null);
                     setSelected((current) => {
                       const next = new Set(current);
                       if (checked === true) next.add(id);
                       else next.delete(id);
                       return next;
-                    })
-                  }
+                    });
+                  }}
                 />
                 <span className="min-w-0 text-sm leading-6">
                   {edits[id] ?? fact.statement}
@@ -387,15 +405,17 @@ export function ProfileResearchCard({
               </label>
               {editing && (
                 <Textarea
+                  disabled={busy || saveStarted}
                   aria-label={`Edit ${fact.statement}`}
                   maxLength={600}
                   value={edits[id] ?? fact.statement}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    setReview(null);
                     setEdits((current) => ({
                       ...current,
                       [id]: event.target.value,
-                    }))
-                  }
+                    }));
+                  }}
                 />
               )}
               {fact.confidence !== "supported" && (
@@ -430,99 +450,100 @@ export function ProfileResearchCard({
         {!embedded && (
           <CardTitle className="text-base">Magic Intelligence</CardTitle>
         )}
-        {report?.name && <HelperText>{report.name}</HelperText>}
-        <HelperText>
-          {phase === "loading"
-            ? "One is building your Magic Intelligence profile…"
-            : phase === "failed"
-              ? "Magic Intelligence is unavailable right now."
-              : phase === "saved"
-                ? "Your Magic Intelligence details are saved."
-                : report?.match_status === "no_match"
-                  ? "Magic Intelligence couldn’t find a reliable public profile for you. You can skip this and tell One about yourself in chat."
-                  : report?.summary}
-        </HelperText>
-        {report?.match_status === "uncertain" && (
+        {report?.name && <MediumRowLabel as="p">{report.name}</MediumRowLabel>}
+        {(phase === "loading" ||
+          phase === "failed" ||
+          phase === "saved" ||
+          report?.match_status === "no_match" ||
+          !embedded) && (
           <HelperText>
-            Check that these details belong to you before selecting them.
+            {phase === "loading"
+              ? "One is building your Magic Intelligence profile…"
+              : phase === "failed"
+                ? "Magic Intelligence is unavailable right now."
+                : phase === "saved"
+                  ? "Your Magic Intelligence details are saved."
+                  : report?.match_status === "no_match"
+                    ? "Magic Intelligence couldn’t find a reliable public profile for you. You can skip this and tell One about yourself in chat."
+                    : report?.summary}
           </HelperText>
+        )}
+        {report?.match_status === "uncertain" && (
+          <HelperText>Check these details belong to you.</HelperText>
         )}
       </CardHeader>
       <CardContent
         className={embedded ? "space-y-3 p-0" : "space-y-3 p-4 pt-2"}
       >
         {report && phase !== "saved" && (
-          <Accordion type="multiple">
+          <Accordion
+            type="multiple"
+            defaultValue={report.sections
+              .filter((section) => !embedded || section.kind !== "business")
+              .slice(0, 1)
+              .map((section) => section.kind)}
+          >
             {report.sections
               .filter((section) => !embedded || section.kind !== "business")
               .map(renderSection)}
           </Accordion>
         )}
-        {result?.status === "offered" &&
-          phase !== "saved" &&
-          result.search_suggestions.map((html, index) => (
-            <iframe
-              key={index}
-              title={`Google Search suggestions ${index + 1}`}
-              srcDoc={html}
-              sandbox="allow-popups allow-popups-to-escape-sandbox"
-              referrerPolicy="no-referrer"
-              className="h-24 w-full border-0"
-            />
-          ))}
-        {phase === "review" && review ? (
-          <AgentPkmReviewPanel
-            compact
-            showSourceText
-            cards={review.cards}
-            selectedCardIds={selectedCards}
-            onToggleCard={(id, checked) =>
-              setSelectedCards((current) => {
-                const next = new Set(current);
-                if (checked) next.add(id);
-                else next.delete(id);
-                return next;
-              })
-            }
-            onSave={() => save()}
-            onDismiss={dismiss}
-            saveLabel="Confirm and save"
-            onEdit={() => {
-              setReview(null);
-              setEditing(true);
-              setPhase("draft");
-            }}
-          />
-        ) : phase === "saved" ? null : (
+        {busy && (
+          <HelperText role="status">
+            {phase === "preparing"
+              ? "Preparing selected details…"
+              : "Saving to Memory…"}
+          </HelperText>
+        )}
+        {saveStarted && !busy && (
+          <HelperText>
+            {partiallySaved
+              ? "Some details saved. Retry to finish."
+              : "Save wasn't confirmed. Retry safely."}
+          </HelperText>
+        )}
+        {phase === "saved" ? null : (
           <FlowActionGroup
+            stacked
+            separateSecondary={false}
             secondary={
-              <Button variant="none" onClick={dismiss} disabled={busy}>
-                Skip
-              </Button>
+              <div className="flex w-full items-center justify-between gap-3">
+                {report && report.sections.length > 0 && phase === "draft" && (
+                  <Button
+                    variant="none"
+                    size="compact"
+                    disabled={saveStarted}
+                    onClick={() => setEditing((current) => !current)}
+                  >
+                    {editing ? "Done editing" : "Edit"}
+                  </Button>
+                )}
+                <Button
+                  variant="none"
+                  size="compact"
+                  className="ml-auto"
+                  onClick={dismiss}
+                  disabled={busy || saveStarted}
+                >
+                  Skip
+                </Button>
+              </div>
             }
             primary={
-              phase === "failed" ? (
-                <Button onClick={() => setRetry((current) => current + 1)}>
-                  Try again
-                </Button>
-              ) : (
+              phase === "failed" ? null : (
                 <Button
-                  onClick={prepare}
+                  onClick={() => save()}
                   disabled={busy || !report || !selected.size}
                 >
-                  {busy ? "Preparing…" : "Review and save"}
+                  {busy
+                    ? "Saving…"
+                    : saveStarted
+                      ? "Retry save"
+                      : "Save to Memory"}
                 </Button>
               )
             }
           />
-        )}
-        {report && report.sections.length > 0 && phase === "draft" && (
-          <Button
-            variant="none"
-            onClick={() => setEditing((current) => !current)}
-          >
-            {editing ? "Done editing" : "Edit"}
-          </Button>
         )}
         <AlertDialog open={sharingOpen} onOpenChange={setSharingOpen}>
           <AlertDialogContent>

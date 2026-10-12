@@ -232,13 +232,24 @@ card-verification step. A confirmed Wallet write registers saved cards automatic
 sharing an older card refreshes its encrypted metadata without changing its details.
 Sharing uses selected active connections and individual 5/10/15-minute server
 grants. Default identity cards and other owners' cards are excluded. The shared
-view contains masked details only. Each
+view decrypts the full card number on the recipient's unlocked device. Each
 successful share creates a Messages reference and a Feed notice reading
 “[Sender name] shared their card with you.” Explicit Trusted Circle recipients
 can open it directly; other connections must complete fresh identity verification.
 Owners can revoke access under Shared with. See the
 [temporary sharing API contract](../architecture/api-contracts.md#wallet-profile-lifecycle)
 for rollout requirements and browser/native limits.
+
+New shares seal the number, cardholder name, network, expiry and region for each
+selected recipient using the existing P-256/AES-GCM recipient-key envelope.
+The server stores that opaque envelope inside the grant's encrypted contents;
+it never receives the plaintext number, CVV, PIN or vault key. Both circle types
+use the same payload. Recipient keys must already be registered, and the receiver
+unlocks their Wallet to recover the key. Expiry, revocation, relationship checks
+and identity verification still precede envelope delivery. Closing, backgrounding,
+locking, or losing access clears the displayed details. These controls cannot
+recall information a recipient has already copied or captured. Existing masked-only
+grants remain readable; the owner must create a new share to include the full number.
 
 ### Legacy encrypted Chat copies (read compatibility)
 

@@ -1,23 +1,25 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { ScopeCommerceService, parseCommerceDollarInput, type CommerceAccount, type CommerceTransferPreview } from "@/lib/services/scope-commerce-service";
 import { COMMERCE_RETURN_EVENT, commerceReturnAction } from "@/lib/services/scope-commerce-browser";
 import { useCommerceRead } from "@/components/consent/use-commerce-session";
 import { useCommerceAction } from "@/components/consent/use-commerce-action";
 import { useCommerceHostedFlow } from "@/components/consent/use-commerce-hosted-flow";
 import { subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { parseCommerceReturn } from "@/lib/services/scope-commerce-return";
 
 type TransferReview = { kind: "withdraw" | "refund"; lotId?: string; preview: CommerceTransferPreview; key: string };
 
 function useOnboardingRefresh({ user, capture, refresh }: ReturnType<typeof useCommerceRead<CommerceAccount>>) {
   const searchParams = useSearchParams();
+  const pathname = usePathname();
   type Hint = { user: typeof user; current: () => boolean; query?: string };
   const [returnedRefresh, setReturnedRefresh] = useState<Hint | null>(null);
   const [queryRefresh, setQueryRefresh] = useState<Hint | null>(null);
   const query = searchParams.toString();
-  const refreshQuery = commerceReturnAction(`/one/profile/account?${query}`) === "onboarding_refresh" ? query : "";
+  const refreshQuery = !parseCommerceReturn(`${pathname}?${query}`)?.source && commerceReturnAction(`${pathname}?${query}`) === "onboarding_refresh" ? query : "";
   useEffect(() => {
     setQueryRefresh(previous => !refreshQuery ? null : previous?.query === refreshQuery ? previous :
       user ? { user, current: capture(), query: refreshQuery } : null);
@@ -28,6 +30,7 @@ function useOnboardingRefresh({ user, capture, refresh }: ReturnType<typeof useC
   }), []);
   useEffect(() => {
     const onReturn = (event: Event) => {
+      if ((event as CustomEvent<{ source?: string }>).detail?.source === "documents") return;
       setReturnedRefresh(user && (event as CustomEvent<{ action?: string }>).detail?.action === "onboarding_refresh" ?
         { user, current: capture() } : null);
       void refresh();

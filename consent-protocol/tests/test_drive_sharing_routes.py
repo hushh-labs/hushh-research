@@ -933,7 +933,7 @@ def requester_setup(monkeypatch):
     app = FastAPI()
     app.include_router(requester_routes.router)
     current = AsyncMock(return_value={"user_id": "recipient"})
-    monkeypatch.setattr(routes, "require_vault_owner_token", current)
+    monkeypatch.setattr("api.routes.drive_sharing_owner.require_vault_owner_token", current)
     review = AsyncMock()
     monkeypatch.setattr(requester_routes.requester_store, "request_review", review)
     monkeypatch.setattr(requester_routes, "_service", lambda: SimpleNamespace(store="store"))

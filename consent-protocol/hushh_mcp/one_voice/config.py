@@ -16,6 +16,7 @@ from typing import Final
 ONE_VOICE_LIVE_ENABLED_ENV = "ONE_VOICE_LIVE_ENABLED"
 VERTEX_LIVE_MODEL_ID_ENV = "VERTEX_LIVE_MODEL_ID"
 VERTEX_LIVE_LOCATION_ENV = "VERTEX_LIVE_LOCATION"
+HUSHH_ONE_VOICE_VERTEX_PROJECT_ENV = "HUSHH_ONE_VOICE_VERTEX_PROJECT"
 ONE_VOICE_MAX_SESSIONS_PER_INSTANCE_ENV = "ONE_VOICE_MAX_SESSIONS_PER_INSTANCE"
 ONE_VOICE_SESSION_MAX_MINUTES_ENV = "ONE_VOICE_SESSION_MAX_MINUTES"
 ONE_VOICE_IDLE_CLOSE_SECONDS_ENV = "ONE_VOICE_IDLE_CLOSE_SECONDS"
@@ -32,6 +33,7 @@ PROTOCOL_VERSION: Final = "one-voice-v1"
 
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 _MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
+_PROJECT_ID_RE = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
 # Live models are served from regional endpoints only. The multi-region
 # aliases the text fleet uses (global/us/eu) are rejected on purpose.
 _REGIONAL_LOCATION_RE = re.compile(r"^[a-z]+-[a-z]+[0-9]+$")
@@ -67,6 +69,7 @@ class OneVoiceLiveConfig:
     session_max_minutes: int = 30
     idle_close_seconds: int = 90
     daily_minutes_per_user: int = 30
+    vertex_project: str | None = None
 
     @classmethod
     def from_environment(cls) -> OneVoiceLiveConfig:
@@ -87,10 +90,16 @@ class OneVoiceLiveConfig:
                 f"{VERTEX_LIVE_LOCATION_ENV} must be one regional Vertex location "
                 "(for example us-central1); global/us/eu are not Live endpoints"
             )
+        vertex_project = _clean(HUSHH_ONE_VOICE_VERTEX_PROJECT_ENV)
+        if vertex_project and not _PROJECT_ID_RE.fullmatch(vertex_project):
+            raise OneVoiceConfigError(
+                f"{HUSHH_ONE_VOICE_VERTEX_PROJECT_ENV} must be a valid Google Cloud project id"
+            )
         return cls(
             enabled=True,
             model_id=model_id,
             location=location,
+            vertex_project=vertex_project or None,
             max_sessions_per_instance=_positive_int(
                 ONE_VOICE_MAX_SESSIONS_PER_INSTANCE_ENV, cls.max_sessions_per_instance
             ),

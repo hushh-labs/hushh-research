@@ -13,8 +13,10 @@ import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vau
 export function useCommerceAccountBackLayer(depth: number, back: () => boolean) {
   const pathname = usePathname();
   const pane = resolveProfilePaneUrlState(useSearchParams());
-  const active = pane.open ? pane.location.panel === "account" && !pane.location.detail : pathname === ROUTES.PROFILE_ACCOUNT;
-  useBackLayer(pathname, active ? depth : 0, back, pane.open ? { profile_pane: "1", profile_panel: "account" } : undefined);
+  const panel = pane.location.panel;
+  const active = pane.open ? panel === "payouts" && !pane.location.detail :
+    pathname === ROUTES.PROFILE_PAYOUTS;
+  useBackLayer(pathname, active ? depth : 0, back, pane.open && active ? { profile_pane: "1", profile_panel: panel! } : undefined);
 }
 
 /** A read or action may settle only in the account, view and vault session that began it. */

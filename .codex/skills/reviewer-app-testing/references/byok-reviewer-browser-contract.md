@@ -56,6 +56,18 @@ installed before the first navigation.
 
 Domain rehearsals import the harness and add only their domain assertions. They must not duplicate secret-resolution or navigation logic.
 
+An explicitly authorized owner-cloud rehearsal may supply `admitProviderOAuth`
+with `admitMutation`. This opt-in admits only reviewed POST document navigation
+in the top frame at exact Microsoft sign-in origins; the callback must approve
+the exact request. It never admits background writes or another provider, and
+absent or failed admission remains refused. The known Microsoft
+`browser.events.data.microsoft.com/OneCollector/1.0/` telemetry POST is suppressed
+locally, just like the known Analytics collection endpoint; no measurement is
+forwarded. Owner OAuth state, code and credentials remain memory-only. Preserve
+the original authenticated page, and exercise cold recovery separately rather
+than changing Firebase or vault persistence.
+
+
 ### Additive Memory preservation proof
 
 The Memory panel can install `window.__HUSHH_NATIVE_TEST__.pkmProof` only for

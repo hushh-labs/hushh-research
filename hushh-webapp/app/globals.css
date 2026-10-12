@@ -2163,37 +2163,37 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 /*
- * Profile pane: a bounded liquid-glass card that keeps the existing Profile
- * page and route stack intact. The reference surface owns its breathing room
- * outside the card, so the right-side Sheet is inset instead of touching the
- * viewport's top and bottom edges. All rules are scoped to this pane class so
- * route-level Profile pages and shared settings surfaces keep their existing
- * presentation.
+ * Profile pane: a bounded liquid-glass card shared with the Chats drawer.
+ * Each panel keeps its existing content and interaction ownership. The reference surface owns its breathing room
+ * outside the card, so both panels share one safe-area-aware inset, height,
+ * width and radius. Route-level pages and persistent desktop columns keep
+ * their existing presentation.
  */
-.profile-pane-sheet[data-slot="sheet-content"] {
-  --profile-pane-gutter: clamp(12px, 2.5vw, 18px);
-  --profile-pane-top-inset: max(
-    var(--profile-pane-gutter),
+.profile-pane-sheet[data-slot="sheet-content"],
+[data-agent-history-drawer] {
+  --app-side-pane-gutter: clamp(12px, 2.5vw, 18px);
+  --app-side-pane-top-inset: max(
+    var(--app-side-pane-gutter),
     var(--app-safe-area-top-effective, 0px)
   );
-  --profile-pane-right-inset: max(
-    var(--profile-pane-gutter),
+  --app-side-pane-right-inset: max(
+    var(--app-side-pane-gutter),
     env(safe-area-inset-right, 0px)
   );
-  --tw-enter-translate-x: calc(100% + var(--profile-pane-right-inset));
-  --tw-exit-translate-x: calc(100% + var(--profile-pane-right-inset));
-  --profile-pane-bottom-inset: max(
-    var(--profile-pane-gutter),
+  --tw-enter-translate-x: calc(100% + var(--app-side-pane-right-inset));
+  --tw-exit-translate-x: calc(100% + var(--app-side-pane-right-inset));
+  --app-side-pane-bottom-inset: max(
+    var(--app-side-pane-gutter),
     env(safe-area-inset-bottom, 0px)
   );
-  --profile-pane-left-inset: max(
-    var(--profile-pane-gutter),
+  --app-side-pane-left-inset: max(
+    var(--app-side-pane-gutter),
     env(safe-area-inset-left, 0px)
   );
-  --profile-pane-available-height: calc(
-    100dvh - var(--profile-pane-top-inset) - var(--profile-pane-bottom-inset)
+  --app-side-pane-available-height: calc(
+    100dvh - var(--app-side-pane-top-inset) - var(--app-side-pane-bottom-inset)
   );
-  --profile-pane-height: min(820px, var(--profile-pane-available-height));
+  --app-side-pane-height: min(820px, var(--app-side-pane-available-height));
   --profile-pane-surface: rgba(255, 255, 255, 0.48);
   --profile-pane-surface-strong: rgba(255, 255, 255, 0.76);
   --profile-pane-surface-soft: rgba(255, 255, 255, 0.24);
@@ -2205,18 +2205,18 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
     0 36px 90px rgba(35, 42, 51, 0.22),
     0 4px 18px rgba(35, 42, 51, 0.1);
   top: calc(
-    var(--profile-pane-top-inset) +
-      (var(--profile-pane-available-height) - var(--profile-pane-height)) * 0.5
+    var(--app-side-pane-top-inset) +
+      (var(--app-side-pane-available-height) - var(--app-side-pane-height)) * 0.5
   ) !important;
-  right: var(--profile-pane-right-inset) !important;
+  right: var(--app-side-pane-right-inset) !important;
   bottom: auto !important;
   left: auto !important;
   width: min(
     430px,
-    calc(100vw - var(--profile-pane-left-inset) - var(--profile-pane-right-inset))
+    calc(100vw - var(--app-side-pane-left-inset) - var(--app-side-pane-right-inset))
   ) !important;
   max-width: 430px !important;
-  height: var(--profile-pane-height) !important;
+  height: var(--app-side-pane-height) !important;
   min-height: 0 !important;
   padding: 0 !important;
   border: 1px solid rgba(255, 255, 255, 0.58) !important;
@@ -2261,7 +2261,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 html.dark .profile-pane-sheet[data-slot="sheet-content"],
-.dark .profile-pane-sheet[data-slot="sheet-content"] {
+.dark .profile-pane-sheet[data-slot="sheet-content"],
+.dark [data-agent-history-drawer] {
   --profile-pane-surface: rgba(22, 24, 29, 0.73);
   --profile-pane-surface-strong: rgba(31, 34, 40, 0.86);
   --profile-pane-surface-soft: rgba(255, 255, 255, 0.045);
@@ -2278,6 +2279,44 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
     inset 1px 1px 0 rgba(255, 255, 255, 0.18),
     inset -1px -1px 0 rgba(0, 0, 0, 0.35) !important;
   color-scheme: dark;
+}
+
+/* Chat mirrors Profile at the leading edge. The card owns its material;
+ * the inner sidebar only owns content and scrolling. */
+[data-agent-history-drawer],
+.dark [data-agent-history-drawer] {
+  /* A transformed WKWebView surface cannot reliably blur its backdrop.
+   * Keep the bounded frame and shared scrim, but make chat text independent
+   * of backdrop-filter support during and after the slide. */
+  --profile-pane-surface: var(--background);
+  --agent-history-shadow-clearance: 48px;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  right: auto !important;
+  left: var(--app-side-pane-left-inset) !important;
+  overflow: hidden;
+}
+
+[data-agent-history-drawer] [data-agent-history-sidebar="drawer"] {
+  height: 100%;
+  width: 100%;
+  border: 0;
+  border-radius: inherit;
+  background: transparent !important;
+  padding-block: 0;
+  box-shadow: none;
+}
+
+[data-agent-history-drawer] [data-agent-history-title] {
+  font-family: var(--font-app-display);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 23px;
+}
+
+[data-agent-history-drawer] [data-agent-history-footer] {
+  border-color: var(--profile-pane-hair);
 }
 
 .profile-pane-header {
@@ -2691,7 +2730,8 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  .profile-pane-sheet[data-slot="sheet-content"] {
+  .profile-pane-sheet[data-slot="sheet-content"],
+  [data-agent-history-drawer] {
     background: var(--app-card-surface-default-solid) !important;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
@@ -3614,11 +3654,10 @@ html.native-ios {
   --app-screen-footer-pad: calc(56px + var(--app-bottom-inset));
 }
 
-/* Full-screen Location onboarding and Referrals own their top navigation.
+/* Full-screen Location onboarding owns its top navigation.
  * Some iOS WebViews report a zero inset, so share a Dynamic-Island-safe floor
  * while allowing larger measured device insets to win. */
-html.native-ios [data-testid="one-location-onboarding"],
-html.native-ios .referral-dashboard {
+html.native-ios [data-testid="one-location-onboarding"] {
   --app-safe-area-top-effective: max(
     59px,
     var(--app-safe-area-top),
@@ -7753,7 +7792,7 @@ html.native-full-window-overlays:not([data-native-full-window-covered]) :is(
 }
 @keyframes profile-pull-exit {
   from { transform: translate3d(var(--profile-pull-x, 0px), 0, 0); }
-  to { transform: translate3d(calc(100% + var(--profile-pane-right-inset, 0px)), 0, 0); }
+  to { transform: translate3d(calc(100% + var(--app-side-pane-right-inset, 0px)), 0, 0); }
 }
 @keyframes profile-pull-scrim-exit {
   from { opacity: var(--profile-pull-opacity, 1); }
@@ -9014,7 +9053,8 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
 /* Base-layer important type rules own app headings and row labels. Keep the
    pane's reference scale in that same layer so it survives those locks. */
 @layer base {
-  .profile-pane-sheet .profile-pane-header [data-slot="sheet-title"] {
+  .profile-pane-sheet .profile-pane-header [data-slot="sheet-title"],
+  [data-agent-history-drawer] [data-agent-history-title] {
     font-size: 20px !important;
     line-height: 1.15 !important;
     font-weight: 700 !important;
@@ -9124,4 +9164,87 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   --app-accent: #007aff;
   --referral-medal-deep: #b8894d;
   --referral-medal-light: #d4a574;
+}
+
+/* Equal outer tracks center One with the controls on wide screens;
+   narrow phones keep a separate control row to prevent overlap. */
+.agent-chat-header[data-one-centered-header="true"] {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-rows: 120px 44px;
+  column-gap: 12px;
+  row-gap: 8px;
+  height: calc(184px + var(--agent-chat-header-safe-top));
+  padding-top: calc(4px + var(--agent-chat-header-safe-top));
+  padding-bottom: 8px;
+}
+.agent-chat-header[data-one-centered-header="true"] > :first-child {
+  grid-column: 1;
+  grid-row: 2;
+}
+.agent-chat-header[data-one-centered-header="true"] > :last-child {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: end;
+}
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+}
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-brand-tile] {
+  width: 64px;
+  height: 64px;
+}
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child {
+  max-width: 100%;
+}
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] p {
+  justify-content: center;
+}
+
+@media (min-width: 768px) {
+  .agent-chat-header[data-one-centered-header="true"] {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    grid-template-rows: 120px;
+    height: calc(136px + var(--agent-chat-header-safe-top));
+    padding-top: calc(8px + var(--agent-chat-header-safe-top));
+  }
+  .agent-chat-header[data-one-centered-header="true"] > :first-child {
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: start;
+    align-self: start;
+    margin-top: 10px;
+  }
+  .agent-chat-header[data-one-centered-header="true"] > :last-child {
+    grid-column: 3;
+    grid-row: 1;
+    align-self: start;
+    margin-top: 10px;
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] {
+    grid-column: 2;
+    align-self: start;
+  }
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] p {
+    max-width: 128px;
+  }
+}
+@media (min-width: 1024px) {
+  .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] p {
+    max-width: 256px;
+  }
+}
+
+.agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child > div {
+  display: table;
+  margin-inline: auto;
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: var(--app-card-surface-default);
+  box-shadow: var(--app-card-shadow-standard);
 }

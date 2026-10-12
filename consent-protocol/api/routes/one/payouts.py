@@ -95,6 +95,7 @@ def _query_error(code: str, message: str) -> HTTPException:
 class OnboardBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     purpose: Literal["verify"] | None = None
+    attempt_id: UUID | None = None
 
 
 def _connect_event_rejected(route: str, status: int, code: str) -> None:
@@ -187,7 +188,10 @@ async def onboard_payout_account(
     )
     try:
         link: dict[str, Any] = await _document_service().onboarding_link(
-            user_id=token_data["user_id"], surface="documents", purpose=purpose
+            user_id=token_data["user_id"],
+            surface="documents",
+            purpose=purpose,
+            **({"attempt_id": str(body.attempt_id)} if body and body.attempt_id else {}),
         )
         return link
     except PacketOrderError as exc:

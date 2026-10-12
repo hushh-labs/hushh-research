@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -97,6 +98,59 @@ async def test_sandbox_funding_budget_serializes_pending_attempts_and_refunds_do
     await service.funding_checkout(
         payer_user_id="buyer", buyer_app_id="shared", amount_cents=2000, operation_id=str(uuid4())
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("difference", [None, "account_id", "country", "livemode"])
+async def test_postgres_seller_binding_winner_cannot_reroute_another_account(
+    provider_postgres, monkeypatch, difference
+):
+    store, pool = provider_postgres
+    service = _funding_service(store, _FundingAdapter())
+    winner = {"account_id": "acct_created", "country": "US", "livemode": False}
+    if difference is not None:
+        winner[difference] = {"account_id": "acct_existing", "country": "CA", "livemode": True}[
+            difference
+        ]
+
+    async def seed(connection):
+        seller = await store._seller(connection, "owner")
+        await connection.execute(
+            "INSERT INTO scope_commerce_seller_accounts(user_id,account_id,country,livemode) VALUES($1,$2,$3,$4)",
+            "owner",
+            winner["account_id"],
+            winner["country"],
+            winner["livemode"],
+        )
+        await connection.execute(
+            "UPDATE scope_commerce_sellers SET account_id=$2,country=$3,livemode=$4 WHERE seller_id=$1",
+            seller["seller_id"],
+            winner["account_id"],
+            winner["country"],
+            winner["livemode"],
+        )
+
+    await store._transaction(seed)
+    # Model the mapping winning after the caller's initial absence read.
+    monkeypatch.setattr(
+        service, "_seller_binding", AsyncMock(side_effect=[None, {"user_id": "owner", **winner}])
+    )
+    monkeypatch.setattr(service, "_run_operation", AsyncMock(return_value={"id": "acct_created"}))
+    if difference is None:
+        result = await service._prepare_seller_account(user_id="owner", country="US")
+        assert result["account_id"] == "acct_created"
+    else:
+        with pytest.raises(CommerceProviderError, match="provider_account_mismatch"):
+            await service._prepare_seller_account(user_id="owner", country="US")
+    async with pool.acquire() as connection:
+        routed = await connection.fetchrow(
+            "SELECT account_id,country,livemode FROM scope_commerce_sellers WHERE owner_user_id='owner'"
+        )
+        assert dict(routed) == winner
+        binding = await connection.fetchrow(
+            "SELECT account_id,country,livemode FROM scope_commerce_seller_accounts WHERE user_id='owner'"
+        )
+        assert dict(binding) == winner
 
 
 @pytest.mark.asyncio

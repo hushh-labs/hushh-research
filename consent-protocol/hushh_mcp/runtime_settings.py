@@ -1051,9 +1051,18 @@ def one_profile_research_enabled() -> bool:
 
 
 def one_magic_intelligence_phase() -> int:
-    """Explicit revision rollout: 0/off, 1/owner, 2/inner, 3/senior, 4/QA."""
+    """Explicit revision rollout: 0/off, 1–4/cohorts, 5/all verified-email UAT owners."""
     raw = _clean_env("ONE_MAGIC_INTELLIGENCE_PHASE", "0")
-    return int(raw) if raw in {"0", "1", "2", "3", "4"} else 0
+    return int(raw) if raw in {"0", "1", "2", "3", "4", "5"} else 0
+
+
+def one_magic_intelligence_all_uat_enabled() -> bool:
+    """General admission needs matching runtime and revision UAT provenance."""
+    return (
+        one_magic_intelligence_phase() == 5
+        and _clean_env("ENVIRONMENT").lower() == "uat"
+        and _clean_env("HUSHH_DEPLOY_ENV").lower() == "uat"
+    )
 
 
 def one_magic_intelligence_cohorts() -> tuple[tuple[str, ...], ...]:

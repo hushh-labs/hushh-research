@@ -239,15 +239,39 @@ export function useChatOnboarding(input: {
   useEffect(() => {
     if (!userId || session.userId !== userId || session.durable !== undefined) return;
     let active = true;
-    void PreVaultUserStateService.bootstrapState(userId)
-      .then((state) => {
-        if (active && useChatOnboardingSession.getState().userId === userId) {
-          useChatOnboardingSession.getState().patch({ durable: state.oneChatOnboarding });
-        }
-      })
-      .catch(() => undefined);
+    let inFlight = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let backoff = 5000;
+    const load = () => {
+      const current = useChatOnboardingSession.getState();
+      if (!active || inFlight || current.userId !== userId || current.durable !== undefined) return;
+      clearTimeout(retryTimer);
+      inFlight = true;
+      void PreVaultUserStateService.bootstrapState(userId)
+        .then((state) => {
+          if (active && useChatOnboardingSession.getState().userId === userId) {
+            useChatOnboardingSession.getState().patch({ durable: state.oneChatOnboarding });
+          }
+        })
+        .catch(() => {
+          // Never treat a failed read as completed onboarding, but do not leave
+          // discovery disabled forever after a transient bootstrap failure.
+          if (active) {
+            retryTimer = setTimeout(load, backoff);
+            backoff = Math.min(backoff * 2, 30_000);
+          }
+        })
+        .finally(() => { inFlight = false; });
+    };
+    const resume = () => { if (document.visibilityState === "visible") load(); };
+    load();
+    window.addEventListener("online", load);
+    document.addEventListener("visibilitychange", resume);
     return () => {
       active = false;
+      clearTimeout(retryTimer);
+      window.removeEventListener("online", load);
+      document.removeEventListener("visibilitychange", resume);
     };
   }, [userId, session.userId, session.durable]);
 

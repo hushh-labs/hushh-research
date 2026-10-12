@@ -6282,7 +6282,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.profile.payouts",
-          "purpose": "Help the person use payouts through its generated controls.",
+          "purpose": "Help the person manage purchase balance and source-specific earnings without changing consent or financial authority.",
           "screen": "profile_payouts",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -7750,18 +7750,21 @@
       "page_file": "app/one/referrals/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "hidden",
+        "mode": "standard",
         "exemption_reason": null,
         "shell_verification_file": "components/referrals/referral-dashboard-page.tsx",
         "shell_verification_includes": [
-          "NativeTestBeacon"
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader"
         ],
         "interaction_layer_policy": {
           "allowed_families": []
         },
         "voice_playbook": {
           "playbook_id": "route.one.referrals",
-          "purpose": "Open the referral dashboard directly so the person can read their referral link, coins, ranking, and reward progress. How it works shows the coins and rules; Back returns to the previous dashboard section. Viewing the dashboard never grants setup completion or referral credit.",
+          "purpose": "Open the referral dashboard directly so the person can share their referral link and read their coins, ranking, and reward progress. Share expands the sharing options; Back closes them. How it works shows the coins and rules; Back returns to the previous dashboard section. Viewing the dashboard never grants setup completion or referral credit.",
           "screen": "one_referrals",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -10592,5 +10595,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "eee556ad9fec4d62ef85653423807812f683a681b4870726b96b4641e1926368"
+  "content_sha256": "3b7cb02b88416e47d0a017f64a352916fea215f933b5a17f59bb6285e5ba8b9d"
 }

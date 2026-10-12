@@ -26,7 +26,7 @@ class ScopeCommerceProviderConfig:
     livemode: bool = False
     platform_account_id: str = ""
     frontend_origin: str = ""
-    return_path: str = "/one/profile/account"
+    return_path: str = "/one/profile/payouts"
     countries: dict[str, CountryPayoutPolicy] = field(default_factory=dict)
     fee_configuration_ref: str = ""
     approval_refs: tuple[str, ...] = ()
@@ -105,7 +105,7 @@ class ScopeCommerceProviderConfig:
             livemode=os.getenv("SCOPE_COMMERCE_STRIPE_LIVEMODE", "").lower() == "true",
             platform_account_id=os.getenv("SCOPE_COMMERCE_STRIPE_ACCOUNT_ID") or "",
             frontend_origin=origin,
-            return_path=os.getenv("SCOPE_COMMERCE_RETURN_PATH") or "/one/profile/account",
+            return_path=os.getenv("SCOPE_COMMERCE_RETURN_PATH") or "/one/profile/payouts",
             countries=countries,
             fee_configuration_ref=os.getenv("SCOPE_COMMERCE_FEE_CONFIGURATION_REF") or "",
             approval_refs=refs,

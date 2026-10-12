@@ -48,8 +48,8 @@ describe("OneAuthGate", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows only an advisory popup return while an unmatched cold Account stays vault-gated", () => {
-    mocks.pathname = "/one/profile/account";
+  it.each(["/one/profile/account", "/one/profile/payouts"])("shows only an advisory popup return while an unmatched cold %s stays vault-gated", (path) => {
+    mocks.pathname = path;
     window.history.replaceState({}, "", mocks.pathname + "?commerceReturn=1&commerceAttemptId=opaque_attempt_12345");
     const cold = render(<OneAuthGate><div>private payment information</div></OneAuthGate>);
     expect(screen.getByTestId("vault-lock-guard")).toBeTruthy();
@@ -62,15 +62,15 @@ describe("OneAuthGate", () => {
     expect(screen.getByText(/Return to your original One window/)).toBeTruthy();
   });
 
-  it("lets only the exact connector callback own Firebase completion without a popup vault", () => {
-    mocks.pathname = "/one/profile/connectors/oauth/return";
+  it.each(["/one/profile/connectors/oauth/return", "/one/setup/cloud/azure/return"])("lets the exact %s callback own Firebase completion without a popup vault", (path) => {
+    mocks.pathname = path;
     render(<OneAuthGate><div>connector callback</div></OneAuthGate>);
     expect(screen.getByText("connector callback")).toBeTruthy();
     expect(screen.queryByTestId("vault-lock-guard")).toBeNull();
     expect(screen.queryByTestId("phone-mandate-guard")).toBeNull();
   });
 
-  it.each(["/one/profile/connectors", "/one/profile/connectors/oauth/return/extra", "/one/profile/security/devices/authorize/extra", "/one/profile/security/devices"])("retains hard authority for %s", pathname => {
+  it.each(["/one/profile/connectors", "/one/profile/connectors/oauth/return/extra", "/one/setup/cloud/azure/return/extra", "/one/profile/security/devices/authorize/extra", "/one/profile/security/devices"])("retains hard authority for %s", pathname => {
     mocks.pathname=pathname;
     render(<OneAuthGate><div>protected connection management</div></OneAuthGate>);
     expect(screen.getByTestId("vault-lock-guard")).toBeTruthy();

@@ -174,6 +174,26 @@ function RequesterOutcome({
 }
 
 /**
+ * Screen readers hear recovery changes only (review requested, owner
+ * retrying, refund settled), never the row as it first appears. The row and
+ * its button stay outside this region so they are not re-read on each update.
+ */
+function RecoveryAnnouncement({ announcement }: { announcement: string }) {
+  const [spoken, setSpoken] = useState({ first: announcement, changed: false });
+  if (!spoken.changed && announcement !== spoken.first) setSpoken({ ...spoken, changed: true });
+  return (
+    <span
+      role="status"
+      aria-live="polite"
+      className="sr-only"
+      data-testid="requester-recovery-announcement"
+    >
+      {spoken.changed || announcement !== spoken.first ? announcement : ""}
+    </span>
+  );
+}
+
+/**
  * The requester's request details: their own terms, the price, payment,
  * delivery and what happens to files that were not shared. Requester-safe
  * fields only; the Google account comes from the server, never providerData.
@@ -446,26 +466,27 @@ export function DocumentRequestRequesterPanel({
       {recovery && presented ? (
         <>
           <SettingsGroup embedded testId="requester-recovery" {...groupSurface}>
-            <div role="status" aria-live="polite">
-              <SettingsRow
-                title={<span className="tabular-nums">{presented.title}</span>}
-                description={presented.line ?? undefined}
-                trailingInteractive={presented.action === "request_review"}
-                trailing={
-                  presented.action === "request_review" ? (
-                    <Button
-                      size="standard"
-                      variant="none"
-                      disabled={locked || asking}
-                      onClick={() => void askForReview()}
-                    >
-                      Request review
-                    </Button>
-                  ) : undefined
-                }
-              />
-            </div>
+            <SettingsRow
+              title={<span className="tabular-nums">{presented.title}</span>}
+              description={presented.line ?? undefined}
+              trailingInteractive={presented.action === "request_review"}
+              trailing={
+                presented.action === "request_review" ? (
+                  <Button
+                    size="standard"
+                    variant="none"
+                    disabled={locked || asking}
+                    onClick={() => void askForReview()}
+                  >
+                    Request review
+                  </Button>
+                ) : undefined
+              }
+            />
           </SettingsGroup>
+          <RecoveryAnnouncement
+            announcement={[presented.title, presented.line].filter(Boolean).join(". ")}
+          />
           {askError ? (
             <HelperText role="alert" className="px-1">
               {askError}

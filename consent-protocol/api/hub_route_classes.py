@@ -54,6 +54,7 @@ RouteKey = tuple[str, str]
 _INVENTORY = """
 [CONTENT]
 POST /api/one/profile-research
+GET,POST /api/one/profile-research/jobs
 POST /api/one/answer-requests/{request_id}/compose
 POST /api/one/career/resume/parse
 POST /api/one/email/scheduled/drain

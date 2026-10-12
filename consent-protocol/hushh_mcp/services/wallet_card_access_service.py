@@ -1,4 +1,4 @@
-"""Owner-manual Wallet card access; grants never contain payment credentials.
+"""Owner-manual Wallet access; full numbers remain recipient-encrypted.
 
 PKM owns card storage; its commit trigger owns provenance activation. Postgres
 remains authorization authority even if future metadata caching moves to Redis.
@@ -17,6 +17,7 @@ from sqlalchemy import text
 from db.db_client import get_db
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
 from hushh_mcp.services.direct_messages_service import DirectMessageCipher, DirectMessagesService
+from hushh_mcp.services.wallet_card_access_envelope import validate_recipient_card
 from hushh_mcp.services.wallet_card_access_projection import (
     WalletCardSourceCipher,
     masked_card_projection,
@@ -291,12 +292,26 @@ class WalletCardAccessService:
             for r in rows
         ]
 
-    def create_grants(self, owner, card_id, request_id, person_refs, duration_minutes):
+    def create_grants(
+        self, owner, card_id, request_id, person_refs, duration_minutes, *, encrypted_cards=None
+    ):
         refs = sorted({str(uuid.UUID(str(ref))) for ref in person_refs})
         if duration_minutes not in (5, 10, 15) or not refs or len(refs) > 20:
             raise WalletCardAccessError("WALLET_CARD_SHARE_INVALID", 422)
+        if encrypted_cards is not None:
+            try:
+                if set(encrypted_cards) != set(refs):
+                    raise ValueError("recipient mismatch")
+                for content in encrypted_cards.values():
+                    validate_recipient_card(content, card_id)
+            except (ValueError, TypeError, KeyError, AttributeError):
+                raise WalletCardAccessError("WALLET_CARD_SHARE_INVALID", 422) from None
         fingerprint = hashlib.sha256(
-            json.dumps([card_id, refs, duration_minutes], separators=(",", ":")).encode()
+            json.dumps(
+                [card_id, refs, duration_minutes]
+                + (["recipient-encrypted-v1"] if encrypted_cards is not None else []),
+                separators=(",", ":"),
+            ).encode()
         ).hexdigest()
         with self.db.engine.begin() as conn:
             self.require_available(conn)
@@ -353,8 +368,14 @@ class WalletCardAccessService:
             )
             for recipient, verification_required in policies:
                 grant_id, message_id = str(uuid.uuid4()), str(uuid.uuid4())
+                contents = dict(card)
+                if encrypted_cards is not None:
+                    ref = next(
+                        str(r["public_person_ref"]) for r in recipients if r["user_id"] == recipient
+                    )
+                    contents["encryptedCard"] = encrypted_cards[ref]
                 envelope = self.cipher.seal(
-                    json.dumps(card, separators=(",", ":")),
+                    json.dumps(contents, separators=(",", ":")),
                     conversation_id=recipient,
                     message_id=grant_id,
                     sender_user_id=owner,
@@ -470,10 +491,20 @@ class WalletCardAccessService:
                 )
             )
             allowed = {"brand", "last4", "expiryMonth", "expiryYear", "issuingRegion"}
-            if not isinstance(payload, dict) or set(payload) != allowed:
+            if not isinstance(payload, dict) or set(payload) not in (
+                allowed,
+                allowed | {"encryptedCard"},
+            ):
                 raise WalletCardAccessError("WALLET_CARD_CONTENT_UNAVAILABLE", 503)
+            encrypted = {}
+            if "encryptedCard" in payload:
+                try:
+                    validate_recipient_card(payload["encryptedCard"], row["card_id"])
+                except (ValueError, TypeError, KeyError, AttributeError):
+                    raise WalletCardAccessError("WALLET_CARD_CONTENT_UNAVAILABLE", 503) from None
+                encrypted = {"encryptedCard": payload["encryptedCard"], "senderUserId": owner}
             self._audit(conn, grant_id, recipient, "viewed")
-            return {**result, "card": {key: payload[key] for key in allowed}}
+            return {**result, "card": {key: payload[key] for key in allowed}, **encrypted}
 
     def revoke(self, owner, grant_id):
         with self.db.engine.begin() as conn:

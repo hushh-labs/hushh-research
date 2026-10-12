@@ -117,6 +117,16 @@ class MailReadPlan(BaseModel):
         "clarify",
     ]
     query: str = Field(default="", max_length=512)
+    # A recent-mail page can skip interpretation only when the person asked
+    # simply to see the list. Omission remains the full-answer path.
+    presentation_intent: Literal["show_list", "answer_question"] = Field(
+        default="answer_question",
+        description=(
+            "show_list only for a simple recent-mail listing fully answered by a count "
+            "and visible rows; answer_question for sender, subject, date, content, "
+            "summary, or comparison requests"
+        ),
+    )
     # Omitted means the operation's default: ten listed, one message read.
     limit: int | None = Field(default=None, ge=1, le=25)
     mailbox: Literal["inbox", "sent", "anywhere"] = "inbox"
@@ -610,6 +620,47 @@ def _answer_from_receipt_memory(
     return result
 
 
+def _voice_recent_metadata_is_safe(
+    metadata: dict[str, Any],
+    coverage: dict[str, Any],
+    rows: list[Any],
+    offered_ids: tuple[str, ...],
+) -> bool:
+    """Admit only a complete, metadata-only newest page to the voice fast path."""
+    if (
+        metadata.get("status") != "ok"
+        or metadata.get("operation") != "list_recent"
+        or metadata.get("metadata_only") is not True
+        or not isinstance(metadata.get("truncated"), bool)
+        or coverage.get("operation") != "list_recent"
+        or coverage.get("scope") != "newest"
+        or coverage.get("unit") != "messages"
+        or coverage.get("content_depth") != "metadata"
+        or coverage.get("one_page_only") is not True
+        or type(coverage.get("returned")) is not int
+        or coverage["returned"] != len(rows)
+        or len(offered_ids) != len(rows)
+    ):
+        return False
+    flags = ("matches_beyond_page", "items_omitted", "content_shortened")
+    if any(not isinstance(coverage.get(flag), bool) for flag in flags):
+        return False
+    if metadata["truncated"] != any(coverage[flag] for flag in flags):
+        return False
+    if any(
+        not isinstance(row, dict)
+        or row.get("source_ref") != f"mail:{ordinal}"
+        or "body" in row
+        or "body_truncated" in row
+        for ordinal, row in enumerate(rows, 1)
+    ):
+        return False
+    return all(
+        isinstance(message_id, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,200}", message_id)
+        for message_id in offered_ids
+    )
+
+
 async def run_delegated_mail_read(
     *,
     gmail: Any,
@@ -627,6 +678,7 @@ async def run_delegated_mail_read(
     receipt_reads: bool = False,
     read_offer: dict[str, Any] | None = None,
     require_explicit_latest: bool = False,
+    voice_metadata_listing: bool = False,
     gene_runner: Callable[..., Awaitable[dict[str, Any]]] = run_email_gene,
     reader_factory: Callable[..., GmailMetadataReader] = GmailMetadataReader,
     personal_assessor: Callable[
@@ -944,6 +996,52 @@ async def run_delegated_mail_read(
                     metadata_only=metadata["metadata_only"],
                     coverage=coverage,
                 )
+            if (
+                voice_metadata_listing
+                and operation == "list_recent"
+                and plan.presentation_intent == "show_list"
+            ):
+                offered_ids = reader.offered_message_ids()
+                if reader.account and _voice_recent_metadata_is_safe(
+                    metadata, coverage, rows, offered_ids
+                ):
+                    # The voice screen renders the exact rows. No mail text or
+                    # second model call is needed to describe their count.
+                    # Recheck the grant and account at this release boundary.
+                    await reader.require_current()
+                    await require_access()
+                    coverage.update(cited=len(rows), summarized=0, plan_source="planner")
+                    count = coverage["returned"]
+                    noun = "message" if count == 1 else "messages"
+                    text = f"I found {count} recent {noun} to show you."
+                    if coverage["matches_beyond_page"] or coverage["items_omitted"]:
+                        text += " More mail may be outside this page."
+                    if coverage["content_shortened"]:
+                        text += " Some text was shortened to fit; open the email for the full text."
+                    logger.info(
+                        "one_voice.mail.latency stage=%s ms=%d status=%s",
+                        "interpret",
+                        0,
+                        "skipped",
+                    )
+                    return _result(
+                        conversation_id,
+                        text,
+                        "ok",
+                        sources=[
+                            {"source_ref": f"mail:{ordinal}", "label": "Mail", "kind": "metadata"}
+                            for ordinal in range(1, count + 1)
+                        ],
+                        truncated=metadata["truncated"],
+                        metadata_only=True,
+                        items=rows,
+                        coverage=coverage,
+                        offer={
+                            "message_ids": list(offered_ids),
+                            "account": reader.account,
+                            "mailbox": arguments["mailbox"],
+                        },
+                    )
             evidence = {k: v for k, v in metadata.items() if k != "coverage"}
             stage = "interpretation"
             with mail_latency("interpret"):

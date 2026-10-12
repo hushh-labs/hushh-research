@@ -569,16 +569,26 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                         """SELECT r.request_id, r.question, r.period_start, r.period_end,
                               r.requester_user_id, r.terms_digest, r.answer_deadline_at
                        FROM pkm_answer_requests r
-                       JOIN pkm_answer_payment_orders o ON o.request_id = r.request_id
+                       LEFT JOIN pkm_answer_payment_orders o ON o.request_id = r.request_id
                        LEFT JOIN pkm_answer_deliveries d ON d.request_id = r.request_id
-                       WHERE r.owner_user_id = :owner AND r.status = 'answering'
-                         AND o.status = 'paid' AND NOT o.reconciliation_required
-                         AND o.stripe_mode = :stripe_mode
-                         AND r.answer_deadline_at > clock_timestamp()
+                       WHERE r.owner_user_id = :owner
+                         AND d.request_id IS NULL
                          AND EXISTS (SELECT 1 FROM connections c WHERE c.status='active'
                            AND ((c.user_a_id=r.owner_user_id AND c.user_b_id=r.requester_user_id)
                              OR (c.user_b_id=r.owner_user_id AND c.user_a_id=r.requester_user_id)))
-                         AND d.request_id IS NULL
+                         AND (
+                           -- Staging. The owner has just approved, so their
+                           -- device is present and unlocked: the answer is
+                           -- prepared now and withheld until payment, and a
+                           -- question nothing matches never reaches a price.
+                           r.status = 'approved'
+                           -- The paid-first path, for a request approved while
+                           -- the owner's device could not prepare it.
+                           OR (r.status = 'answering'
+                               AND o.status = 'paid' AND NOT o.reconciliation_required
+                               AND o.stripe_mode = :stripe_mode
+                               AND r.answer_deadline_at > clock_timestamp())
+                         )
                        ORDER BY r.approved_at
                        LIMIT :limit"""
                     ),
@@ -698,14 +708,18 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
             )
             if request is None or request["owner_user_id"] != owner_user_id:
                 raise AnswerRequestError("request_unavailable")
-            if request["status"] != "answering":
+            if request["status"] not in {"approved", "answering"}:
                 raise AnswerRequestError("request_not_answerable")
             self._require_active_connection(connection, owner_user_id, request["requester_user_id"])
-            if request["answer_deadline_at"] is None or request[
-                "answer_deadline_at"
-            ] <= datetime.now(UTC):
-                raise AnswerRequestError("request_not_answerable")
-            PkmAnswerPaymentService.require_paid_answer(connection, request)
+            # A staged answer is prepared before any money moves, so it has no
+            # fulfilment clock and nothing to have been paid for yet. Both
+            # checks still bind the paid-first path exactly as before.
+            if request["status"] == "answering":
+                if request["answer_deadline_at"] is None or request[
+                    "answer_deadline_at"
+                ] <= datetime.now(UTC):
+                    raise AnswerRequestError("request_not_answerable")
+                PkmAnswerPaymentService.require_paid_answer(connection, request)
             return {
                 "requestId": str(request["request_id"]),
                 "question": request["question"],
@@ -763,15 +777,17 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
             )
             if request is None or request["owner_user_id"] != owner_user_id:
                 raise AnswerRequestError("request_unavailable")
-            if request["status"] != "answering":
+            staging = request["status"] == "approved"
+            if request["status"] not in {"approved", "answering"}:
                 raise AnswerRequestError("request_not_answerable")
             # The gate, inside the delivery transaction, after the lock.
             self._require_active_connection(connection, owner_user_id, request["requester_user_id"])
-            if request["answer_deadline_at"] is None or request[
-                "answer_deadline_at"
-            ] <= datetime.now(UTC):
-                raise AnswerRequestError("request_not_answerable")
-            PkmAnswerPaymentService.require_paid_answer(connection, request)
+            if not staging:
+                if request["answer_deadline_at"] is None or request[
+                    "answer_deadline_at"
+                ] <= datetime.now(UTC):
+                    raise AnswerRequestError("request_not_answerable")
+                PkmAnswerPaymentService.require_paid_answer(connection, request)
 
             recipient = self._row(
                 connection,
@@ -800,6 +816,22 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                     "has_content": bool(has_content),
                 },
             )
+            if staging:
+                # Prepared, sealed to the requester's key, and withheld. The
+                # request stays `approved`: nothing is owed, nothing is owned,
+                # and `fetch_answer` refuses anything that is not `answered`.
+                # Settlement releases it, so no second owner action and no
+                # second unlock stand between a verified payment and the answer.
+                self._feed(
+                    connection,
+                    user_id=request["requester_user_id"],
+                    event_type=(
+                        "answer_request_payment_ready" if has_content else "answer_request_declined"
+                    ),
+                    request_id=request_id,
+                    status="approved" if has_content else "empty",
+                )
+                return
             connection.execute(
                 text(
                     """UPDATE pkm_answer_requests
@@ -840,14 +872,23 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 connection,
                 """SELECT d.recipient_key_id, d.ciphertext, d.iv,
                           d.sender_ephemeral_public_key_jwk, d.algorithm,
-                          d.source_revisions, d.has_content
+                          d.source_revisions, d.has_content,
+                          r.request_id, r.status, r.terms_digest
                    FROM pkm_answer_deliveries d
                    JOIN pkm_answer_requests r ON r.request_id = d.request_id
-                   WHERE d.request_id = :request AND r.requester_user_id = :requester""",
+                   WHERE d.request_id = :request AND r.requester_user_id = :requester
+                   FOR SHARE OF r""",
                 {"request": request_id, "requester": requester_user_id},
             )
             if row is None:
                 raise AnswerRequestError("answer_unavailable")
+            # The envelope is staged before payment so the requester is never
+            # asked to buy an answer that does not exist. It is sealed to their
+            # own key, so withholding it is this gate and nothing else: without
+            # it, staging would hand away the answer for free.
+            if row["status"] != "answered":
+                raise AnswerRequestError("answer_unavailable")
+            PkmAnswerPaymentService.require_paid_answer(connection, row)
             return row
 
         row = await self._transaction(read)

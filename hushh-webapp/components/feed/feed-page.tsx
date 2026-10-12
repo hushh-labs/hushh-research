@@ -35,6 +35,7 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { FeedRow } from "@/components/feed/feed-row";
+import { feedClearedThroughStorageKey, readFeedClearedThroughId } from "@/lib/feed/feed-clear-watermark";
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
 import { FeedDriveProgressRow } from "@/components/feed/feed-drive-progress-row";
 import { FeedPushPrompt } from "@/components/feed/feed-push-prompt";
@@ -298,7 +299,7 @@ function FeedPageSession({
   // to an id: a row appended later may carry an equal/older timestamp. Showing
   // old history once is safer than silently losing a genuinely new alert.
   const clearedIdStorageKey = user?.uid
-    ? `hushh:feed-cleared-through-id:${user.uid}`
+    ? feedClearedThroughStorageKey(user.uid)
     : null;
   const legacyClearedStorageKey = user?.uid
     ? `hushh:feed-cleared-at:${user.uid}`
@@ -310,14 +311,7 @@ function FeedPageSession({
   // reading it in an effect instead forced every visit to paint the skeleton
   // first and the warm cached list one commit later (two full layouts per
   // tab switch). Storage can be disabled; that falls back to no clear.
-  const readPersistedWatermark = () => {
-    if (!clearedIdStorageKey || typeof window === "undefined") return null;
-    try {
-      return window.localStorage.getItem(clearedIdStorageKey);
-    } catch {
-      return null;
-    }
-  };
+  const readPersistedWatermark = () => readFeedClearedThroughId(user?.uid ?? null);
   const [clearedThroughId, setClearedThroughId] = useState<string | null>(
     readPersistedWatermark,
   );
@@ -1042,6 +1036,7 @@ function FeedPageSession({
         detailsPending={documentPricePrompt.detailsPending}
         paymentRequired={documentPricePrompt.paymentRequired}
         lockedAmountCents={documentPricePrompt.lockedAmountCents}
+        estimateCents={documentPricePrompt.estimateCents ?? null}
         initialAmountCents={documentPricePrompt.initialAmountCents}
         priceOnly={documentPricePrompt.priceOnly}
         busy={documentPricePrompt.busy}

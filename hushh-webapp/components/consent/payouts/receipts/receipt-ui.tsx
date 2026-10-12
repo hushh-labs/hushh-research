@@ -12,7 +12,7 @@ import {
 } from "@/components/profile/profile-inner-icons";
 import { ProfilePaneCopyIcon } from "@/components/profile/profile-pane-icons";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
-import { holdNextStepCopy, holdReasonCopy } from "@/lib/payouts/review-copy";
+import { holdNextStepCopy, holdReasonCopy, type HoldNextStep } from "@/lib/payouts/review-copy";
 import type { PayoutReview } from "@/lib/services/payout-activity-service";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 
@@ -98,12 +98,33 @@ export function ReceiptReferenceRow({ label, value }: { label: string; value: st
   );
 }
 
-/** Why money is held and what, if anything, the owner should do. */
-export function ReceiptReviewSection({ review }: { review: PayoutReview }) {
+/**
+ * A next step the Payouts screen can take for the owner: its own bank rows'
+ * Stripe actions. Never a redemption, transfer or money check.
+ */
+export type PayoutReceiptAction = "manage_bank" | "verify";
+const NEXT_STEP_ACTIONS: Partial<Record<HoldNextStep, PayoutReceiptAction>> = {
+  update_bank: "manage_bank",
+  verify_details: "verify",
+};
+
+/**
+ * Why money is held and what, if anything, the owner should do. With onAction,
+ * a step the owner can take ("Update your bank", "Verify details") is the row's
+ * one control; every other step only reads.
+ */
+export function ReceiptReviewSection({ review, onAction }: {
+  review: PayoutReview; onAction?: (action: PayoutReceiptAction) => void;
+}) {
+  const step = holdNextStepCopy(review.nextStep);
+  const action = onAction ? NEXT_STEP_ACTIONS[review.nextStep] : undefined;
   return (
     <SettingsGroup title="Under review">
       <SettingsRow icon={ProfileInnerReviewIcon} iconTone="capability" title={holdReasonCopy(review.reason)} />
-      <SettingsRow title="Next step" trailing={holdNextStepCopy(review.nextStep)} />
+      {onAction && action ? (
+        <SettingsRow title="Next step" ariaLabel={step} chevron onClick={() => onAction(action)}
+          trailing={<span className="profile-account-inline-action">{step}</span>} />
+      ) : <SettingsRow title="Next step" trailing={step} />}
     </SettingsGroup>
   );
 }

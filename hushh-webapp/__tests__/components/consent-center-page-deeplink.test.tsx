@@ -204,6 +204,15 @@ vi.mock("@/lib/cache/request-audit-log", () => ({
   logRequestAudit: vi.fn(),
 }));
 
+// These cases exercise route entry and consent events. The independently
+// tested pending-request poll uses an aligned wall clock and can fire just
+// after mount, making a bookkeeping event look like it triggered a fetch.
+// Keep that timer out of these call-count assertions; leave event handling real.
+vi.mock("@/lib/feed/use-feed-live-refresh", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/feed/use-feed-live-refresh")>(),
+  useFeedPendingConsentRefresh: vi.fn(),
+}));
+
 vi.mock("@/lib/services/cache-service", () => ({
   CacheService: {
     getInstance: () => ({
@@ -1648,6 +1657,86 @@ describe("ConsentCenterPage requestId deep links", () => {
         expect.objectContaining({ force: true }),
       );
     });
+  });
+
+  it("keeps warm request rows mounted when a live refresh prepends another request", async () => {
+    mocks.search = "tab=requests";
+    const entry = (id: string, label: string) => ({
+      id,
+      request_id: id,
+      kind: "incoming_request",
+      status: "pending",
+      action: "REQUESTED",
+      counterpart_type: "developer",
+      counterpart_label: label,
+    });
+    const oldEntries = [
+      entry("req_one", "First requester"),
+      entry("req_two", "Second requester"),
+    ];
+    let resolveRefresh:
+      | ((value: ReturnType<typeof emptyListResponse>) => void)
+      | undefined;
+    const refresh = new Promise<ReturnType<typeof emptyListResponse>>(
+      (resolve) => {
+        resolveRefresh = resolve;
+      },
+    );
+    mocks.getSummary.mockResolvedValue({
+      ...summaryResponse(),
+      counts: { pending: 2, active: 0, previous: 0 },
+    });
+    mocks.listEntries.mockImplementation(({ force }: { force?: boolean }) =>
+      force
+        ? refresh
+        : Promise.resolve({
+            ...emptyListResponse(),
+            total: 2,
+            items: oldEntries,
+          }),
+    );
+
+    render(<ConsentCenterPage />);
+    const firstRow = (await screen.findByText("First requester")).closest(
+      '[data-testid="settings-row"]',
+    );
+    const secondRow = screen.getByText("Second requester").closest(
+      '[data-testid="settings-row"]',
+    );
+    expect(firstRow).not.toBeNull();
+    expect(secondRow).not.toBeNull();
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("consent-action-complete", {
+          detail: { action: "approve", requestId: "unrelated-request" },
+        }),
+      );
+    });
+    await waitFor(() =>
+      expect(mocks.listEntries).toHaveBeenCalledWith(
+        expect.objectContaining({ surface: "pending", force: true }),
+      ),
+    );
+    expect(firstRow?.isConnected).toBe(true);
+    expect(secondRow?.isConnected).toBe(true);
+    expect(screen.queryByText("Loading consent entries")).toBeNull();
+    expect(screen.queryByText("No requests need your review.")).toBeNull();
+
+    await act(async () => {
+      resolveRefresh?.({
+        ...emptyListResponse(),
+        total: 3,
+        items: [entry("req_new", "New requester"), ...oldEntries],
+      });
+      await refresh;
+    });
+    expect(await screen.findByText("New requester")).toBeTruthy();
+    expect(
+      screen.getByText("First requester").closest('[data-testid="settings-row"]'),
+    ).toBe(firstRow);
+    expect(
+      screen.getByText("Second requester").closest('[data-testid="settings-row"]'),
+    ).toBe(secondRow);
   });
 
   it("does not force-refresh (and flicker) the list on a non-mutation consent-state-changed event", async () => {

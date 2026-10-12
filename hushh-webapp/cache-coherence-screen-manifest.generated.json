@@ -17,8 +17,8 @@
     "class_counts": {
       "public/auth-split": 1,
       "redirect/alias": 48,
-      "vault-backed": 64,
-      "hidden flow": 21,
+      "vault-backed": 65,
+      "hidden flow": 20,
       "auth/pre-vault": 5,
       "RIA/provider": 8,
       "realtime/SSE": 2,
@@ -5084,8 +5084,8 @@
     {
       "route": "/one/referrals",
       "page_file": "app/one/referrals/page.tsx",
-      "route_contract_mode": "hidden",
-      "screen_class": "hidden flow",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
       "cache_policy": "memory-only",
       "cache_keys": [],
       "resource_classes": [
@@ -5120,9 +5120,11 @@
         "api_service": false,
         "hushh_loader": true,
         "sse_or_streaming": false,
-        "native_beacon": true
+        "native_beacon": false
       },
-      "findings": []
+      "findings": [
+        "loader detected; verify warm cache path avoids blocking loader"
+      ]
     },
     {
       "route": "/one/setup",
@@ -5467,14 +5469,16 @@
         "device_cache": false,
         "secure_cache": false,
         "cache_sync": false,
-        "resource_wrapper": true,
+        "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
         "hushh_loader": false,
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": []
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
     },
     {
       "route": "/one/setup/finance",
@@ -7005,5 +7009,5 @@
       ]
     }
   ],
-  "content_sha256": "f002a8718ec2f15334816efd7b6dd0a50947c9224ded833746454eea89bc67eb"
+  "content_sha256": "c670b26a95a65832db13c7437aadb49200f5cdf9ed0ad635d3d8d47f9a03d58b"
 }

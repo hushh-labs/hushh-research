@@ -193,6 +193,8 @@ function Fixture() {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const transcriptRef = useRef<HTMLElement>(null);
   const [open, setOpen] = useState(false);
+  const [gestureEnabled, setGestureEnabled] = useState(true);
+  Object.assign(window, { __setHistoryGestureEnabled: setGestureEnabled });
   const [mode, setMode] = useState<ConnectionsDrawerMode>("chats");
   const [external, setExternal] = useState(false);
   const [draft, setDraft] = useState("");
@@ -225,7 +227,7 @@ function Fixture() {
       </button>
       <AgentConnectionsDrawer
         gestureSurfaceRef={transcriptRef}
-        gestureEnabled
+        gestureEnabled={gestureEnabled}
         triggerRef={triggerRef}
         open={open}
         onOpenChange={changeOpen}

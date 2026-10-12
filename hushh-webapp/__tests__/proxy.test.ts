@@ -8,10 +8,10 @@ function request(path: string): NextRequest {
 }
 
 describe("Next proxy root-entry contract", () => {
-  it("preserves only strict opaque payment returns instead of redirecting away from their callback shell", () => {
-    const path = "/one/profile/account?commerceReturn=1&commerceAttemptId=opaque_attempt_12345";
+  it.each(["/one/profile/account", "/one/profile/payouts"])("preserves strict opaque payment returns at %s", destination => {
+    const path = `${destination}?commerceReturn=1&commerceAttemptId=opaque_attempt_12345`;
     expect(proxy(request(path)).headers.get("location")).toBeNull();
-    for (const invalid of ["/one/profile/account", path + "&commerceReturn=1", path + "&private=anything", path.replace("opaque_attempt_12345", "short")]) {
+    for (const invalid of [destination, path + "&commerceReturn=1", path + "&private=anything", path.replace("opaque_attempt_12345", "short")]) {
       expect(new URL(proxy(request(invalid)).headers.get("location")!).pathname).toBe("/one");
     }
   });

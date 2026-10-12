@@ -74,8 +74,12 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, presentationK
     let timer = 0;
     let generation = 0;
     let suppressClickUntil = 0;
-    // The closed panel already includes its authored shadow clearance.
-    const shadowClearance = Math.max(0, -panel.getBoundingClientRect().left - panel.offsetWidth);
+    // Read the drawer's authored pixel clearance even if access freshness
+    // re-enables this listener while it is open. Measuring an open frame
+    // would lose that clearance and leave an inset-wide sliver during close.
+    const shadowClearance = Math.max(0, Number.parseFloat(
+      getComputedStyle(panel).getPropertyValue("--agent-history-shadow-clearance"),
+    ) || 0);
 
     const clear = (current: Gesture) => {
       for (const property of ["transition", "transform", "translate", "visibility", "will-change"]) current.panel.style.removeProperty(property);
@@ -151,7 +155,7 @@ export function AppChatHistoryEdgeGesture({ enabled, open = false, presentationK
           semantic.getAttribute("aria-hidden") !== String(!initialOpen) || touch.clientX <= EDGE_BACK_LANE ||
           (!initialOpen && nativeShellOverlayBlocked(settling ? "history-drag" : undefined)) || domBlocked() || excludedTarget(event.target, origin, initialOpen)) return;
       // Include the authored closed shadow clearance, not just panel width.
-      const width = panel.offsetWidth + shadowClearance;
+      const width = initialOpen ? panel.offsetWidth + shadowClearance + panel.offsetLeft : Math.max(panel.offsetWidth, panel.offsetLeft - panel.getBoundingClientRect().left);
       if (width <= 0) return;
       const offset = renderedDrawerOffset(panel);
       // A tab/button-driven entry is also re-grabbable. Do not jump to its

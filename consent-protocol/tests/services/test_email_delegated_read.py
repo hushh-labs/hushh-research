@@ -496,7 +496,7 @@ async def test_disconnection_during_interpretation_suppresses_answer():
 @pytest.mark.parametrize(
     "plan",
     [
-        {"operation": "list_recent", "limit": 10},
+        {"operation": "list_recent", "limit": 10, "presentation_intent": "show_list"},
         # The planner's observed UAT output for "show me my last 10 emails":
         # an inbox search with no criteria. It is the newest page, not an error.
         {"operation": "search_inbox", "query": "", "limit": 10},
@@ -504,7 +504,20 @@ async def test_disconnection_during_interpretation_suppresses_answer():
     ],
 )
 async def test_recent_emails_request_is_one_direct_bounded_read(plan):
-    reader = _Reader(metadata={**_Reader().metadata, "truncated": False})
+    baseline = _Reader().metadata
+    reader = _Reader(
+        metadata={
+            **baseline,
+            "operation": "list_recent",
+            "truncated": False,
+            "coverage": {
+                **baseline["coverage"],
+                "operation": "list_recent",
+                "scope": "newest",
+                "matches_beyond_page": False,
+            },
+        }
+    )
     calls = []
 
     async def gene(**kwargs):
@@ -518,6 +531,167 @@ async def test_recent_emails_request_is_one_direct_bounded_read(plan):
     assert calls == ["agent_email_read_planner", "agent_email_read_interpreter"]
     assert result["structured"]["status"] == "ok"
     assert "omitted" not in result["response"]
+
+
+async def test_voice_recent_metadata_listing_skips_interpreter_without_releasing_mail(caplog):
+    caplog.set_level(logging.INFO)
+    baseline = _Reader().metadata
+    reader = _Reader(
+        metadata={
+            **baseline,
+            "operation": "list_recent",
+            "coverage": {
+                **baseline["coverage"],
+                "operation": "list_recent",
+                "scope": "newest",
+            },
+        }
+    )
+    calls = []
+
+    async def gene(**kwargs):
+        calls.append(kwargs["gene_id"])
+        assert kwargs["gene_id"] == "agent_email_read_planner"
+        return {"operation": "list_recent", "limit": 10, "presentation_intent": "show_list"}
+
+    result = await _run(reader, gene, voice_metadata_listing=True)
+
+    assert calls == ["agent_email_read_planner"]
+    assert reader.calls == [("list_recent", {"limit": 10, "mailbox": "inbox"})]
+    assert reader.validations == 2  # fetch and final release both fence account changes
+    assert result["structured"] == {
+        "schema_version": "specialist_read.v1",
+        "connector": "mail",
+        "status": "ok",
+        "sources": [{"source_ref": "mail:1", "label": "Mail", "kind": "metadata"}],
+        "truncated": True,
+        "metadata_only": True,
+    }
+    assert result["coverage"]["cited"] == 1
+    assert result["coverage"]["summarized"] == 0
+    assert result["coverage"]["plan_source"] == "planner"
+    assert result["offer"] == {
+        "message_ids": ["mail-id-1"],
+        "account": _Reader.ACCOUNT,
+        "mailbox": "inbox",
+    }
+    assert "outside this page" in result["response"]
+    assert "evil.invalid" not in result["response"]
+    assert "evil.invalid" not in json.dumps(result["structured"])
+    assert "evil.invalid" in json.dumps(result["items"])
+    assert "stage=interpret ms=0 status=skipped" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "plan",
+    [
+        {"operation": "list_recent", "limit": 5, "presentation_intent": "answer_question"},
+        {"operation": "list_recent", "limit": 5},
+    ],
+)
+async def test_voice_recent_sender_question_keeps_interpreter(plan, caplog):
+    caplog.set_level(logging.INFO)
+    baseline = _Reader().metadata
+    reader = _Reader(
+        metadata={
+            **baseline,
+            "operation": "list_recent",
+            "coverage": {
+                **baseline["coverage"],
+                "operation": "list_recent",
+                "scope": "newest",
+            },
+        }
+    )
+    calls = []
+
+    async def gene(**kwargs):
+        calls.append(kwargs["gene_id"])
+        if kwargs["gene_id"] == "agent_email_read_planner":
+            return plan
+        return {"answer": "The latest message was sent by Alex.", "source_refs": ["mail:1"]}
+
+    result = await _run(
+        reader,
+        gene,
+        message="Who sent my latest five emails?",
+        voice_metadata_listing=True,
+    )
+    assert calls == ["agent_email_read_planner", "agent_email_read_interpreter"]
+    assert reader.calls == [("list_recent", {"limit": 5, "mailbox": "inbox"})]
+    assert result["response"].startswith("The latest message was sent by Alex.")
+    assert "outside this page" in result["response"] or "left out" in result["response"]
+    assert result["structured"]["status"] == "ok"
+    assert "status=skipped" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("row_change", "offered_ids"),
+    [
+        ({"body": "Private body"}, ("mail-id-1",)),
+        ({"source_ref": "mail:2"}, ("mail-id-1",)),
+        ({}, ("mail-id-1", "mail-id-2")),
+    ],
+)
+async def test_voice_recent_metadata_fast_path_requires_content_free_aligned_rows(
+    row_change, offered_ids
+):
+    baseline = _Reader().metadata
+    reader = _Reader(
+        offered_ids=offered_ids,
+        metadata={
+            **baseline,
+            "operation": "list_recent",
+            "untrusted_external_content": [
+                {**baseline["untrusted_external_content"][0], **row_change}
+            ],
+            "coverage": {
+                **baseline["coverage"],
+                "operation": "list_recent",
+                "scope": "newest",
+            },
+        },
+    )
+    calls = []
+
+    async def gene(**kwargs):
+        calls.append(kwargs["gene_id"])
+        if kwargs["gene_id"] == "agent_email_read_planner":
+            return {"operation": "list_recent", "presentation_intent": "show_list"}
+        return {
+            "answer": "One bounded message.",
+            "source_refs": [reader.metadata["untrusted_external_content"][0]["source_ref"]],
+        }
+
+    result = await _run(reader, gene, voice_metadata_listing=True)
+    assert calls == ["agent_email_read_planner", "agent_email_read_interpreter"]
+    assert result["structured"]["status"] == "ok"
+
+
+async def test_voice_recent_metadata_fast_path_rechecks_account_before_release():
+    baseline = _Reader().metadata
+    reader = _Reader(
+        late_error=True,
+        metadata={
+            **baseline,
+            "operation": "list_recent",
+            "coverage": {
+                **baseline["coverage"],
+                "operation": "list_recent",
+                "scope": "newest",
+            },
+        },
+    )
+
+    async def gene(**kwargs):
+        assert kwargs["gene_id"] == "agent_email_read_planner"
+        return {"operation": "list_recent", "presentation_intent": "show_list"}
+
+    result = await _run(reader, gene, voice_metadata_listing=True)
+    assert result["structured"]["status"] == "connection_changed"
+    assert result["items"] == []
+    assert result["offer"] is None
+    assert "evil.invalid" not in json.dumps(result)
 
 
 @pytest.mark.parametrize(
@@ -1390,6 +1564,12 @@ def test_planner_is_manifest_owned_routes_receipts_to_memory_and_keeps_inbox_sea
     assert "never plan search_inbox, list_recent or read_message for them" in instruction
     assert "mention receipts or invoices" in instruction
     assert "stays search_inbox" in instruction
+    assert "presentation_intent" in instruction
+    assert "who sent the latest five" in instruction
+    assert "When unsure, set answer_question" in instruction
+    assert MailReadPlan.model_validate({"operation": "list_recent"}).presentation_intent == (
+        "answer_question"
+    )
     # The planner schema stays flat for the structured-output API: no nested objects.
     schema = MailReadPlan.model_json_schema()["properties"]
     for name in ("receipt_statuses", "receipt_identifier_kinds"):

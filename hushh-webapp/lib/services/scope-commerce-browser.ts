@@ -36,43 +36,52 @@ export function openCommerceHostedWindow(): Window | null {
 const MARKER_PREFIX = "one_commerce_popup_v1:";
 const RETURN_KEY = "one_commerce_popup_return_v1";
 const WINDOW_LIFETIME_MS = 10 * 60_000;
-type PopupMarker = { attemptId: string; purpose: CommerceHostedPurpose; expiresAt: number };
+type PopupMarker = { attemptId: string; purpose: CommerceHostedPurpose; expiresAt: number; source?: "documents" };
 
-function readMarker(attemptId: string): PopupMarker | null {
+const markerKey = (attemptId: string, source?: "documents") => MARKER_PREFIX + (source ? `${source}:` : "") + attemptId;
+
+function readMarker(attemptId: string, source?: "documents"): PopupMarker | null {
   try {
-    const raw = window.localStorage.getItem(MARKER_PREFIX + attemptId);
+    const raw = window.localStorage.getItem(markerKey(attemptId, source));
     if (!raw) return null;
     const value = JSON.parse(raw) as PopupMarker;
-    return value.attemptId === attemptId && ["checkout", "onboarding"].includes(value.purpose) &&
+    return value.attemptId === attemptId && value.source === source && ["checkout", "onboarding"].includes(value.purpose) &&
       Number.isFinite(value.expiresAt) && value.expiresAt > Date.now() &&
       value.expiresAt <= Date.now() + WINDOW_LIFETIME_MS &&
-      Object.keys(value).every(key => ["attemptId", "purpose", "expiresAt"].includes(key)) ? value : null;
+      (value.source === undefined || (value.source === "documents" && value.purpose === "onboarding")) &&
+      Object.keys(value).every(key => ["attemptId", "purpose", "expiresAt", "source"].includes(key)) ? value : null;
   } catch { return null; }
 }
 
 export function hasCommercePopupReturn(path: string): boolean {
   const arrival = parseCommerceReturn(path);
   if (!arrival || Capacitor.isNativePlatform()) return false;
-  const marker = readMarker(arrival.attemptId);
-  return Boolean(marker && (!arrival.action || marker.purpose === "onboarding"));
+  const marker = readMarker(arrival.attemptId, arrival.source);
+  return Boolean(marker && arrival.source === marker.source && (!arrival.action || marker.purpose === "onboarding"));
 }
 
 export async function openCommerceHostedUrl(session: CommerceHostedSession, purpose: CommerceHostedPurpose, popup: Window | null, signal: AbortSignal): Promise<void> {
   const url = validateCommerceHostedUrl(session.url, purpose);
   if (signal.aborted) return;
+  const callback = new URL(session.returnUrl);
+  const arrival = parseCommerceReturn(callback.pathname + callback.search + callback.hash);
+  if (arrival?.attemptId !== session.attemptId || arrival.source !== session.source ||
+      (session.source && purpose !== "onboarding")) {
+    throw new Error("Stripe return binding could not be verified.");
+  }
   if (Capacitor.isNativePlatform()) {
     const { Browser } = await import("@capacitor/browser");
     if (signal.aborted) return;
     await Browser.open({ url });
     return;
   }
-  const callback = new URL(session.returnUrl);
   if (callback.origin !== window.location.origin || !popup || popup.closed ||
-      parseCommerceReturn(callback.pathname + callback.search + callback.hash)?.attemptId !== session.attemptId) {
+      arrival?.attemptId !== session.attemptId || arrival.source !== session.source ||
+      (session.source && purpose !== "onboarding")) {
     throw new Error("Stripe cannot return to this window. Refresh before trying again.");
   }
-  const marker: PopupMarker = { attemptId: session.attemptId, purpose, expiresAt: Date.now() + WINDOW_LIFETIME_MS };
-  const key = MARKER_PREFIX + marker.attemptId;
+  const marker: PopupMarker = { attemptId: session.attemptId, purpose, expiresAt: Date.now() + WINDOW_LIFETIME_MS, ...(session.source ? { source: session.source } : {}) };
+  const key = markerKey(marker.attemptId, marker.source);
   // Only opaque correlation persists. The owner, tokens and vault keys remain
   // in the initiating document; all notifications require authenticated reads.
   window.localStorage.setItem(key, JSON.stringify(marker));
@@ -81,9 +90,10 @@ export async function openCommerceHostedUrl(session: CommerceHostedSession, purp
       if (!value || typeof value !== "object") return false;
       const hint = value as PopupMarker & { type?: string; action?: string };
       return hint.type === "commerce_return" && hint.attemptId === marker.attemptId &&
+        hint.source === marker.source &&
         hint.purpose === purpose && hint.expiresAt === marker.expiresAt &&
         (!hint.action || (purpose === "onboarding" && hint.action === "onboarding_refresh")) &&
-        Object.keys(hint).every(name => ["type", "attemptId", "purpose", "expiresAt", "action"].includes(name));
+        Object.keys(hint).every(name => ["type", "attemptId", "purpose", "expiresAt", "action", "source"].includes(name));
     };
     const returned = waitForOAuthPopup({
       popup, signal, expiresAt: marker.expiresAt,
@@ -103,7 +113,7 @@ export async function openCommerceHostedUrl(session: CommerceHostedSession, purp
     window.localStorage.removeItem(key);
     try {
       const hint = JSON.parse(window.localStorage.getItem(RETURN_KEY) ?? "null") as PopupMarker | null;
-      if (hint?.attemptId === marker.attemptId && hint.purpose === marker.purpose && hint.expiresAt === marker.expiresAt) {
+      if (hint?.attemptId === marker.attemptId && hint.source === marker.source && hint.purpose === marker.purpose && hint.expiresAt === marker.expiresAt) {
         window.localStorage.removeItem(RETURN_KEY);
       }
     } catch { /* A malformed or another flow's hint belongs to neither this attempt nor its cleanup. */ }
@@ -116,7 +126,7 @@ export const COMMERCE_RETURN_EVENT = "hushh:commerce-return";
 export function notifyCommercePopupReturn(path: string): boolean {
   if (!hasCommercePopupReturn(path)) return false;
   const arrival = parseCommerceReturn(path)!;
-  const marker = readMarker(arrival.attemptId)!;
+  const marker = readMarker(arrival.attemptId, arrival.source)!;
   const hint = { type: "commerce_return", ...marker, ...arrival };
   try {
     const serialized = JSON.stringify(hint);

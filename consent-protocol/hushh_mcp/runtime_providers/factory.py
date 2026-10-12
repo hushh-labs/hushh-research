@@ -582,14 +582,18 @@ def build_managed_runtime_client(runtime_provider: str, managed_credential: str 
     return _build(provider, key, managed=True)
 
 
-def build_managed_live_client(*, model: str, location: str) -> Any:
+def build_managed_live_client(
+    *, model: str, location: str, vertex_project: str | None = None
+) -> Any:
     """Managed Gemini Live client from the canonical ADC contract.
 
     The relay, the readiness probe, and the model-discovery script all come
     through here so ``genai.Client(`` stays centralized in this module.
     """
 
-    return ManagedGeminiRuntimeBinding.from_environment().build_live_client(
+    return ManagedGeminiRuntimeBinding.from_environment(
+        vertex_project=vertex_project
+    ).build_live_client(
         model=model,
         location=location,
     )

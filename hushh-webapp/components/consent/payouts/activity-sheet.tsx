@@ -18,7 +18,7 @@ import { PayoutActivityFilterMenu } from "./activity-filter";
 import { payoutUpdatedLabel } from "./payout-freshness";
 import { activityAmount, activityDescription, activityTitle } from "./receipts/activity-copy";
 import { PayoutReceiptSheet } from "./receipts/payout-receipt-sheet";
-import { useOpenerFocus } from "./receipts/receipt-ui";
+import { useOpenerFocus, type PayoutReceiptAction } from "./receipts/receipt-ui";
 import { usePayoutActivity } from "./use-payout-activity";
 
 export type PayoutActivitySheetProps = {
@@ -27,6 +27,8 @@ export type PayoutActivitySheetProps = {
   initialFilter?: PayoutActivityFilter;
   /** Opens on test activity, e.g. when the card was showing it. */
   initialTestActivity?: boolean;
+  /** A receipt's next step, taken on Payouts once the receipt closes. */
+  onAction?: (action: PayoutReceiptAction) => void;
 };
 
 const PAGE_SIZE = 20;
@@ -79,7 +81,7 @@ export function PayoutActivityRefreshFailedRow({ lastSuccessAt, onRetry }: {
  * a route. Older pages load on demand and survive live refreshes. The coin row
  * opens it with initialFilter "coins" to show the running balance.
  */
-export function PayoutActivitySheet({ open, onOpenChange, initialFilter = "all", initialTestActivity = false }: PayoutActivitySheetProps) {
+export function PayoutActivitySheet({ open, onOpenChange, initialFilter = "all", initialTestActivity = false, onAction }: PayoutActivitySheetProps) {
   return (
     <AdaptiveDetailSurface
       open={open}
@@ -90,12 +92,14 @@ export function PayoutActivitySheet({ open, onOpenChange, initialFilter = "all",
       surfaceClassName={accountStyles.walletContent}
     >
       {/* Mounted only while open, so each opening starts from its own filter. */}
-      <ActivitySheetBody initialFilter={initialFilter} initialTestActivity={initialTestActivity} />
+      <ActivitySheetBody initialFilter={initialFilter} initialTestActivity={initialTestActivity} onAction={onAction} />
     </AdaptiveDetailSurface>
   );
 }
 
-function ActivitySheetBody({ initialFilter, initialTestActivity }: { initialFilter: PayoutActivityFilter; initialTestActivity: boolean }) {
+function ActivitySheetBody({ initialFilter, initialTestActivity, onAction }: {
+  initialFilter: PayoutActivityFilter; initialTestActivity: boolean; onAction?: (action: PayoutReceiptAction) => void;
+}) {
   const { vaultOwnerToken } = useVault();
   const [filter, setFilter] = useState<PayoutActivityFilter>(initialFilter);
   const [testActivity, setTestActivity] = useState(initialTestActivity);
@@ -133,7 +137,7 @@ function ActivitySheetBody({ initialFilter, initialTestActivity }: { initialFilt
           </div>
         ) : null}
       </div>
-      <PayoutReceiptSheet itemId={openReceipt?.id ?? null} test={openReceipt?.test}
+      <PayoutReceiptSheet itemId={openReceipt?.id ?? null} test={openReceipt?.test} onAction={onAction}
         onOpenChange={(next) => { if (!next) { setReceipt(null); opener.restore(); } }} />
     </SettingsPresentationProvider>
   );

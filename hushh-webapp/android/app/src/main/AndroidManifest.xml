@@ -110,6 +110,7 @@
                 <data android:pathPrefix="/one/profile/connectors/oauth/return" />
                 <!-- Android path admission is exact; JS validates the opaque return query. -->
                 <data android:path="/one/profile/account" />
+                <data android:path="/one/profile/payouts" />
                 <data android:pathPrefix="/kai/plaid/oauth/return" />
                 <data android:pathPrefix="/profile/google/oauth/return" />
                 <data android:pathPrefix="/profile/gmail/oauth/return" />

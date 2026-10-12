@@ -9,7 +9,6 @@ import {
   touchesBusinessRecord,
   type BusinessMemoryOrigin,
 } from "@/lib/pkm/business-memory-origin";
-import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import {
   prepareConnectorMemoryReview,
   saveConnectorMemoryReview,
@@ -37,6 +36,136 @@ export type ReviewedProfile = {
   scopes: ReadonlyMap<string, string>;
   committed: Set<string>;
 };
+
+export type SelectedProfileDetail = {
+  statement: string;
+  sources: ProfileReport["sections"][number]["facts"][number]["sources"];
+};
+
+export function selectedProfileDetails(
+  report: ProfileReport,
+  selected: ReadonlySet<string>,
+  edits: Readonly<Record<string, string>>,
+): SelectedProfileDetail[] {
+  return report.sections.flatMap((section) =>
+    section.facts.flatMap((fact, index) => {
+      const id = `${section.kind}:${index}`;
+      const statement = (edits[id] ?? fact.statement).trim();
+      return selected.has(id) && statement
+        ? [{ statement, sources: fact.sources }]
+        : [];
+    }),
+  );
+}
+
+/** One-click confirmation covers exact checked facts, not arbitrary model additions.
+ * The model still chooses the domain/target. Reject an entire preparation rather
+ * than rewriting its meaning or accepting facts the owner did not see.
+ */
+export function assertExactProfileSelection(
+  review: ReviewedProfile,
+  details: readonly SelectedProfileDetail[],
+): void {
+  const remaining = new Set(details.map((detail) => detail.statement));
+  const fail = () => {
+    throw new Error("Couldn't save these details safely. Please try again.");
+  };
+  const visit = (value: unknown, originBound: boolean): void => {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      return fail();
+    const row = value as Record<string, unknown>;
+    if (Object.hasOwn(row, "summary")) {
+      if (typeof row.summary !== "string" || !remaining.has(row.summary))
+        return fail();
+      const detail = details.find(
+        (detail) => detail.statement === row.summary,
+      )!;
+      const allowed = new Set([
+        "summary",
+        "observations",
+        "kind",
+        "status",
+        "sources",
+      ]);
+      if (originBound) allowed.add("_business_origin");
+      if (Object.keys(row).some((key) => !allowed.has(key))) return fail();
+      if (row.kind !== undefined && row.kind !== "profile_fact") return fail();
+      if (row.status !== undefined && row.status !== "active") return fail();
+      if (
+        row.observations !== undefined &&
+        (!Array.isArray(row.observations) ||
+          row.observations.some((item) => item !== detail.statement))
+      )
+        return fail();
+      if (
+        row.sources !== undefined &&
+        (!Array.isArray(row.sources) ||
+          row.sources.length !== detail.sources.length ||
+          row.sources.some((source, index) => {
+            if (!source || typeof source !== "object" || Array.isArray(source))
+              return true;
+            const value = source as Record<string, unknown>;
+            const expected = detail.sources[index]!;
+            return (
+              Object.keys(value).some(
+                (key) => key !== "title" && key !== "url",
+              ) ||
+              value.title !== expected.title ||
+              value.url !== expected.url
+            );
+          }))
+      )
+        return fail();
+      remaining.delete(detail.statement);
+      return;
+    }
+    if (!Object.keys(row).length) return fail();
+    for (const child of Object.values(row)) visit(child, originBound);
+  };
+  if (!details.length || !review.cards.length) return fail();
+  for (const card of review.cards) {
+    assertProfileReviewTargetPath(card);
+    const quote = card.source_quote || card.source_text;
+    if (!quote || !review.message.includes(quote)) return fail();
+    if (
+      !["create_entity", "extend_entity"].includes(
+        String(card.merge_decision?.merge_mode),
+      )
+    )
+      return fail();
+    // The canonical writer commits one entity per card, never every sibling.
+    const entity = businessMemoryEntity(card);
+    const target = card.merge_decision?.target_entity_path;
+    if (target && target !== entity.path.join(".")) return fail();
+    visit(card.candidate_payload, review.origins.has(card.card_id));
+  }
+  if (remaining.size) fail();
+}
+
+/** Citation bookkeeping comes from the exact owner selection, not inference.
+ * Never replace a source list authored by the model; the fidelity gate rejects
+ * mismatched nonempty metadata. Bind once before the payload/scopes are pinned.
+ */
+export function bindProfileSelectionSources(
+  review: ReviewedProfile,
+  details: readonly SelectedProfileDetail[],
+): void {
+  assertExactProfileSelection(review, details);
+  for (const card of review.cards) {
+    const entity = businessMemoryEntity(card);
+    const detail = details.find(
+      (detail) => detail.statement === entity.value.summary,
+    )!;
+    if (entity.value.sources === undefined)
+      entity.value.sources = structuredClone(detail.sources);
+    card.validation_hints = [
+      ...new Set([
+        ...(card.validation_hints || []),
+        "exact_profile_selection_v1",
+      ]),
+    ];
+  }
+}
 
 /** Only checked, edited statements enter preparation. Unselected facts and input identifiers do not. */
 export function profileReviewMessage(
@@ -86,13 +215,16 @@ export async function prepareProfileReview(
     );
   const origins = new Map<string, BusinessMemoryOrigin>();
   const scopes = new Map<string, string>();
+  if (!prepared.profileInventory)
+    throw new Error("Existing details could not be checked. Try again.");
+  const inventory = prepared.profileInventory;
   const cards = prepared.cards.map((original) => {
     const card = structuredClone(original);
     assertProfileReviewTargetPath(card);
     // The model may select a current business, but cannot mint or relabel a
-    // directory identity. Origin comes only from the freshly decrypted inventory.
-    const bound = AgentPkmContextStore.profileBusinessTarget(
-      session.userId,
+    // directory identity. Bind to the same inventory used during preparation,
+    // never a later cache refresh with another business at the reviewed path.
+    const bound = inventory.businessTarget(
       card,
       resolveCardTargetDomain(card),
     );

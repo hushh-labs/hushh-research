@@ -26,7 +26,7 @@ export function ScopeCommerceAccountPanel() {
     return true;
   });
   if (!user) return null;
-  return <SettingsGroup title="Payments and earnings" description="Your balance, earnings and payment history.">
+  return <SettingsGroup title="Information access" description="Purchase balance and earnings from sharing your information.">
     <div className="space-y-4 px-4 py-3">
       {message ? <p role="status" className="text-sm">{message}</p> : null}
       {state.hostedPending ? <div className="space-y-2">
@@ -43,7 +43,7 @@ export function ScopeCommerceAccountPanel() {
             <AccordionItem value="funding"><AccordionTrigger>Add funds</AccordionTrigger><AccordionContent>
               <CommerceFundingControls enabled={account.readiness?.capabilities.start_funding === true} busy={busy} amount={state.amount} changeAmount={state.changeAmount} checkout={() => void state.checkout()} />
             </AccordionContent></AccordionItem>
-            <AccordionItem value="payouts"><AccordionTrigger>Payouts</AccordionTrigger><AccordionContent>
+            <AccordionItem value="payouts"><AccordionTrigger>Withdraw information-access earnings</AccordionTrigger><AccordionContent>
               <CommercePayoutControls account={account} busy={busy} country={state.country} changeCountry={state.changeCountry} expiredLink={state.onboardingRefresh}
                 onboarding={() => void state.onboarding()} withdrawal={() => void state.withdrawal()} />
               {account.recent_withdrawals?.length ? <div className="space-y-3 pt-4">

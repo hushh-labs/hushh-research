@@ -3,15 +3,21 @@
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlencode
 
 from .provider_contracts import _hosted_url
 from .stripe_adapter import CommerceProviderError
 
 
-def onboarding_urls(origin: str, path: str, attempt_id: str) -> dict[str, str]:
+def onboarding_urls(
+    origin: str, path: str, attempt_id: str, *, source: Literal["documents"] | None = None
+) -> dict[str, str]:
     parameters = {"commerceAttemptId": attempt_id, "commerceReturn": "1"}
+    if source is not None:
+        if source != "documents" or path != "/one/profile/payouts":
+            raise ValueError("invalid payout return source")
+        parameters["commerceSource"] = source
     base = origin + path + "?"
     return {
         "return_url": base + urlencode(parameters),

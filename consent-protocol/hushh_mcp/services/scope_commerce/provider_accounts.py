@@ -197,7 +197,7 @@ class ConnectOnboarding(ProviderContext):
                 validate=validate,
             )
 
-            async def bind(connection: Any) -> None:
+            async def bind(connection: Any) -> dict[str, Any]:
                 await connection.execute(
                     """INSERT INTO scope_commerce_seller_accounts(user_id,account_id,country,livemode,eligible)
                     VALUES($1,$2,$3,$4,FALSE) ON CONFLICT(user_id) DO NOTHING""",
@@ -206,6 +206,17 @@ class ConnectOnboarding(ProviderContext):
                     country,
                     self.config.livemode,
                 )
+                winner = await connection.fetchrow(
+                    "SELECT * FROM scope_commerce_seller_accounts WHERE user_id=$1 FOR UPDATE",
+                    user_id,
+                )
+                if (
+                    winner is None
+                    or winner["account_id"] != account["id"]
+                    or winner["country"] != country
+                    or winner["livemode"] is not self.config.livemode
+                ):
+                    raise CommerceProviderError("provider_account_mismatch")
                 seller = await self.store._seller(connection, user_id)
                 await connection.execute(
                     "UPDATE scope_commerce_sellers SET account_id=$2,country=$3,livemode=$4 WHERE seller_id=$1",
@@ -214,9 +225,9 @@ class ConnectOnboarding(ProviderContext):
                     country,
                     self.config.livemode,
                 )
+                return dict(winner)
 
-            await self.store._transaction(bind)
-            saved = await self._seller_binding(user_id)
+            saved = await self.store._transaction(bind)
         if (
             saved is None
             or saved["country"] != country

@@ -97,7 +97,7 @@ class CommerceActivity:
             "net_earnings_micro_usd": None,
             "refunded_cents": None,
             "currency": "USD",
-            "next_action": {"label": "Review payments", "href": "/one/profile/account"},
+            "next_action": {"label": "Review payments", "href": "/one/profile/payouts"},
         }
         if reference["kind"] == "purchase":
             return await self._purchase_activity(c, reference, viewer, view, item)

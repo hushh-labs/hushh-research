@@ -114,48 +114,93 @@ def _one_chat_target() -> tuple[str, str, ManagedGeminiRuntimeBinding]:
     return project, model, binding
 
 
-async def _probe_one_chat_only() -> dict[str, object]:
-    project, model, binding = _one_chat_target()
-    probe_name = f"one_chat:{model}@{','.join(binding.locations_for_model(model))}"
-    try:
-        await _probe_adk_response(binding.build_regional_adk_model(model), model)
-    except Exception as exc:  # noqa: BLE001 - report the real provider cause
-        classification = classify_provider_error(exc)
-        probe = {
-            "probe": probe_name,
-            "ok": False,
-            "classification": classification,
-            "error_type": type(exc).__name__,
-            "error": str(exc)[:400],
-        }
-        return {
-            "check": "managed_vertex_runtime",
-            "ok": False,
-            "classification": classification,
-            "advisory": False,
-            "models": [model],
-            "one_chat_project": project,
-            "one_chat_probe_ok": False,
-            "probes": [probe],
-            "candidate_models_exercised": classification != PROVIDER_UNAVAILABLE,
-        }
+async def _probe_scoped_projects() -> dict[str, object]:
+    """Prove UAT's scoped chat and voice projects under the runtime identity."""
+    from hushh_mcp.one_voice.config import OneVoiceLiveConfig
+    from hushh_mcp.runtime_providers.factory import build_managed_live_client
+
+    chat_project = (os.getenv("HUSHH_ONE_CHAT_VERTEX_PROJECT") or "").strip()
+    voice_project = (os.getenv("HUSHH_ONE_VOICE_VERTEX_PROJECT") or "").strip()
+    if not chat_project and not voice_project:
+        raise RuntimeError("A scoped managed Vertex project is required")
+    live_config = OneVoiceLiveConfig.from_environment() if voice_project else None
+    if live_config is not None and (
+        not live_config.enabled or live_config.vertex_project != voice_project
+    ):
+        raise RuntimeError("One voice Vertex project requires an enabled, pinned Live model")
+
+    labelled: list[tuple[str, object]] = []
+    model = ""
+    if chat_project:
+        _, model, binding = _one_chat_target()
+        labelled.append(
+            (
+                f"one_chat:{model}@{','.join(binding.locations_for_model(model))}",
+                _probe_adk_response(binding.build_regional_adk_model(model), model),
+            )
+        )
+
+    if live_config is not None:
+
+        async def probe_voice() -> None:
+            client = build_managed_live_client(
+                model=live_config.model_id,
+                location=live_config.location,
+                vertex_project=voice_project,
+            )
+            connect_config = types.LiveConnectConfig(response_modalities=[types.Modality.AUDIO])
+            async with client.aio.live.connect(model=live_config.model_id, config=connect_config):
+                return
+
+        labelled.append(
+            (
+                f"one_voice_live:{live_config.model_id}@{live_config.location}",
+                asyncio.wait_for(probe_voice(), timeout=PROBE_TIMEOUT_SECONDS),
+            )
+        )
+
+    outcomes = await asyncio.gather(*(coro for _, coro in labelled), return_exceptions=True)
+    probes = []
+    for (name, _), outcome in zip(labelled, outcomes, strict=True):
+        if isinstance(outcome, BaseException):
+            probes.append(
+                {
+                    "probe": name,
+                    "ok": False,
+                    "classification": classify_provider_error(outcome),
+                    "error_type": type(outcome).__name__,
+                    "error": str(outcome)[:400],
+                }
+            )
+        else:
+            probes.append({"probe": name, "ok": True, "classification": DEPENDENCY_OK})
+    failed = [item for item in probes if not item["ok"]]
+    classification = summarize([str(item["classification"]) for item in failed])
+    chat_ok = next((bool(p["ok"]) for p in probes if str(p["probe"]).startswith("one_chat:")), None)
+    voice_ok = next(
+        (bool(p["ok"]) for p in probes if str(p["probe"]).startswith("one_voice_live:")), None
+    )
     return {
         "check": "managed_vertex_runtime",
-        "ok": True,
-        "classification": DEPENDENCY_OK,
-        "advisory": True,
-        "models": [model],
-        "one_chat_project": project,
-        "one_chat_probe_ok": True,
-        "probes": [{"probe": probe_name, "ok": True, "classification": DEPENDENCY_OK}],
-        "candidate_models_exercised": True,
+        "ok": not failed,
+        "classification": classification,
+        "advisory": not failed,
+        "models": [model] if model else [],
+        "one_chat_project": chat_project or None,
+        "one_chat_probe_ok": chat_ok,
+        "one_voice_project": voice_project or None,
+        "one_voice_probe_ok": voice_ok,
+        "live_model": live_config.model_id if live_config else None,
+        "live_location": live_config.location if live_config else None,
+        "probes": probes,
+        "candidate_models_exercised": classification != PROVIDER_UNAVAILABLE,
     }
 
 
 async def main() -> dict[str, object]:
     probe_mode = (os.getenv("HUSHH_MANAGED_VERTEX_PROBE_MODE") or "full").strip().lower()
-    if probe_mode == "one_chat":
-        return await _probe_one_chat_only()
+    if probe_mode == "scoped":
+        return await _probe_scoped_projects()
     if probe_mode != "full":
         raise RuntimeError("Managed Vertex probe mode is invalid")
     binding = ManagedGeminiRuntimeBinding.from_environment()
@@ -275,11 +320,17 @@ async def main() -> dict[str, object]:
     from hushh_mcp.runtime_providers.factory import build_managed_live_client
 
     live_config = OneVoiceLiveConfig.from_environment()
-    live_probe_target = {"live_model": live_config.model_id, "live_location": live_config.location}
+    live_probe_target = {
+        "live_model": live_config.model_id,
+        "live_location": live_config.location,
+        "one_voice_project": live_config.vertex_project,
+    }
 
     async def probe_live_connect() -> None:
         client = build_managed_live_client(
-            model=live_config.model_id, location=live_config.location
+            model=live_config.model_id,
+            location=live_config.location,
+            vertex_project=live_config.vertex_project,
         )
         # Native-audio Live models refuse TEXT-only sessions; AUDIO proves availability.
         connect_config = types.LiveConnectConfig(response_modalities=[types.Modality.AUDIO])
@@ -323,6 +374,18 @@ async def main() -> dict[str, object]:
         if chat_binding is not None
         else None
     )
+    one_voice_probe_ok = (
+        next(
+            (
+                bool(item["ok"])
+                for item in probes
+                if str(item["probe"]).startswith("one_voice_live:")
+            ),
+            False,
+        )
+        if live_config.enabled and live_config.vertex_project
+        else None
+    )
     return {
         "check": "managed_vertex_runtime",
         "ok": not failed,
@@ -331,6 +394,7 @@ async def main() -> dict[str, object]:
         "models": list(models),
         "one_chat_project": chat_project or None,
         "one_chat_probe_ok": one_chat_probe_ok,
+        "one_voice_probe_ok": one_voice_probe_ok,
         "probes": probes,
         **live_probe_target,
         # A provider-side denial is returned before any model-specific

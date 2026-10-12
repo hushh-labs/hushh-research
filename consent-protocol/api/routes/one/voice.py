@@ -29,6 +29,7 @@ from api.middleware import (
 from api.middlewares.rate_limit import RateLimits, limiter
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
+from hushh_mcp.hushh_adk.single_turn import bind_single_turn_request_labels
 from hushh_mcp.one_voice import protocol
 from hushh_mcp.one_voice.config import (
     PROTOCOL_VERSION,
@@ -48,7 +49,10 @@ from hushh_mcp.one_voice.tools.base import (
 )
 from hushh_mcp.one_voice.tools.executor import ToolExecutor
 from hushh_mcp.runtime_providers.dependency_health import classify_provider_error
-from hushh_mcp.runtime_providers.factory import build_managed_live_client
+from hushh_mcp.runtime_providers.factory import (
+    bind_managed_vertex_project,
+    build_managed_live_client,
+)
 from hushh_mcp.services.owner_placement_guard import (
     admit_hub_content,
     hub_content_inline,
@@ -87,7 +91,11 @@ def reset_readiness_cache() -> None:
 
 async def _probe_live_connect(config: OneVoiceLiveConfig) -> None:
     """Open and immediately close one Live session. No audio, no output."""
-    client = build_managed_live_client(model=config.model_id, location=config.location)
+    client = build_managed_live_client(
+        model=config.model_id,
+        location=config.location,
+        vertex_project=config.vertex_project,
+    )
     # Native-audio Live models refuse a TEXT-only session; opening with AUDIO and
     # closing immediately proves availability without sending or receiving audio.
     live_config = genai_types.LiveConnectConfig(response_modalities=[genai_types.Modality.AUDIO])
@@ -400,7 +408,20 @@ async def voice_live(websocket: WebSocket, ticket: str = Query(default="")) -> N
     if previous is not None:
         await previous._close(protocol.CLOSE_REPLACED, "replaced")
     try:
-        await session.run()
+        # ContextVars follow VoiceSession's child tasks, including tool narration,
+        # without changing the process-wide project used by unrelated chat turns.
+        # Vertex GenerateContent supports request labels for the nested ADK
+        # text genes. Live connect does not; its attribution is in server logs.
+        request_labels = (
+            {"environment": "uat", "component": "one_voice"}
+            if (os.getenv("HUSHH_DEPLOY_ENV") or "").strip().lower() == "uat"
+            else None
+        )
+        with (
+            bind_managed_vertex_project(config.vertex_project),
+            bind_single_turn_request_labels(request_labels),
+        ):
+            await session.run()
     finally:
         async with _active_lock:
             if _active_sessions.get(claims.user_id) is session:

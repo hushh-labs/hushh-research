@@ -135,6 +135,28 @@ def _require_paid_lane_enabled() -> None:
         )
 
 
+def _require_preparation_enabled() -> None:
+    """Gate for preparing the answer. Composer only, never payments.
+
+    The owner's device prepares the answer when they approve, before anyone is
+    asked to pay: that is what makes "Answer not found" honest and what lets a
+    verified payment release the answer with no second owner action. Preparing
+    moves no money, so requiring the payment flag for it put the one step that
+    decides whether an answer EXISTS behind the one flag that only decides
+    whether it can be SOLD -- and a deployment with payments paused could
+    never leave "Checking their memory for an answer".
+
+    Checkout keeps `_require_paid_lane_enabled`; this is the same separation
+    `_require_requests_enabled` already makes for intake.
+    """
+    if not answer_composer_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="Answers are not available yet.",
+            headers={"Cache-Control": "no-store"},
+        )
+
+
 def _require_requests_enabled() -> None:
     """Gate for intake and owner review. Independent of payments.
 
@@ -415,12 +437,15 @@ async def answerable_for_owner(
     response: Response,
     owner_user_id: str = Depends(require_firebase_auth_read_only),
 ) -> dict[str, Any]:
-    """Paid, undelivered work for the owner's device sweep.
+    """Unprepared work for the owner's device sweep.
+
+    Approved-and-unprepared as well as paid-and-undelivered: the answer is
+    normally prepared at approval, before anyone is asked to pay for it.
 
     Returns questions and approved scope handles only; the device reads values
     from its own decrypted PKM.
     """
-    _require_paid_lane_enabled()
+    _require_preparation_enabled()
     response.headers["Cache-Control"] = "private, no-store"
     try:
         return {"requests": await _requests().claim_answerable(owner_user_id=owner_user_id)}
@@ -445,7 +470,7 @@ async def compose_answer(
     backend decrypts nothing here -- the device had already decrypted its own
     PKM and chose what to send.
     """
-    _require_paid_lane_enabled()
+    _require_preparation_enabled()
     response.headers["Cache-Control"] = "private, no-store"
     if not answer_composer_enabled():
         raise HTTPException(

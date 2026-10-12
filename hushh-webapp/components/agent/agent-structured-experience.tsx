@@ -619,12 +619,15 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
   const publishedRef = useRef<InformationRequestBundle | null>(null);
   const eventRefreshRef = useRef(false);
   useEffect(() => {
-    if (!experience.bundleId || experience.phase !== "submitted") return;
+    // A queued reading belongs to this request and current vault authority.
+    // Only descriptor refreshes may carry it into the replacement consumer.
+    publishedRef.current = null;
+    if (!experience.bundleId || experience.phase !== "submitted" || !isVaultUnlocked || !vaultOwnerToken) return;
     return subscribeInformationRequest(experience.bundleId, (bundle) => {
       publishedRef.current = bundle;
       setRefreshRevision((revision) => revision + 1);
     });
-  }, [experience.bundleId, experience.phase]);
+  }, [experience.bundleId, experience.phase, experience.subjectRef, isVaultUnlocked, vaultOwnerToken]);
 
   useEffect(() => {
     if (!experience.bundleId || experience.phase !== "submitted") return;
@@ -664,7 +667,6 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
       return () => { active = false; };
     }
     const published = publishedRef.current;
-    publishedRef.current = null;
     const fromEvent = eventRefreshRef.current;
     eventRefreshRef.current = false;
     if (!published) setRefreshState("checking");
@@ -676,6 +678,9 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
       ...(fromEvent ? { fresh: true } : {}),
     })).then((bundle) => {
       if (!active) return;
+      // A descriptor refresh can cancel this consumer before its Promise runs.
+      // Keep the reading for its replacement, and never clear a newer one.
+      if (publishedRef.current === published) publishedRef.current = null;
       // A restored descriptor is only a display reference. If the current
       // authority lookup resolves a different person, reject it without
       // rendering any of its status and settle the card into a recoverable

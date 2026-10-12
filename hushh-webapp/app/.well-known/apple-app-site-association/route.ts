@@ -89,11 +89,11 @@ export async function GET() {
             components: [...paths.map((path) => ({
               "/": path,
               comment: `Open the matching One screen (${path})`,
-            })), {
-              "/": "/one/profile/account",
+            })), ...["/one/profile/account", "/one/profile/payouts"].map(path => ({
+              "/": path,
               "?": { commerceReturn: "1", commerceAttemptId: "????????????????*" },
-              comment: "Return from Stripe to the existing Account screen; server status remains authoritative.",
-            }],
+              comment: "Return from Stripe to Payments and earnings; server status remains authoritative.",
+            }))],
           },
         ],
       },

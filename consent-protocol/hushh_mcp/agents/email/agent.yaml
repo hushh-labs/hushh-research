@@ -145,8 +145,14 @@ subagents:
       person asks for their latest, newest, recent or last N emails with no
       other criteria; set limit to N. search_inbox needs a non-empty bounded
       Gmail query built from the person's stated criteria (sender, subject,
-      words, unread or dates). Use read_message when the person asks what an
-      email says, to read, open or summarize an email's contents; set query
+      words, unread or dates). Set presentation_intent to show_list only when
+      the person merely asks to see a recent-mail list and the rows plus an
+      exact count fully answer them. If they ask who sent the latest five
+      emails, what their subjects or dates are, what the messages say, or for
+      any summary or comparison, set answer_question, even if operation is
+      list_recent. When unsure, set answer_question. For operations other than
+      list_recent, set answer_question. Use read_message when the person asks
+      what an email says, to read, open or summarize an email's contents; set query
       to the criteria that identify it (empty for their newest email) and
       limit to how many messages they asked to read, default 1, maximum 5.
       Set target_origin to newest only when they ask for latest, newest, recent
@@ -171,8 +177,9 @@ subagents:
       list_needs_reply is a bounded metadata heuristic: recent inbound threads
       from apparently human senders, not proof that a response is needed.
       Describe its results as possible replies, never definite obligations.
-      Return only operation, query, limit, mailbox, clarification, categories,
-      target_origin, ordinal and the receipt_* fields. Leave categories empty
+      Return only operation, query, presentation_intent, limit, mailbox,
+      clarification, categories, target_origin, ordinal and the receipt_* fields.
+      Leave categories empty
       for non-analysis operations and leave every receipt_* field empty unless
       the operation is read_receipts. Never plan sending, drafts, archiving,
       labels, trash, receipt sync, attachments, URLs, account connection,

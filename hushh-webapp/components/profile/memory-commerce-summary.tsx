@@ -1,13 +1,13 @@
 "use client";
 
-import { ProfileAccountLink } from "@/components/profile/profile-account-link";
+import { ProfilePaymentsLink } from "@/components/profile/profile-account-link";
 import { SettingsGroup } from "@/components/app-ui/settings-ui";
 import { useCommerceRead } from "@/components/consent/use-commerce-session";
 import { ScopeCommerceService, formatCommerceMoney, type CommerceAccount } from "@/lib/services/scope-commerce-service";
 
 const hasPendingEarnings = (account: CommerceAccount) => (account.earnings?.pending_cents ?? 0) > 0;
 
-/** Memory shows canonical earnings; Account owns funding, onboarding and transactions. */
+/** Memory shows canonical earnings; Payments and earnings owns funding, onboarding and transactions. */
 export function MemoryCommerceSummary() {
   const { user, data, loading, error } = useCommerceRead("memory-earnings", ScopeCommerceService.account, hasPendingEarnings);
   if (!user) return null;
@@ -21,7 +21,7 @@ export function MemoryCommerceSummary() {
         {(data.earnings.withdrawing_cents ?? 0) > 0 ? <div className="col-span-2"><dt className="text-muted-foreground">Withdrawal in progress</dt><dd>{formatCommerceMoney(data.earnings.withdrawing_cents!)}</dd></div> : null}
       </dl> : null}
       {error || (loading && !data) ? <p className="text-xs text-muted-foreground" role="status">{error || "Checking earnings…"}</p> : null}
-      <ProfileAccountLink className="inline-flex min-h-11 items-center text-sm underline">{data?.readiness?.capabilities.start_onboarding && !data.seller?.eligible ? "Set up payouts and view your wallet" : "View wallet and transactions in Account"}</ProfileAccountLink>
+      <ProfilePaymentsLink className="inline-flex min-h-11 items-center text-sm underline">{data?.readiness?.capabilities.start_onboarding && !data.seller?.eligible ? "Set up payouts and view your wallet" : "View payments and earnings"}</ProfilePaymentsLink>
     </div>
   );
   return hasEarnings ? <SettingsGroup title="Memory earnings">{content}</SettingsGroup> : content;

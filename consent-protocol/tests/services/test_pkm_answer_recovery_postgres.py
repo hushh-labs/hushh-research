@@ -602,13 +602,26 @@ async def test_answer_center_role_status_isolation_and_single_row_per_request(an
             assert entry["metadata"]["request_status"] == status
             assert entry["scope"] is None
             assert entry["action"] == "ANSWER_REQUEST_REVIEW"
+            # A closed set: this row reaches both participants, so a field
+            # added here is a field disclosed to both.
             assert set(entry["metadata"]) == {
                 "request_source",
                 "role",
                 "direction",
                 "request_status",
                 "payment_status",
+                "question",
+                "amount_cents",
+                "proposed_scope_count",
+                "answer_staged",
+                "answer_has_content",
             }
+            # The Feed names the price and the question before the tap, so it
+            # does not fetch one request per row. Both participants already
+            # read these through /state and /payment.
+            assert entry["metadata"]["question"] == "How much did you spend on travel last year?"
+            assert isinstance(entry["metadata"]["proposed_scope_count"], int)
+            assert entry["metadata"]["proposed_scope_count"] >= 0
         assert all(not entries for entries in (await center.collect("unrelated-account")).values())
     with answer_engine.begin() as c:
         c.execute(
