@@ -66,7 +66,8 @@ glass. The combined qualification batch separately fails after two native
 History cycles: Close does not restore Chat; subsequent navigation/dock checks
 cannot reach their base. A separate authored recovery restores the same unlocked
 session. Preserve that failure independently of the successful isolated Chat
-test. The terminal content-refresh race is under corrective verification below.
+test. The corrected terminal content-refresh race and installed functional retry
+are recorded below.
 
 Simulator guest admission and canonical UAT reviewer preflight are not substitutes
 for authenticated physical acceptance. Earlier evidence below applies only to
@@ -90,7 +91,7 @@ The first reversible boundary is implemented on top of `e5ad899659`:
 | Covered base controls | Remain mounted/materially visible; touch and accessibility isolated locally | Pending Chrome/Dock/Nav choices are invalidated across isolation cycles, including every post-await dispatch; uncover requests fresh same-host admission |
 | Failure/privacy retirement | Immediate targeted withdrawal, cancelled-admission tombstones and confirmed absence | Private snapshots/callbacks clear; listener cleanup cannot delay withdrawal; uncertain operations never replay; public-only isolation observer survives uncertain withdrawal until document retirement |
 | Product authority identity | Existing validated Auth owner and vault epoch; opaque shared owner ID and monotonically increasing family leases | No account ID, token, key or route-derived authority is sent as owner metadata |
-| Actual History port | Existing workspace callbacks, owner-bound rows, activity grouping, search, inline rename and deletion confirmation | Ten warm native-renderer cycles pass on the physical iPhone at `e396057bd9`; Debug qualification only; Drive nested review, footer handoff and closed-body opening gesture remain parity gaps |
+| Actual History port | Existing workspace callbacks, owner-bound rows, activity grouping, search, inline rename and deletion confirmation | Ten warm native-renderer cycles pass on the physical iPhone at `2d876c42c2`; Debug qualification only; Drive nested review, footer handoff and closed-body opening gesture remain parity gaps |
 | Actual Profile port | Not connected yet | Settings/forms and protected nested layers remain in the coherent React pane |
 
 The new boundary is **qualification-only**, using a separate Debug composition
@@ -123,8 +124,48 @@ The pre-fix JavaScript regression fails on the dropped Close. After correction,
 137 bridge tests, 61 simulator native support tests, full lint and typecheck pass.
 The native regression keeps the same host and restores WebView touch/accessibility
 only after authored closed-state acknowledgement; privacy, owner, drag and
-close/reopen negative cases reject the old token. These are contract checks:
-the corrected native History still needs its separately installed physical retry.
+close/reopen negative cases reject the old token.
+
+The corrected `2d876c42c2` bundled-UAT Debug product is installed in place on the
+iPhone 16e as `com.hushh.app` 1.4.0 (69), iOS 27.2. Executable SHA-256:
+`8b35953167ce916ce48ca49c75c479e4209608851dc4679e7de7ca83cc4358ba`.
+The physical batch uses runner SHA-256
+`31f7ba2c6dfca8ceec8749e4121e39a11f30945f483b894173fef5ebfda4bc14`.
+Authenticated `localNetwork` transport and actual XCTest entry pass. After
+installation, normal passphrase Unlock completes once and protected Chat is
+admitted; no account reset or sign-out is performed. The subsequent attach-only
+batch passes all three tests with zero failures/skips: ten actual native History
+cycles including edge taps and partial held drags, native navigation including
+Search/overlay isolation, and ten shared Chat/Profile/Cloud-Puppy cycles including
+the real keyboard, an unsent draft and One/Chat return. No turn is submitted.
+History restores its base and remains full-height; one identified WebView and
+the draft survive. Preserve the earlier failed batch as regression evidence.
+
+Credential-free secure-field characterization also exposes intermittent bulk
+input delivery (six of eight public sample characters), including application-
+level typing. This is not a rejected credential. The explicit existing software-
+key mode acknowledges the full entry and submits the normal cryptographic
+Unlock once; no mode fallback or operation replay occurs inside that run.
+Credentials remain process-only and result bundles are removed. Field-directed
+private typing remains the default; application-level typing is confined to the
+public diagnostic. Keyboard/empty-field admission, current reviewer and privacy
+are rechecked without exposing values. Do not relock the warm session merely to
+repeat this characterization.
+
+The final safety-reviewed runner compiles and is installed with SHA-256
+`38a39d51906d3913f270fa8254bc620036cfe9c022f417abb661798bab6714cc`.
+Its credential-free attach-only admission passes (one test, zero failures/skips)
+with protected Chat still unlocked. Private targets are scoped to the unique
+identified WebView, and the current account label must be hittable before entry
+and submission. These final guard additions have static-review/build evidence;
+the warm session was deliberately not relocked to exercise private entry again.
+Founder Wiki freshness was not established in this retry; no Wiki update was made.
+
+These are installed functional/continuity results, not visual frame, VoiceOver,
+Dynamic Type, material or physical Release performance acceptance. Custom native
+Dock/header/selector policy stays disabled; the successful Chat dock remains
+React. Native History remains Debug qualification-only, and iPad is unqualified.
+No push, merge, UAT deployment or distribution is established by this retry.
 
 The wrapper installs public qualification metadata at document start using
 Capacitor's supported `webView(with:configuration:)` hook. Normal/older wrappers choose
