@@ -26,6 +26,7 @@ import {
 } from "react";
 import { AuthProvider } from "@/lib/firebase";
 import { ContactInvitationSessionProvider } from "@/components/connections/contact-invitation-session-provider";
+import { AzureReturnBootRecovery } from "@/components/connections/azure-return-boot-recovery";
 import { VaultProvider } from "@/lib/vault/vault-context";
 import { StepProgressProvider } from "@/lib/progress/step-progress-context";
 import { StepProgressBar } from "@/components/app-ui/step-progress-bar";
@@ -99,7 +100,7 @@ import {
   isRiaRoute,
 } from "@/lib/navigation/routes";
 import { useAuth } from "@/hooks/use-auth";
-import { LocationBus } from "@/lib/one-location/location-bus";
+import { LocationBusAccountBridge } from "@/components/one-location/location-bus-account-bridge";
 import { PersonaProvider } from "@/lib/persona/persona-context";
 import {
   resolveSignedInShellContentOffset,
@@ -137,29 +138,6 @@ interface ProvidersProps {
 function readCustomVar(style: CSSProperties, key: string): string {
   const value = (style as Record<string, string | number | undefined>)[key];
   return value === undefined || value === null ? "" : String(value).trim();
-}
-
-/**
- * Give the shared position store an account, once, for the whole app.
- *
- * The store can keep a fix across a reload, but only for somebody: a
- * coordinate has to belong to an account before it can be sealed to their key.
- * That attach used to happen in two places and effectively neither. The hook
- * only attached when a caller passed a `userId` and no caller did; key
- * bootstrap needs a vault token, so it landed after the Location page had
- * already taken — and failed — its first capture. The restored fix was
- * therefore missing at exactly the moment it existed to cover: the cold start.
- *
- * Here it runs for every signed-in route, before any surface asks. Idempotent,
- * so key bootstrap's call stays harmless; and attaching null on sign-out is
- * what clears one person's position before the next person's session.
- */
-function LocationBusAccountBridge() {
-  const { userId } = useAuth();
-  useEffect(() => {
-    void LocationBus.attachUser(userId ?? null);
-  }, [userId]);
-  return null;
 }
 
 function AppShellFrame({ children }: ProvidersProps) {
@@ -882,6 +860,7 @@ export function Providers({ children }: ProvidersProps) {
         {/* Step-based progress bar at top of viewport */}
         <StepProgressBar />
         <AuthProvider>
+          <AzureReturnBootRecovery />
           <AuthenticatedFeedStream />
           <ObservabilityRouteObserver />
           {/* Session-scoped voice actions ("log me out") live here rather than

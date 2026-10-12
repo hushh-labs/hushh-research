@@ -31,7 +31,8 @@ are separately verified below; they do not prove a consumer purchase or payout.
 The existing `claude/hushh-infrastructure-analysis-7o991c` branch is the integration
 owner; PR #7555 and issue #7587 remain active. The remote pod-release and Android
 corrections are preserved. Main `337c4759e1b2` was merged normally at `9e5e58982b1c`;
-the continuation incorporates main `be71618d99` through a second normal merge. Shared
+the continuation incorporates main `be71618d99` and the concurrent branch's
+`e04b76c614` through normal merges. Shared
 history, unrelated workspace edits and the frozen migration preservation receipt
 remain intact. Main's 315–325 registrations retain their existing numbers. This lane's six
 registrations move to 326–331 with byte-identical forward and rollback SQL;
@@ -59,6 +60,14 @@ matching replay passes. Both cached private-placement cases fail on the actual
 incoming predecessor. The 447 Back cases pass; generated contract parity,
 complete core, exact-source hosted CI and Dev promotion must still complete.
 Source receipts never establish completed consumer purchases or bank payouts.
+
+The concurrent reconnect work retains the original request-key deadline and
+canonical pod cancellation authority. Stop admission now carries the captured
+owner generation and vault epoch through hosting selection, pod admission and
+the final web/native HTTP dispatch check. Retirement cannot route an old Stop
+through a successor session; same-owner cancellation and detach behavior remain
+covered. This source boundary does not prove process-loss recovery or an owner
+pod image upgrade.
 
 Latest-main integration preserves prepared-answer payment ownership. Incoming
 profile-review normalization now retains model citations and semantic metadata

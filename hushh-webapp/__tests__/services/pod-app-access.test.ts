@@ -1,7 +1,7 @@
 import { generateKeyPairSync, sign as nodeSign } from "node:crypto";
 import { expect, it, vi } from "vitest";
 import { canonicalJson } from "@/lib/services/owner-pod-crypto";
-import { ownerPodRequest } from "@/lib/services/pod-app-access";
+import { agentChatRequest, ownerPodRequest } from "@/lib/services/pod-app-access";
 import { canonical, openAsAgent } from "../lib/one/open-ai-selection";
 
 const pod = vi.hoisted(() => ({ currentPodConnection: vi.fn() }));
@@ -10,6 +10,39 @@ vi.mock("@/lib/services/owner-pod-endpoint", () => ({
   loadPinnedEndpoint: async () => ({ hushhId: "ha1_owner", url: "https://owner.a.run.app" }),
   currentPodConnection: pod.currentPodConnection,
 }));
+
+it("refuses a retired Stop before hosting dispatch and after deferred pod admission", async () => {
+  let current = true;
+  const fetch = vi.fn(async () => Response.json({ stopped: true }));
+  const direct = vi.fn(async () => { current = false; return Response.json({ stopped: true }); });
+  current = false;
+  await expect(agentChatRequest("/api/one/agent-chat/runs/old/stop", { method: "POST" }, {
+    hosting: async () => ({ hostingMode: "byoc" }), fetch, direct, isCurrent: () => current,
+  })).rejects.toThrow("POD_OWNER_CHANGED");
+  expect(direct).not.toHaveBeenCalled();
+  expect(fetch).not.toHaveBeenCalled();
+
+  current = true;
+  const selecting = agentChatRequest("/api/one/agent-chat/runs/old/stop", { method: "POST" }, {
+    hosting: async () => ({ hostingMode: "byoc" }), fetch, direct, isCurrent: () => current,
+  });
+  current = false;
+  await expect(selecting).rejects.toThrow("POD_OWNER_CHANGED");
+  expect(direct).not.toHaveBeenCalled();
+  current = true;
+  let admitted!: (connection: unknown) => void;
+  pod.currentPodConnection.mockReturnValue(new Promise((resolve) => { admitted = resolve; }));
+  const ports = { transport: async () => ({}), fetch, isCurrent: () => current } as Parameters<typeof ownerPodRequest>[2];
+  const stop = ownerPodRequest("agent-chat/runs/old/stop", { method: "POST" }, ports);
+  await vi.waitFor(() => expect(admitted).toBeTypeOf("function"));
+  current = false;
+  admitted({ endpoint: { hushhId: "ha1_owner", url: "https://owner.a.run.app" }, session: { session: "synthetic-session" } });
+  await expect(stop).rejects.toThrow("POD_OWNER_CHANGED");
+  expect(fetch).not.toHaveBeenCalled();
+  current = true;
+  await ownerPodRequest("agent-chat/runs/old/stop", { method: "POST" }, ports);
+  expect(fetch).toHaveBeenCalledOnce();
+});
 
 it("refuses a cancelled chat while preserving another caller's shared admission", async () => {
   let admitted!: (connection: unknown) => void;

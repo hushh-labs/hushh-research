@@ -595,6 +595,11 @@ export type ApiFetchOptions = RequestInit & {
   isEffectCurrent?: () => boolean;
 };
 
+function withCurrentOwnerEffect(options: ApiFetchOptions, isCurrent?: () => boolean): ApiFetchOptions {
+  if (!isCurrent) return options;
+  return { ...options, isEffectCurrent: () => isCurrent() && (options.isEffectCurrent?.() ?? true) };
+}
+
 async function apiFetch(
   path: string,
   options: ApiFetchOptions = {},
@@ -3576,12 +3581,14 @@ export class ApiService {
 
   /** Route private chat only to its admitted pod; unknown hosting never grants Shared. */
   static async agentChatRequest(path: string, init: RequestInit, streaming = false,
-    onChatAdmission?: (hushhId: string) => void): Promise<Response> {
+    onChatAdmission?: (hushhId: string) => void, isCurrent?: () => boolean): Promise<Response> {
     const access = await import("./pod-app-access");
-    const fetcher = streaming ? (await import("./native-sse-fetch")).nativeStreamFetch : apiFetch;
+    const fetcher = streaming ? (await import("./native-sse-fetch")).nativeStreamFetch
+      : (url: string, options: ApiFetchOptions) => apiFetch(url, withCurrentOwnerEffect(options, isCurrent));
     return access.agentChatRequest(path, init, {
       hosting: () => this.getPersonalAgentStatus(), fetch: fetcher,
-      direct: (route, options) => this.ownerPodRequest(route, options, streaming, onChatAdmission),
+      direct: (route, options) => this.ownerPodRequest(route, options, streaming, onChatAdmission, undefined, isCurrent),
+      isCurrent,
     });
   }
 
@@ -4027,13 +4034,14 @@ export class ApiService {
 
   /** Exact app routes only; content never falls back to the shared hub. */
   static async ownerPodRequest(path: string, init: RequestInit = {}, streaming = false,
-    onChatAdmission?: (hushhId: string) => void, expectedHushhId?: string): Promise<Response> {
+    onChatAdmission?: (hushhId: string) => void, expectedHushhId?: string, isCurrent?: () => boolean): Promise<Response> {
     const uid = AuthService.getCurrentUser()?.uid;
     const vaultEpoch = snapshotVaultSessionEpoch();
     if (!uid) throw new Error("PRIVATE_AGENT_SIGN_IN_REQUIRED");
     const access = await import("./pod-app-access");
-    const fetcher = streaming ? (await import("./native-sse-fetch")).nativeStreamFetch : apiFetch;
-    return access.ownerPodRequest(path, init, { transport: () => this.ownerPodTransport(), fetch: fetcher, onChatAdmission }, expectedHushhId, uid, vaultEpoch);
+    const fetcher = streaming ? (await import("./native-sse-fetch")).nativeStreamFetch
+      : (url: string, options: ApiFetchOptions) => apiFetch(url, withCurrentOwnerEffect(options, isCurrent));
+    return access.ownerPodRequest(path, init, { transport: () => this.ownerPodTransport(), fetch: fetcher, onChatAdmission, isCurrent }, expectedHushhId, uid, vaultEpoch);
   }
 
   /** Public identity only, after signed endpoint verification and app admission. */

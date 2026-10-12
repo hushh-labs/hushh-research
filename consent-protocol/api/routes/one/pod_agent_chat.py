@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from contextlib import aclosing
 from typing import Any, Literal
 
 from ag_ui.core import RunAgentInput
-from ag_ui.encoder import EventEncoder
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, ValidationError
 from sse_starlette.sse import EventSourceResponse
@@ -32,8 +30,13 @@ from hushh_mcp.one_adk.history_descriptors import (
 from hushh_mcp.one_adk.history_projection import _call_providers, project_conversation_history
 from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
 from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
-from hushh_mcp.one_adk.output_privacy import safe_exception_event
 from hushh_mcp.one_adk.pod_agui_context import PodChatContext
+from hushh_mcp.one_adk.pod_agui_lifetime import _ACTIVE_THREADS
+from hushh_mcp.one_adk.pod_chat_stream import (
+    pod_chat_events,
+    stop_preparing_turn,
+    turn_is_preparing,
+)
 from hushh_mcp.one_adk.queued_input import QueuedInputError
 from hushh_mcp.one_adk.queued_input import registry as queued_input_registry
 from hushh_mcp.one_adk.request_secrets import store_request_secret
@@ -158,19 +161,10 @@ async def chat(input: RunAgentInput, owner: PodChatContext = Depends(context)):
     agent = await owner.build_agent(options)
     # Never merge client state or forward credentials into SDK/session state.
     admitted = input.model_copy(update={"state": state, "forwarded_props": {}})
-    encoder = EventEncoder(accept="text/event-stream")
-
-    async def events():
-        try:
-            async with aclosing(agent.run(admitted)) as stream:
-                async for event in stream:
-                    yield encoder.encode(event).encode("utf-8")
-        except Exception as exc:
-            # Admission, memory preparation and final persistence also execute
-            # outside the SDK's error projection. Never serialize their details.
-            yield encoder.encode(safe_exception_event(exc)).encode("utf-8")
-
-    return EventSourceResponse(events(), headers={"Cache-Control": "no-store"})
+    return EventSourceResponse(
+        pod_chat_events(agent, admitted, owner_id=owner.owner),
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.get("/conversations/{user_id}")
@@ -207,14 +201,23 @@ async def history(
     limit: int = Query(50, ge=1, le=100),
     owner: PodChatContext = Depends(context),
 ):
+    pending_before_read = conversation_id in _ACTIVE_THREADS or turn_is_preparing(
+        owner.owner, conversation_id
+    )
     session = await owner.sessions.get_session(
         app_name=ONE_APP_NAME, user_id=owner.owner, session_id=conversation_id
     )
     if session is None:
+        if pending_before_read or turn_is_preparing(owner.owner, conversation_id):
+            return {
+                "conversation_id": conversation_id,
+                "messages": [],
+                "turn": {"pending": True},
+            }
         raise HTTPException(404, detail="Conversation not found.")
     submitted = {source for event in session.events if (source := _submitted_source_id(event))}
     providers = _call_providers(session.events)
-    return project_conversation_history(
+    result = project_conversation_history(
         session.events,
         conversation_id,
         limit,
@@ -223,6 +226,14 @@ async def history(
             _safe_agent_history_metadata(event, submitted, providers),
         ),
     )
+    # A completion can commit while this read holds an older snapshot. Keep it
+    # pending for one more read rather than offering a duplicate turn.
+    result["turn"] = {
+        "pending": pending_before_read
+        or conversation_id in _ACTIVE_THREADS
+        or turn_is_preparing(owner.owner, conversation_id)
+    }
+    return result
 
 
 class Rename(BaseModel):
@@ -339,7 +350,7 @@ async def stop_agent_turn(conversation_id: str, owner: PodChatContext = Depends(
     """End the running turn at its next step; queued messages come back unsent."""
     settlement = queued_input_registry.request_stop(owner.owner, conversation_id)
     if settlement is None:
-        return {"stopped": False, "returned": []}
+        return {"stopped": stop_preparing_turn(owner.owner, conversation_id), "returned": []}
     return {"stopped": True, "returned": list(settlement.returned)}
 
 

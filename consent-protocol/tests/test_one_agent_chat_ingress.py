@@ -460,7 +460,9 @@ async def test_private_chat_stream_has_single_sse_framing_and_safe_errors(monkey
         finally:
             closed.append(True)
 
-    owner = SimpleNamespace(build_agent=AsyncMock(return_value=SimpleNamespace(run=run)))
+    owner = SimpleNamespace(
+        owner="synthetic-owner", build_agent=AsyncMock(return_value=SimpleNamespace(run=run))
+    )
     monkeypatch.setattr(pod_agent_chat, "trusted_state", lambda *_: ({}, None))
     app = FastAPI()
     app.include_router(pod_agent_chat.router)

@@ -11322,10 +11322,10 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/tests/test_agui_turn_timing.py|test_pod_drain_waits_for_final_background_save_or_disconnect_cleanup|function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_pod_agui_lifetime.py|test_pod_drain_waits_for_final_background_save_or_disconnect_cleanup|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
-      "path": "consent-protocol/tests/test_agui_turn_timing.py",
+      "path": "consent-protocol/tests/test_pod_agui_lifetime.py",
       "symbol": "test_pod_drain_waits_for_final_background_save_or_disconnect_cleanup",
       "value": 88
     },
@@ -22340,6 +22340,15 @@
   ],
   "inspected_files": 6625,
   "integration_review": {
+    "pod_lifetime_test_move_20261012": {
+      "evidence_revision": "2d87ee90ce4e128af3dea976dd9e602466d9a67b",
+      "from": "consent-protocol/tests/test_agui_turn_timing.py",
+      "function_ast_sha256": "d91e549168e866ba4b9bc1d7489c99a2f2aef73d4e4c8d1c4cb23250921a1864",
+      "review": "Existing debt slot follows an AST-identical test into its cohesive pod-lifetime suite. Value, budget, scanner, exclusions and all other slots unchanged; no new test is exempted.",
+      "symbol": "test_pod_drain_waits_for_final_background_save_or_disconnect_cleanup",
+      "to": "consent-protocol/tests/test_pod_agui_lifetime.py",
+      "value": 88
+    },
     "baked_pod_warmup_correction_20261009": {
       "after": 801,
       "before": 797,

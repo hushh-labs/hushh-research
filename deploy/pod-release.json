@@ -1,24 +1,21 @@
 {
-  "version": "2026.10-dev.17",
+  "version": "2026.10-dev.18",
   "channel": "dev",
-  "summary": "Clearer Puppy responses and safer private-agent conversations.",
+  "summary": "Smoother reconnects and clearer private-agent progress.",
   "notes": {
     "improvements": [
-      "Puppy keeps the answering device\u2019s model visible after a response.",
-      "Files organization preserves the original filename while allowing reversible display names.",
-      "Updates from the qualified earlier release preserve Files, conversations and private-agent settings."
+      "Returning to a conversation restores its recorded outcome without resending the turn.",
+      "Files activity follows existing organization jobs while the workspace is open."
     ],
     "fixes": [
-      "Puppy distinguishes device timeouts from private-agent deadlines.",
-      "Conversation refreshes ignore stale owner and vault sessions.",
-      "A failed conversation deletion preserves the unsent draft and attachments."
+      "Closing chat preserves admitted work within its original authorization lifetime.",
+      "Stop requests cancellation on the private agent and reports an unconfirmed outcome.",
+      "Returning from cloud sign-in recovers a stalled background tab."
     ],
     "security": [
-      "Existing private agents require a qualified image transition and exact owner approval.",
-      "Files analysis remains opt-in; Computer Use stays disabled until its cloud gates pass."
+      "Reconnect does not renew authorization or replace exact owner approval.",
+      "Long-running jobs retain their existing authenticated queues; Computer Use stays disabled."
     ]
   },
-  "supportedUpgradeDigests": [
-    "sha256:cdcf8dc27204c1386fa5cec076df81c7ffded8fbb953c8f5345faa510ed24839"
-  ]
+  "supportedUpgradeDigests": []
 }

@@ -120,6 +120,79 @@ def _owner():
     return SimpleNamespace(owner="owner-a", authority=authority, claims={})
 
 
+async def test_history_completion_race_stays_pending_until_fresh_read():
+    from hushh_mcp.one_adk.pod_agui_lifetime import _ACTIVE_THREADS
+
+    async def read(**kwargs):
+        # The save finishes after this read captured a user-only snapshot.
+        _ACTIVE_THREADS.discard("conv-1")
+        return SimpleNamespace(events=[])
+
+    owner = SimpleNamespace(owner="owner-a", sessions=SimpleNamespace(get_session=read))
+    _ACTIVE_THREADS.add("conv-1")
+    try:
+        stale = await pod_agent_chat.history("conv-1", limit=50, owner=owner)
+        fresh = await pod_agent_chat.history("conv-1", limit=50, owner=owner)
+        assert stale["turn"] == {"pending": True}
+        assert fresh["turn"] == {"pending": False}
+    finally:
+        _ACTIVE_THREADS.discard("conv-1")
+
+
+@pytest.mark.parametrize("session_exists", [False, True])
+async def test_history_preparation_reconnect_is_pending_only_for_exact_owner(
+    monkeypatch, session_exists
+):
+    import asyncio
+    from contextlib import nullcontext, suppress
+
+    from hushh_mcp.one_adk import pod_agui_lifetime as pod
+    from hushh_mcp.one_adk import pod_chat_stream as transport
+    from tests.helpers.agui_lifetime import THREAD_ID, USER_ID, _bridge_agent, _owner_input
+
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def require_access():
+        entered.set()
+        await release.wait()
+
+    agent, _ = _bridge_agent(None, agent_type=pod.PodTimedADKAgent)
+    agent.configure_pod_turn(
+        require_access=require_access,
+        runtime_scope=nullcontext,
+        mcp_owner_admission=AsyncMock(return_value=True),
+    )
+    session = SimpleNamespace(events=[]) if session_exists else None
+    sessions = SimpleNamespace(get_session=AsyncMock(return_value=session))
+    owner = SimpleNamespace(owner=USER_ID, sessions=sessions)
+    stream = transport.pod_chat_events(agent, _owner_input(), owner_id=USER_ID)
+    reader = asyncio.create_task(anext(stream))
+    try:
+        await asyncio.wait_for(entered.wait(), 1)
+        assert THREAD_ID not in pod._ACTIVE_THREADS
+        observed = await pod_agent_chat.history(THREAD_ID, limit=50, owner=owner)
+        assert observed["turn"] == {"pending": True}
+        assert observed["messages"] == []
+        stranger = SimpleNamespace(owner="other-owner", sessions=sessions)
+        if session_exists:
+            other = await pod_agent_chat.history(THREAD_ID, limit=50, owner=stranger)
+            assert other["turn"] == {"pending": False}
+        else:
+            with pytest.raises(HTTPException) as absent:
+                await pod_agent_chat.history(THREAD_ID, limit=50, owner=stranger)
+            assert absent.value.status_code == 404
+    finally:
+        assert transport.stop_preparing_turn(USER_ID, THREAD_ID)
+        with suppress(StopAsyncIteration):
+            await asyncio.wait_for(reader, 1)
+        await stream.aclose()
+        assert not transport.turn_is_preparing(USER_ID, THREAD_ID)
+    if not session_exists:
+        with pytest.raises(HTTPException) as absent:
+            await pod_agent_chat.history(THREAD_ID, limit=50, owner=owner)
+        assert absent.value.status_code == 404
+
+
 @pytest.mark.parametrize("focus", sorted(SPECIALIST_FOCI))
 async def test_a_closed_specialist_focus_reaches_trusted_state(focus):
     state, _ = pod_agent_chat.trusted_state(_turn(specialistFocus=focus), _owner())

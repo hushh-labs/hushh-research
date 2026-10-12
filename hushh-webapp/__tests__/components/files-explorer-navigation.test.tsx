@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { files, fileEntry, session } from "../fixtures/files-workspace";
 import { FilesWorkspace } from "@/components/files/files-workspace";
 import type { FileEntry } from "@/lib/files/service";
@@ -7,6 +7,10 @@ import { toast } from "sonner";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 describe("Files settings and local navigation", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     session.vaultKey = "synthetic-memory-only";
@@ -253,6 +257,55 @@ describe("Files settings and local navigation", () => {
       screen.queryByRole("button", { name: "Cancel organization" }),
     ).toBeNull();
     expect(screen.queryByText("cancelled")).toBeNull();
+  });
+
+  it("reconciles queued and running activity without repeating organization", async () => {
+    vi.useFakeTimers();
+    const { FilesOrganizationHistory } = await vi.importActual<
+      typeof import("@/components/files/files-organization-history")
+    >("@/components/files/files-organization-history");
+    const job = { id: "file-job", file: "file-entry", state: "queued" };
+    files.history.mockResolvedValue({ entries: [job], cursor: "" });
+    files.job.mockResolvedValueOnce({ ...job, state: "running" })
+      .mockResolvedValueOnce({ ...job, state: "completed" });
+    await act(async () => { render(<FilesOrganizationHistory ownerId="synthetic-owner" />); });
+    expect(screen.getByText("queued")).toBeInTheDocument();
+    await act(() => vi.advanceTimersByTimeAsync(5_000));
+    expect(screen.getByText("running")).toBeInTheDocument();
+    await act(() => vi.advanceTimersByTimeAsync(5_000));
+    expect(screen.getByText("completed")).toBeInTheDocument();
+    await act(() => vi.advanceTimersByTimeAsync(15_000));
+    expect(files.job).toHaveBeenCalledTimes(2);
+    expect(files.organize).not.toHaveBeenCalled();
+  });
+
+  it.each(["owner", "unmount"])("pauses hidden activity reads and fences late results after %s change", async (change) => {
+    vi.useFakeTimers();
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    const { FilesOrganizationHistory } = await vi.importActual<
+      typeof import("@/components/files/files-organization-history")
+    >("@/components/files/files-organization-history");
+    const job = { id: "file-job", file: "file-entry", state: "queued" };
+    files.history.mockResolvedValueOnce({ entries: [job], cursor: "" })
+      .mockResolvedValue({ entries: [], cursor: "" });
+    let settle!: (value: typeof job) => void;
+    files.job.mockImplementation(() => new Promise((resolve) => { settle = resolve; }));
+    let view!: ReturnType<typeof render>;
+    await act(async () => { view = render(<FilesOrganizationHistory ownerId="synthetic-owner" />); });
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(files.job).not.toHaveBeenCalled();
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    expect(files.job).toHaveBeenCalledTimes(1);
+    const signal = files.job.mock.calls[0][1] as AbortSignal;
+    await act(async () => {
+      if (change === "owner") view.rerender(<FilesOrganizationHistory ownerId="other-owner" />);
+      else view.unmount();
+    });
+    expect(signal.aborted).toBe(true);
+    await act(async () => settle({ ...job, state: "completed" }));
+    expect(screen.queryByText("completed")).toBeNull();
+    expect(files.organize).not.toHaveBeenCalled();
   });
 
   it("unwinds the active folder edit before leaving the Files route", async () => {
