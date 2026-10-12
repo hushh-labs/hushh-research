@@ -2,11 +2,18 @@ import Capacitor
 import UIKit
 
 enum NativeDrawerQualificationPolicy {
-    static var enabled: Bool {
-        #if DEBUG
-        return ProcessInfo.processInfo.arguments.contains("--hushh-native-product-drawers-qualification")
+    static var coherentShell: Bool {
+        #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
+        return ProcessInfo.processInfo.arguments.contains("--hushh-native-shell-qualification")
         #else
         return false
+        #endif
+    }
+    static var enabled: Bool {
+        #if DEBUG
+        return coherentShell || ProcessInfo.processInfo.arguments.contains("--hushh-native-product-drawers-qualification")
+        #else
+        return coherentShell
         #endif
     }
 }
@@ -63,6 +70,7 @@ final class HushhNativeDrawersPlugin: CAPPlugin, CAPBridgedPlugin {
             call.resolve(["contractVersion": 1, "supported": self?.supported == true, "wholePresentation": self?.supported == true,
                 "historyActions": self?.supported == true,
                 "terminalRefreshes": self?.supported == true,
+                "coherentShell": self?.supported == true && NativeDrawerQualificationPolicy.coherentShell,
                 "generation": self?.container?.isolationGeneration ?? 0, "isolated": self?.container?.interactionIsolated == true])
         }
     }

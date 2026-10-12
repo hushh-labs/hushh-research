@@ -261,7 +261,7 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             retiredRestartGeneration = privacy.generation
         }
         let show = state.isPresented(appIsActive: privacy.appIsActive,
-                                     shielded: privacy.shielded, keyboardVisible: keyboardVisible)
+                                     shielded: privacy.shielded, keyboardVisible: keyboardVisible && compositor?.wholeNativeDrawers != true)
         let interactive = state.acceptsTap(state.selected, appIsActive: privacy.appIsActive,
                                           shielded: privacy.shielded, keyboardVisible: keyboardVisible)
         tabBar?.isHidden = !show

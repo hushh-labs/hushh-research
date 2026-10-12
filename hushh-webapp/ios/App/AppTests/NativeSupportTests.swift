@@ -138,6 +138,10 @@ final class NativeSupportTests: XCTestCase {
     func testWholeNativeDrawerKeepsBasePaintThroughCoverageAndClearsPrivateReplicaOnRetirement() throws {
         let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         let container = NativePresentationContainer(webView: web, basePresentation: .coherentDrawers)
+        container.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        XCTAssertTrue(container.containsStationaryControl(CGRect(x: 16, y: 60, width: 44, height: 44), document: "synthetic"),
+            "Coherent admission must not depend on the rejected legacy-region protocol")
+        XCTAssertFalse(container.containsStationaryControl(CGRect(x: 380, y: 60, width: 44, height: 44), document: "synthetic"))
         let glass = UIButton(frame: CGRect(x: 10, y: 10, width: 44, height: 44))
         container.install(glass, id: "base-control", group: nil)
         container.setAdmission("base-control", admitted: true)
@@ -177,6 +181,17 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(web.superview === container)
         XCTAssertFalse(base.isHidden)
         XCTAssertFalse(glass.isUserInteractionEnabled, "Fresh bindings restore permissions, not a captured boolean")
+    }
+
+    func testCoherentStationaryViewportAcceptsOnlyTheActualKeyboardResizedWebView() {
+        let host = CGSize(width: 390, height: 844)
+        let web = CGSize(width: 390, height: 480)
+        XCTAssertEqual(NativeChromeViewport.resolve(authored: host, host: host, web: web, coherent: true, keyboard: false), host)
+        XCTAssertEqual(NativeChromeViewport.resolve(authored: web, host: host, web: web, coherent: true, keyboard: true), host)
+        XCTAssertNil(NativeChromeViewport.resolve(authored: web, host: host, web: web, coherent: false, keyboard: true))
+        XCTAssertNil(NativeChromeViewport.resolve(authored: web, host: host, web: web, coherent: true, keyboard: false))
+        XCTAssertNil(NativeChromeViewport.resolve(authored: CGSize(width: 390, height: 500), host: host, web: web, coherent: true, keyboard: true))
+        XCTAssertNil(NativeChromeViewport.resolve(authored: web, host: CGSize(width: 844, height: 390), web: web, coherent: true, keyboard: true))
     }
 
     @MainActor
@@ -794,11 +809,14 @@ final class NativeSupportTests: XCTestCase {
         editor.selectedRange = NSRange(location: 2, length: 2)
         for mode in ["voice", "text", "voice", "text"] {
             model.mode = mode
+            model.editorLabel = mode == "voice" ? "Message One" : "Message Puppy"
             model.accent = UIColor.label
             host.overrideUserInterfaceStyle = .dark
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
             host.view.layoutIfNeeded()
             XCTAssertTrue(model.editor === editor)
+            XCTAssertEqual(editor.accessibilityLabel, model.editorLabel,
+                "The retained editor must identify the applied authored port, not the earlier selector choice")
             XCTAssertEqual(editor.text, "Hello 👋")
             XCTAssertEqual(editor.selectedRange, NSRange(location: 2, length: 2))
         }
@@ -887,6 +905,12 @@ final class NativeSupportTests: XCTestCase {
         var fence = HushhDockFence()
         let old = HushhDockFence.Identity(document: "dock-doc", owner: "owner-a", revision: 1)
         let next = HushhDockFence.Identity(document: "dock-doc", owner: "owner-b", revision: 2)
+        var pending = HushhDockFence()
+        XCTAssertFalse(pending.retire(old), "Withdrawal before apply has no installed host to detach")
+        XCTAssertFalse(pending.apply(old, sequence: 1), "A delayed first apply cannot resurrect a withdrawn editor")
+        XCTAssertTrue(pending.apply(next, sequence: 1), "A newer owner revision is not the withdrawn lease")
+        XCTAssertFalse(pending.retire(old))
+        XCTAssertEqual(pending.identity, next, "Late withdrawal cannot remove the successor")
         XCTAssertTrue(fence.apply(old, sequence: 1))
         let choice = fence.emitted(kind: "action")
         XCTAssertFalse(fence.confirm(old, sequence: choice, applied: 1, editRevision: 0, kind: "action", allowed: false))

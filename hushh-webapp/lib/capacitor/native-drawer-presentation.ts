@@ -44,6 +44,7 @@ export class NativeDrawerPresentation {
     private readonly plugin: HushhNativeDrawersPlugin,
     private readonly ownerIsCurrent: () => boolean,
     private readonly onPhase: (phase: NativeDrawerPresentationPhase) => void,
+    private readonly onApplied?: (state: NativeDrawerProjection) => void,
   ) { this.fence = new NativeDrawerChoiceFence(identity); }
 
   async listen(): Promise<boolean> {
@@ -121,6 +122,7 @@ export class NativeDrawerPresentation {
         if (this.current?.state.updateSequence === state.updateSequence) {
           this.applied = state.updateSequence;
           this.setPhase("active");
+          this.onApplied?.(state);
         }
       } catch {
         // Apply may have succeeded without a receipt. Never reveal a duplicate

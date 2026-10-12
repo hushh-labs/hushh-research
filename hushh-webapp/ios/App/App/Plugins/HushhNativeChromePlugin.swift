@@ -5,7 +5,7 @@ import UIKit
 /// Recovery default. The standard UITabBar and privacy shield are independent.
 /// Legacy Debug flags are not qualification of a complete overlapping family.
 enum HushhNativePresentationPolicy {
-    static let customControlsEnabled = false
+    static var customControlsEnabled: Bool { NativeDrawerQualificationPolicy.coherentShell }
 }
 
 /// Strict public presentation metadata, shared by UIKit and SwiftUI controls.
@@ -430,6 +430,9 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     private var backContinuity: NativeBackContinuityProbe?
     private var historyContinuity: NativeBackContinuityProbe?
     private var profileBackContinuity: NativeBackContinuityProbe?
+    private var profileBackAdmission: NativeTestStatusLabel?
+    private var profileBackAdmissionTimer: Timer?
+    private var profileBackAdmissionInFlight = false
     #endif
 
     override func load() {
@@ -442,6 +445,19 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                 if self.chatControlsAdmitted {
                     self.historyContinuity = NativeBackContinuityProbe(host: host, identifier: "native-history-continuity")
                     self.profileBackContinuity = NativeBackContinuityProbe(host: host, identifier: "native-profile-back-continuity")
+                    let admission = NativeTestStatusLabel(frame: .zero, showOverlay: false)
+                    admission.accessibilityIdentifier = "native-profile-back-admission"
+                    admission.translatesAutoresizingMaskIntoConstraints = false
+                    host.addSubview(admission)
+                    NSLayoutConstraint.activate([
+                        admission.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+                        admission.topAnchor.constraint(equalTo: host.safeAreaLayoutGuide.topAnchor),
+                        admission.widthAnchor.constraint(equalToConstant: 1), admission.heightAnchor.constraint(equalToConstant: 1),
+                    ])
+                    self.profileBackAdmission = admission
+                    self.profileBackAdmissionTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+                        self?.sampleProfileBackAdmission()
+                    }
                 }
             }
             #endif
@@ -497,7 +513,59 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                 })
         }
     }
-    deinit { observers.forEach(NotificationCenter.default.removeObserver) }
+
+    #if DEBUG
+    /// Read only the authored diagnostic/slot, including while a native menu
+    /// legitimately excludes WK from AX. No DOM body, identity, draft or URL.
+    private func sampleProfileBackAdmission() {
+        let privacy = HushhSessionPrivacyShield.shared.snapshot()
+        profileBackAdmission?.accessibilityElementsHidden = !privacy.appIsActive || privacy.shielded
+        guard privacy.appIsActive, !privacy.shielded, !profileBackAdmissionInFlight, let web = bridge?.webView else { return }
+        profileBackAdmissionInFlight = true
+        web.evaluateJavaScript("""
+        (() => {
+          const slot = document.querySelector('[data-native-chrome-slot="profile-back"]');
+          const status = document.getElementById('native-control-status-profile-back');
+          let state = {};
+          try { if (status?.textContent.startsWith('NATIVE_SELECTOR_STATUS ')) state = JSON.parse(status.textContent.slice(23)); } catch (_) {}
+          const rect = slot?.getBoundingClientRect();
+          return JSON.stringify({stage: state.stage, outcome: state.outcome, code: state.code,
+            present: !!slot, focused: !!slot?.contains(document.activeElement), inert: !!slot?.closest('[inert]'),
+            width: rect?.width ?? 0, height: rect?.height ?? 0, top: rect?.top ?? 0});
+        })()
+        """) { [weak self] result, _ in
+            guard let self else { return }
+            self.profileBackAdmissionInFlight = false
+            guard let raw = result as? String, raw.utf8.count <= 1024,
+                  let bytes = raw.data(using: .utf8), let packet = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any] else { return }
+            let current = HushhSessionPrivacyShield.shared.snapshot()
+            guard current.appIsActive, !current.shielded, current.generation == privacy.generation else { return }
+            func choice(_ key: String, _ allowed: [String]) -> String {
+                guard let value = packet[key] as? String, allowed.contains(value) else { return "none" }
+                return value
+            }
+            func dimension(_ key: String) -> Int {
+                guard let value = packet[key] as? Double, value.isFinite, abs(value) <= 10_000 else { return 0 }
+                return Int(value.rounded())
+            }
+            let stage = choice("stage", ["skip", "retire", "prepare", "activate", "update"])
+            let outcome = choice("outcome", ["pending", "acknowledged", "rejected"])
+            let code = choice("code", ["none", "other", "not-admitted", "focused", "geometry", "NATIVE_CHROME_ACK_UNCERTAIN",
+                "NATIVE_CHROME_PREPARE_REFUSED", "NATIVE_CHROME_DOCUMENT_OR_GEOMETRY_STALE", "NATIVE_CHROME_OVERLAPPING_CONTROLS",
+                "NATIVE_CHROME_OPTIONS_INVALID", "NATIVE_CHROME_LAYOUT_UNCONFIRMED", "NATIVE_CHROME_LAYOUT_RETIRED",
+                "NATIVE_CHROME_ACTIVATE_REFUSED", "NATIVE_CHROME_ACTIVATE_UNCONFIRMED", "NATIVE_CHROME_RETIRE_UNCONFIRMED",
+                "NATIVE_CHROME_UPDATE_INVALID", "NATIVE_CHROME_UPDATE_UNCONFIRMED"])
+            self.profileBackAdmission?.update(status: "stage=\(stage);outcome=\(outcome);code=\(code);present=\(packet["present"] as? Bool == true);focused=\(packet["focused"] as? Bool == true);inert=\(packet["inert"] as? Bool == true);width=\(dimension("width"));height=\(dimension("height"));top=\(dimension("top"))")
+        }
+    }
+    #endif
+    deinit {
+        observers.forEach(NotificationCenter.default.removeObserver)
+        #if DEBUG
+        profileBackAdmissionTimer?.invalidate()
+        profileBackAdmission?.removeFromSuperview()
+        #endif
+    }
 
     private static func focusedElement(_ element: Any, belongsTo host: UIView) -> Bool {
         var current: Any? = element
@@ -519,6 +587,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             if contentBacked {
                 if self?.backAdmitted == true { families.append("back") }
                 if self?.chatControlsAdmitted == true { families += Self.stationaryChatControlIds.keys.sorted() }
+                if self?.chatControlsAdmitted == true, self?.compositor?.wholeNativeDrawers == true { families.append("profile-back") }
             } else if self?.backAdmitted == true {
                 families.append("back")
                 if self?.chatControlsAdmitted == true { families += ["history", "agent-surface", "close", "profile-back", "more", "selection", "date", "appearance", "accent"] }
@@ -529,6 +598,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                           "inPlaceUpdates": true,
                           "panelPresentation": self?.compositor != nil && !contentBacked,
                           "contentBackedPresentation": contentBacked,
+                          "coherentPresentation": self?.compositor?.wholeNativeDrawers == true && NativeDrawerQualificationPolicy.coherentShell,
                           "reservedPresentationRegions": legacyRegions,
                           "fullWindowOverlays": legacyRegions,
                           "drawerClipping": self?.compositor?.drawerClipping == true,
@@ -666,7 +736,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                   let label = call.getString("label"), !label.isEmpty, label.count <= 80,
                   let theme = HushhNativeControlAppearance(appearance: call.getString("appearance"),
                     accentHex: call.getString("accentHex"), foregroundHex: call.getString("foregroundHex")),
-                  let frame = self.frame(call, kind: kind), let bounds = self.viewport(call),
+                  let frame = self.frame(call, kind: kind), let bounds = self.presentationViewport(call),
                   self.compositor?.contentBackedPresentation != true ||
                     self.compositor?.containsStationaryControl(frame, document: identity.document) == true,
                   self.canMirrorPresentation,
@@ -824,7 +894,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                   let presentation = ChromePresentation(call), presentation.value == nil,
                   presentation.expanded == slot.presentation?.expanded,
                   let frame = self.frame(call, kind: kind), slot.authoredFrame == frame,
-                  let viewport = self.viewport(call), viewport == slot.viewport,
+                  let viewport = self.presentationViewport(call), viewport == slot.viewport,
                   self.geometryIsCurrent(slot), self.canMirrorPresentation, self.document == identity.document,
                   HushhSessionPrivacyShield.shared.acceptsDocument(identity.document),
                   !self.retiredDocuments.contains(identity.document) else {
@@ -1198,13 +1268,13 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         guard HushhNativePresentationPolicy.customControlsEnabled else { return false }
         // Debug pilot only; release and iPad retain accepted controls until
         // their physical visual/accessibility acceptance has been recorded.
-        #if DEBUG
+        #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
         if #available(iOS 26.0, *) { return UIDevice.current.userInterfaceIdiom == .phone }
         #endif
         return false
     }
     private var canPresent: Bool {
-        return canMirrorPresentation && !keyboardVisible
+        return canMirrorPresentation && (compositor?.wholeNativeDrawers == true || !keyboardVisible)
     }
     private var canMirrorPresentation: Bool {
         let privacy = HushhSessionPrivacyShield.shared.snapshot()
@@ -1212,8 +1282,8 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     private var chatControlsAdmitted: Bool {
         // Explicit Debug rehearsal opt-in; this is not promotion of an audited family.
-        #if DEBUG
-        return backAdmitted && ProcessInfo.processInfo.arguments.contains("--hushh-native-chat-chrome")
+        #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
+        return backAdmitted && NativeDrawerQualificationPolicy.coherentShell
         #else
         return false
         #endif
@@ -1227,6 +1297,9 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     private func admits(_ kind: String, controlId: String) -> Bool {
         if compositor?.contentBackedPresentation == true {
             if kind == "back" { return backAdmitted && controlId == "top-shell-back" }
+            if kind == "profile-back" && compositor?.wholeNativeDrawers == true {
+                return chatControlsAdmitted && controlId == "profile-back"
+            }
             return chatControlsAdmitted && Self.stationaryChatControlIds[kind] == controlId
         }
         if kind == "back" { return backAdmitted && controlId == "top-shell-back" }
@@ -1359,7 +1432,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             slot.hosting?.view.accessibilityElementsHidden = !admitted
             compositor?.setAdmission(id, admitted: admitted,
                 presentationRegionRevision: slot.presentationRegionRevision, privacyGeneration: slot.privacyGeneration)
-            if keyboardVisible {
+            if keyboardVisible && compositor?.wholeNativeDrawers != true {
                 // Invalidate even nil-valued button choices, not only menus.
                 slot.sequence += 1
                 slot.choiceValue = nil
@@ -1407,6 +1480,12 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
               let height = value["height"] as? Double, width.isFinite, height.isFinite,
               width > 0, height > 0 else { return nil }
         return CGSize(width: width, height: height)
+    }
+    private func presentationViewport(_ call: CAPPluginCall) -> CGSize? {
+        guard let authored = viewport(call), let host = bridge?.viewController?.view.bounds.size,
+              let web = bridge?.webView?.bounds.size else { return nil }
+        return NativeChromeViewport.resolve(authored: authored, host: host, web: web,
+            coherent: compositor?.wholeNativeDrawers == true, keyboard: keyboardVisible)
     }
     private func frame(_ call: CAPPluginCall, kind: String) -> CGRect? {
         guard let value = call.getObject("frame"), let x = value["x"] as? Double, let y = value["y"] as? Double,

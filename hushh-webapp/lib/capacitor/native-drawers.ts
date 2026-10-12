@@ -64,6 +64,11 @@ export const nativeDrawers = registerPlugin<HushhNativeDrawersPlugin>("HushhNati
 // Public eligibility metadata only. The private presentation installs this
 // observer before admission; base adapters compare it across awaited choices.
 let isolation: NativeDrawerIsolation = { generation: 0, isolated: false };
+const isolationObservers = new Set<() => void>();
+export function observeNativeDrawerIsolation(observer: () => void): () => void {
+  isolationObservers.add(observer);
+  return () => { isolationObservers.delete(observer); };
+}
 export function nativeDrawerIsolation(): Readonly<NativeDrawerIsolation> { return isolation; }
 type NativeDrawerIsolationSource = {
   getCapabilities(): Promise<NativeDrawerIsolation>;
@@ -103,7 +108,9 @@ function updateNativeDrawerIsolation(next: NativeDrawerIsolation) {
     throw new Error("NATIVE_DRAWER_ISOLATION_INVALID");
   }
   if (next.generation < isolation.generation || next.generation === isolation.generation && next.isolated !== isolation.isolated) return;
+  if (next.generation === isolation.generation && next.isolated === isolation.isolated) return;
   isolation = { generation: next.generation, isolated: next.isolated };
+  isolationObservers.forEach(observer => observer());
 }
 export async function subscribeNativeDrawerIsolation(plugin: NativeDrawerIsolationSource): Promise<PluginListenerHandle> {
   const update = (next: NativeDrawerIsolation) => {

@@ -7,6 +7,10 @@ import { AppProfileEdgeGesture } from "@/components/app-ui/app-profile-edge-gest
 import { PROFILE_PANE_OPEN_EVENT } from "@/lib/navigation/profile-pane";
 
 const navigation = vi.hoisted(() => ({ pathname: "/one" }));
+const native = vi.hoisted(() => ({ coherent: false }));
+vi.mock("@/lib/capacitor/native-presentation-policy", () => ({
+  customNativePresentationEnabled: () => native.coherent,
+}));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => navigation.pathname,
@@ -15,6 +19,24 @@ vi.mock("next/navigation", () => ({
 describe("Profile pane touch navigation", () => {
   beforeEach(() => {
     navigation.pathname = "/one";
+    native.coherent = false;
+  });
+
+  it("leaves opening to the native Profile button instead of a competing React edge gesture", () => {
+    native.coherent = true;
+    const opened = vi.fn();
+    window.addEventListener(PROFILE_PANE_OPEN_EVENT, opened);
+    const view = render(<AppProfileEdgeGesture enabled />);
+    try {
+      fireEvent.touchStart(document, { touches: [{ identifier: 1, clientX: 320, clientY: 160 }] });
+      fireEvent.touchMove(document, { touches: [{ identifier: 1, clientX: 180, clientY: 164 }] });
+      fireEvent.touchEnd(document, { changedTouches: [{ identifier: 1, clientX: 150, clientY: 164 }] });
+      expect(opened).not.toHaveBeenCalled();
+      expect(document.documentElement.hasAttribute("data-app-profile-edge-active")).toBe(false);
+    } finally {
+      view.unmount();
+      window.removeEventListener(PROFILE_PANE_OPEN_EVENT, opened);
+    }
   });
 
   afterEach(() => {

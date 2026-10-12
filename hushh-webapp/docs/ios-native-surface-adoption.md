@@ -13,6 +13,115 @@ another navigation stack, WebView, session, or information store.
 
 ## Current Implementation
 
+### Integrated native shell candidate — 2026-10-11
+
+This candidate extends `5a07a2310e` on `feat/adk-orchestration-runtime`.
+Normal product admission remains **off**. The document-start coherent-shell
+bootstrap is available only through the explicit qualification launch switch;
+old experiment flags do not enable it. Web, Android, older wrappers and iPad
+keep their established renderers. The earlier dated receipts below qualify only
+their named builds, not this candidate.
+
+| Shared family | Renderer and operation owner | Candidate status / rollback |
+| --- | --- | --- |
+| Bottom navigation | Existing native `UITabBar`; existing React tab intent | Retained beneath the keyboard and native drawers; new device acceptance pending |
+| Chat History opener and One/Puppy | Retained NativeChrome v2; authored Chat callbacks | Foreground content-backed composition, coverage disables interaction rather than hiding hosts; qualification only |
+| Agent Dock | NativeDock v1; existing One and Puppy draft/submission ports | One editor/glass container; private final-draft reconciliation on native coverage; qualification only |
+| History | NativeDrawers v1 owns the complete panel/scrim/gesture; existing search/rename/delete callbacks | Shared owner/privacy admission; Connectors footer connected; Drive review handoff incomplete |
+| Profile menu | Same native drawer family; existing authored Profile destinations | Account/preferences/security/devices/connectors/invite/support/legal/sign-out callbacks connected; root photo and developer-tools parity incomplete |
+| Profile details | Bounded full-page React content in the existing WebView; existing query/Back owner | Destination Back acknowledges layout before menu dismissal; viewing does not change vault authority |
+| Other rich Chat overlays | Existing feature owners | Full-page handoff classification/migration incomplete; not qualified above foreground chrome |
+
+Presentation identity is separate from interaction eligibility. Closed retained
+Profile content is inactive for voice/action metadata. Profile Back retires when
+its content page ends; ordinary shell slots may retain compatible hosts. Native
+coverage snapshots only committed editor text, fences owner/context/privacy and
+edit revisions, and never submits or replays a turn. Final IME commit advances
+the native edit fence even after touch admission is withdrawn.
+
+The current integrated composition is **not accepted**: complete first-reveal
+composition readiness and coherent whole-shell failure fallback remain gaps.
+A bounded Profile error page is not whole-shell fallback. Rich overlay parity,
+transition-frame inspection, accessibility and three physical Release performance
+passes remain required before product admission or shared-family expansion.
+
+The first diagnostic Debug/UAT candidate was `com.hushh.app` 1.4.0 (69),
+executable SHA-256 `80de429b8469eba4ddc2e0f3c6290d226a14a0329192938ca2a4fe61c27574bf`.
+Signature, packaged assets and installation pass. Credential-free XCTest admission
+and a separate normal passphrase unlock pass without sign-out or reset; credential
+diagnostics were removed. The integrated warm journey reaches native History,
+Profile and Preferences but fails detail Back admission before completing a cycle.
+The earlier Profile-row lookup failure used a wrong display label; the harness now
+uses the authored opaque row identifier. Neither failed run is acceptance.
+
+The detail handoff has a reproduced focus race: Radix's initial autofocus captures
+the temporary DOM Back, which deliberately prevents native admission. The bounded
+feature page now focuses its heading instead and leaves return focus to the native
+menu. The nearest regression fails without that fix and passes with it; 158 focused
+JavaScript cases pass. That change alone did not fix physical admission.
+Initial modal focus must never pin a native-bound fallback control to the web.
+
+The opt-in, privacy-fenced native reader then measured the real destination Back:
+44 by 44 points, not focused or inert, but its top was -172 points. Packaged CSS
+confirmed production optimization dropped the feature page's `translate: none`
+override while Dialog's negative centering utilities remained. The page now
+overrides those utilities on the element with `translate-x-0 translate-y-0`.
+The nearest browser layout regression renders the real feature page/Dialog with
+production-optimized CSS; portrait/landscape checks and a broken-centering negative
+control pass in Chromium and WebKit (12 focused layout cases). The corrected
+Debug/UAT executable `dc0b1ef9147a1de26831f54db9f96f507f48afc0c3c27e6f9ca54d232445a6f2`
+is signed, asset-verified and installed. Its attach-only product journey reaches
+History, Profile, Preferences and the native Back return, then fails at Puppy
+entry before completing the first cycle. This is not a ten-cycle acceptance.
+
+The test had assumed selecting Puppy immediately supplied a conversation port;
+the actual product requires its authored `Start a Puppy chat` entry when none
+exists. Qualification now takes that process-only entry once, submits no turn,
+and waits for both the selected agent and the applied editor's authored public
+label. NativeDock v1 accepts optional `Message One` / `Message Puppy` accessibility
+metadata without deriving meaning from a private context or replacing the editor.
+The retained-editor regression and all 62 native support cases pass on Simulator;
+the new installed product journey must be rerun separately.
+
+React edge-opening gestures are disabled only for the coherent native family,
+not for every iOS wrapper. The established recovery/older-wrapper gestures remain
+available; both focused gesture suites and competing-renderer negative controls
+pass (20 cases). These are behavior contracts, not native visual acceptance.
+
+The opt-in native admission reader samples only authored Back presence, geometry,
+focus/inert flags and whitelisted stage/refusal enums. It reads no protected body,
+account, draft, URL or operation payload and is unavailable outside Debug. Its
+sampling configuration is diagnostic, not a physical Release performance receipt.
+
+The authored overlay audit confirms that Chat's Connectors destination already
+reuses Profile query/Back ownership. Pending/sent attachment editors and the Drive
+activity/detail owner still need bounded full-page envelopes. Native History must
+not mount a new auto-preparing Drive review merely to implement its footer. Its
+existing recent-sharing owner is currently inside the web-only History subtree;
+lift that owner deliberately before wiring native entry. Profile root photo and
+the existing development-gated tools entry remain separate parity gaps.
+
+Native Dock withdrawal also records a revision tombstone before its first apply;
+delayed admission cannot resurrect a cancelled replica or detach its successor.
+This closes a source-confirmed cancellation gap, not aggregate shell recovery.
+
+The independent native architecture review identifies the bounded missing
+composition gate: one ledger in `NativePresentationContainer`, sealing Chat's
+History opener, One/Puppy selector, Dock, bottom navigation and closed prepared
+History/Profile controllers against the same document, opaque owner, privacy,
+generation and viewport. Native plugins must record actual layout/installation
+before one main-actor reveal; forwarding family receipts is not readiness.
+Aggregate retirement must withdraw all registered slots, drawers and owned
+popups before restoring the coherent React family. This extension is **not yet
+implemented**; independent family recovery must not be promoted as that contract.
+
+Branch governance also needs reconciliation before push: its package lacks
+`ui:doctor`, `build:ui-contracts`, `verify:ui-contracts`, the contributor scaffold
+and `backVerification`. Use the actual route/voice generators and behavioral
+checks for source validation; do not invent aliases or describe them as resolving
+the missing canonical governance. No merge, UAT dispatch or distribution is
+authorized by these local receipts.
+
 ### History leading slot and native selector study — 2026-10-11
 
 Chat and the portalled React History now share root-owned header row, safe-area

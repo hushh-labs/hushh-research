@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { ChevronLeft } from "@/components/icons";
 import { usePathname } from "next/navigation";
 
@@ -108,6 +109,7 @@ export function AppProfileEdgeGesture({ enabled }: { enabled: boolean }) {
   useEffect(() => {
     if (
       !enabled ||
+      customNativePresentationEnabled() ||
       !isOneSurfaceRoute(pathname) ||
       typeof window === "undefined"
     ) {

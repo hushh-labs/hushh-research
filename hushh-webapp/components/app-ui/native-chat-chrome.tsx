@@ -39,6 +39,8 @@ type Props = {
   children: ReactNode;
   /** The authored fallback button (or selected radio), never an inferred DOM control. */
   focusRef: RefObject<HTMLElement | null>;
+  /** Layout/activation receipt only; never permission to invoke an operation. */
+  onPresentationReady?: () => void;
   ref?: Ref<NativeChatChromeHandle>;
 } & ({ kind: "close"; onActivate: () => void; label: string } |
   { kind: "profile-back"; onActivate: () => void; label: string } |
@@ -60,22 +62,25 @@ type Props = {
 export function NativeChatChrome(props: Props) {
   const { ref: handleRef, className, children } = props;
   const slot = useRef<HTMLDivElement>(null);
-  const kind = props.kind === "history" && props.expanded && (peekNativeChromeCapabilities()?.panelPresentation || peekNativeChromeCapabilities()?.reservedPresentationRegions)
+  const coherent = peekNativeChromeCapabilities()?.coherentPresentation === true;
+  const kind = !coherent && props.kind === "history" && props.expanded && (peekNativeChromeCapabilities()?.panelPresentation || peekNativeChromeCapabilities()?.reservedPresentationRegions)
     ? "history-close" as const : props.kind;
   const controlId = chromeControlId(kind);
   // Only the current authored History layer may own Close. Anonymous/nested
   // overlays and the active drag still block it; Close is not globally exempt.
   const preference = kind === "appearance" || kind === "accent";
-  const owningLayer = props.kind === "close" || props.kind === "profile-back" || preference ? "profile-pane" : props.kind === "history" && props.expanded ? "chat-history" : undefined;
+  const owningLayer = props.kind === "close" || props.kind === "profile-back" || preference ? "profile-pane" : !coherent && props.kind === "history" && props.expanded ? "chat-history" : undefined;
   const overlay = useNativeShellOverlayBlocked(owningLayer);
   const suppressed = useSessionChromeSuppressed();
   const surface = useVoiceSurfaceMetadata();
   const foreground = kind === "history" ? "secondary" : "accent";
   const theme = useNativeControlAppearance(foreground);
   const badgeAdmitted = props.kind !== "history" || props.pendingAttention === 0;
-  const pilotCovered = peekNativeChromeCapabilities()?.contentBackedPresentation === true && props.kind === "history" && props.expanded;
-  const allowed = !pilotCovered && badgeAdmitted && props.eligible && !!props.owner && !!theme && !overlay && !suppressed &&
-    surface?.interactionLayer?.blocksUnderlyingActions !== true;
+  const pilotCovered = !coherent && peekNativeChromeCapabilities()?.contentBackedPresentation === true && props.kind === "history" && props.expanded;
+  // Coverage revokes actions, not presentation. The complete native drawer
+  // isolates the retained base synchronously in its own view hierarchy.
+  const allowed = !pilotCovered && badgeAdmitted && props.eligible && !!props.owner && !!theme && !suppressed &&
+    (coherent || !overlay && surface?.interactionLayer?.blocksUnderlyingActions !== true);
   const [retainedControls, setRetainedControls] = useState(() => peekNativeChromeCapabilities()?.retainedControls === true);
   const epoch = useMemo(() => retainedControls ? chromeOwnerEpoch(props.owner, controlId) : crypto.randomUUID(), [props.owner, controlId, retainedControls]);
   const value = "value" in props ? props.value : undefined;
@@ -83,7 +88,7 @@ export function NativeChatChrome(props: Props) {
   const context = JSON.stringify([props.context, "label" in props ? props.label : null,
     "options" in props ? props.options : null, props.kind === "date" ? [props.minimum, props.maximum] : null,
     props.kind === "accent" ? [props.fullTrigger, props.palette] : null]);
-  const expanded = props.kind === "history" ? props.expanded ?? false : undefined;
+  const expanded = props.kind === "history" ? !coherent && (props.expanded ?? false) : undefined;
   const current = useRef({ allowed, epoch, context, value, props, owningLayer, theme, expanded });
   const lease = useRef<NativeChromeLease | null>(null);
   const replacementCandidate = useRef<NativeChromeLease | null>(null);
@@ -128,6 +133,12 @@ export function NativeChatChrome(props: Props) {
     !moving.current && !slot.current?.closest("[inert]") &&
     !isSessionChromeSuppressed() && !getVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions &&
     document.visibilityState !== "hidden", []);
+  // Preparing presentation grants no operation authority. A detail destination
+  // is laid out while its native menu is still closing; rejecting preparation
+  // solely for that coverage would expose a web Back or leave an empty slot.
+  const canPrepare = useCallback(() => current.current.allowed && !moving.current &&
+    !isSessionChromeSuppressed() && document.visibilityState !== "hidden" &&
+    (peekNativeChromeCapabilities()?.coherentPresentation === true || canAct()), [canAct]);
   useLayoutEffect(() => {
     const old = current.current;
     if (old.allowed !== allowed || old.epoch !== epoch || old.context !== context || (!inPlaceUpdates && old.value !== value)) lease.current?.invalidate();
@@ -312,7 +323,7 @@ export function NativeChatChrome(props: Props) {
     };
     const reconcileGeometry = () => {
       const geometry = slot.current && measureNativeChromeGeometry(slot.current, kind);
-      if (geometry && canAct() && !heldFocus.current && lease.current?.matchesGeometry(geometry)) return;
+      if (geometry && canPrepare() && !heldFocus.current && lease.current?.matchesGeometry(geometry)) return;
       invalidate();
     };
     void (async () => {
@@ -388,7 +399,7 @@ export function NativeChatChrome(props: Props) {
       window.removeEventListener(NATIVE_PANEL_LAYOUT_EVENT, reconcileGeometry);
       setSupported(false);
     };
-  }, [kind, controlId, foreground, canAct]);
+  }, [kind, controlId, foreground, canAct, canPrepare]);
 
   // Content preferences are public, but their coordinates are not stationary
   // while a retained Profile stack or scroll root moves. Fence choices at the
@@ -483,12 +494,12 @@ export function NativeChatChrome(props: Props) {
       let stage: "retire" | "prepare" = "retire";
       try {
         const { theme, expanded, value, props } = current.current;
-        inactive = !allowed || !theme || !canAct() || heldFocus.current || !slot.current;
-        let geometry = allowed && theme && canAct() && !heldFocus.current && slot.current &&
+        inactive = !allowed || !theme || !canPrepare() || heldFocus.current || !slot.current;
+        let geometry = allowed && theme && canPrepare() && !heldFocus.current && slot.current &&
           !slot.current.contains(document.activeElement) ? measureNativeChromeGeometry(slot.current, kind) : null;
         const control: ChromeControl & { label: string } =
           props.kind === "close" || props.kind === "profile-back" ? { kind: props.kind, label: props.label } :
-          props.kind === "history" ? { kind: kind === "history-close" ? "history-close" : "history", expanded, label: props.expanded ? "Close chat history" : "Chat history" } :
+          props.kind === "history" ? { kind: kind === "history-close" ? "history-close" : "history", expanded, label: expanded ? "Close chat history" : "Chat history" } :
           props.kind === "agent-surface" ? { kind: "agent-surface", value: props.value, label: "Agent" } :
           props.kind === "appearance" ? { kind: "appearance", value: props.value, label: "Appearance" } :
           props.kind === "accent" ? { kind: "accent", value: props.value, fullTrigger: props.fullTrigger, palette: props.palette, label: "App accent color" } :
@@ -533,7 +544,7 @@ export function NativeChatChrome(props: Props) {
           }
         }
         setPrepared(null);
-        if (!allowed || !theme || !canAct() || heldFocus.current || !slot.current) {
+        if (!allowed || !theme || !canPrepare() || heldFocus.current || !slot.current) {
           setHidden(hasOutstandingNativeChrome(controlId));
           nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null;
           reportRehearsal("skip", "acknowledged", "not-admitted"); return;
@@ -599,7 +610,7 @@ export function NativeChatChrome(props: Props) {
       // The next committed layout explicitly replaces or hard-retires this
       // slot. Actual unmount has its own strict removal below.
     };
-  }, [supported, allowed, badgeAdmitted, epoch, context, controlId, kind, preference, measurement, installationPresentation, inPlaceUpdates, historyReplacement, profileBackReplacement, canAct, reportRehearsal, restorePendingDomFocus]);
+  }, [supported, allowed, badgeAdmitted, epoch, context, controlId, kind, preference, measurement, installationPresentation, inPlaceUpdates, historyReplacement, profileBackReplacement, canAct, canPrepare, reportRehearsal, restorePendingDomFocus]);
 
   useLayoutEffect(() => () => {
     replacementCandidate.current = null;
@@ -608,13 +619,13 @@ export function NativeChatChrome(props: Props) {
     // Removal reserves its revision before another mounted slot can prepare.
     // A pending handoff may still own its predecessor, so remove either one.
     if (active) {
-      const retain = peekNativeChromeCapabilities()?.retainedControls === true &&
+      const retain = kind !== "profile-back" && peekNativeChromeCapabilities()?.retainedControls === true &&
         !!current.current.props.owner && !isSessionChromeSuppressed() && active.projection.ownerEpoch === current.current.epoch;
       void (retain ? suspendOwnedNativeChrome(active) : retireOwnedNativeChrome(active.projection)).catch(async () => {
         await retireOwnedNativeChrome(active.projection).catch(() => undefined);
       });
     }
-  }, [controlId]);
+  }, [controlId, kind]);
 
   useLayoutEffect(() => {
     if (!prepared || !hidden) return;
@@ -623,6 +634,8 @@ export function NativeChatChrome(props: Props) {
       if (!prepared.admissionReady) return;
       if (lease.current === prepared) {
         reportRehearsal("activate", "acknowledged");
+        if (prepared.projection.ownerEpoch === current.current.epoch && prepared.context === current.current.context &&
+            isCurrentNativeControlAppearance(prepared.projection, foreground)) current.current.props.onPresentationReady?.();
         if (!inPlaceUpdates) void restoreNativeFocus(prepared);
       }
     }).catch(async (error) => {
@@ -643,12 +656,12 @@ export function NativeChatChrome(props: Props) {
         // Quarantine until confirmed retirement.
       }
     });
-  }, [prepared, hidden, controlId, reportRehearsal, inPlaceUpdates, restoreNativeFocus, restorePendingDomFocus]);
+  }, [prepared, hidden, controlId, reportRehearsal, inPlaceUpdates, restoreNativeFocus, restorePendingDomFocus, foreground]);
 
   useLayoutEffect(() => {
     if (!prepared || !hidden || !inPlaceUpdates || !theme) return;
     reportRehearsal("update", "pending");
-    void prepared.update({ ...theme, enabled: true, ...(value === undefined ? {} : { value }), ...(expanded === undefined ? {} : { expanded }) }).then((applied) => {
+    void prepared.update({ ...theme, enabled: canAct(), ...(value === undefined ? {} : { value }), ...(expanded === undefined ? {} : { expanded }) }).then((applied) => {
       if (applied && lease.current === prepared) {
         reportRehearsal("update", "acknowledged"); void restoreNativeFocus(prepared);
       }
@@ -670,7 +683,7 @@ export function NativeChatChrome(props: Props) {
         // Uncertain updates cannot restore a duplicate DOM control.
       }
     });
-  }, [prepared, hidden, controlId, inPlaceUpdates, theme, value, expanded, reportRehearsal, restoreNativeFocus, restorePendingDomFocus]);
+  }, [prepared, hidden, controlId, inPlaceUpdates, theme, value, expanded, overlay, suppressed, surface, canAct, reportRehearsal, restoreNativeFocus, restorePendingDomFocus]);
 
   return <div ref={slot} className={className} style={props.style} data-native-chrome-slot={controlId}>
     <div inert={hidden} aria-hidden={hidden || undefined} style={{ visibility: hidden ? "hidden" : undefined }}>{children}</div>
@@ -688,7 +701,7 @@ export function NativeHistoryOpener({ owner, context, eligible, open, pendingAtt
   onActivate: (preferNativeFocus: boolean, trigger?: HTMLButtonElement) => void;
 }) {
   const label = open ? "Close chat history" : "Open chat history";
-  const retainedBase = customNativePresentationEnabled() && peekNativeChromeCapabilities()?.reservedPresentationRegions === true;
+  const retainedBase = customNativePresentationEnabled() && (peekNativeChromeCapabilities()?.reservedPresentationRegions === true || peekNativeChromeCapabilities()?.coherentPresentation === true);
   return <NativeChatChrome kind="history" owner={owner} pendingAttention={pendingAttention}
     context={context} eligible={eligible && (retainedBase || !open)} style={{ visibility: open && !retainedBase ? "hidden" : undefined }}
     onActivate={() => onActivate(true)} focusRef={focusRef} ref={ref}

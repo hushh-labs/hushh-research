@@ -9,6 +9,9 @@ import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { presentationMotionDuration, renderedDrawerOffset } from "@/components/app-ui/drawer-motion";
 import { nativeShellOverlayBlocked, useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
 import { useNativeFullWindowOverlayReady } from "@/lib/capacitor/native-presentation-regions";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
+import { nativeDrawersPlatformEligible } from "@/lib/capacitor/native-drawers";
+import { VoiceSurfaceActivityBoundary } from "@/lib/voice/voice-surface-activity";
 
 import {
   ArrowLeftIcon as ArrowLeft,
@@ -165,7 +168,22 @@ type ProfilePaneProps = {
  * rows and route-aware stack; this component only supplies the immersive
  * right-side presentation used by the shell and native edge gesture.
  */
-export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange, returnFocusRef }: ProfilePaneProps) {
+export const ProfilePane = memo(function ProfilePane(props: ProfilePaneProps) {
+  return customNativePresentationEnabled() && nativeDrawersPlatformEligible() ? <NativeProfilePane {...props} /> : <WebProfilePane {...props} />;
+});
+
+function NativeProfilePane({ open, onOpenChange }: ProfilePaneProps) {
+  const { isVaultUnlocked } = useVault();
+  const searchParams = useSearchParams();
+  const location = resolveProfilePaneUrlState(searchParams).location;
+  // The controller is prepared while closed. Only the native root or its
+  // same-owner React detail is presented; the Chat route tree never moves.
+  if (!isVaultUnlocked) return null;
+  return <VoiceSurfaceActivityBoundary active={open}><ProfilePage presentation="native-page" paneLocation={location} nativeMenuOpen={open}
+    onNativeMenuClose={() => onOpenChange(false)} nativeControlsEligible={false} /></VoiceSurfaceActivityBoundary>;
+}
+
+const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange, returnFocusRef }: ProfilePaneProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const semanticRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);

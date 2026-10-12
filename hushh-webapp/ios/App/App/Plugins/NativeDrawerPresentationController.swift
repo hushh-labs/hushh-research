@@ -80,6 +80,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         host = UIHostingController(rootView: NativeDrawerContent(model: model))
         addChild(host)
         host.view.backgroundColor = .systemBackground
+        host.view.accessibilityIdentifier = "native-\(model.projection.family)-drawer-body"
         view.addSubview(host.view)
         host.didMove(toParent: self)
         let pan = UIPanGestureRecognizer(target: self, action: #selector(drag(_:)))
@@ -124,6 +125,7 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
     func update(_ projection: NativeDrawerProjection) {
         guard !motion.retired, model.projection.identity == projection.identity else { return }
         let changedOpen = model.projection.open != projection.open
+        if changedOpen { view.endEditing(true) }
         let withdrawn = model.projection.enabled && !projection.enabled
         let compatibleTerminal = intentPending && !changedOpen && model.projection.enabled == projection.enabled &&
             model.projection.privacyGeneration == projection.privacyGeneration
@@ -353,6 +355,7 @@ struct NativeDrawerContent: View {
                                 }.frame(minHeight: 44).contentShape(Rectangle())
                             }.disabled(!row.enabled || row.pending == true || !model.interactionEnabled)
                                 .accessibilityAddTraits(row.selected == true ? .isSelected : [])
+                                .accessibilityIdentifier("native-\(model.projection.family)-row-\(row.id)")
                             if row.renameActionId != nil || row.deleteActionId != nil {
                                 Button { model.details(row) } label: { Image(systemName: "ellipsis") }
                                     .frame(width: 44, height: 44).accessibilityLabel("Open actions for \(row.label)")

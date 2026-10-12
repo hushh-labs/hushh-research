@@ -43,6 +43,8 @@ import {
   WalletAgentIcon,
 } from "@/components/icons/agents";
 import { toast } from "sonner";
+import { NativeProfileMenu } from "./native-profile-menu";
+import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
 import { VaultMethodsPanel } from "@/components/profile/vault-methods-panel";
 import { VaultBootstrapService } from "@/lib/services/vault-bootstrap-service";
 
@@ -534,19 +536,23 @@ function profileRouteNeedsWorkspaceData(panel: ProfilePanel | null): boolean {
   return panel === "my-data";
 }
 
-export type ProfilePagePresentation = "route" | "pane";
+export type ProfilePagePresentation = "route" | "pane" | "native-page";
 
 function ProfilePageContent({
   presentation = "route",
   paneLocation,
   nativeControlsEligible = true,
+  nativeMenuOpen = false,
+  onNativeMenuClose,
 }: {
   presentation?: ProfilePagePresentation;
   /** Pane only: the location to show, when the host holds it (see ProfilePane). */
   paneLocation?: ProfilePaneLocation;
   nativeControlsEligible?: boolean;
+  nativeMenuOpen?: boolean;
+  onNativeMenuClose?: () => void;
 }) {
-  const isPanePresentation = presentation === "pane";
+  const isPanePresentation = presentation !== "route";
   const [canShowPkmAgentLab, setCanShowPkmAgentLab] = useState(false);
   const appAccent = useAccent();
   const router = useRouter();
@@ -739,6 +745,11 @@ function ProfilePageContent({
       ? null
       : profileRouteState.panel;
   const activeDetail = activePanel ? profileRouteState.detail : null;
+  const nativeDetailOwner = JSON.stringify([user?.uid, snapshotVaultSessionEpoch()]);
+  const [nativeDetailReady, setNativeDetailReady] = useState<string | null>(null);
+  useLayoutEffect(() => {
+    if (!nativeMenuOpen || !activePanel) setNativeDetailReady(null);
+  }, [nativeMenuOpen, activePanel, user?.uid]);
   const preferenceChrome = {
     owner: user?.uid ?? null,
     context: JSON.stringify([pathname, isPanePresentation, activePanel, activeDetail, snapshotVaultSessionEpoch()]),
@@ -3379,6 +3390,7 @@ function ProfilePageContent({
 
   const accountContent = (
     <div className="profile-account-content">
+      {presentation === "native-page" ? <ProfileAvatarEditor /> : null}
       <SettingsGroup title="Identity">
         <SettingsRow
           icon={AccountProfileIcon}
@@ -4348,7 +4360,7 @@ function ProfilePageContent({
     return null;
   }
 
-  return (
+  const page = (
     <AppPageShell
       data-testid="profile-primary"
       as="div"
@@ -4610,16 +4622,41 @@ function ProfilePageContent({
       </AlertDialog>
     </AppPageShell>
   );
+  if (presentation !== "native-page") return page;
+  return <>
+    <NativeProfileMenu owner={user.uid} ready={isVaultUnlocked} open={nativeMenuOpen && (!activePanel || nativeDetailReady !== nativeDetailOwner)}
+      name={user.displayName || "Your account"} email={user.email} onClose={() => onNativeMenuClose?.()}
+      entries={[
+        { id: "account", label: PROFILE_LABELS.account, symbol: "person.crop.circle", activate: openAccountPanel },
+        { id: "preferences", label: PROFILE_LABELS.preferences, symbol: "slider.horizontal.3", activate: openPreferencesPanel },
+        { id: "security", label: PROFILE_LABELS.security, symbol: "lock.shield", activate: openSecurityPanel },
+        { id: "devices", label: "Trusted devices", symbol: "laptopcomputer.and.iphone", activate: () => openVaultBackedPanel("security", "trusted-devices") },
+        { id: "connectors", label: "Connectors", symbol: "puzzlepiece.extension", activate: () => openVaultBackedPanel("connectors") },
+        { id: "invite", label: PROFILE_LABELS.referrals, symbol: "person.badge.plus", activate: () => updateProfileView({ panel: "referrals", detail: null }, "push") },
+        { id: "support", label: PROFILE_LABELS.support, symbol: "questionmark.circle", activate: () => updateProfileView({ panel: "support", detail: null }, "push") },
+        { id: "privacy", label: "Privacy Policy", symbol: "hand.raised", activate: () => updateProfileView({ panel: "legal", detail: "privacy" }, "push") },
+        { id: "terms", label: "Terms of Use", symbol: "doc.text", activate: () => updateProfileView({ panel: "legal", detail: "terms" }, "push") },
+        { id: "sign-out", label: "Sign out", symbol: "rectangle.portrait.and.arrow.right", destructive: true, activate: handleSignOut },
+      ]} />
+    <NativeFeaturePage open={nativeMenuOpen && !!activePanel} title={typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile"}
+      owner={user.uid} context={JSON.stringify([user.uid, snapshotVaultSessionEpoch(), activePanel, activeDetail])}
+      onReady={() => setNativeDetailReady(nativeDetailOwner)}
+      onBack={() => popProfilePaneLocation(pathname, searchParams)}>{page}</NativeFeaturePage>
+  </>;
 }
 
 export function ProfilePage({
   presentation = "route",
   paneLocation,
   nativeControlsEligible = true,
+  nativeMenuOpen = false,
+  onNativeMenuClose,
 }: {
   presentation?: ProfilePagePresentation;
   paneLocation?: ProfilePaneLocation;
   nativeControlsEligible?: boolean;
+  nativeMenuOpen?: boolean;
+  onNativeMenuClose?: () => void;
 }) {
   return (
     <Suspense fallback={null}>
@@ -4627,6 +4664,8 @@ export function ProfilePage({
         presentation={presentation}
         paneLocation={paneLocation}
         nativeControlsEligible={nativeControlsEligible}
+        nativeMenuOpen={nativeMenuOpen}
+        onNativeMenuClose={onNativeMenuClose}
       />
     </Suspense>
   );

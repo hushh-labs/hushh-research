@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { flushSync } from "react-dom";
 import { Capacitor } from "@capacitor/core";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
@@ -9,7 +9,7 @@ import { boundedDock, DockEventFence, getNativeDockCapabilities, nativeDock, nex
 import { useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
 import { getNativeSessionPrivacyState, subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
-import { nativeDrawerIsolation } from "@/lib/capacitor/native-drawers";
+import { nativeDrawerIsolation, observeNativeDrawerIsolation } from "@/lib/capacitor/native-drawers";
 import { isSessionChromeSuppressed, useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { useAgentDockState } from "./agent-dock";
 import { useNativeDockPorts } from "./native-dock-port";
@@ -39,7 +39,9 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
   const ports = useNativeDockPorts();
   const theme = useNativeControlAppearance("secondary");
   const suppressed = useSessionChromeSuppressed();
-  const overlay = useNativeShellOverlayBlocked();
+  const webOverlay = useNativeShellOverlayBlocked();
+  const nativeCovered = useSyncExternalStore(observeNativeDrawerIsolation, () => nativeDrawerIsolation().isolated, () => false);
+  const overlay = webOverlay || nativeCovered;
   const regionRevision = useNativePresentationRegionRevision();
   const [supported, setSupported] = useState(false);
   const [discovered, setDiscovered] = useState(false);
@@ -52,6 +54,8 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
   const identity = useRef<DockIdentity | null>(null);
   const underlay = useRef(false);
   const reservedRegions = useRef(false);
+  const coherentPresentation = useRef(false);
+  const snapshotSupported = useRef(false);
   const fence = useRef<DockEventFence | null>(null);
   const generation = useRef(0);
   const previousOverlay = useRef(overlay);
@@ -69,7 +73,23 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
     // Presentation survives coverage; a pending action must not survive an
     // open/close cycle just because the same editor is retained.
     generation.current++;
-  }, [overlay]);
+    if (!overlay || !snapshotSupported.current || !identity.current || !applied.current || !port || port.projection.mode !== "text") return;
+    const captured = identity.current, privacyGeneration = applied.current.privacyGeneration, account = user?.uid, handoffGeneration = generation.current;
+    const original = port.projection;
+    // The drawer may synchronously revoke input choices before the final edit
+    // receipt reaches JS. Reconcile the committed text only, never an action.
+    pending.current = pending.current.then(async () => {
+      const result = await boundedDock(nativeDock.snapshotDraft({ ...captured, context: original.context,
+        editorRevision: original.editorRevision, privacyGeneration }));
+      const live = current.current, next = live.ports?.get(live.family);
+      if (!result.valid || typeof result.text !== "string" || result.text.length > 1_000_000 || identity.current !== captured ||
+          generation.current !== handoffGeneration || live.user !== account || !live.enabled || live.suppressed || isSessionChromeSuppressed() || !next || next.projection.context !== original.context ||
+          next.projection.editorRevision !== original.editorRevision || next.projection.text !== original.text ||
+          result.editorRevision !== original.editorRevision || applied.current?.privacyGeneration !== privacyGeneration ||
+          typeof result.editRevision !== "number" || !fence.current?.acknowledgeDraftSnapshot(result.editRevision)) return;
+      flushSync(() => next.onEdit?.(result.text!));
+    }).catch(() => { /* No action or uncertain read is replayed. */ });
+  }, [overlay, port, user?.uid]);
   useLayoutEffect(() => {
     if (owner.current === user?.uid) return;
     owner.current = user?.uid; generation.current++; failed.current = false;
@@ -97,8 +117,10 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
   useEffect(() => { let live = true; void getNativeDockCapabilities().then(value => {
     if (!live) return;
     const admitted = value?.supported === true && value.contractVersion === 1;
+    snapshotSupported.current = value?.draftSnapshot === true;
     underlay.current = admitted && value?.underlayPresentation === true;
     reservedRegions.current = admitted && value?.reservedPresentationRegions === true;
+    coherentPresentation.current = admitted && value?.coherentPresentation === true;
     setDiscovered(true);
     setSupported(admitted);
     if (!admitted && !identity.current && presentationOwner === presentation.current) {
@@ -211,7 +233,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
     }), nativeDock.addListener("layout", event => {
       const snapshot = applied.current;
       if (snapshot && current.current.enabled && !current.current.suppressed &&
-          !isSessionChromeSuppressed() && (reservedRegions.current || !nativeShellOverlayBlocked()) &&
+          !isSessionChromeSuppressed() && (reservedRegions.current || coherentPresentation.current || !nativeShellOverlayBlocked()) &&
           snapshot.sequence === update.current && fence.current?.acceptLayout(event, snapshot.sequence, snapshot.privacyGeneration,
             { width: window.innerWidth, height: window.innerHeight })) {
         current.current.ports?.setLayout(event);
@@ -262,7 +284,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
       })().catch(() => { ports.present(true); });
       return;
     }
-    if (!enabled || overlay && !reservedRegions.current || !port) {
+    if (!enabled || overlay && !reservedRegions.current && !coherentPresentation.current || !port) {
       generation.current++;
       ports.setLayout(null);
       const lease = identity.current;
@@ -288,7 +310,7 @@ export function NativeAgentDock({ enabled }: { enabled: boolean }) {
       ...lease, ...theme, ...port.projection, updateSequence: sequence,
       acknowledgedEdit: fence.current?.editRevision ?? 0,
       settledConsumption: settledConsumption.current,
-      visible: enabled && (!overlay || reservedRegions.current),
+      visible: enabled && (!overlay || reservedRegions.current || coherentPresentation.current),
       interactionEnabled: !overlay,
       frame: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
       viewport: { width: window.innerWidth, height: window.innerHeight },

@@ -92,7 +92,7 @@ final class AppUITests: XCTestCase {
     private var activeUiFlowRunId = ""
 
     private func printNativeControlStatuses(_ web: XCUIElement) {
-        for control in ["chat-history-toggle", "chat-history-close", "profile-close"] {
+        for control in ["chat-history-toggle", "chat-history-close", "profile-close", "profile-back"] {
             let status = web.staticTexts["native-control-status-\(control)"].firstMatch
             guard status.exists, status.label.hasPrefix("NATIVE_SELECTOR_STATUS ") else { continue }
             let raw = String(status.label.dropFirst("NATIVE_SELECTOR_STATUS ".count))
@@ -110,6 +110,35 @@ final class AppUITests: XCTestCase {
             let code = fields["code"] as? String ?? "other"
             guard knownCodes.contains(code) else { continue }
             print("NATIVE_CONTROL_STAGE control=\(control.replacingOccurrences(of: "-", with: "_")) stage=\(stage) outcome=\(outcome) code=\(code) eligible=\(fields["eligible"] as? Bool ?? false) allowed=\(fields["allowed"] as? Bool ?? false) focused=\(fields["focusInside"] as? Bool ?? false) held=\(fields["heldFocus"] as? Bool ?? false) in_viewport=\(fields["inViewport"] as? Bool ?? false)")
+        }
+    }
+
+    private func printCoherentPresentationAdmission(_ app: XCUIApplication) {
+        // Fixed authored identifiers/labels only. Never serialize a hierarchy,
+        // profile identity, row label, draft or private presentation payload.
+        for (name, label) in [("profile_close", "Close Profile"), ("profile_back", "Back in Profile"),
+            ("history_close", "Close chat history"), ("profile_open", "Open Profile")] {
+            let control = app.buttons[label].firstMatch
+            print("COHERENT_CONTROL_ADMISSION control=\(name) present=\(control.exists) hittable=\(control.exists && control.isHittable) enabled=\(control.exists && control.isEnabled)")
+        }
+        for family in ["history", "profile"] {
+            let body = app.otherElements["native-\(family)-drawer-body"].firstMatch
+            print("COHERENT_DRAWER_ADMISSION family=\(family) present=\(body.exists) hittable=\(body.exists && body.isHittable)")
+        }
+        let probe = app.buttons["native-profile-back-admission"].firstMatch
+        if let raw = probe.exists ? probe.value as? String : nil, raw.utf8.count <= 1024 {
+            let fields = Dictionary(raw.split(separator: ";").compactMap { item -> (String, String)? in
+                let pair = item.split(separator: "=", maxSplits: 1)
+                return pair.count == 2 ? (String(pair[0]), String(pair[1])) : nil
+            }, uniquingKeysWith: { _, newest in newest })
+            let stage = fields["stage"] ?? "none", outcome = fields["outcome"] ?? "none", code = fields["code"] ?? "none"
+            guard ["none", "skip", "retire", "prepare", "activate", "update"].contains(stage),
+                  ["none", "pending", "acknowledged", "rejected"].contains(outcome),
+                  ["none", "other", "not-admitted", "focused", "geometry"].contains(code) || code.hasPrefix("NATIVE_CHROME_") && code.allSatisfy({ $0.isUppercase || $0 == "_" }),
+                  ["present", "focused", "inert"].allSatisfy({ ["true", "false"].contains(fields[$0] ?? "") }),
+                  let width = Int(fields["width"] ?? ""), let height = Int(fields["height"] ?? ""), let top = Int(fields["top"] ?? ""),
+                  [width, height, top].allSatisfy({ abs($0) <= 10_000 }) else { return }
+            print("COHERENT_BACK_ADMISSION stage=\(stage) outcome=\(outcome) code=\(code) present=\(fields["present"]!) focused=\(fields["focused"]!) inert=\(fields["inert"]!) width=\(width) height=\(height) top=\(top)")
         }
     }
 
@@ -415,6 +444,7 @@ final class AppUITests: XCTestCase {
         XCTAssertEqual(hosts.count, 1, "NATIVE_ADMISSION_HOST_COUNT_INVALID")
         let web = hosts.firstMatch
         printNativeControlStatuses(web)
+        printCoherentPresentationAdmission(app)
         for identifier in ["native-dock-editor", "chat-history-toggle", "chat-history-close", "profile-close"] {
             let control = app.descendants(matching: .any).matching(identifier: identifier).firstMatch
             print("NATIVE_CONTROL_ADMISSION control=\(identifier.replacingOccurrences(of: "-", with: "_")) present=\(control.exists) hittable=\(control.exists && control.isHittable)")
@@ -807,6 +837,140 @@ final class AppUITests: XCTestCase {
 
     /// Actual product port, not the synthetic study. Read-only, attach-only and
     /// credential-free after normal unlock; private labels never enter artifacts.
+    func testLocalSessionCoherentNativeShellKeepsWarmChat() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Installed coherent qualification candidate only")
+        }
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            throw XCTSkip("Attach only; installation and unlock are separate")
+        }
+        app.activate()
+        let web = app.webViews.matching(identifier: "native-webview").firstMatch
+        guard web.waitForExistence(timeout: 15), !web.buttons["Unlock"].exists else {
+            XCTFail("COHERENT_SHELL_REQUIRES_UNLOCKED_CHAT"); return
+        }
+        let editor = app.textViews["native-dock-editor"].firstMatch
+        let history = app.buttons["chat-history-toggle"].firstMatch
+        let profile = app.buttons["Open Profile"].firstMatch
+        let selector = app.segmentedControls["chat-agent-surface"].firstMatch
+        guard waitForAdmittedControl(editor), waitForAdmittedControl(history), waitForAdmittedControl(profile), selector.exists else {
+            XCTFail("COHERENT_SHELL_COMPOSITION_NOT_ADMITTED"); return
+        }
+        let initialDraft = editor.value as? String // Process-only; never an assertion operand or artifact.
+        let cloud = selector.buttons["One, your cloud agent"].firstMatch
+        let puppy = selector.buttons["Puppy One, on your machine, with its own conversation"].firstMatch
+        guard cloud.isSelected else { XCTFail("COHERENT_SHELL_REQUIRES_ONE_CONTEXT"); return }
+        var initialPuppyDraft: String?
+        var puppyDraftObserved = false
+        func waitForAppliedPort(_ choice: XCUIElement, label: String) -> Bool {
+            let applied = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                choice.exists && choice.isSelected && editor.exists && editor.isHittable && editor.label == label
+            }, object: app)
+            return XCTWaiter.wait(for: [applied], timeout: 10) == .completed
+        }
+        func continuity() {
+            XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
+            XCTAssertFalse(web.buttons["Unlock"].exists)
+            XCTAssertTrue((editor.value as? String) == initialDraft, "COHERENT_SHELL_DRAFT_CHANGED")
+            XCTAssertFalse(web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message One")).firstMatch.isHittable)
+        }
+        for cycle in 0..<10 {
+            history.coordinate(withNormalizedOffset: CGVector(dx: cycle % 2 == 0 ? 0.5 : 0.2, dy: 0.5)).tap()
+            let close = app.buttons["Close chat history"].firstMatch
+            guard waitForAdmittedControl(close), app.textFields["native-history-search"].firstMatch.exists else {
+                XCTFail("COHERENT_HISTORY_NOT_ADMITTED"); return
+            }
+            XCTAssertFalse(editor.isHittable)
+            let drawer = app.otherElements["native-history-drawer-body"].firstMatch
+            XCTAssertEqual(drawer.frame.minY, app.frame.minY, accuracy: 1)
+            XCTAssertEqual(drawer.frame.maxY, app.frame.maxY, accuracy: 1)
+            if cycle % 2 == 0 {
+                let start = drawer.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.85))
+                let held = drawer.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.85))
+                start.press(forDuration: 0.05, thenDragTo: held, withVelocity: .slow, thenHoldForDuration: 0.25)
+                guard waitForAdmittedControl(close) else { XCTFail("COHERENT_HISTORY_CANCEL_LOST_CLOSE"); return }
+            }
+            close.tap()
+            guard waitForAdmittedControl(editor), waitForAdmittedControl(history) else { XCTFail("COHERENT_HISTORY_RETURN_FAILED"); return }
+            continuity()
+            profile.tap()
+            let profileClose = app.buttons["Close Profile"].firstMatch
+            let preferences = app.buttons["native-profile-row-preferences"].firstMatch
+            // Profile intentionally resumes its prior query-owned position.
+            // A previous failed rehearsal can leave a nested page; unwind it
+            // through the real native Back, never reset/cold-navigate the app.
+            let resumedBack = app.buttons["profile-back"].firstMatch
+            for _ in 0..<3 {
+                let entry = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    profileClose.exists && profileClose.isHittable && profileClose.isEnabled ||
+                        resumedBack.exists && resumedBack.isHittable && resumedBack.isEnabled
+                }, object: app)
+                guard XCTWaiter.wait(for: [entry], timeout: 10) == .completed else { break }
+                if profileClose.exists && profileClose.isHittable && profileClose.isEnabled { break }
+                resumedBack.tap()
+            }
+            guard waitForAdmittedControl(profileClose) else {
+                printCoherentPresentationAdmission(app)
+                printNativeControlStatuses(web)
+                XCTFail("COHERENT_PROFILE_NOT_ADMITTED"); return
+            }
+            guard waitForAdmittedControl(preferences) else { XCTFail("COHERENT_PROFILE_PREFERENCES_NOT_ADMITTED"); return }
+            XCTAssertFalse(editor.isHittable)
+            preferences.tap()
+            let back = app.buttons["profile-back"].firstMatch
+            guard waitForAdmittedControl(back) else {
+                printCoherentPresentationAdmission(app)
+                printNativeControlStatuses(web)
+                XCTFail("COHERENT_DETAIL_BACK_NOT_ADMITTED"); return
+            }
+            XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
+            back.tap()
+            guard waitForAdmittedControl(profileClose) else { XCTFail("COHERENT_DETAIL_MENU_RETURN_FAILED"); return }
+            profileClose.tap()
+            guard waitForAdmittedControl(editor), waitForAdmittedControl(history) else { XCTFail("COHERENT_PROFILE_RETURN_FAILED"); return }
+            continuity()
+            guard waitForAdmittedControl(puppy) else { XCTFail("COHERENT_PUPPY_SELECTOR_UNAVAILABLE"); return }
+            puppy.tap()
+            let puppySelected = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                puppy.exists && puppy.isSelected
+            }, object: app)
+            guard XCTWaiter.wait(for: [puppySelected], timeout: 10) == .completed else {
+                XCTFail("COHERENT_PUPPY_SELECTION_NOT_APPLIED"); return
+            }
+            // The actual product deliberately requires New chat when Puppy
+            // has no conversation. Use that authored entry once; no provider
+            // call or turn submission is involved, and existing chats remain.
+            let startPuppy = web.buttons["Start a Puppy chat"].firstMatch
+            if startPuppy.exists {
+                guard waitForAdmittedControl(startPuppy) else { XCTFail("COHERENT_PUPPY_ENTRY_UNAVAILABLE"); return }
+                startPuppy.tap()
+            }
+            guard waitForAppliedPort(puppy, label: "Message Puppy") else { XCTFail("COHERENT_PUPPY_PORT_NOT_ADMITTED"); return }
+            if !puppyDraftObserved {
+                initialPuppyDraft = editor.value as? String
+                puppyDraftObserved = true
+            }
+            XCTAssertTrue((editor.value as? String) == initialPuppyDraft, "COHERENT_PUPPY_DRAFT_CHANGED")
+            XCTAssertEqual(app.textViews.matching(identifier: "native-dock-editor").count, 1)
+            cloud.tap()
+            guard waitForAppliedPort(cloud, label: "Message One") else { XCTFail("COHERENT_ONE_PORT_RETURN_FAILED"); return }
+            continuity()
+            print("COHERENT_NATIVE_SHELL_CYCLE completed=\(cycle + 1) warm=true submitted=false")
+        }
+        editor.tap()
+        guard app.keyboards.firstMatch.waitForExistence(timeout: 10) else { XCTFail("COHERENT_EDITOR_KEYBOARD_MISSING"); return }
+        XCTAssertTrue(history.isHittable, "COHERENT_HEADER_DISABLED_DURING_EDITING")
+        history.tap()
+        let close = app.buttons["Close chat history"].firstMatch
+        guard waitForAdmittedControl(close) else { XCTFail("COHERENT_KEYBOARD_DRAWER_FAILED"); return }
+        close.tap()
+        guard waitForAdmittedControl(editor) else { XCTFail("COHERENT_KEYBOARD_RETURN_FAILED"); return }
+        XCTAssertFalse(app.keyboards.firstMatch.exists, "Closing a menu must not summon editing")
+        continuity()
+        print("COHERENT_NATIVE_SHELL_CONTINUITY cycles=10 keyboard=true single_composer=true warm=true")
+    }
+
     func testLocalSessionNativeProductHistoryKeepsOwnerAndSingleHost() throws {
         guard ProcessInfo.processInfo.environment["HUSHH_RUN_NATIVE_PRODUCT_HISTORY"] == "true" else {
             throw XCTSkip("Explicit native product History qualification")
@@ -6284,6 +6448,13 @@ final class AppUITests: XCTestCase {
         // where the dock is absent. Use the authored Back, not a cold route or
         // a test bootstrap, before returning through the normal Chat tab.
         for _ in 0..<3 {
+            let profileBack = app.buttons["profile-back"].firstMatch
+            if profileBack.exists && profileBack.isHittable {
+                profileBack.tap()
+                let profileClose = app.buttons["Close Profile"].firstMatch
+                if waitForAdmittedControl(profileClose) { profileClose.tap() }
+                continue
+            }
             let chat = app.buttons["one-native-tab-chat"].firstMatch
             let webChat = app.webViews.buttons["Chat"].firstMatch
             if chat.exists && chat.isHittable || webChat.exists && webChat.isHittable {

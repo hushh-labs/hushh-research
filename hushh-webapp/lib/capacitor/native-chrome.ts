@@ -63,6 +63,7 @@ export type NativeChromeCapabilities = {
   retainedControls?: boolean;
   panelPresentation?: boolean;
   contentBackedPresentation?: boolean;
+  coherentPresentation?: boolean;
   reservedPresentationRegions?: boolean;
   fullWindowOverlays?: boolean;
   /** Debug qualification: rectangular exposure of retained stationary chrome. */
@@ -366,7 +367,10 @@ export class NativeChromeLease {
       geometry.presentationGeneration === this.projection.presentationGeneration &&
       (Object.keys(this.projection.frame) as (keyof ChromeFrame)[]).every((key) =>
         geometry.frame[key] === this.projection.frame[key]) &&
-      geometry.viewport.width === this.projection.viewport.width && geometry.viewport.height === this.projection.viewport.height;
+      geometry.viewport.width === this.projection.viewport.width &&
+      (geometry.viewport.height === this.projection.viewport.height ||
+        peekNativeChromeCapabilities()?.coherentPresentation === true &&
+        document.documentElement.classList.contains("kb-open"));
   }
   private acceptPreparation(ack: ChromeAcknowledgement): boolean {
     if (!matches(ack, this.projection, "prepared") || !ack.frame ||

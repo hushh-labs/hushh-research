@@ -5,5 +5,9 @@
  * No route, DOM inspection, preference or bridge receipt changes this policy.
  */
 export function customNativePresentationEnabled(): boolean {
-  return false;
+  if (typeof window === "undefined") return false;
+  const bootstrap = (window as Window & { __HUSHH_NATIVE_DRAWER_BOOTSTRAP__?: {
+    contractVersion: number; enabled: boolean; coherentShell?: boolean;
+  } }).__HUSHH_NATIVE_DRAWER_BOOTSTRAP__;
+  return bootstrap?.contractVersion === 1 && bootstrap.enabled === true && bootstrap.coherentShell === true;
 }

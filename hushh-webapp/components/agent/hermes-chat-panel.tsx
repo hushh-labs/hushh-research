@@ -39,6 +39,7 @@ import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { AgentDockPortal, useAgentDockHost } from "@/components/agent/agent-dock";
+import { useNativeDockPort } from "./native-dock-port";
 
 const TRUSTED_DEVICES: ProfilePaneLocation = {
   panel: "security",
@@ -267,8 +268,8 @@ export function HermesChatPanel({
     );
   }, []);
 
-  async function send() {
-    const message = draft.trim();
+  async function send(committedText = draft) {
+    const message = committedText.trim();
     if (!active || composerDisabled || !connected || !message || sending) return;
     // A secret never reaches a model, on this device or in the cloud. Puppy
     // has no vault-backed Secrets writer, so it keeps the draft and says so;
@@ -353,6 +354,23 @@ export function HermesChatPanel({
   // while `status` does not, so a warm re-entry would be downgraded from a
   // true "connected · {device}" back to a guess.
   const checking = !connected && link === null;
+  const nativeContext = useRef(`puppy-${crypto.randomUUID()}`);
+  const nativeEditor = useRef({ text: draft, revision: 0, echo: null as string | null });
+  if (nativeEditor.current.text !== draft) {
+    if (nativeEditor.current.echo !== draft) nativeEditor.current.revision++;
+    nativeEditor.current.text = draft; nativeEditor.current.echo = null;
+  }
+  useNativeDockPort("text", sharedDock && active ? {
+    projection: { context: nativeContext.current, mode: "text", text: draft,
+      placeholder: connected ? "Message Puppy…" : checking ? "Checking Puppy…" : composerPlaceholder(link),
+      editorLabel: "Message Puppy",
+      expanded: false, editable: !composerDisabled && connected && !sending,
+      sendEnabled: !composerDisabled && connected && !sending && !!draft.trim(),
+      micEnabled: false, cancelEnabled: false, recording: false, recordingReady: false,
+      supportsHold: false, muted: false, attachmentRevision: 0, editorRevision: nativeEditor.current.revision, attachments: [] },
+    onEdit: text => { nativeEditor.current.echo = text; setDraft(text); },
+    onAction: event => event.action === "send" ? send(event.text) : undefined,
+  } : null);
   // The bridge, when it is connected, is the stronger claim and keeps the
   // pill. Then the pre-answer form. Only then does One's record speak.
   const pill = connected

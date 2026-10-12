@@ -18,6 +18,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AgentMemoryCaptureStatus } from "@/components/agent/agent-memory-capture-status";
 import { useNativeHistoryPresentation } from "@/components/agent/native-history-presentation";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
+import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 import { aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, describeAgentPkmCapture, isAgentPkmCaptureRunning, isAgentPkmProcessingReady, shouldPresentAgentPkmCapture, shouldPublishAgentPkmCapture, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
 import {
@@ -8656,6 +8657,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     rename: isPuppySurface ? handleRenamePuppyConversation : handleRenameConversation,
     remove: isPuppySurface ? handleDeletePuppyConversation : handleDeleteConversation,
     setOpen: handleHistoryDrawerOpenChange,
+    openConnectors: () => { handleHistoryDrawerOpenChange(false); openConnectorSurface(); },
   });
   const getEmailDeliveryAuth = async () => {
     if (!user || !isVaultUnlocked || !tokenIsFresh) return null;
@@ -8680,6 +8682,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       context: conversationId ?? composerDraft.context,
       mode: "text", text: input,
       placeholder: chatOnboarding.composerPlaceholder ?? "Message One…",
+      editorLabel: "Message One",
       expanded: composerExpanded,
       editable: !recoveryInspectionPending && !isVoiceConnecting && !isHistoryDrawerOpen,
       sendEnabled: canSend,
@@ -9016,7 +9019,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   compact paint and full 44px targets. Icons keep their names. */}
               <NativeChatChrome kind="agent-surface" owner={renderedWorkspaceOwnerId}
                 context={chatChromeContext}
-                eligible={isCanonicalChatRoute && hasChatAccess && !isHistoryDrawerOpen}
+                eligible={isCanonicalChatRoute && hasChatAccess && (customNativePresentationEnabled() || !isHistoryDrawerOpen)}
                 value={agentSurface} onValueChange={(next) => {
                   if (next === "puppy") enterPuppySurface();
                   else setAgentSurface(next);

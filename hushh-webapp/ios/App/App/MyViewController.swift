@@ -111,7 +111,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         // hook. Install against the final controller before WK creates the
         // document. This selects rendering, never operation/information authority.
         configuration.userContentController.addUserScript(WKUserScript(
-            source: "Object.defineProperty(window, '__HUSHH_NATIVE_DRAWER_BOOTSTRAP__', {value:Object.freeze({contractVersion:1,enabled:\(eligible ? "true" : "false")})});",
+            source: "Object.defineProperty(window, '__HUSHH_NATIVE_DRAWER_BOOTSTRAP__', {value:Object.freeze({contractVersion:1,enabled:\(eligible ? "true" : "false"),coherentShell:\(eligible && NativeDrawerQualificationPolicy.coherentShell ? "true" : "false")})});",
             injectionTime: .atDocumentStart, forMainFrameOnly: true))
         return super.webView(with: frame, configuration: configuration)
     }
@@ -306,11 +306,13 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
 
     override open func capacitorDidLoad() {
         super.capacitorDidLoad()
-        #if DEBUG
+        #if DEBUG || HUSHH_NATIVE_SHELL_QUALIFICATION
         if #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone,
            NativeDrawerQualificationPolicy.enabled, let existing = webView, view === existing {
             view = NativePresentationContainer(webView: existing, basePresentation: .coherentDrawers)
         }
+        #endif
+        #if DEBUG
         // Qualification-only; older wrappers and Release retain their current
         // host until composition, touch and physical frame pacing pass.
         if #available(iOS 26.0, *), UIDevice.current.userInterfaceIdiom == .phone,

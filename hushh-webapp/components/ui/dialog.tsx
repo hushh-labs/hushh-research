@@ -37,9 +37,10 @@ function DialogClose({
 function DialogOverlay({
   className,
   ref,
+  nativeLayer,
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Overlay>) {
-  const overlayRef = useNativeNavigationOverlayRef(ref)
+}: React.ComponentProps<typeof DialogPrimitive.Overlay> & { nativeLayer?: string }) {
+  const overlayRef = useNativeNavigationOverlayRef(ref, true, nativeLayer)
   return (
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
@@ -64,6 +65,7 @@ function DialogContent({
   overlayStyle,
   ref,
   isolateNativeNavigation = true,
+  nativeLayer,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
@@ -73,11 +75,12 @@ function DialogContent({
   overlayStyle?: React.CSSProperties
   /** Opt out only for an intentionally interactive non-modal surface. */
   isolateNativeNavigation?: boolean
+  nativeLayer?: string
 }) {
-  const contentRef = useNativeNavigationOverlayRef(ref, isolateNativeNavigation)
+  const contentRef = useNativeNavigationOverlayRef(ref, isolateNativeNavigation, nativeLayer)
   return (
     <DialogPortal data-slot="dialog-portal">
-      <DialogOverlay className={overlayClassName} style={overlayStyle} />
+      <DialogOverlay className={overlayClassName} style={overlayStyle} nativeLayer={nativeLayer} />
       <DialogPrimitive.Content
         ref={contentRef}
         data-slot="dialog-content"

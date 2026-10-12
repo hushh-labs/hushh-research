@@ -97,7 +97,7 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
         if (!cancelled) {
           setInPlaceUpdates(capability.inPlaceUpdates === true);
           setBackReplacement(capability.backReplacement === true);
-          setRetainedPresentation(capability.reservedPresentationRegions === true);
+          setRetainedPresentation(capability.reservedPresentationRegions === true || capability.coherentPresentation === true);
           setSupported(true);
         }
       } catch {

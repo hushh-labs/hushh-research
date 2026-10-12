@@ -1,6 +1,23 @@
 import UIKit
 import WebKit
 
+/// Capacitor resizes only WK for the keyboard. Stationary native chrome stays
+/// in host coordinates; only an actual WK-sized keyboard viewport may inherit
+/// the host height. Arbitrary/stale geometry is never normalized.
+enum NativeChromeViewport {
+    static func resolve(authored: CGSize, host: CGSize, web: CGSize, coherent: Bool, keyboard: Bool) -> CGSize? {
+        guard [authored.width, authored.height, host.width, host.height, web.width, web.height]
+            .allSatisfy({ $0.isFinite && $0 > 0 }) else { return nil }
+        func matches(_ left: CGSize, _ right: CGSize) -> Bool {
+            abs(left.width - right.width) < 1 && abs(left.height - right.height) < 1
+        }
+        if matches(authored, host) { return host }
+        guard coherent, keyboard, matches(authored, web), abs(web.width - host.width) < 1,
+              web.height <= host.height else { return nil }
+        return host
+    }
+}
+
 /// Presentation metadata only; never routes, account identifiers or editor content.
 struct NativePanelPose: Equatable {
     let document: String
@@ -176,7 +193,12 @@ final class NativePresentationContainer: UIView {
     }
 
     func containsStationaryControl(_ frame: CGRect, document: String) -> Bool {
-        guard contentBackedPresentation, regionDocument == document, bounds.contains(frame) else { return false }
+        guard contentBackedPresentation, bounds.contains(frame) else { return false }
+        // Complete native drawers share this hierarchy; no React pose or
+        // reserved-region receipt exists in that mode. Document/privacy and
+        // authored-family fences remain in the plugin admission owner.
+        if wholeNativeDrawers { return true }
+        guard regionDocument == document else { return false }
         return frame.maxY <= overlayTop || frame.minY >= bounds.height - overlayBottom
     }
     func acceptsPresentationRevision(_ revision: Int?, privacyGeneration: Int?) -> Bool {

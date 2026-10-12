@@ -2315,6 +2315,41 @@ body:has(.profile-account-content)
   --agent-chat-header-height: calc(var(--agent-chat-header-row-height) + var(--agent-chat-header-safe-top));
 }
 
+/* Qualification-only feature pages occupy the existing WebView content band.
+ * Native header/dock reservations remain outside; no new global geometry.
+ * The element overrides Dialog's centering utilities with translate-x/y-0.
+ * A CSS `translate: none` beside `transform: none` is dropped by production
+ * optimization, leaving the utility's -50% translation and an offscreen Back. */
+.native-feature-page[data-slot="dialog-content"] {
+  inset: var(--agent-chat-header-height, var(--top-shell-reserved-height)) 0 var(--app-bottom-content-clearance, 8rem);
+  transform: none;
+  width: 100%;
+  max-width: none;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  gap: 0;
+  animation: none;
+  box-shadow: none;
+  overflow: hidden;
+}
+.native-feature-page-overlay[data-slot="dialog-overlay"] {
+  inset: var(--agent-chat-header-height, var(--top-shell-reserved-height)) 0 var(--app-bottom-content-clearance, 8rem);
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  animation: none;
+}
+.native-feature-page-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem var(--page-inline-gutter-standard);
+  flex-shrink: 0;
+}
+.native-feature-page-body { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+
 html.native-ios {
   --agent-chat-header-safe-top: max(64px, var(--app-safe-area-top-effective, 0px));
 }
@@ -2499,7 +2534,7 @@ html.native-ios .agent-chat-workspace[data-agent-chat-workspace="page"] {
    This max-height replaces the base rule's, so it repeats the top safe-area
    subtraction; otherwise a dialog with a search field (e.g. Connect's scopes
    modal) would lose Dynamic Island clearance the moment its keyboard opened. */
-html.kb-open [data-slot="dialog-content"]:not([data-keyboard-anchor="bottom"]) {
+html.kb-open [data-slot="dialog-content"]:not([data-keyboard-anchor="bottom"]):not(.native-feature-page) {
   max-height: calc(
     100dvh - 2rem - var(--kb-height, 0px) -
       var(--app-safe-area-top-effective, 0px)
