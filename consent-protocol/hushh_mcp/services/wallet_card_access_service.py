@@ -179,7 +179,10 @@ class WalletCardAccessService:
 
     def _owner_grants(self, conn, owner, card_id, cursor=None):
         values = {"owner": owner, "card": card_id, "limit": 21}
-        boundary = ""
+        query = """SELECT g.id,g.created_at,g.expires_at,g.revoked_at,a.display_name,clock_timestamp() AS server_now
+ FROM wallet_card_access_grants g LEFT JOIN actor_identity_cache a ON a.user_id=g.recipient_user_id
+ WHERE g.owner_user_id=:owner AND g.card_id=:card
+ ORDER BY g.created_at DESC,g.id ASC LIMIT :limit"""
         if cursor is not None:
             try:
                 grant_id = str(uuid.UUID(cursor))
@@ -194,13 +197,14 @@ class WalletCardAccessService:
             if not anchor:
                 raise WalletCardAccessError("WALLET_CARD_REQUEST_INVALID", 422)
             values.update(created=anchor["created_at"], grant_id=grant_id)
-            boundary = "AND (g.created_at < :created OR (g.created_at=:created AND g.id>CAST(:grant_id AS uuid)))"
+            query = """SELECT g.id,g.created_at,g.expires_at,g.revoked_at,a.display_name,clock_timestamp() AS server_now
+ FROM wallet_card_access_grants g LEFT JOIN actor_identity_cache a ON a.user_id=g.recipient_user_id
+ WHERE g.owner_user_id=:owner AND g.card_id=:card
+ AND (g.created_at < :created OR (g.created_at=:created AND g.id>CAST(:grant_id AS uuid)))
+ ORDER BY g.created_at DESC,g.id ASC LIMIT :limit"""
         rows = many(
             conn,
-            f"""SELECT g.id,g.created_at,g.expires_at,g.revoked_at,a.display_name,clock_timestamp() AS server_now
- FROM wallet_card_access_grants g LEFT JOIN actor_identity_cache a ON a.user_id=g.recipient_user_id
- WHERE g.owner_user_id=:owner AND g.card_id=:card {boundary}
- ORDER BY g.created_at DESC,g.id ASC LIMIT :limit""",
+            query,
             values,
         )
         page = rows[:20]
