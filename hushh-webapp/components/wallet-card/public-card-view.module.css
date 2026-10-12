@@ -11,13 +11,13 @@
   font-family: var(--font-app-body);
   color: var(--foreground);
   display: grid;
-  gap: 1rem;
+  gap: .75rem;
   container-type: inline-size;
 }
 .identity { display: flex; align-items: center; gap: 1rem; min-width: 0; }
 .photo { width: 6rem; height: 6rem; flex-shrink: 0; border-radius: 1.5rem; border: 1px solid var(--app-card-border-standard); }
 .heading { display: grid; gap: .375rem; min-width: 0; overflow-wrap: anywhere; }
-.contactArea { display: flex; flex-wrap: wrap; gap: .75rem 1.25rem; align-items: center; min-width: 0; }
+.contactArea { display: flex; flex-wrap: wrap; gap: .75rem 1.25rem; align-items: flex-start; min-width: 0; }
 .contactArea:empty { display: none; }
 .contacts { flex: 1 1 10rem; min-width: 0; }
 .qr { width: 7.5rem; flex-shrink: 0; margin: 0; text-align: center; }

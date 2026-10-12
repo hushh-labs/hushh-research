@@ -563,8 +563,8 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
     }
     if (stage === "preview") {
       return {
-        title: WALLET_CARD_OWNER_COPY.previewTitle,
-        description: WALLET_CARD_OWNER_COPY.previewDescription,
+        title: "Preview as visitor",
+        description: "",
       };
     }
     if (stage === "success") {
@@ -670,25 +670,7 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
 
       {stage === "preview" ? (
         <div className="space-y-4">
-          <SettingsGroup
-            title={WALLET_CARD_OWNER_COPY.walletPreviewTitle}
-            description={WALLET_CARD_OWNER_COPY.walletPreviewHint}
-          >
-            <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-              <WalletCardPassPreview
-                fullName={draft.fullName || card?.displayName || ""}
-                headline={draft.headline || card?.headline || ""}
-                organisation={draft.organisation}
-                locationLabel={draft.locationLabel}
-                shareUrl={card?.status === "active" ? shareLink?.shareUrl ?? null : null}
-              />
-            </div>
-          </SettingsGroup>
-
-          <SettingsGroup
-            title={WALLET_CARD_OWNER_COPY.visitorPreviewTitle}
-            description={WALLET_CARD_OWNER_COPY.visitorPreviewHint}
-          >
+          <SettingsGroup>
             <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
               {visitorPreview.status === "ready" ? (
                 <PublicWalletCardView card={visitorPreview.card} embedded profileUrl={card?.status === "active" ? shareLink?.shareUrl ?? null : null} />
@@ -711,9 +693,18 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
             </div>
           </SettingsGroup>
 
-          <RowDescription compact className="px-1">
-            {WALLET_CARD_OWNER_COPY.updatesAutomatically}
-          </RowDescription>
+          <details className="rounded-[var(--app-card-radius-standard)] border border-border">
+            <summary className="cursor-pointer px-[var(--settings-row-px)] py-3 text-sm font-medium">Profile card preview</summary>
+            <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
+              <WalletCardPassPreview
+                fullName={draft.fullName || card?.displayName || ""}
+                headline={draft.headline || card?.headline || ""}
+                organisation={draft.organisation}
+                locationLabel={draft.locationLabel}
+                shareUrl={card?.status === "active" ? shareLink?.shareUrl ?? null : null}
+              />
+            </div>
+          </details>
 
           {previewOrigin === "setup" ? (
             <div className="flex flex-wrap items-center gap-2">

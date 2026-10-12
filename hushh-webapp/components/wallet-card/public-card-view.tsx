@@ -455,17 +455,6 @@ function initialsFor(fullName: string | null): string {
   return `${first}${last}`.toUpperCase();
 }
 
-function formatUpdatedLabel(value: string | null): string | null {
-  if (!value) return null;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(parsed);
-}
-
 function ActionLink({ action }: { action: CardAction }) {
   const Icon = action.icon;
   return (
@@ -506,10 +495,6 @@ export function PublicWalletCardView({ card, embedded = false, profileUrl }: {
 }) {
   const actions = useMemo(() => buildActions(card), [card]);
   const initials = useMemo(() => initialsFor(card.fullName), [card.fullName]);
-  const updatedLabel = useMemo(
-    () => formatUpdatedLabel(card.updatedAt),
-    [card.updatedAt],
-  );
   const hasDetails = Boolean(card.summary) || card.skills.length > 0;
   const hasMeta = Boolean(card.organisation) || Boolean(card.locationLabel);
   const qrUrl = publicProfileQrUrl(profileUrl);
@@ -609,10 +594,7 @@ export function PublicWalletCardView({ card, embedded = false, profileUrl }: {
         </section>
       ) : null}
 
-      <footer className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-border/60 pt-3 text-xs leading-5 text-muted-foreground">
-        <p>Shared from Hussh One</p>
-        {updatedLabel ? <p>Updated {updatedLabel}</p> : null}
-      </footer>
+
     </article>
   );
 }
