@@ -209,9 +209,11 @@ async def test_azure_files_restart_preserves_bytes_cas_and_ciphertext():
     await recovered.put_chunk(entry["id"], 0, payload)
     completed = await recovered.complete(entry["id"])
     assert await recovered.read_chunk(entry["id"], 0) == payload
-    await recovered.mutate(
+    renamed = await recovered.mutate(
         entry["id"], revision=completed["revision"], operation="rename", name="renamed.txt"
     )
+    assert (renamed["name"], renamed["originalName"]) == ("renamed.txt", "private.txt")
+    assert renamed["id"] == entry["id"] and await recovered.read_chunk(entry["id"], 0) == payload
     with pytest.raises(FilesRefused, match="REVISION"):
         await library.mutate(
             entry["id"], revision=completed["revision"], operation="rename", name="stale.txt"

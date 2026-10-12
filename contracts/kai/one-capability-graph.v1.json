@@ -39557,7 +39557,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "e2b9fc34b0e08e2df2b4108ffa1b62999a75547f67cf254c0fbf656d53bbd86c",
+      "projection_digest": "77cd6c897daf9ca34a7c8d595e1e3997d1442dffe70b7b12ceed9cd5856f31ff",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -39576,7 +39576,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
       },
-      "source_revision": "6d76710e9b453640",
+      "source_revision": "12fb95358910349e",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -41094,7 +41094,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "6d76710e9b453640",
+    "source_revision": "12fb95358910349e",
     "web": {
       "actions": [
         {
@@ -41137,7 +41137,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "e4bed84bfe7fe46c8cadc84ee2159f8d676387acf38767145f6e79bc21559a28",
+      "projection_digest": "c2946c4de42b3e58502193fa884bd21487e745537847d12e25bbdea49253b35f",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -41156,7 +41156,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
       },
-      "source_revision": "6d76710e9b453640",
+      "source_revision": "12fb95358910349e",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -42713,7 +42713,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "6d76710e9b453640",
+  "revision": "12fb95358910349e",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -46912,13 +46912,13 @@
     "location_knowledge_package": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "aeec5379de4b5ed7dbbfde8ad02d4d2900cf911d6af10afb83aa45403b2fe6d4",
+    "product_agent_registry": "80282e8bdcbca19ed906cbb6dd29285a09443774357a59df73d090d0b740c41e",
     "route_orchestration_index": "e1a17a84addcba4ca93739a4f714fde55b9d83a3c9c612b9a53a87245ac021c5",
     "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
   },
-  "source_revision": "6d76710e9b453640",
+  "source_revision": "12fb95358910349e",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "6d76710e9b453640",
+    "current_graph_revision": "12fb95358910349e",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
