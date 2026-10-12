@@ -66,6 +66,11 @@ describe("setup catalog voice parity", () => {
       path: "route",
       target: "/one/setup/connections",
     });
+    const compatibilityAction = hubContract.actions.find(
+      (action) => action.action_id === "setup.open_connections",
+    );
+    expect(compatibilityAction?.reachability.hidden_navigable).toBe(true);
+    expect(compatibilityAction?.control_ids).toEqual([]);
     for (const capability of ONE_SETUP_CAPABILITIES) {
       const action = actions.get(capability.setupActionId);
       expect(action, capability.id).toBeDefined();

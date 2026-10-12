@@ -44,7 +44,6 @@ vi.mock("@/components/connections/byoc-cloud-card", () => ({
 vi.mock("@/components/connections/gemini-runtime-configuration-page", () => ({
   GeminiRuntimeConfigurationPage: () => <section aria-label="AI access" />,
 }));
-
 vi.mock("@/components/onboarding/setup/setup-completion-footer", () => ({
   SetupCompletionFooter: () => null,
 }));
