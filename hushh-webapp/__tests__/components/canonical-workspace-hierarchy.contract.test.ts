@@ -43,12 +43,12 @@ describe("canonical workspace hierarchy", () => {
     const finance = read("components/kai/kai-market-hub-page.tsx");
 
     expect(finance).toContain('width="agent"');
-    expect(finance).toContain('className="relative"');
+    expect(finance).toContain('className={`relative ${ONE_AGENT_SHELL_SPACING}`}');
+    expect(finance).toContain("className={ONE_AGENT_SECTION_SPACING}");
     expect(finance).toContain('title="Finance"');
     expect(finance).toContain('titleRole="agent"');
-    expect(finance).toContain(
-      'className="ms-[var(--page-inline-gutter-standard)]"',
-    );
+    expect(finance).not.toContain("ms-[var(--page-inline-gutter-standard)]");
+    expect(finance).toContain('className="[&>div:first-child]:!gap-2.5"');
     expect(finance).toContain("<TopShellTabs");
     expect(finance).toContain('panelInset="none"');
     expect(finance).not.toContain('style={{ "--one-gutter": "0px" }}');
