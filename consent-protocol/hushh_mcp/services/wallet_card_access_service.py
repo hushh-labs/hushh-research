@@ -695,9 +695,15 @@ class WalletCardAccessService:
                     try:
                         validate_recipient_card(payload["encryptedCard"], row["card_id"])
                     except (ValueError, TypeError, KeyError, AttributeError):
-                        raise WalletCardAccessError("WALLET_CARD_CONTENT_UNAVAILABLE", 503) from None
+                        raise WalletCardAccessError(
+                            "WALLET_CARD_CONTENT_UNAVAILABLE", 503
+                        ) from None
                     encrypted = {"encryptedCard": payload["encryptedCard"], "senderUserId": owner}
-                contents = {"card": {key: payload[key] for key in allowed}, "cardType": "payment", **encrypted}
+                contents = {
+                    "card": {key: payload[key] for key in allowed},
+                    "cardType": "payment",
+                    **encrypted,
+                }
             final_now = one(conn, "SELECT clock_timestamp() AS now")["now"]
             if row["expires_at"] <= final_now:
                 self._expire(conn, {**row, "server_now": final_now}, source)

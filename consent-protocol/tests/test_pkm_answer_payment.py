@@ -102,10 +102,17 @@ class FakeConnection:
         self.statements.append(sql)
         params = params or {}
         if sql.startswith("SELECT request_id, status, owner_user_id"):
-            return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: {
-                "request_id": REQUEST_ID, "status": "approved", "owner_user_id": "owner",
-                "requester_user_id": "requester", "terms_digest": DIGEST,
-            }))
+            return SimpleNamespace(
+                mappings=lambda: SimpleNamespace(
+                    first=lambda: {
+                        "request_id": REQUEST_ID,
+                        "status": "approved",
+                        "owner_user_id": "owner",
+                        "requester_user_id": "requester",
+                        "terms_digest": DIGEST,
+                    }
+                )
+            )
         if sql.startswith("SELECT id FROM connections"):
             return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: {"id": "edge"}))
         if sql.startswith("SELECT * FROM pkm_answer_payment_orders"):

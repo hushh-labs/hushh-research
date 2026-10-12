@@ -49,6 +49,7 @@ MAX_ANSWER_PRICE_CENTS = 50_000
 def _answer_checkout_return_url(origin: str, request_id: str, result: str) -> str:
     return f"{origin}/one/feed?answerPaymentRequestId={quote(request_id)}&checkout={result}"
 
+
 #: How long the owner's device has to produce the answer once payment settles.
 #: Quoted to the requester before checkout; a miss refunds in full.
 ANSWER_DEADLINE_HOURS = 72
@@ -149,8 +150,11 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             "refundReason": row["refund_reason"],
             "reconciliationRequired": bool(row["reconciliation_required"]),
             "preparationStatus": (
-                "preparing" if row["staged_has_content"] is None
-                else "ready" if row["staged_has_content"] else "empty"
+                "preparing"
+                if row["staged_has_content"] is None
+                else "ready"
+                if row["staged_has_content"]
+                else "empty"
             ),
             "answerDeadlineAt": (
                 row["answer_deadline_at"].isoformat() if row["answer_deadline_at"] else None
@@ -164,11 +168,15 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
 
     @staticmethod
     def _require_prepared_answer(connection, request_id: str) -> None:
-        staged = connection.execute(
-            text("""SELECT has_content, ciphertext, iv, recipient_key_id
+        staged = (
+            connection.execute(
+                text("""SELECT has_content, ciphertext, iv, recipient_key_id
                     FROM pkm_answer_deliveries WHERE request_id = :request FOR SHARE"""),
-            {"request": request_id},
-        ).mappings().first()
+                {"request": request_id},
+            )
+            .mappings()
+            .first()
+        )
         if staged is None:
             raise AnswerPaymentError("answer_not_ready")
         if not staged["has_content"]:
@@ -561,15 +569,32 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
         raw = await run_in_threadpool(self.stripe_api.Event.retrieve, stripe_event_id, api_key=key)
         event = _stripe_dict(raw)
         session = (event.get("data") or {}).get("object") or {}
-        if (event.get("id") != stripe_event_id
-                or event.get("type") not in {"checkout.session.completed", "checkout.session.async_payment_succeeded"}
-                or (session.get("metadata") or {}).get("request_id") != request_id):
+        if (
+            event.get("id") != stripe_event_id
+            or event.get("type")
+            not in {"checkout.session.completed", "checkout.session.async_payment_succeeded"}
+            or (session.get("metadata") or {}).get("request_id") != request_id
+        ):
             raise AnswerPaymentError("payment_invalid_event")
-        current = _stripe_dict(await run_in_threadpool(
-            self.stripe_api.checkout.Session.retrieve, session.get("id"), api_key=key,
-        ))
+        current = _stripe_dict(
+            await run_in_threadpool(
+                self.stripe_api.checkout.Session.retrieve,
+                session.get("id"),
+                api_key=key,
+            )
+        )
         # Confirm the same paid provider object still belongs to these exact terms.
-        for field in ("id", "client_reference_id", "mode", "payment_status", "amount_total", "currency", "livemode", "payment_intent", "metadata"):
+        for field in (
+            "id",
+            "client_reference_id",
+            "mode",
+            "payment_status",
+            "amount_total",
+            "currency",
+            "livemode",
+            "payment_intent",
+            "metadata",
+        ):
             if current.get(field) != session.get(field):
                 raise AnswerPaymentError("payment_invalid_event")
         await self._settle_verified_event(event=event, key=key)
@@ -616,10 +641,12 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             raise AnswerPaymentError("payment_invalid_event")
 
         def settle(connection):
-            request = self._row(connection,
+            request = self._row(
+                connection,
                 """SELECT request_id, status, owner_user_id, requester_user_id, terms_digest
                    FROM pkm_answer_requests WHERE request_id=:request FOR UPDATE""",
-                {"request": request_id})
+                {"request": request_id},
+            )
             order = self._row(
                 connection,
                 """SELECT * FROM pkm_answer_payment_orders
@@ -697,23 +724,34 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             # Record a verified charge even if authority ended in flight, but
             # never release its envelope. The connection lock serializes this
             # decision against disconnect; the existing worker refunds it.
-            connected = self._row(connection,
+            connected = self._row(
+                connection,
                 """SELECT id FROM connections WHERE status='active'
                    AND ((user_a_id=:owner AND user_b_id=:requester)
                      OR (user_b_id=:owner AND user_a_id=:requester)) FOR SHARE""",
-                {"owner": order["owner_user_id"], "requester": order["requester_user_id"]})
+                {"owner": order["owner_user_id"], "requester": order["requester_user_id"]},
+            )
             if not connected or not request or request["terms_digest"] != order["terms_digest"]:
-                connection.execute(text("""UPDATE pkm_answer_payment_orders
+                connection.execute(
+                    text("""UPDATE pkm_answer_payment_orders
                     SET reconciliation_required=TRUE, reconciliation_reason='authority_changed',
                         reconciliation_at=clock_timestamp(), updated_at=clock_timestamp()
-                    WHERE request_id=:request"""), {"request": request_id})
+                    WHERE request_id=:request"""),
+                    {"request": request_id},
+                )
                 if request and request["status"] == "approved":
-                    connection.execute(text("""UPDATE pkm_answer_requests SET status='declined',
+                    connection.execute(
+                        text("""UPDATE pkm_answer_requests SET status='declined',
                         declined_at=clock_timestamp(), updated_at=clock_timestamp()
-                        WHERE request_id=:request"""), {"request": request_id})
+                        WHERE request_id=:request"""),
+                        {"request": request_id},
+                    )
                 if request and request["status"] != "answered":
                     from hushh_mcp.services.pkm_answer_work_worker import file_refund
-                    reason = {"cancelled": "requester_cancelled", "expired": "answer_timeout"}.get(request["status"], "owner_declined")
+
+                    reason = {"cancelled": "requester_cancelled", "expired": "answer_timeout"}.get(
+                        request["status"], "owner_declined"
+                    )
                     file_refund(connection, request_id, reason)
                 return
             # An answer prepared at approval was waiting on exactly this, so a
@@ -840,9 +878,11 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             )
             if request is None:
                 raise AnswerPaymentError("request_unavailable")
-            delivered = self._row(connection,
+            delivered = self._row(
+                connection,
                 "SELECT has_content FROM pkm_answer_deliveries WHERE request_id=:request",
-                {"request": request_id})
+                {"request": request_id},
+            )
             if request["status"] == "answered" and delivered and delivered["has_content"]:
                 raise AnswerPaymentError("answer_already_delivered")
             return file_refund(connection, request_id, reason)

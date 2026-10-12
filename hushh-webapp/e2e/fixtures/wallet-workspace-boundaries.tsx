@@ -135,12 +135,11 @@ export class OneLocationService {
 }
 
 export const findCardShareRecipients = () => OneLocationService.listRecipientsPage();
-export class CardRecipientKeyUnavailableError extends Error {}
-export const prepareTemporaryCardShares = async () => { throw new Error("No delivery from the layout fixture."); };
 export const shareSavedCard = async () => { throw new Error("No delivery from the layout fixture."); };
 export class CardRecipientKeyUnavailableError extends Error {
   constructor() { super("Ask each recipient to unlock Hushh once before sharing card details."); }
 }
+// Keep the production share-service exports available without staging a delivery.
 export const prepareTemporaryCardShares = async (
   _context: CardShareContext,
   _cardId: string,

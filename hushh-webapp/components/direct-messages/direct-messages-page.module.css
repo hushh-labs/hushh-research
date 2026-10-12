@@ -1396,6 +1396,9 @@ article[data-message-role="peer"] .messageCluster {
   --chat-line: #e2e5ea;
   --chat-blue-tint: #e7f2ff;
   --chat-incoming: #ffffff;
+  --chat-outgoing: #d9eeff;
+  --chat-outgoing-text: #17324d;
+  --chat-outgoing-meta: #4a6178;
   --chat-glass: rgba(255, 255, 255, .66);
   --chat-glass-strong: rgba(255, 255, 255, .84);
   --chat-glass-edge: rgba(255, 255, 255, .72);
@@ -1423,6 +1426,9 @@ article[data-message-role="peer"] .messageCluster {
   --chat-line: #282c33;
   --chat-blue-tint: #102a43;
   --chat-incoming: #14161b;
+  --chat-outgoing: #17324d;
+  --chat-outgoing-text: #e8f4ff;
+  --chat-outgoing-meta: #a9c7df;
   --chat-glass: rgba(20, 22, 27, .64);
   --chat-glass-strong: rgba(20, 22, 27, .84);
   --chat-glass-edge: rgba(255, 255, 255, .09);
@@ -1564,8 +1570,8 @@ article[data-message-role="peer"] .messageCluster {
 .messageList { background: transparent; }
 .messageDateMarker { font-size: 12px; color: var(--chat-muted); }
 .messageBubble, article[data-message-role="user"] .messageBubble {
-  background: var(--chat-accent) !important;
-  color: #fff !important;
+  background: var(--chat-outgoing) !important;
+  color: var(--chat-outgoing-text) !important;
   box-shadow: 0 1px 2px rgba(0, 0, 0, .06) !important;
   font-size: 15px;
 }
@@ -1577,6 +1583,10 @@ article[data-message-role="peer"] .messageBubble {
   box-shadow: 0 1px 2px rgba(0, 0, 0, .06) !important;
 }
 .messageBubbleMeta { font-size: 12px; }
+article[data-message-role="user"] .messageBubbleMeta,
+article[data-message-role="user"] .messageDeliveryState {
+  color: var(--chat-outgoing-meta);
+}
 .reactionChip { font-size: 11px; }
 .reactionChip[data-reacted-by-viewer="true"] {
   border-color: var(--chat-accent);
