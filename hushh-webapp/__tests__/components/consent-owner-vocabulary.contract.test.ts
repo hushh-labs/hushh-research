@@ -234,6 +234,26 @@ function ownerFacingText(source: string): string[] {
 }
 
 /**
+ * A name the product gives a person, which happens to contain a banned word.
+ *
+ * "Request scope" is the label on the profile CTA the requester taps and the
+ * title of the dialog they type their question into. The owner's review has to
+ * say the same words back, or the two sides of one request are called
+ * different things and neither person can tell they are looking at the same
+ * thing. That is what the recipient hit: her review named nobody's feature and
+ * the only screen that named itself was the document one.
+ *
+ * The ban exists to keep OUR plumbing out of a person's reading -- "14
+ * fields", "consent events across lifecycles", a raw domain key printed beside
+ * a row. A proper name someone chose off a button is not that.
+ *
+ * Stripped before matching rather than exempted whole, so the ban keeps every
+ * tooth it had: "Request scope and 4 fields" still fails on "field", and any
+ * other use of "scope" still fails.
+ */
+const SANCTIONED_NAMES: RegExp[] = [/\bRequest scope\b/gi];
+
+/**
  * The offending strings in `text`, each named with the banned word it uses.
  * Whole word only: "Sections" must not trip on "attribute", and a heading like
  * "Domain" is the offence, not the substring.
@@ -241,8 +261,12 @@ function ownerFacingText(source: string): string[] {
 function offendersIn(text: string[], banned: string[]): string[] {
   const offenders: string[] = [];
   for (const candidate of text) {
+    const readable = SANCTIONED_NAMES.reduce(
+      (text, name) => text.replace(name, " "),
+      candidate,
+    );
     for (const word of banned) {
-      if (new RegExp(`\\b${word}s?\\b`, "i").test(candidate)) {
+      if (new RegExp(`\\b${word}s?\\b`, "i").test(readable)) {
         offenders.push(`"${candidate.trim()}" contains "${word}"`);
       }
     }
@@ -282,6 +306,20 @@ describe("owner-facing consent vocabulary", () => {
     // And the same shapes read clean when the word is a person's word.
     const clean = fixture.replaceAll("field", "address");
     expect(offendersIn(ownerFacingText(clean), banned)).toEqual([]);
+  });
+
+  it("exempts the product's own name without blunting the ban", () => {
+    // The name itself reads clean, because the person chose it off a button.
+    expect(offendersIn(["Request scope"], banned)).toEqual([]);
+    expect(offendersIn(["Request scope"], banned)).toEqual([]);
+
+    // Everything else about "scope" still fails, including the name used as a
+    // licence to smuggle the rest of our plumbing into the same sentence.
+    expect(offendersIn(["Choose a scope to share"], banned)).toHaveLength(1);
+    expect(offendersIn(["Scopes you have granted"], banned)).toHaveLength(1);
+    expect(offendersIn(["Request scope and 4 fields"], banned)).toHaveLength(1);
+    expect(offendersIn(["Request scopes"], banned)).toHaveLength(1);
+    expect(offendersIn(["Request scope connector"], banned)).toHaveLength(1);
   });
 
   for (const surface of SURFACES) {
