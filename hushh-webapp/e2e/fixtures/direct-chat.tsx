@@ -19,5 +19,5 @@ const shell = resolveTopShellRouteProfile("/one/messages");
 const offset = resolveSignedInShellContentOffset({ shellVisible: shell.metrics.shellVisible, routeLayoutMode: "standard" });
 createRoot(document.getElementById("root")!).render(<ThemeProvider attribute="class" defaultTheme="system" enableSystem><AgentDockProvider><div data-app-shell-root="true" style={{ ...offset.style, ...resolveTopShellGeometryStyle({ hasTabs: shell.metrics.hasTabs }) } as React.CSSProperties}><div data-app-scroll-root="true" data-app-scroll-mode={offset.mode} style={{ height: "100dvh", overflowY: "auto", paddingBottom: "var(--app-scroll-bottom-pad,112px)" } as React.CSSProperties}>
   <style>{`[data-app-scroll-root] { --app-scroll-bottom-pad: var(--app-bottom-shell-height,112px); }`}</style>
-  <DirectMessagesRoute /><OverlayFixture />
+  <DirectMessagesRoute />{document.documentElement.dataset.modalFixture === "true" && <OverlayFixture />}
 </div></div><AppBottomShell model={{ navigationHidden: false, agentBarHidden: true, includeComposerHeight: true }} /></AgentDockProvider></ThemeProvider>);
