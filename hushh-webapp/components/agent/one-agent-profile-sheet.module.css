@@ -31,10 +31,10 @@
   place-items: center;
   width: 112px;
   height: 112px;
-  border: 1px solid var(--app-card-border-standard);
+  border: 0;
   border-radius: 50%;
-  background: var(--app-card-surface-default);
-  box-shadow: var(--app-card-shadow-standard);
+  background: transparent;
+  box-shadow: none;
 }
 .title {
   margin: 0;
