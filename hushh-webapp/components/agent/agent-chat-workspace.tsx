@@ -8587,12 +8587,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     ref={oneProfileTriggerRef}
                     aria-expanded={isOneProfileOpen}
                     onClick={() => setIsOneProfileOpen(true)}
-                    className="!size-16 border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default)] shadow-[var(--app-card-shadow-standard)]"
+                    className="!size-[72px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default)] shadow-[var(--app-card-shadow-standard)] focus-visible:!outline-2 focus-visible:!outline-solid focus-visible:!outline-[color:var(--app-accent-deep)] focus-visible:!outline-offset-2"
                   >
                     <HushhMark
                       aria-hidden="true"
-                      className="h-16 w-16 items-center justify-center overflow-visible"
-                      imageClassName="!h-14 !w-14"
+                      className="size-[72px] items-center justify-center overflow-visible"
+                      imageClassName="!size-16"
                     />
                   </ShellActionSurface>
                 )}
@@ -9285,6 +9285,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   </div>
                 ) : widget.kind === "add" ? (
                   <SecureCardAddForm
+                    getNetworkContext={() => {
+                      const token = getVaultOwnerToken();
+                      return user?.uid && token ? { userId: user.uid, vaultOwnerToken: token } : null;
+                    }}
                     key={widget.id}
                     compact
                     onSubmit={async (card) => {
