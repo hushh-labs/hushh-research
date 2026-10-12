@@ -745,23 +745,29 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(serviceHarness.updateMapPreferences).toHaveBeenCalledTimes(1);
   });
 
-  it("retries check-in preparation when Maps is unavailable", async () => {
+  it.each(["map", "check-in"] as const)("keeps preparation retry reachable on %s when Maps is unavailable", async (surface) => {
     experienceHarness.demoMode = false;
     experienceHarness.nearbyAvailable = true;
     mapsKeyHarness.present = false;
     serviceHarness.getMapPreferences.mockRejectedValueOnce(new Error("offline"));
 
-    render(<LocationImmersiveMap surface="check-in" />);
+    render(<LocationImmersiveMap surface={surface} />);
 
     await screen.findByTestId("one-location-map-preparation-error");
-    expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute("data-open", "false");
+    expect(screen.queryByText("Maps isn't available")).toBeNull();
+    if (surface === "check-in") {
+      expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute("data-open", "false");
+    }
     expect(serviceHarness.captureCurrentPosition).not.toHaveBeenCalled();
     expect(serviceHarness.getMapState).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 
-    await waitFor(() => {
-      expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute("data-open", "true");
-    });
+    await screen.findByText("Maps isn't available");
+    if (surface === "check-in") {
+      await waitFor(() => {
+        expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute("data-open", "true");
+      });
+    }
     expect(screen.queryByTestId("one-location-map-preparation-error")).toBeNull();
     expect(mapHarness.create).not.toHaveBeenCalled();
     expect(serviceHarness.updateMapPreferences).not.toHaveBeenCalled();

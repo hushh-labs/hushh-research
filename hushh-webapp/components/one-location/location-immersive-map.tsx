@@ -4255,8 +4255,11 @@ export function LocationImmersiveMap({
         The placeholder says nothing private -- it is a grid, a pin and "Maps
         isn't available" -- so there is no reason it should have waited for
         consent to say the map is broken.
+
+        A preference-read failure owns the recovery surface until it settles;
+        the unavailable placeholder must not cover that surface's retry action.
       */}
-      {status === "unavailable" ? (
+      {status === "unavailable" && !(!rendererReady && !rendererPreparationPending && rendererPreparationError) ? (
         // Full-bleed styled fallback. Previously only a small bottom card sat
         // over the (blank) native canvas, so most of Your Map read as a blank
         // white screen when the Maps key was missing. Cover the whole surface

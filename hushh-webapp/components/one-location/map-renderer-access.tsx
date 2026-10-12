@@ -13,7 +13,7 @@ export function MapRendererAccess({ onAccept, inline = false }: { onAccept: () =
       <p className="w-full min-w-0 flex-1 text-sm leading-5 text-muted-foreground sm:w-auto">
         Show your location with Google Maps.
       </p>
-      <Button size="compact" className="min-h-11 shrink-0" onClick={onAccept}>
+      <Button size="compact" className="min-h-11 shrink-0 px-3" onClick={onAccept}>
         Use Google Maps
       </Button>
     </section>
