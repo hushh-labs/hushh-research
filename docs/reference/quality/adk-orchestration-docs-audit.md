@@ -163,6 +163,18 @@ deprecation and revision-policy admission, the eight authored-ref cap and every
 other fitness finding remain unchanged. Exact evidence is recorded in
 `scope_commerce_parallel_history_20261012`; this is source qualification.
 
+The main `ee67770aeb` union qualifies exactly three frontend module slots through
+independent `client_context` review: Consent Center routing, its existing
+cold-link suite and Feed presentation. Recognized answer rows preserve their
+lane even with a missing prefix; answer pricing describes one written answer,
+while Drive retains its Viewer term. The corrected union passes 109 focused UI
+cases. Backend review found raw owner/exception logging; class-only diagnostics
+now retain strict failure admission and resilient fallback. All 30 nearest
+source-completeness cases pass, and actual incoming methods fail the protected
+diagnostic negative control. This correction reduces the backend below existing
+ceilings. `scope_commerce_request_lane_main_20261012` records the three exact
+hashes; no other allowance, budget, scanner or payment authority changes.
+
 ## GCP-only pod deployment correction — 2026-09-25
 
 Historical pointer: Anypoint pod deployment was removed; the CRM connector remains.

@@ -28,6 +28,15 @@ are separately verified below; they do not prove a consumer purchase or payout.
 
 ### Shared Dev checkpoint — 2026-10-12 UTC
 
+- Incoming main `ee67770aeb` preserves Request scope's own review, selection
+  discriminator and readable answer terms, alongside the compact private-agent
+  header. Missing-prefix answer rows remain in their own lane and fail the
+  existing UUID parser when malformed. Answer pricing says one written answer;
+  Drive's Viewer term remains unchanged. All 109 corrected focused UI cases
+  pass. Raw contributor diagnostics are sanitized while retaining strict
+  failure admission; 30 nearest cases pass and the actual incoming methods
+  fail the protected-diagnostic negative control. These source checks do not
+  establish deployed scope purchases or payouts.
 - Final interface polish removes zero-value Account detail and the empty Memory
   earnings group; Saved retains a quiet Account link until earnings or costs
   exist. Expired onboarding advisories bind to the current owner and vault

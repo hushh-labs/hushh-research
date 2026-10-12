@@ -731,7 +731,9 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       const answerRequestId = metadataString(item.metadata, "request_id");
       const copy: Record<string, [string, string]> = {
         answer_request_received: [
-          "Question asked",
+          // The owner's row names the lane it belongs to, in the same words as
+          // the profile CTA and the Consent Center row.
+          "Request scope",
           "Review the question and what it would use, then set a price.",
         ],
         answer_request_payment_ready: [

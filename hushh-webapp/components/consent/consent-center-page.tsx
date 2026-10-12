@@ -92,11 +92,11 @@ import {
 } from "@/lib/consent/document-request-price";
 import {
   driveQueryRequestId,
-  driveSharingSelectionId,
   isDriveQueryEntry,
   isDriveQuerySelection,
   isDriveSharingEntry,
 } from "@/lib/consent/drive-query-consent";
+import { consentSelectionId } from "@/lib/consent/consent-selection-id";
 import {
   humanizeConsentScope,
   resolveConsentSupportingCopy,
@@ -3227,6 +3227,9 @@ export function ConsentCenterPage() {
     selectedId &&
     !isDocumentShareSelection(selectedId) &&
     !isDriveQuerySelection(selectedId) &&
+    // A paid answer is read by its own card. The generic lookup does not know
+    // this source and answered "missing", which hid a live request.
+    !isAnswerRequestSelection(selectedId) &&
     tab === "requests" &&
     !selectedEntryFromList,
   );
@@ -3878,7 +3881,7 @@ export function ConsentCenterPage() {
                         selectedBundleId={selectedBundleId}
                         onSelectEntry={(entry) =>
                           setParam({
-                            requestId: driveSharingSelectionId(entry),
+                            requestId: consentSelectionId(entry),
                           })
                         }
                         pagination={pendingPagination}
@@ -3898,7 +3901,7 @@ export function ConsentCenterPage() {
                       selectedEntry={selectedEntry}
                       selectedId={selectedId}
                       onSelectEntry={(entry) =>
-                        setParam({ requestId: driveSharingSelectionId(entry) })
+                        setParam({ requestId: consentSelectionId(entry) })
                       }
                       pagination={activePagination}
                       groupByRequest
@@ -3914,7 +3917,7 @@ export function ConsentCenterPage() {
                       selectedEntry={selectedEntry}
                       selectedId={selectedId}
                       onSelectEntry={(entry) =>
-                        setParam({ requestId: driveSharingSelectionId(entry) })
+                        setParam({ requestId: consentSelectionId(entry) })
                       }
                       pagination={previousPagination}
                     />
@@ -3940,7 +3943,7 @@ export function ConsentCenterPage() {
                         selectedId={selectedId}
                         onSelectEntry={(entry) =>
                           setParam({
-                            requestId: driveSharingSelectionId(entry),
+                            requestId: consentSelectionId(entry),
                           })
                         }
                         pagination={
@@ -3992,32 +3995,36 @@ export function ConsentCenterPage() {
             }
           }}
           title={
-            isQuerySelection
-              ? "Drive question"
-              : isDocumentSelection
-                ? "Document request"
-                : selectedEntry
-                  ? resolveCounterpartLabel(selectedEntry)
-                  : "Consent details"
+            isAnswerSelection
+              ? "Request scope"
+              : isQuerySelection
+                ? "Drive question"
+                : isDocumentSelection
+                  ? "Document request"
+                  : selectedEntry
+                    ? resolveCounterpartLabel(selectedEntry)
+                    : "Consent details"
           }
           description={
-            isQuerySelection
-              ? "A question about Google Drive."
-              : isDocumentSelection
-                ? "Google Drive"
-                : selectedEntry
-                  ? selectedEntry.kind === "connection"
-                    ? "Connection details"
-                    : selectedEntry.kind === "active_grant"
-                      ? "Active access"
-                      : selectedEntry.kind === "history"
-                        ? `${formatStatus(selectedEntry.status)} access`
-                        : selectedEntry.status === "pending"
-                          ? "Request awaiting your decision"
-                          : `${formatStatus(selectedEntry.status)} request`
-                  : selectedId
-                    ? "Resolving the selected consent request."
-                    : "Choose a consent entry from the list to review details and next actions."
+            isAnswerSelection
+              ? "Memory"
+              : isQuerySelection
+                ? "A question about Google Drive."
+                : isDocumentSelection
+                  ? "Google Drive"
+                  : selectedEntry
+                    ? selectedEntry.kind === "connection"
+                      ? "Connection details"
+                      : selectedEntry.kind === "active_grant"
+                        ? "Active access"
+                        : selectedEntry.kind === "history"
+                          ? `${formatStatus(selectedEntry.status)} access`
+                          : selectedEntry.status === "pending"
+                            ? "Request awaiting your decision"
+                            : `${formatStatus(selectedEntry.status)} request`
+                    : selectedId
+                      ? "Resolving the selected consent request."
+                      : "Choose a consent entry from the list to review details and next actions."
           }
           mobilePresentation="sheet"
           // Grouped background: the request's actionable sections read as cards.
@@ -4029,6 +4036,7 @@ export function ConsentCenterPage() {
         >
           {!isDocumentSelection &&
           !isQuerySelection &&
+          !isAnswerSelection &&
           notificationAction &&
           selectedEntry?.status === "pending" ? (
             <div

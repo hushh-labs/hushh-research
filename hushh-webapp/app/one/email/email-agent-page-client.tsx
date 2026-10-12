@@ -53,6 +53,7 @@ export function EmailAgentPageClient() {
     <AppPageShell
       as="main"
       width="reading"
+      headerContentSpacing="compact"
       // Subtract BOTH edges the scroll root spends, not just the top bar. The
       // shell renders a top spacer of --app-top-content-offset AND pads the
       // scroll root by --app-bottom-content-clearance; a floor that only

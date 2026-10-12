@@ -63,7 +63,7 @@ class PkmAnswerCenterContributor:
                         "status": status if row["connected"] else "connection_revoked",
                         "action": "ANSWER_REQUEST_REVIEW",
                         "scope": None,
-                        "scope_description": "Paid answer",
+                        "scope_description": "Request scope",
                         "counterpart_type": "person",
                         "counterpart_id": row["requester_user_id"]
                         if owner

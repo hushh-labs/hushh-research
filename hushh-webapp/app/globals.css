@@ -3333,6 +3333,13 @@ body:has([data-one-launcher-root="true"]) .foundation-public-ambient {
   --data-table-cell-py: 9px;
 }
 
+/* Agent workspaces move directly from identity to the first action or
+ * information surface. Keep this opt-in so general page headers retain the
+ * default reading rhythm. */
+.app-page-shell[data-app-header-content-spacing="compact"] {
+  --page-header-section-gap: 0px;
+}
+
 @media (min-width: 640px) {
   .app-page-shell[data-app-density="compact"] {
     --page-header-stack-gap: 10px;
@@ -3360,6 +3367,10 @@ body:has([data-one-launcher-root="true"]) .foundation-public-ambient {
     --data-table-controls-gap: 14px;
     --data-table-cell-px: 12px;
     --data-table-cell-py: 10px;
+  }
+
+  .app-page-shell[data-app-header-content-spacing="compact"] {
+    --page-header-section-gap: 6px;
   }
 }
 
