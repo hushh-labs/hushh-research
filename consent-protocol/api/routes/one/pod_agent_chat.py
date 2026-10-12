@@ -32,7 +32,11 @@ from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume
 from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
 from hushh_mcp.one_adk.pod_agui_context import PodChatContext
 from hushh_mcp.one_adk.pod_agui_lifetime import _ACTIVE_THREADS
-from hushh_mcp.one_adk.pod_chat_stream import pod_chat_events, stop_preparing_turn
+from hushh_mcp.one_adk.pod_chat_stream import (
+    pod_chat_events,
+    stop_preparing_turn,
+    turn_is_preparing,
+)
 from hushh_mcp.one_adk.queued_input import QueuedInputError
 from hushh_mcp.one_adk.queued_input import registry as queued_input_registry
 from hushh_mcp.one_adk.request_secrets import store_request_secret
@@ -197,11 +201,19 @@ async def history(
     limit: int = Query(50, ge=1, le=100),
     owner: PodChatContext = Depends(context),
 ):
-    pending_before_read = conversation_id in _ACTIVE_THREADS
+    pending_before_read = conversation_id in _ACTIVE_THREADS or turn_is_preparing(
+        owner.owner, conversation_id
+    )
     session = await owner.sessions.get_session(
         app_name=ONE_APP_NAME, user_id=owner.owner, session_id=conversation_id
     )
     if session is None:
+        if pending_before_read or turn_is_preparing(owner.owner, conversation_id):
+            return {
+                "conversation_id": conversation_id,
+                "messages": [],
+                "turn": {"pending": True},
+            }
         raise HTTPException(404, detail="Conversation not found.")
     submitted = {source for event in session.events if (source := _submitted_source_id(event))}
     providers = _call_providers(session.events)
@@ -216,7 +228,11 @@ async def history(
     )
     # A completion can commit while this read holds an older snapshot. Keep it
     # pending for one more read rather than offering a duplicate turn.
-    result["turn"] = {"pending": pending_before_read or conversation_id in _ACTIVE_THREADS}
+    result["turn"] = {
+        "pending": pending_before_read
+        or conversation_id in _ACTIVE_THREADS
+        or turn_is_preparing(owner.owner, conversation_id)
+    }
     return result
 
 

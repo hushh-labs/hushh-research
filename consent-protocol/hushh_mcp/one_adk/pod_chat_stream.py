@@ -26,6 +26,11 @@ _MAX_BYTES = 1024 * 1024
 logger = logging.getLogger(__name__)
 
 
+def turn_is_preparing(owner: str, conversation: str) -> bool:
+    task = _OWNED_PRODUCERS.get((owner, conversation))
+    return task is not None and not task.done()
+
+
 def stop_preparing_turn(owner: str, conversation: str) -> bool:
     task = _OWNED_PRODUCERS.get((owner, conversation))
     if task is None or task.done():
