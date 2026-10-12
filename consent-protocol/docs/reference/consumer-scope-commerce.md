@@ -44,7 +44,10 @@ are separately verified below; they do not prove a consumer purchase or payout.
   main merge preserves scoped Saved information alongside private Soul memory,
   with Saved/Add navigation, exact-scope pricing and owner review. Stripe read
   verification forces catalog refresh before and after authenticated reads;
-  cached discovery cannot preserve proof after a schema change. Combined-source
+  cached discovery cannot preserve proof after a schema change. The incoming
+  `412347810e5f697b` Wallet action receives an exact-revision retirement because
+  its authored description changed to include scanning and widget review;
+  active old invocations fail closed and unrelated history stays intact. Combined-source
   core, hosted CI and Dev promotion remain pending.
 - Payout onboarding reached the normal hosted provider screen through Account,
   but headless completion encountered a human-verification challenge. Eligibility,

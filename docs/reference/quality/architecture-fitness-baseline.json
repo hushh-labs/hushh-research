@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2410,
+  "finding_count": 2411,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -12749,7 +12749,7 @@
       "limit": 80,
       "path": "scripts/ops/sync_backend_runtime_secrets.py",
       "symbol": "_build_backend_runtime_config",
-      "value": 95
+      "value": 97
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -18923,7 +18923,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/agent-chat-workspace.tsx",
       "symbol": null,
-      "value": 10932
+      "value": 10954
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18977,7 +18977,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/connectors-panel.tsx",
       "symbol": null,
-      "value": 2885
+      "value": 2886
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19013,7 +19013,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/hermes-chat-panel.tsx",
       "symbol": null,
-      "value": 811
+      "value": 814
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21578,7 +21578,7 @@
       "limit": 500,
       "path": "scripts/ops/sync_backend_runtime_secrets.py",
       "symbol": null,
-      "value": 703
+      "value": 717
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21597,7 +21597,7 @@
       "path": "hushh-webapp/components/one-voice/__tests__/one-voice-control.test.tsx",
       "ratchet_reason": "new finding",
       "symbol": null,
-      "value": 535
+      "value": 536
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21697,6 +21697,15 @@
       "path": "scripts/ci/uat-retention-maintenance.py",
       "symbol": null,
       "value": 581
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/e2e/bottom-chrome-width.layout.spec.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/e2e/bottom-chrome-width.layout.spec.ts",
+      "symbol": null,
+      "value": 504
     }
   ],
   "inspected_files": 6625,
@@ -29222,6 +29231,56 @@
           "reason": "Truthful terminal Puppy model reporting and typed deadlines in existing lifecycle owners; nearest regression and negative controls preserve aggregation, specialist attribution, regional failover and cleanup uncertainty."
         }
       ]
+    },
+    "frozen_adk_private_puppy_20261012": {
+      "changes": [
+        {
+          "after": 10954,
+          "before": 10932,
+          "key": "module_size|hushh-webapp/components/agent/agent-chat-workspace.tsx||module exceeds the advisory operon budget",
+          "source_sha256": "2e90c9b2369db1d2c4ae2fa4c5e0be551586a2792010ea28e6529991124f59e0"
+        },
+        {
+          "after": 2886,
+          "before": 2885,
+          "key": "module_size|hushh-webapp/components/agent/connectors-panel.tsx||module exceeds the advisory operon budget",
+          "source_sha256": "6779f94acd6151abaea7f8a59e15a16ff48613c1c0159eb3ad6d355c17d86aa0"
+        },
+        {
+          "after": 814,
+          "before": 811,
+          "key": "module_size|hushh-webapp/components/agent/hermes-chat-panel.tsx||module exceeds the advisory operon budget",
+          "source_sha256": "ac768bc9a6fde502717a3e0048277fb599dd6dbb107ce2be29d27545414963b2"
+        },
+        {
+          "after": 536,
+          "before": 535,
+          "key": "module_size|hushh-webapp/components/one-voice/__tests__/one-voice-control.test.tsx||module exceeds the advisory operon budget",
+          "source_sha256": "35d01042db613df338d9bab082e52b835ae697e4a3316da16114b60a077b81bf"
+        },
+        {
+          "after": 504,
+          "before": null,
+          "key": "module_size|hushh-webapp/e2e/bottom-chrome-width.layout.spec.ts||module exceeds the advisory operon budget",
+          "source_sha256": "2bf58bb3c22d5179dd48516c5dda4199e2f5bb133fdc6b984af134adb813f26c"
+        },
+        {
+          "after": 717,
+          "before": 703,
+          "key": "module_size|scripts/ops/sync_backend_runtime_secrets.py||module exceeds the advisory operon budget",
+          "source_sha256": "320087be0c2e14e272dfdc524db9f9c218160cc6b2c49011075e0a5a6bb6494f"
+        },
+        {
+          "after": 97,
+          "before": 95,
+          "key": "function_size|scripts/ops/sync_backend_runtime_secrets.py|_build_backend_runtime_config|function exceeds the advisory gene budget",
+          "source_sha256": "320087be0c2e14e272dfdc524db9f9c218160cc6b2c49011075e0a5a6bb6494f"
+        }
+      ],
+      "incoming_adk": "5a07a2310ebf2af6b58f2fb780ff99e6a2023a73",
+      "review": "Independent read-only authority review and parent source inspection accept exactly seven bounded integration spans. OAuth settlement is origin/attempt bound; History publication and deletion retain owner/vault generation fences; private Puppy preserves direct routing and disables inactive composers without blocking Stop. Browser fixtures retain root text/voice materials and measured keyboard geometry. Calendar synchronization uses the existing canonical-origin and secret-upsert owners; two function lines are formatter reflow. Budgets, scanner, exclusions and all unrelated finding ceilings remain unchanged. No future-growth waiver.",
+      "source_revision": "e19ce8db5ccb64f4cad868a2196ac4edf182a839",
+      "verification": "124 focused intake cases, 48 nearest authority/cache/cancellation cases, 23 final History/gateway cases, 43 Calendar/runtime cases and 14 Chromium cases pass. Original History code fails three paired refusal/preservation cases. Original browser failures are retained; complete core and hosted CI remain required."
     }
   },
   "review": {

@@ -106,15 +106,16 @@ function PuppyGreeting({ machine, onPick }: { machine: string; onPick: (prompt: 
   );
 }
 
-function PuppyComposer({ busy, stopping, onSend, onStop }: {
+function PuppyComposer({ busy, stopping, disabled, onSend, onStop }: {
   busy: boolean;
   stopping: boolean;
+  disabled: boolean;
   onSend: (message: string) => void;
   onStop: () => void;
 }) {
   const [draft, setDraft] = useState("");
   const submit = () => {
-    if (busy || !draft.trim()) return;
+    if (disabled || busy || !draft.trim()) return;
     onSend(draft);
     setDraft("");
   };
@@ -123,6 +124,7 @@ function PuppyComposer({ busy, stopping, onSend, onStop }: {
       <div data-testid="puppy-chat-composer" className="bottom-chrome-surface flex min-h-[3.75rem] items-center gap-2 rounded-[var(--app-input-radius)] px-2.5 pl-3.5">
         <textarea
           value={draft}
+          disabled={disabled}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); }
@@ -138,7 +140,7 @@ function PuppyComposer({ busy, stopping, onSend, onStop }: {
             <StopSquare className="size-3.5" aria-hidden />
           </ShellActionSurface>
         ) : (
-          <ShellActionSurface type="button" onClick={submit} disabled={!draft.trim()} aria-label="Send to Puppy One" title="Send"
+          <ShellActionSurface type="button" onClick={submit} disabled={disabled || !draft.trim()} aria-label="Send to Puppy One" title="Send"
             className="border-transparent bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]">
             <Send className="size-4" aria-hidden />
           </ShellActionSurface>
@@ -158,11 +160,13 @@ export function PrivatePuppyInferencePanel({
   className,
   conversationId = "puppy-private-relay",
   accessory,
+  composerDisabled = false,
 }: {
   className?: string;
   conversationId?: string;
   /** A control that shares the header row, such as the machine readings sheet. */
   accessory?: ReactNode;
+  composerDisabled?: boolean;
 }) {
   const { user } = useAuth();
   const { vaultOwnerToken } = useVault();
@@ -190,7 +194,7 @@ export function PrivatePuppyInferencePanel({
           deviceId={link?.device?.id ?? null}
           vaultOwnerToken={vaultOwnerToken ?? null}
           chatModel={chatModel?.model ?? null}
-          busy={busy}
+          busy={busy || composerDisabled}
           hasTurns={turns.length > 0}
           machineState={machineState}
           machine={machine}
@@ -211,7 +215,7 @@ export function PrivatePuppyInferencePanel({
         {accessory ? <div className="ml-auto shrink-0">{accessory}</div> : null}
       </div>
       <div ref={scroller} onScroll={onScroll} data-testid="puppy-transcript" className="flex min-h-0 flex-1 flex-col overflow-y-auto px-1 py-4">
-        {turns.length === 0 ? <PuppyGreeting machine={machine} onPick={(prompt) => void send(prompt)} /> : null}
+        {turns.length === 0 ? <PuppyGreeting machine={machine} onPick={(prompt) => { if (!composerDisabled) void send(prompt); }} /> : null}
         <div className="flex flex-col gap-4">
           {turns.map((turn, index) => (
             <PuppyChatMessage
@@ -221,7 +225,7 @@ export function PrivatePuppyInferencePanel({
               stage={stage}
               elapsedSeconds={elapsedSeconds}
               machine={machine}
-              onRetry={turn.failure?.retryable && turn.id === retryableId ? () => void send(turn.text, turn.id) : undefined}
+              onRetry={!composerDisabled && turn.failure?.retryable && turn.id === retryableId ? () => void send(turn.text, turn.id) : undefined}
             />
           ))}
         </div>
@@ -231,7 +235,7 @@ export function PrivatePuppyInferencePanel({
           </p>
         ) : null}
       </div>
-      <PuppyComposer busy={busy} stopping={stage === "stopping"} onSend={(message) => void send(message)} onStop={stop} />
+      <PuppyComposer disabled={composerDisabled} busy={busy} stopping={stage === "stopping"} onSend={(message) => void send(message)} onStop={stop} />
     </div>
   );
 }
