@@ -1,7 +1,7 @@
 # ADR: Continuous living memory and an owner-controlled always-on runtime
 
 Status: **V1 Markdown memory implemented for One chat; locked and closed-app operation remains unimplemented.**
-Updated: 2026-10-11.
+Updated: 2026-10-13.
 
 ## Visual Map
 
@@ -66,7 +66,9 @@ The operator-only `PkmAnswerPaymentService.recover_checkout_event` retrieves the
 
 The shared Profile Memory renderer now persists a source-linked `memory.md` projection inside the existing encrypted `one_living_sources._private.memory_document`. It preserves the complete inventory, record revisions, tombstones and structured source domains. The signature excludes the document's own write revision, so unchanged authoritative readback reuses the document without a write loop. Failed or incomplete reads cannot overwrite it. Name, photo reference and eligible explicitly recorded facts (including age and sex) retain source paths; no age or sex is inferred. Soul.md and `one_memory.markdown` keep their existing authority.
 
-Paid answers use that renderer with their exact approved source projections, never the owner's whole private document. One coherent ciphertext/manifest read is reused per domain. Only approved source segments are decrypted, then exact eligible paths are projected. Encrypted projection caches are reusable only after current content/manifest revisions, exposure posture and ETag are checked; vault and PKM invalidation epochs reject in-flight stale work. Every question still receives its own existing Gemini composition. Local synthetic cold/warm preparation measurements and encrypted-cache regression coverage live in `answer-read-session.test.ts`; they do not measure deployed provider latency.
+Paid answers retrieve stable approved scope slices from that same encrypted projection, never the owner's whole private document. Each slice links its authoritative domain and Soul revisions, exposure metadata, account identity fingerprint where needed, and the UTC derivation date for age. Metadata is checked before reuse; a missing or stale slice is rebuilt from exact authoritative sources through the existing encrypted writer, preserving the full Profile document and unrelated slices. One coherent ciphertext/manifest read is reused per domain. Only approved source segments are decrypted, then exact eligible paths are projected. Vault and PKM invalidation epochs reject in-flight stale work, and failed reads cannot establish absence. Profile Memory refresh rebuilds the same slices after identity edits and across birthdays. Local synthetic cold/warm preparation measurements and encrypted-cache regression coverage live in `answer-read-session.test.ts`; they do not measure deployed provider latency.
+
+Every successful question receives its own Gemini composition, including simple name/age/sex answers. The model receives the exact question, exact approved values, narrow Markdown and bounded source/freshness metadata. Name and photo are never unconditional profile context. Missing any approved fact is unchargeable; reported model gaps or failures remain pending for retry. A request-bound signed receipt from successful Gemini composition is verified before a new staged envelope can enable checkout. It proves the gated call and approved terms, while requester ciphertext remains unreadable to the backend. Historical immutable staged orders retain their existing recovery and financial obligations.
 
 The composer flag defaults off. Live mode also requires the separate provider-review attestation. Application telemetry uses ADK NO_CONTENT and refuses processing if environment overrides would capture messages. This does not establish provider zero retention.
 

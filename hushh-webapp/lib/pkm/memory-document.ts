@@ -28,7 +28,7 @@
  */
 
 import { projectApprovedSoulFacts, SCOPE_PATH_TO_LABEL } from "@/lib/pkm/identity-memory-facts";
-import { readLabelledSoulFacts, soulFactKey } from "@/lib/pkm/soul-labelled-facts";
+import { ageFromDateOfBirth, readLabelledSoulFacts, soulFactKey } from "@/lib/pkm/soul-labelled-facts";
 import { reservedEntryFor } from "@/lib/pkm/reserved-branches";
 import { collectDomainRows, type DomainRows } from "@/lib/pkm/memory-complete-rows";
 import {
@@ -321,6 +321,11 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
   const soulSource = sourceByDomain.get("one_memory");
   const soul = domainData?.one_memory as { markdown?: string; updated_at?: string; _deleted_fact_labels?: string[] } | undefined;
   const superseded = new Map<string, Set<string>>();
+  const suppress = (domain: string, paths: readonly string[]) => {
+    const covered = superseded.get(domain) ?? new Set<string>();
+    for (const path of paths) covered.add(path);
+    superseded.set(domain, covered);
+  };
   if (audience === "self" && soulSource && (soul || soulSource.unavailableReason)) {
     const scopes = [...SCOPE_PATH_TO_LABEL.map(([path]) => `attr.${path.startsWith("profile.") ? "professional" : "identity"}.${path}`), "attr.identity.identity_profile.declared_age"];
     const facts = projectApprovedSoulFacts({ approvedScopes: scopes, markdown: soul?.markdown, now: new Date(builtAt) });
@@ -331,9 +336,11 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
           .map(([path]) => [path.startsWith("profile.") ? "professional" : "identity", path] as const)];
       if (deleted.has("date of birth") || (readLabelledSoulFacts(soul?.markdown).has("date of birth") && !facts.some(fact => fact.path === "declared_age"))) paths.push(["identity", "identity_profile.declared_age"]);
       for (const [domain, path] of paths) {
-        const covered = superseded.get(domain) ?? new Set<string>();
-        covered.add(path); superseded.set(domain, covered);
+        suppress(domain, [path]);
       }
+      const labelled = readLabelledSoulFacts(soul?.markdown);
+      if (labelled.has("sex") || deleted.has("sex")) suppress("identity", ["profile.sex"]);
+      if (labelled.has("legal name") || deleted.has("legal name")) suppress("identity", ["full_name", "legal_name", "name", "profile.full_name", "profile.legal_name", "profile.name"]);
     }
     if (facts.length || soulSource.unavailableReason) {
       excludedDomains.delete("one_memory");
@@ -350,6 +357,26 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
         }
         body.push("");
       }
+    }
+  }
+
+  // Stored age numbers stop being true on a birthday. Both views derive the
+  // current value from the same validated authoritative DOB, and a removed or
+  // invalid Soul DOB prevents fallback to an older structured DOB.
+  if (audience === "self") {
+    suppress("identity", ["identity_profile.declared_age", "profile.age"]);
+    const identitySource = sourceByDomain.get("identity");
+    const identity = domainData?.identity as { identity_profile?: { date_of_birth?: unknown } } | undefined;
+    const labelledBirth = readLabelledSoulFacts(soul?.markdown).get("date of birth")?.value;
+    const birthDeleted = (soul?._deleted_fact_labels ?? []).includes("date of birth");
+    const structuredBirth = identity?.identity_profile?.date_of_birth;
+    const birth = labelledBirth ?? (!birthDeleted && !soulSource?.unavailableReason && !identitySource?.unavailableReason && typeof structuredBirth === "string" ? structuredBirth : null);
+    const age = birthDeleted || soulSource?.unavailableReason ? null : ageFromDateOfBirth(birth, new Date(builtAt));
+    // Soul-derived age is already in the labelled-fact section above.
+    if (age !== null && !labelledBirth && identitySource) {
+      body.push("## Current age", "", `_Derived from validated saved DOB · revision ${identitySource.contentRevision ?? "unknown"}._`, "",
+        "| Fact | Value |", "| --- | --- |", `| declared age | ${age} |`, "");
+      sourceLinks.push({ domain: "identity", path: "identity_profile.date_of_birth", contentRevision: identitySource.contentRevision, manifestRevision: identitySource.manifestRevision ?? null });
     }
   }
 

@@ -42,6 +42,19 @@ class TestTheAnswerIsReturnedAsWritten:
 
 
 class TestFailureIsNotAnAnswer:
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"answer": {"unsupported": "answer"}},
+            {"answer": "Incomplete", "gaps": "Missing sex"},
+            {"answer": "Incomplete", "gaps": [False]},
+            {"answer": "Complete", "covers": {}},
+        ],
+    )
+    async def test_malformed_success_or_coverage_is_rejected_whole(self, payload):
+        with pytest.raises(AnswerComposerError):
+            await composer(payload).compose(question="q", projection=PROJECTION)
+
     async def test_an_empty_answer_is_rejected_whole(self):
         with pytest.raises(AnswerComposerError):
             await composer({"answer": "   "}).compose(question="q", projection=PROJECTION)
@@ -153,3 +166,35 @@ async def test_question_period_survives_without_separate_date_metadata():
     assert question in seen[0]
     assert "Requested period:" not in seen[0]
     assert result["answer"] == "Only the approved January records are available."
+
+
+@pytest.mark.parametrize(
+    "provider,model,mode",
+    [
+        ("openai", "gemini-default", "hushh_managed_vertex"),
+        ("gemini", "gpt-other", "hushh_managed_vertex"),
+        ("gemini", "gemini-other", "hushh_managed_vertex"),
+        ("gemini", "gemini-default", "byok"),
+    ],
+)
+async def test_production_writer_refuses_nonconfigured_gemini_before_dispatch(
+    monkeypatch, provider, model, mode
+):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from hushh_mcp.hushh_adk import single_turn
+    from hushh_mcp.hushh_adk.manifest import ManifestLoader
+
+    gene = SimpleNamespace(
+        id="one_paid_answer_writer",
+        runtime=SimpleNamespace(adk_mode="single_turn"),
+        privacy=SimpleNamespace(plaintext_telemetry=False),
+        model=SimpleNamespace(provider=provider, name=model, mode=mode),
+    )
+    monkeypatch.setattr(ManifestLoader, "load", lambda _path: SimpleNamespace(subagents=[gene]))
+    build = Mock()
+    monkeypatch.setattr(single_turn, "build_single_turn_agent", build)
+    with pytest.raises(AnswerComposerError, match="configured Gemini"):
+        await AnswerComposer().compose(question="How much on travel?", projection=PROJECTION)
+    build.assert_not_called()

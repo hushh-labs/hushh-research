@@ -2,7 +2,7 @@ import "fake-indexeddb/auto";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const transport = vi.hoisted(() => ({ apiFetch: vi.fn(), encrypt: vi.fn() }));
+const transport = vi.hoisted(() => ({ apiFetch: vi.fn(), encrypt: vi.fn(), refreshAccountIdentityShadow: vi.fn() }));
 vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => false } }));
 vi.mock("@/lib/capacitor", () => ({ HushhPersonalKnowledgeModel: {}, HushhVault: { encryptData: transport.encrypt } }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: transport }));
@@ -12,14 +12,14 @@ import { ensureMarketplaceRecipientKey, encryptSliceForRecipient, decryptMarketp
 import { loadMarkdownMemory, clearMarkdownMemory, replaceMarkdownMemoryDocument } from "@/lib/pkm/markdown-memory";
 import { buildMemoryDocument } from "@/lib/pkm/memory-document";
 import { createConsentExportReadSession } from "@/lib/consent/export-builder";
-import { buildAnswerPayload } from "@/lib/answers/answer-delivery-sweep";
+import { buildAnswerPayload, runAnswerDeliverySweep } from "@/lib/answers/answer-delivery-sweep";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { SecureResourceCacheService } from "@/lib/services/secure-resource-cache-service";
 import { CacheService } from "@/lib/services/cache-service";
 import { encryptData, type EncryptedPayload } from "@/lib/vault/encrypt";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { bumpPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
-import type { AnswerableWork } from "@/lib/services/answer-request-service";
+import { AnswerRequestService, type AnswerableWork } from "@/lib/services/answer-request-service";
 
 const OWNER = "answer-read-owner";
 const KEY = "ab".repeat(32);
@@ -88,10 +88,27 @@ function snapshotResponse(stored: StoredDomain, url: string): Response {
 }
 
 function installProvider(state: { stored: StoredDomain }) {
-  transport.apiFetch.mockImplementation(async (url: string) => {
-    if (url.includes("/domain-snapshot/")) return snapshotResponse(state.stored, url);
+  const projectionDomains = new Map<string, StoredDomain>();
+  transport.apiFetch.mockImplementation(async (url: string, options?: { body?: string }) => {
+    if (url.includes("/metadata/") || url.includes("/manifest/")) return new Response("", { status: 404 });
+    if (url.includes("/domain-snapshot/") || url.includes("/domain-data/")) {
+      const domain = new URL(url, "http://localhost").pathname.split("/").at(-1)!;
+      const stored = domain === state.stored.domain ? state.stored : projectionDomains.get(domain);
+      if (!stored) return new Response("", { status: 404 });
+      if (url.includes("/domain-snapshot/")) return snapshotResponse(stored, url);
+      const first = Object.values(stored.segments)[0]!;
+      return Response.json({ encrypted_blob: { ...first, segments: stored.segments }, data_version: stored.revision, storage_mode: "domain", manifest_revision: stored.manifestRevision });
+    }
+    if (url.endsWith("/store-domain")) {
+      const body = JSON.parse(options!.body!);
+      const previous = projectionDomains.get(body.domain);
+      const saved = { domain: body.domain, revision: (previous?.revision ?? 0) + 1, manifestRevision: (previous?.manifestRevision ?? 0) + 1,
+        segments: body.encrypted_blob.segments, paths: body.manifest.paths };
+      projectionDomains.set(body.domain, saved);
+      return Response.json({ success: true, data_version: saved.revision, updated_at: "2026-10-13T00:00:00Z" });
+    }
     if (url.endsWith("/compose")) return Response.json({
-      answerMode: "agent", answer: "A readable prepared answer.", covers: [], gaps: [],
+      answerMode: "agent", compositionReceipt: "synthetic-composition-receipt", answer: "A readable prepared answer.", covers: [], gaps: [],
     });
     throw new Error("Unexpected transport route");
   });
@@ -116,6 +133,7 @@ async function rawCache(): Promise<unknown[]> {
 
 beforeEach(async () => {
   transport.apiFetch.mockReset();
+  transport.refreshAccountIdentityShadow.mockReset();
   transport.encrypt.mockImplementation(({ plaintext, keyHex }) => encryptData(plaintext, keyHex));
   clearMarkdownMemory();
   CacheService.getInstance().clear();
@@ -124,9 +142,323 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.useRealTimers();
   clearMarkdownMemory();
   vi.restoreAllMocks();
   await SecureResourceCacheService.invalidateUser(OWNER);
+});
+
+/** Only transport/provider replies are synthetic; production reads, writes,
+ * composition service, scope retrieval and recipient encryption remain real. */
+function applicationTransport(params: {
+  work: AnswerableWork;
+  domains?: StoredDomain[];
+  compose?: (projection: Record<string, unknown>) => Response | Promise<Response>;
+}) {
+  const domains = new Map((params.domains ?? []).map(domain => [domain.domain, domain]));
+  const writes: Record<string, unknown>[] = [];
+  const projections: Record<string, unknown>[] = [];
+  const staged: { envelope: Parameters<typeof decryptMarketplaceEnvelope>[0]["envelope"]; hasContent: boolean }[] = [];
+  transport.refreshAccountIdentityShadow.mockImplementation(async (idToken: string, options: { force?: boolean }) => {
+    expect(idToken).toBe("synthetic-firebase-token");
+    expect(options).toEqual({ force: true });
+    return Response.json({ identity: {
+      user_id: OWNER, display_name: params.work.ownerIdentity?.displayName,
+      photo_url: params.work.ownerIdentity?.photoUrl,
+    } });
+  });
+  transport.apiFetch.mockImplementation(async (url: string, options?: { body?: string }) => {
+    if (url.endsWith("/answerable")) return Response.json({ requests: [params.work] });
+    if (url.endsWith("/compose")) {
+      const projection = JSON.parse(options!.body!).projection as Record<string, unknown>;
+      projections.push(projection);
+      return params.compose?.(projection) ?? Response.json({ answerMode: "agent", compositionReceipt: "synthetic-composition-receipt", answer: "Gemini returned this exact readable answer.", covers: params.work.approvedScopes, gaps: [] });
+    }
+    if (url.endsWith("/deliver")) {
+      staged.push(JSON.parse(options!.body!));
+      return Response.json({ delivered: true });
+    }
+    if (url.includes("/metadata/") || url.includes("/manifest/")) return new Response("", { status: 404 });
+    if (url.endsWith("/store-domain")) {
+      const body = JSON.parse(options!.body!); writes.push(body);
+      const previous = domains.get(body.domain);
+      if (body.domain === "one_memory") expect(body.expected_data_version).toBe(previous?.revision);
+      const saved: StoredDomain = {
+        domain: body.domain, revision: (previous?.revision ?? 0) + 1,
+        manifestRevision: (previous?.manifestRevision ?? 0) + 1,
+        segments: body.encrypted_blob.segments,
+        paths: body.manifest.paths,
+      };
+      domains.set(body.domain, saved);
+      return Response.json({ success: true, data_version: saved.revision, updated_at: new Date().toISOString() });
+    }
+    if (url.includes("/domain-snapshot/") || url.includes("/domain-data/")) {
+      const domain = new URL(url, "http://localhost").pathname.split("/").at(-1)!;
+      const stored = domains.get(domain);
+      if (!stored) return new Response("", { status: 404 });
+      if (url.includes("/domain-snapshot/")) return snapshotResponse(stored, url);
+      const first = Object.values(stored.segments)[0]!;
+      return Response.json({ encrypted_blob: { ...first, segments: stored.segments }, data_version: stored.revision, storage_mode: "domain", manifest_revision: stored.manifestRevision });
+    }
+    throw new Error(`Unexpected application route ${url}`);
+  });
+  return { domains, writes, projections, staged };
+}
+
+async function applicationWork(scopes: string[], ownerIdentity: AnswerableWork["ownerIdentity"] = {
+  displayName: "Synthetic Public Name", email: "unapproved@example.test", photoUrl: "https://example.test/canonical-profile.png",
+}): Promise<AnswerableWork> {
+  const recipientKey = await ensureMarketplaceRecipientKey("synthetic-application-requester");
+  return {
+    requestId: "11111111-2222-3333-4444-555555555555", question: "What exact approved facts did I request?",
+    periodStart: null, periodEnd: null, approvedScopes: scopes, scopeLabels: {}, answerDeadlineAt: null,
+    requesterUserId: "synthetic-application-requester", recipientKey, ownerIdentity,
+  };
+}
+
+function expectApprovedSourceMetadata(projection: Record<string, unknown>, scopes: string[]) {
+  const freshness = projection.sourceFreshness as Record<string, {
+    sources: Record<string, unknown>[]; derivedOn: string | null; builtAt: string;
+  }>;
+  expect(Object.keys(freshness).sort()).toEqual([...scopes].sort());
+  for (const [scope, entry] of Object.entries(freshness)) {
+    expect(Object.keys(entry).sort()).toEqual(["builtAt", "derivedOn", "sources"]);
+    for (const source of entry.sources) {
+      expect(Object.keys(source).sort()).toEqual(["absent", "contentRevision", "domain", "manifestRevision"]);
+      const allowedDomains = scope.endsWith("profile_photo_url") ? ["identity"] : [scope.split(".")[1], "one_memory"];
+      expect(allowedDomains).toContain(source.domain);
+    }
+  }
+  const serialized = JSON.stringify(freshness);
+  for (const excluded of ["accountFingerprint", "manifestFingerprint", "readablePaths", "blockedPaths", "hasCanonicalDob"]) expect(serialized).not.toContain(excluded);
+}
+
+describe("actual application Gemini preparation and encrypted staging", () => {
+  const NAME = "attr.identity.identity_profile.full_name";
+  const AGE = "attr.identity.identity_profile.declared_age";
+  const SEX = "attr.identity.identity_profile.sex";
+  const PHOTO = "attr.identity.identity_profile.profile_photo_url";
+  const sweep = () => runAnswerDeliverySweep({ ...PARAMS, firebaseIdToken: "synthetic-firebase-token" });
+
+  it.each([{ scopes: [NAME] }, { scopes: [NAME, PHOTO] }])("prepares a profile-only owner through Gemini and stages a requester-only answer ($scopes)", async ({ scopes }) => {
+    const work = await applicationWork(scopes);
+    const state = applicationTransport({ work });
+    expect(await sweep()).toMatchObject({ delivered: 1, empty: 0, retry: 0 });
+    expect(state.projections).toHaveLength(1);
+    expectApprovedSourceMetadata(state.projections[0]!, scopes);
+    expect(JSON.stringify(state.projections[0])).toContain("Synthetic Public Name");
+    expect(JSON.stringify(state.projections[0])).not.toContain("unapproved@example.test");
+    expect(JSON.stringify(state.projections[0])).not.toContain("https://example.test/canonical-profile.png");
+    expect(state.staged).toHaveLength(1);
+    expect(state.staged[0]!.hasContent).toBe(true);
+    expect(JSON.stringify(state.staged)).not.toContain("Synthetic Public Name");
+    expect(JSON.stringify(state.staged)).not.toContain("Gemini returned this exact readable answer");
+    const readable = await decryptMarketplaceEnvelope({ userId: work.requesterUserId, envelope: state.staged[0]!.envelope });
+    expect(readable).toMatchObject({ answerMode: "agent", answer: "Gemini returned this exact readable answer." });
+    expect(readable).toMatchObject(scopes.includes(PHOTO) ? { ownerIdentity: { photoUrl: work.ownerIdentity!.photoUrl } } : { approvedScopes: [NAME] });
+    if (!scopes.includes(PHOTO)) expect(readable).not.toHaveProperty("ownerIdentity.photoUrl");
+    await expect(decryptMarketplaceEnvelope({ userId: "another-account", envelope: state.staged[0]!.envelope })).rejects.toThrow("Recipient key unavailable");
+    expect(transport.apiFetch.mock.calls.some(([url]) => /kyc|onboarding/.test(String(url)))).toBe(false);
+  });
+
+  it.each([AGE, SEX, NAME])("cold-reads encrypted saved facts and gives Gemini only %s", async scope => {
+    const soul = await storedDomain({ domain: "one_memory", data: { root: { markdown: "- Legal name: Saved Legal Name\n- Date of birth: 1998-03-14\n- Sex: female\n\nUNAPPROVED_SOUL_PROSE", private_sibling: "UNAPPROVED_SIBLING" } }, approved: {}, revision: 12 });
+    const work = await applicationWork([scope]);
+    const state = applicationTransport({ work, domains: [soul] });
+    clearMarkdownMemory(); CacheService.getInstance().clear();
+    expect(await sweep()).toMatchObject({ delivered: 1, empty: 0, retry: 0 });
+    expect(state.projections).toHaveLength(1);
+    expectApprovedSourceMetadata(state.projections[0]!, [scope]);
+    const input = JSON.stringify(state.projections[0]);
+    for (const unapproved of ["Synthetic Public Name", "unapproved@example.test", "canonical-profile.png", "1998-03-14", "UNAPPROVED_SOUL_PROSE", "UNAPPROVED_SIBLING"]) expect(input).not.toContain(unapproved);
+    expect(input).toContain(scope === NAME ? "Saved Legal Name" : scope === SEX ? "female" : "declared_age");
+    if (scope !== NAME) expect(input).not.toContain("Saved Legal Name");
+    if (scope !== SEX) expect(input).not.toContain("female");
+    const readable = await decryptMarketplaceEnvelope({ userId: work.requesterUserId, envelope: state.staged[0]!.envelope });
+    expect(readable).toMatchObject({ answerMode: "agent", sourceRevisions: { [scope]: 12 } });
+    expect(JSON.stringify(state.writes)).not.toContain("Saved Legal Name");
+    expect(JSON.stringify(await rawCache())).not.toContain("Saved Legal Name");
+  });
+
+  it.each([AGE, SEX, "attr.preferences.favorite_food", "attr.identity.employer.name"])("records confirmed missing %s as unchargeable despite account identity", async scope => {
+    const work = await applicationWork([scope]);
+    const state = applicationTransport({ work });
+    expect(await sweep()).toMatchObject({ delivered: 0, empty: 1, retry: 0 });
+    expect(state.projections).toHaveLength(0);
+    expect(state.staged).toHaveLength(1);
+    expect(state.staged[0]!.hasContent).toBe(false);
+    expect(transport.apiFetch.mock.calls.some(([url]) => String(url).endsWith("/payment/checkout"))).toBe(false);
+  });
+
+  it.each([PHOTO, "attr.preferences.favorite_food"])("does not sell an approved name when the other approved %s is missing", async missing => {
+    const work = await applicationWork([NAME, missing], {
+      displayName: "Synthetic Public Name", email: "unapproved@example.test",
+      photoUrl: missing === PHOTO ? null : "https://example.test/unapproved-photo.png",
+    });
+    const state = applicationTransport({ work });
+    expect(await sweep()).toMatchObject({ delivered: 0, empty: 1, retry: 0 });
+    expect(state.projections).toHaveLength(0);
+    expect(state.staged).toHaveLength(1);
+    expect(state.staged[0]!.hasContent).toBe(false);
+    const checked = await decryptMarketplaceEnvelope({ userId: work.requesterUserId, envelope: state.staged[0]!.envelope });
+    expect(checked).toMatchObject({ answerMode: "projection", answer: null, unavailableScopes: [] });
+    expect(transport.apiFetch.mock.calls.some(([url]) => String(url).endsWith("/payment/checkout"))).toBe(false);
+  });
+
+  it("keeps Gemini failure retryable and stages only after a later successful composition", async () => {
+    const work = await applicationWork([NAME]);
+    let succeed = false;
+    const state = applicationTransport({ work, compose: () => succeed
+      ? Response.json({ answerMode: "agent", compositionReceipt: "synthetic-composition-receipt", answer: "A later Gemini answer.", covers: [NAME], gaps: [] })
+      : new Response("", { status: 503 }) });
+    expect(await sweep()).toMatchObject({ delivered: 0, empty: 0, retry: 1 });
+    expect(state.staged).toHaveLength(0);
+    succeed = true;
+    expect(await sweep()).toMatchObject({ delivered: 1, empty: 0, retry: 0 });
+    expect(state.projections).toHaveLength(2);
+    expect(await decryptMarketplaceEnvelope({ userId: work.requesterUserId, envelope: state.staged[0]!.envelope })).toMatchObject({ answer: "A later Gemini answer.", answerMode: "agent" });
+  });
+
+  it("refuses a readable-looking reply without authenticated Gemini composition evidence", async () => {
+    const work = await applicationWork([NAME]);
+    const state = applicationTransport({ work, compose: () => Response.json({ answerMode: "agent", answer: "An unproven direct answer.", covers: [NAME], gaps: [] }) });
+    expect(await sweep()).toMatchObject({ delivered: 0, empty: 0, retry: 1 });
+    expect(state.staged).toHaveLength(0);
+    expect(transport.apiFetch.mock.calls.some(([url]) => String(url).endsWith("/payment/checkout"))).toBe(false);
+  });
+
+  it("keeps a Gemini-reported gap pending without staging or checkout", async () => {
+    const work = await applicationWork([NAME]);
+    const state = applicationTransport({ work, compose: () => Response.json({
+      answerMode: "agent", compositionReceipt: "synthetic-composition-receipt",
+      answer: "I can only answer part of this question.", covers: [NAME], gaps: ["The question is not fully answered."],
+    }) });
+    expect(await sweep()).toMatchObject({ delivered: 0, empty: 0, retry: 1 });
+    expect(state.projections).toHaveLength(1);
+    expect(state.staged).toHaveLength(0);
+    expect(transport.apiFetch.mock.calls.some(([url]) => String(url).endsWith("/payment/checkout"))).toBe(false);
+  });
+
+  it.each(["edit", "delete"])("withdraws Gemini's in-flight answer after an owner %s and retries against the saved source", async action => {
+    const initialMarkdown = "- Sex: female\n";
+    const soul = await storedDomain({ domain: "one_memory", data: { root: {
+      markdown: initialMarkdown, private_sibling: "PRESERVED_PRIVATE_SOURCE",
+    } }, approved: {}, revision: 12 });
+    const work = await applicationWork([SEX]);
+    let release!: (response: Response) => void;
+    let retry = false;
+    const state = applicationTransport({ work, domains: [soul], compose: () => retry
+      ? Response.json({ answerMode: "agent", compositionReceipt: "synthetic-composition-receipt", answer: "Gemini composed the edited sex: male.", covers: [SEX], gaps: [] })
+      : new Promise<Response>(resolve => { release = resolve; }) });
+    const pending = sweep();
+    await vi.waitFor(() => expect(state.projections).toHaveLength(1));
+    expect(JSON.stringify(state.projections[0])).toContain("female");
+    expect(await replaceMarkdownMemoryDocument({
+      ...PARAMS, expectedMarkdown: initialMarkdown, expectedPersisted: true,
+      markdown: action === "edit" ? "- Sex: male\n" : "",
+      beforeEffect: async () => {},
+    })).toMatchObject({ success: true });
+    release(Response.json({ answerMode: "agent", compositionReceipt: "synthetic-composition-receipt", answer: "STALE_FEMALE_GEMINI_ANSWER", covers: [SEX], gaps: [] }));
+    expect(await pending).toMatchObject({ delivered: 0, empty: 0, retry: 0, skipped: 1 });
+    expect(state.staged).toHaveLength(0);
+    expect(JSON.stringify(await rawCache())).not.toContain("STALE_FEMALE_GEMINI_ANSWER");
+    retry = true;
+    clearMarkdownMemory(); CacheService.getInstance().clear();
+    expect(await sweep()).toMatchObject(action === "edit"
+      ? { delivered: 1, empty: 0, retry: 0 }
+      : { delivered: 0, empty: 1, retry: 0 });
+    expect(state.projections).toHaveLength(action === "edit" ? 2 : 1);
+    expect(state.staged).toHaveLength(1);
+    expect(state.staged[0]!.hasContent).toBe(action === "edit");
+    const readable = await decryptMarketplaceEnvelope({ userId: work.requesterUserId, envelope: state.staged[0]!.envelope });
+    expect(JSON.stringify(readable)).not.toContain("female");
+    expect(JSON.stringify(readable)).not.toContain("PRESERVED_PRIVATE_SOURCE");
+    if (action === "edit") {
+      expect(JSON.stringify(state.projections[1])).toContain("male");
+      expect(readable).toMatchObject({ answerMode: "agent", answer: "Gemini composed the edited sex: male.", sourceRevisions: { [SEX]: 13 } });
+    } else expect(readable).toMatchObject({ answerMode: "projection", answer: null });
+    const current = await PersonalKnowledgeModelService.loadDomainSnapshot({ ...PARAMS, domain: "one_memory", force: true });
+    expect(current.data).toMatchObject({ private_sibling: "PRESERVED_PRIVATE_SOURCE" });
+    expect(JSON.stringify(state.writes)).not.toContain("PRESERVED_PRIVATE_SOURCE");
+  });
+
+  it.each([NAME, PHOTO])("withdraws an account-fallback %s answer changed while Gemini composes", async scope => {
+    const work = await applicationWork([scope]);
+    let release!: (response: Response) => void;
+    let retry = false;
+    const state = applicationTransport({ work, compose: () => retry
+      ? Response.json({ answerMode: "agent", compositionReceipt: "synthetic-composition-receipt", answer: "Gemini composed the current profile.", covers: [scope], gaps: [] })
+      : new Promise<Response>(resolve => { release = resolve; }) });
+    const pending = sweep();
+    await vi.waitFor(() => expect(state.projections).toHaveLength(1));
+    work.ownerIdentity = { displayName: "Edited Public Name", photoUrl: "https://example.test/edited-profile.png" };
+    release(Response.json({ answerMode: "agent", compositionReceipt: "synthetic-composition-receipt", answer: "STALE_PROFILE_GEMINI_ANSWER", covers: [scope], gaps: [] }));
+    expect(await pending).toMatchObject({ delivered: 0, empty: 0, retry: 0, skipped: 1 });
+    expect(state.staged).toHaveLength(0);
+    expect(transport.refreshAccountIdentityShadow).toHaveBeenCalledWith("synthetic-firebase-token", { force: true });
+    retry = true;
+    expect(await sweep()).toMatchObject({ delivered: 1, empty: 0, retry: 0 });
+    expect(state.projections).toHaveLength(2);
+    expect(state.staged).toHaveLength(1);
+    const readable = await decryptMarketplaceEnvelope({ userId: work.requesterUserId, envelope: state.staged[0]!.envelope });
+    expect(readable).toMatchObject({ answerMode: "agent", answer: "Gemini composed the current profile." });
+    expect(JSON.stringify(readable)).not.toContain("STALE_PROFILE_GEMINI_ANSWER");
+    if (scope === NAME) expect(JSON.stringify(readable)).toContain("Edited Public Name");
+    else expect(readable).toMatchObject({ ownerIdentity: { photoUrl: "https://example.test/edited-profile.png", displayName: null } });
+    expect(JSON.stringify(await rawCache())).not.toContain("Edited Public Name");
+  });
+
+  it.each(["composition", "sealing"])("rechecks remote source revisions after asynchronous %s before staging", async phase => {
+    const soul = await storedDomain({ domain: "one_memory", data: { root: { markdown: "- Sex: female\n" } }, approved: {}, revision: 12 });
+    const work = await applicationWork([SEX]);
+    let releaseComposition!: (response: Response) => void;
+    let releaseSealing!: () => void;
+    let sealingStarted = false;
+    let retry = false;
+    const state = applicationTransport({ work, domains: [soul], compose: () => {
+      if (phase === "composition" && !retry) return new Promise<Response>(resolve => { releaseComposition = resolve; });
+      return Response.json({ answerMode: "agent", compositionReceipt: "synthetic-composition-receipt", answer: retry ? "Gemini composed the current remote sex: male." : "STALE_REMOTE_GEMINI_ANSWER", covers: [SEX], gaps: [] });
+    } });
+    const realEncrypt = crypto.subtle.encrypt.bind(crypto.subtle);
+    const sealing = vi.spyOn(crypto.subtle, "encrypt").mockImplementation(async (algorithm, key, data) => {
+      const plaintext = new TextDecoder().decode(data);
+      if (phase === "sealing" && plaintext.includes('"answer":"STALE_REMOTE_GEMINI_ANSWER"')) {
+        sealingStarted = true;
+        await new Promise<void>(resolve => { releaseSealing = resolve; });
+      }
+      return realEncrypt(algorithm, key, data);
+    });
+    const pending = sweep();
+    await vi.waitFor(() => phase === "composition"
+      ? expect(state.projections).toHaveLength(1) : expect(sealingStarted).toBe(true));
+    // Another device changes the encrypted source without bumping this
+    // browser's local epoch. Only the authoritative revision read sees it.
+    state.domains.set("one_memory", await storedDomain({ domain: "one_memory", data: { root: { markdown: "- Sex: male\n" } }, approved: {}, revision: 13, manifestRevision: 5 }));
+    if (phase === "composition") releaseComposition(Response.json({ answerMode: "agent", compositionReceipt: "synthetic-composition-receipt", answer: "STALE_REMOTE_GEMINI_ANSWER", covers: [SEX], gaps: [] }));
+    else releaseSealing();
+    expect(await pending).toMatchObject({ delivered: 0, empty: 0, skipped: 1 });
+    expect(state.staged).toHaveLength(0);
+    sealing.mockRestore();
+    retry = true;
+    expect(await sweep()).toMatchObject({ delivered: 1, empty: 0, skipped: 0, retry: 0 });
+    expect(JSON.stringify(state.projections[1])).toContain("male");
+    expect(JSON.stringify(state.projections[1])).not.toContain("female");
+    expect(await decryptMarketplaceEnvelope({ userId: work.requesterUserId, envelope: state.staged[0]!.envelope })).toMatchObject({ answer: "Gemini composed the current remote sex: male.", sourceRevisions: { [SEX]: 13 } });
+    expect(JSON.stringify(await rawCache())).not.toContain("STALE_REMOTE_GEMINI_ANSWER");
+  });
+
+  it.each(["vault lock", "account switch"])("cannot stage an in-flight Gemini answer after %s", async () => {
+    const work = await applicationWork([NAME]);
+    let release!: (response: Response) => void;
+    const state = applicationTransport({ work, compose: () => new Promise<Response>(resolve => { release = resolve; }) });
+    const pending = sweep();
+    await vi.waitFor(() => expect(state.projections).toHaveLength(1));
+    advanceVaultSessionEpoch();
+    release(Response.json({ answerMode: "agent", compositionReceipt: "synthetic-composition-receipt", answer: "PRIVATE_PENDING_ANSWER", covers: [NAME], gaps: [] }));
+    await pending;
+    expect(state.staged).toHaveLength(0);
+    expect(JSON.stringify(await rawCache())).not.toContain("PRIVATE_PENDING_ANSWER");
+  });
 });
 
 describe("actual paid-answer coherent reads and encrypted projection reuse", () => {
@@ -304,17 +636,14 @@ describe("actual paid-answer coherent reads and encrypted projection reuse", () 
   });
 
   it("prepares a name-only answer after confirmed source absence without inventing profile facts", async () => {
-    transport.apiFetch.mockImplementation(async (url: string) => {
-      if (url.includes("/domain-snapshot/")) return new Response("", { status: 404 });
-      if (url.endsWith("/compose")) return Response.json({ answerMode: "agent", answer: "My name is Synthetic Public Name.", covers: [], gaps: [] });
-      throw new Error("Unexpected transport route");
-    });
-    const result = await buildAnswerPayload({
+    const work: AnswerableWork = {
       requestId: "11111111-2222-3333-4444-555555555555", question: "What is your name?",
       periodStart: null, periodEnd: null, approvedScopes: [NAME_SCOPE], scopeLabels: {}, answerDeadlineAt: null,
       requesterUserId: "synthetic-requester", recipientKey: { keyId: "fixture-key-id", publicKeyJwk: {} },
       ownerIdentity: { displayName: "Synthetic Public Name" },
-    }, { ...PARAMS, ownerIdentity: { displayName: "Wrong caller name" } }, "synthetic-firebase-token");
+    };
+    applicationTransport({ work, compose: () => Response.json({ answerMode: "agent", compositionReceipt: "synthetic-composition-receipt", answer: "My name is Synthetic Public Name.", covers: [], gaps: [] }) });
+    const result = await buildAnswerPayload(work, { ...PARAMS, ownerIdentity: { displayName: "Wrong caller name" } }, "synthetic-firebase-token");
     expect(result.hasContent).toBe(true);
     expect(result.payload.answer).toBe("My name is Synthetic Public Name.");
     expect(result.payload.unavailableScopes).toEqual([]);
@@ -332,8 +661,8 @@ describe("actual paid-answer coherent reads and encrypted projection reuse", () 
 
   it("measures cold/warm actual answer preparation and still composes each question separately", async () => {
     const state = { stored: await storedDomain({
-      data: { profile: { name: "Synthetic Ava", age: 35, sex: "female", photo: "https://example.test/avatar.png", private_note: "unapproved note" } },
-      approved: { "profile.name": "profile", "profile.age": "profile", "profile.sex": "profile", "profile.photo": "profile", "profile.private_note": "profile" },
+      data: { profile: { name: "Synthetic Ava", age: 35, sex: "female", photo: "https://example.test/avatar.png", private_note: "unapproved note" }, identity_profile: { date_of_birth: "1991-01-01" } },
+      approved: { "profile.name": "profile", "profile.age": "profile", "profile.sex": "profile", "profile.photo": "profile", "profile.private_note": "profile", "identity_profile.date_of_birth": "identity_profile" },
     }) };
     installProvider(state);
     const decrypt = vi.spyOn(PersonalKnowledgeModelService, "decryptDomainSnapshot");
@@ -346,7 +675,10 @@ describe("actual paid-answer coherent reads and encrypted projection reuse", () 
     const coldStart = performance.now();
     const cold = await buildAnswerPayload(work, PARAMS, "synthetic-firebase-token");
     const coldMs = performance.now() - coldStart;
-    const coldDecryptions = decrypt.mock.calls.length;
+    const sourceDecryptions = () => decrypt.mock.calls.filter(([params]) => params.snapshot.domain === "identity").length;
+    const coldDecryptions = sourceDecryptions();
+    const sourceReads = () => transport.apiFetch.mock.calls.filter(([url]) => String(url).includes("/domain-snapshot/") && String(url).includes("/identity")).length;
+    const coldReads = sourceReads();
     const warmStart = performance.now();
     const warm = await buildAnswerPayload({ ...work, requestId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" }, PARAMS, "synthetic-firebase-token");
     const warmMs = performance.now() - warmStart;
@@ -359,16 +691,17 @@ describe("actual paid-answer coherent reads and encrypted projection reuse", () 
     expect(warm.payload.memory).not.toContain("unapproved note");
     expect(warm.payload.approvedInformation).toEqual(cold.payload.approvedInformation);
     expect(coldDecryptions).toBe(1);
-    expect(decrypt).toHaveBeenCalledTimes(1);
-    expect(transport.apiFetch.mock.calls.filter(([url]) => String(url).includes("/domain-snapshot/"))).toHaveLength(2);
+    expect(sourceDecryptions()).toBe(coldDecryptions);
+    expect(sourceReads()).toBeGreaterThan(coldReads);
     const compositionBodies = transport.apiFetch.mock.calls.filter(([url]) => String(url).endsWith("/compose"))
       .map(([, options]) => JSON.parse(options.body));
     expect(compositionBodies).toHaveLength(2);
     expect(JSON.stringify(compositionBodies)).not.toContain("unapproved note");
+    expect(JSON.stringify(compositionBodies)).not.toContain("1991-01-01");
     // Timings are observations, not fragile machine-speed assertions. The
     // counted source decryptions prove the actual warm optimization.
     if (process.env.HUSHH_MEASURE_ANSWER_PREPARATION === "1") process.stdout.write(
-      `answer preparation ciphertext fixture ${JSON.stringify({ coldMs, warmMs, coldDecryptions, warmSourceDecryptions: decrypt.mock.calls.length - coldDecryptions })}\n`,
+      `answer preparation ciphertext fixture ${JSON.stringify({ coldMs, warmMs, coldDecryptions, warmSourceDecryptions: sourceDecryptions() - coldDecryptions })}\n`,
     );
   });
 });
@@ -378,21 +711,33 @@ it("round-trips existing-owner edits through encrypted storage, cold readback an
   let soul = await storedDomain({ domain: "one_memory", data: { root: initial }, approved: {}, revision: 1 });
   const legacy = await storedDomain({ data: { identity_profile: { full_name: "Old name", sex: "legacy sex", declared_age: 46 } }, approved: { "identity_profile.full_name": "identity_profile", "identity_profile.sex": "identity_profile", "identity_profile.declared_age": "identity_profile" }, revision: 2 });
   const writes: unknown[] = [];
+  let scopeProjection: StoredDomain | null = null;
   transport.apiFetch.mockImplementation(async (url: string, options?: { body?: string }) => {
     if (url.includes("/metadata/") || url.includes("/manifest/")) return new Response("", { status: 404 });
     if (url.endsWith("/store-domain")) {
       const body = JSON.parse(options!.body!); writes.push(body);
-      expect(body.domain).toBe("one_memory");
-      expect(body.expected_data_version).toBe(soul.revision);
-      soul = { domain: "one_memory", revision: soul.revision + 1, manifestRevision: soul.manifestRevision + 1, segments: body.encrypted_blob.segments, paths: body.manifest.paths };
-      return Response.json({ success: true, data_version: soul.revision, updated_at: "2026-10-13T00:00:00Z" });
+      if (body.domain === "one_memory") {
+        expect(body.expected_data_version).toBe(soul.revision);
+        soul = { domain: "one_memory", revision: soul.revision + 1, manifestRevision: soul.manifestRevision + 1, segments: body.encrypted_blob.segments, paths: body.manifest.paths };
+        return Response.json({ success: true, data_version: soul.revision, updated_at: "2026-10-13T00:00:00Z" });
+      }
+      expect(body.domain).toBe("one_living_sources");
+      scopeProjection = { domain: body.domain, revision: (scopeProjection?.revision ?? 0) + 1, manifestRevision: (scopeProjection?.manifestRevision ?? 0) + 1, segments: body.encrypted_blob.segments, paths: body.manifest.paths };
+      return Response.json({ success: true, data_version: scopeProjection.revision, updated_at: "2026-10-13T00:00:00Z" });
     }
-    if (url.includes("/domain-snapshot/")) return snapshotResponse(url.endsWith("/one_memory") ? soul : legacy, url);
+    if (url.includes("/domain-snapshot/")) {
+      const domain = new URL(url, "http://localhost").pathname.split("/").at(-1)!;
+      const stored = domain === "one_memory" ? soul : domain === "identity" ? legacy : scopeProjection;
+      return stored ? snapshotResponse(stored, url) : new Response("", { status: 404 });
+    }
     if (url.includes("/domain-data/")) {
-      const first = Object.values(soul.segments)[0]!;
-      return Response.json({ encrypted_blob: { ...first, segments: soul.segments }, data_version: soul.revision, storage_mode: "domain", manifest_revision: soul.manifestRevision });
+      const domain = new URL(url, "http://localhost").pathname.split("/").at(-1)!;
+      const stored = domain === "one_memory" ? soul : domain === "identity" ? legacy : scopeProjection;
+      if (!stored) return new Response("", { status: 404 });
+      const first = Object.values(stored.segments)[0]!;
+      return Response.json({ encrypted_blob: { ...first, segments: stored.segments }, data_version: stored.revision, storage_mode: "domain", manifest_revision: stored.manifestRevision });
     }
-    if (url.endsWith("/compose")) return Response.json({ answerMode: "agent", answer: "Synthetic Ava's approved identity facts.", covers: [], gaps: [] });
+    if (url.endsWith("/compose")) return Response.json({ answerMode: "agent", compositionReceipt: "synthetic-composition-receipt", answer: "Synthetic Ava's approved identity facts.", covers: [], gaps: [] });
     throw new Error(`Unexpected transport route ${url}`);
   });
   const memory = await loadMarkdownMemory({ ...PARAMS, forceRefresh: true });

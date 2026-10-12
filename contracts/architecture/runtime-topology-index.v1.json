@@ -1487,7 +1487,7 @@
       "id": "pkm_answer_deliveries",
       "lifecycle_status": "customer0",
       "owner": "security-audit",
-      "primary_access_path": "The unlocked owner device prepares from exact approved PKM/account facts before checkout, explicitly sends the approved plaintext transiently to the gated backend/Vertex composer, and seals the readable answer to the requester ECDH P-256 key. Ciphertext is staged before payment and requester access is released only after verified settlement; historical paid requests retain manual preparation/recovery."
+      "primary_access_path": "The unlocked owner device retrieves exact approved scope slices from the shared encrypted source-linked memory.md, refreshing stale/missing slices from authoritative PKM/account facts before absence. Every successful answer is composed by consent-gated Gemini with approved values and freshness metadata only, then sealed to the requester ECDH P-256 key. New staging requires a request-bound composition receipt; requester access is released only after verified settlement. Historical immutable staged orders retain recovery and settlement eligibility."
     },
     {
       "data_class": "workflow_state",
@@ -6246,9 +6246,9 @@
   "source_sha256": {
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
     "action_gateway": "b57ae04f7519a4ed4e3df054ce393d2ad6f004ee6b8be6c99fb8641fb9f22179",
-    "agent_registry": "f6ab451b81769903dc0a43c7ee52e0d97d17eb96fe618dc1179e5520fa39c35b",
+    "agent_registry": "5d0ad715c65b067418aff45fef0062f3804001998c8f820895f96d4ab3ebd956",
     "cache_manifest": "3edd997108a71695e9f867f56b34e9238ceb6fc47da0639236cd8b201ecbc647",
-    "data_plane": "32093543857b5a4e6055de544e14ba218c40eb638637ed72b0cb1cd18e82271c",
+    "data_plane": "978e7c4afb3655e7a0949683c24c0086b4d2e7fa49a07f25f2414a0151746515",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "084c4287101963ac51c7c2e589ab3fe46be4294017dcfc093150a906de8bce24",
     "route_index": "050835fe6b71712f753412281ec9218ea0d0223106d757ad9b54a79a2faa4efd",

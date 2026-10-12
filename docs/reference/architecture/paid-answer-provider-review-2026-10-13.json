@@ -99,5 +99,82 @@
       }
     ]
   },
-  "mutationsPerformed": []
+  "mutationsPerformed": [],
+  "stripe": {
+    "observedAt": "2026-10-12T23:35:36.645062+00:00",
+    "project": "hushh-pda-uat",
+    "keySecretName": "STRIPE_LIVE_SECRET_KEY",
+    "mutationsPerformed": [],
+    "secretAccess": {
+      "ok": true,
+      "liveKeyFormat": true
+    },
+    "balanceModeProbe": {
+      "status": 200,
+      "livemode": true
+    },
+    "platformReadinessProbe": {
+      "status": 200,
+      "charges_enabled": true,
+      "payouts_enabled": true,
+      "details_submitted": true
+    },
+    "sharedWebhookProbe": {
+      "status": 200,
+      "hasMore": false,
+      "matchingEndpoints": [
+        {
+          "url": "https://api.uat.hushh.ai/api/payments/stripe/webhook",
+          "livemode": true,
+          "status": "enabled",
+          "enabled_events": [
+            "checkout.session.completed",
+            "checkout.session.async_payment_succeeded",
+            "checkout.session.expired",
+            "invoice.paid",
+            "customer.subscription.updated",
+            "customer.subscription.deleted"
+          ]
+        }
+      ]
+    }
+  },
+  "officialCacheSchemaReview": {
+    "observedAt": "2026-10-12T23:51:54.008548+00:00",
+    "sources": [
+      "https://aiplatform.googleapis.com/$discovery/rest?version=v1",
+      "https://aiplatform.googleapis.com/$discovery/rest?version=v1beta1"
+    ],
+    "versions": [
+      "v1",
+      "v1beta1"
+    ],
+    "retentionTypes": [
+      "RETENTION_TYPE_UNSPECIFIED",
+      "EPHEMERAL",
+      "DURABLE"
+    ],
+    "verifiedSemantics": {
+      "DURABLE": "Permits long-lived implicit cache retention using durable storage. A project with no stated preference also reports this mode.",
+      "EPHEMERAL": "Restricts implicit cache retention to volatile memory.",
+      "RETENTION_TYPE_UNSPECIFIED": "Treated as DURABLE."
+    },
+    "unresolved": [
+      "Exact data held, TTL/deletion and residency guarantees for this project and model under DURABLE",
+      "Applicable contract and abuse-monitoring retention/exemption",
+      "Owner approval of verified provider processing and displayed consent, or separate approval to change project-wide caching posture"
+    ]
+  },
+  "uatRepositoryVariableRestoration": {
+    "workflowUrl": "https://github.com/hushh-labs/hushh-research/actions/runs/38323861024",
+    "deploymentTargetSha": "bf6ec5d7282f5c0b385a94d8ad21ef1c82d7a139",
+    "readback": {
+      "PKM_ANSWER_COMPOSER_UAT_ENABLED": "true",
+      "PKM_ANSWER_LIVE_PROVIDER_UAT_REVIEWED": "false",
+      "PKM_ANSWER_PAYMENTS_UAT_ENABLED": "true",
+      "PKM_ANSWER_REQUESTS_UAT_ENABLED": "true",
+      "PKM_ANSWER_STRIPE_UAT_MODE": "test"
+    },
+    "status": "Deployment in progress; final serving verification recorded separately."
+  }
 }

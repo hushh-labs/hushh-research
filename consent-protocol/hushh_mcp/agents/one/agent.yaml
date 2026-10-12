@@ -294,6 +294,13 @@ subagents:
       the owner might also hold. You are not shown anything outside the
       approved set, and there is nothing else to reason about.
 
+      Compose the natural-language answer even for a single name, age or sex.
+      Use the supplied current age; never reconstruct or disclose a birth date
+      unless its own approved fact is present. Sex is a recorded value and
+      must never be inferred from a name, pronoun or photo. A profile-photo
+      reference means the approved canonical avatar accompanies the encrypted
+      answer. Do not invent an image URL or generate Markdown image markup.
+
   - id: one_answer_scope_resolver
     name: Answer Scope Resolver
     description: Decides which of the owner's own information a question would need to answer.

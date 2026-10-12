@@ -35,41 +35,15 @@ import {
   type AnswerableWork,
 } from "@/lib/services/answer-request-service";
 import { encryptSliceForRecipient } from "@/lib/one-marketplace/encryption";
-import { buildConsentExportForScope, createConsentExportReadSession } from "@/lib/consent/export-builder";
 import {
   hasAnyValue,
   projectApprovedAnswer,
-  type ScopeProjection,
 } from "@/lib/answers/answer-projection";
 import { buildAnswerMemorySlice } from "@/lib/answers/answer-memory-slice";
-import {
-  approvedScopesBackedBySoul,
-  projectApprovedSoulFacts,
-  SCOPE_PATH_TO_LABEL,
-} from "@/lib/answers/identity-soul-facts";
-import { readLabelledSoulFacts, soulFactKey } from "@/lib/pkm/soul-labelled-facts";
-import { loadMarkdownMemory } from "@/lib/pkm/markdown-memory";
+import { isOwnProfileNameScope } from "@/lib/pkm/identity-memory-facts";
+import { retrieveApprovedMemoryScopes } from "@/lib/pkm/memory-scope-retrieval";
+import { AccountIdentityService } from "@/lib/services/account-identity-service";
 
-/**
- * A name leaf inside the identity domain, which the account display name may
- * stand in for when nothing else answered it.
- *
- * Bounded to `attr.identity.` deliberately: a name leaf elsewhere -- an
- * employer's name, a school's name -- is not this person's name, and filling
- * it in from their profile would answer a different question than the one the
- * owner approved.
- */
-const NAME_LEAVES = ["full_name", "legal_name", "name"] as const;
-
-function isOwnNameScope(scope: string): boolean {
-  if (!scope.startsWith("attr.identity.")) return false;
-  const leaf = scope.split(".").pop() ?? "";
-  return NAME_LEAVES.includes(leaf as (typeof NAME_LEAVES)[number]);
-}
-const isOwnPhotoScope = isAnswerProfilePhotoScope;
-function scopeCoversPath(scope: string, path: string): boolean {
-  return scope === `attr.identity.${path}` || scope === `attr.identity.${path.split(".").slice(0, -1).join(".")}.*`;
-}
 function setPath(payload: Record<string, unknown>, path: string, value: unknown): void {
   const segments = path.split(".");
   let branch = payload;
@@ -85,16 +59,6 @@ function readPath(payload: unknown, path: string): unknown {
   for (const part of path.split(".")) current = current && typeof current === "object" ? (current as Record<string, unknown>)[part] : undefined;
   return current;
 }
-import { settleWithConcurrency } from "@/lib/consent/bounded-concurrency";
-
-/**
- * Scope exports in flight at once while preparing one answer.
- *
- * Each builds an encrypted export on the owner's device, so this is the same
- * trade the grouped-Allow path already makes: a small bound, not everything.
- */
-const ANSWER_SCOPE_READ_CONCURRENCY = 4;
-
 export interface AnswerSweepParams {
   userId: string;
   /** The owner's vault key. Needed to decrypt their own PKM; never leaves the device. */
@@ -104,14 +68,8 @@ export interface AnswerSweepParams {
   /** Explicit owner action may fulfil only the selected request. */
   requestId?: string;
   /**
-   * The owner's own public identity, as the requester already sees it on the
-   * profile they asked from. Passing null left every answer written from a
-   * bag of fields with no one attached: the slice supports an account block
-   * and the sweep never filled it, so a question like "what is your name"
-   * had no name to answer from even with Identity information approved.
-   *
-   * Nothing here is new to the requester, and nothing here is PKM: it is the
-   * account's display name, photo and email.
+   * Existing account identity supplies only the exact approved name/photo
+   * scopes. It never accompanies unrelated facts as general profile context.
    */
   ownerIdentity?: {
     displayName?: string | null;
@@ -132,10 +90,8 @@ export interface AnswerPayload {
   version: 1;
   question: string;
   /**
-   * 'agent' means the answer field was written by the answer gene from the
-   * approved projection. 'projection' means it was not, and `answer` is null:
-   * the requester receives the approved information itself, labelled as such.
-   * A projection is never presented as a written answer.
+   * Every successful delivery is Gemini composed. 'projection' with a null
+   * answer is an internal retry/confirmed-missing result and is never sold.
    */
   answerMode: "agent" | "projection";
   answer: string | null;
@@ -147,8 +103,7 @@ export interface AnswerPayload {
   approvedInformation: Record<string, unknown>;
   /**
    * The person's own memory document, sliced to exactly the approved scopes
-   * and dates, with their name, initial and photo. This is what the answer is
-   * written from -- not a file fetch.
+   * and dates. Gemini receives only these approved facts and source metadata.
    */
   memory: string;
   /** False when a section of that memory could not be read or was truncated. */
@@ -176,189 +131,20 @@ export async function buildAnswerPayload(
   >,
   firebaseIdToken?: string,
   epoch = snapshotVaultSessionEpoch(),
-): Promise<{ payload: AnswerPayload; hasContent: boolean }> {
-  const projections: ScopeProjection[] = [];
-  const unavailableScopes: string[] = [];
-  const sourceManifestRevisions: Record<string, number | null> = {};
-  const readSession = createConsentExportReadSession({ ...params, scopes: work.approvedScopes });
-
-  // Each scope remains its own consent projection. The read session deduplicates
-  // domain ciphertext/manifest reads without exposing unapproved siblings.
-  // What changes is the waiting. Awaiting them one after another made the
-  // owner's preparation take the SUM of every scope's manifest read, blob
-  // fetch and decrypt, on a phone, while they watched. A small bound runs
-  // them together without building several encrypted exports at once.
-  //
-  // Order is restored by index, not arrival, so the document a requester is
-  // shown does not depend on which read happened to finish first.
-  const ordered: (ScopeProjection | null)[] = new Array(
-    work.approvedScopes.length,
-  ).fill(null);
-  const failed: (string | null)[] = new Array(work.approvedScopes.length).fill(
-    null,
-  );
-  if (!isVaultSessionEpochCurrent(epoch))
-    throw new Error("Vault session changed");
-  await settleWithConcurrency(
-    work.approvedScopes.map((scope, index) => ({ scope, index })),
-    ANSWER_SCOPE_READ_CONCURRENCY,
-    async ({ scope, index }) => {
-      // Re-checked per scope: a lock mid-sweep must stop the reads it can.
-      if (!isVaultSessionEpochCurrent(epoch)) {
-        failed[index] = scope;
-        return;
-      }
-      try {
-        const built = await buildConsentExportForScope({
-          userId: params.userId,
-          scope,
-          vaultKey: params.vaultKey,
-          vaultOwnerToken: params.vaultOwnerToken,
-          readSession,
-        });
-        ordered[index] = {
-          scope,
-          payload: built.payload,
-          contentRevision: built.sourceContentRevision ?? null,
-        };
-        sourceManifestRevisions[scope] = built.sourceManifestRevision ?? null;
-      } catch {
-        // A scope that cannot be exported is named, never silently omitted: a
-        // partial answer that reads complete is the failure mode to avoid,
-        // and the caller refuses to call this an absent answer.
-        failed[index] = scope;
-      }
-    },
-  );
-  for (const projection of ordered) if (projection) projections.push(projection);
-  for (const scope of failed) if (scope) unavailableScopes.push(scope);
-  if (!isVaultSessionEpochCurrent(epoch))
-    throw new Error("Vault session changed");
-
-  // The identity intake records what the person states as labelled Soul
-  // bullets, not as structured leaves, so an approved identity scope had no
-  // leaf to project and came back empty even though the fact was sitting in
-  // Profile Memory. Read that document once, and only for the scopes the
-  // owner approved: the mapped labels are the only thing that can leave this
-  // way, and the person's free prose cannot.
-  const soulBackedScopes = approvedScopesBackedBySoul(work.approvedScopes);
-  if (soulBackedScopes.length) {
-    try {
-      const memory = await loadMarkdownMemory({
-        userId: params.userId,
-        vaultKey: params.vaultKey,
-        vaultOwnerToken: params.vaultOwnerToken,
-        forceRefresh: true,
-      });
-      if (!memory || (memory.syncStatus && memory.syncStatus !== "synced")) throw new Error("Private memory readback pending");
-      if (!isVaultSessionEpochCurrent(epoch))
-        throw new Error("Vault session changed");
-      const revision =
-        typeof memory?.dataVersion === "number" ? memory.dataVersion : null;
-      const facts = projectApprovedSoulFacts({
-        approvedScopes: soulBackedScopes,
-        markdown: memory?.markdown,
-      });
-      for (const scope of soulBackedScopes) {
-        const prior = projections.filter(projection => projection.scope === scope);
-        const original = prior.at(-1)?.payload as Record<string, unknown> | undefined;
-        const domain = scope.split(".")[1]!;
-        const payload = structuredClone(original?.[domain] ?? original ?? {}) as Record<string, unknown>;
-        const overrides = facts.filter(fact => fact.scope === scope);
-        const deleted = new Set(memory.deletedFactLabels ?? []);
-        const removedPaths = SCOPE_PATH_TO_LABEL.filter(([, label]) => deleted.has(soulFactKey(label))).map(([path]) => path);
-        if (deleted.has("date of birth") || (readLabelledSoulFacts(memory.markdown).has("date of birth") && !facts.some(fact => fact.path === "declared_age"))) removedPaths.push("identity_profile.declared_age");
-        let changed = overrides.length > 0;
-        for (const path of removedPaths) {
-          const domain = path.startsWith("profile.") ? "professional" : "identity";
-          if ((scope === `attr.${domain}.${path}` || scope === `attr.${domain}.${path.split(".").slice(0, -1).join(".")}.*`) && readPath(payload, path) !== undefined) {
-            changed = true;
-            setPath(payload, path, undefined);
-          }
-        }
-        for (const fact of overrides) setPath(payload, fact.relativePath, fact.value);
-        for (let index = projections.length - 1; index >= 0; index -= 1)
-          if (projections[index]!.scope === scope) projections.splice(index, 1);
-        projections.push({ scope, payload, contentRevision: changed ? revision : prior.at(-1)?.contentRevision ?? revision });
-        if (changed || !prior.length) sourceManifestRevisions[scope] = null;
-      }
-      // These facts have no structured leaf at all, so the per-scope export
-      // above always fails for them. That failure is the ABSENCE of a
-      // counterpart, not an unreadable source -- and this document is their
-      // authoritative source, so reading it successfully settles the question
-      // either way:
-      //
-      //   * the fact is here  -> it was projected above, and the answer stages;
-      //   * the fact is not   -> it is genuinely not recorded, which is an
-      //                          answer ("Answer not found") and must not be
-      //                          charged for.
-      //
-      // Clearing only the facts that were FOUND left a question nobody had
-      // recorded an answer to stuck as unreadable: prepared, discarded and
-      // prepared again for ever, never resolving either way. A failed read is
-      // different and throws to the catch below, where every one of these
-      // scopes stays unavailable and the request stays retryable.
-      const settled = new Set(soulBackedScopes);
-      for (let index = unavailableScopes.length - 1; index >= 0; index -= 1)
-        if (settled.has(unavailableScopes[index]!)) unavailableScopes.splice(index, 1);
-    } catch {
-      // A Soul document that could not be read is not an absent fact. Naming
-      // the scopes keeps the caller's rule: this request stays queued rather
-      // than being delivered as "Answer not found".
-      for (const scope of soulBackedScopes)
-        if (!unavailableScopes.includes(scope)) unavailableScopes.push(scope);
-    }
-  }
-
-  // Precedence for a name request: the legal name the person stated wins,
-  // because they stated it. The account display name is the fallback, so a
-  // name question is still answerable for an owner who never completed the
-  // identity intake -- and it is the same value the requester already sees on
-  // the profile. Only ever for an approved name scope.
-  const accountName = (work.ownerIdentity ?? params.ownerIdentity)?.displayName?.trim();
-  if (accountName) {
-    // A scope whose read returned nothing is not answered. A confirmed-absent
-    // source (an HTTP 404) still pushes an empty projection, and treating that
-    // as an answer left a name request with no name in it.
-    const answeredScopes = new Set(
-      projections
-        .filter((projection) => hasAnyValue(projection.payload))
-        .map((projection) => projection.scope),
-    );
-    for (const scope of work.approvedScopes) {
-      if (!isOwnNameScope(scope)) continue;
-      if (answeredScopes.has(scope) || unavailableScopes.includes(scope)) continue;
-      projections.push({
-        scope,
-        payload: (() => {
-          // Nest under the scope's own path so it merges where the domain
-          // expects it, rather than inventing a branch beside it.
-          const segments = scope.split(".").slice(2);
-          const payload: Record<string, unknown> = {};
-          let branch = payload;
-          for (const segment of segments.slice(0, -1))
-            branch = (branch[segment] = {}) as Record<string, unknown>;
-          branch[segments[segments.length - 1]!] = accountName;
-          return payload;
-        })(),
-        // The account profile carries no PKM revision of its own.
-        contentRevision: null,
-      });
-    }
-  }
-
-  const identity = work.ownerIdentity ?? params.ownerIdentity;
-  const photoUrl = answerProfilePhotoUrl(identity?.photoUrl);
-  for (const scope of work.approvedScopes.filter(isOwnPhotoScope)) {
-    // This account field has no PKM leaf. Its authoritative profile read came
-    // with the work item; no KYC or broad domain read is required.
-    if (!identity) continue;
-    for (let index = unavailableScopes.length - 1; index >= 0; index -= 1)
-      if (unavailableScopes[index] === scope) unavailableScopes.splice(index, 1);
-    const payload: Record<string, unknown> = {};
-    if (photoUrl) setPath(payload, scope.split(".").slice(2).join("."), photoUrl);
-    projections.push({ scope, payload, contentRevision: null });
-  }
+): Promise<{ payload: AnswerPayload; hasContent: boolean; compositionReceipt?: string; assertCurrent: () => Promise<void> }> {
+  const retrieved = await retrieveApprovedMemoryScopes({
+    userId: params.userId,
+    vaultKey: params.vaultKey,
+    vaultOwnerToken: params.vaultOwnerToken,
+    approvedScopes: work.approvedScopes,
+    ownerIdentity: work.ownerIdentity ?? params.ownerIdentity,
+    ...(firebaseIdToken ? { readOwnerIdentity: async () => {
+      const identity = await AccountIdentityService.refreshIdentityForSession(params.userId, firebaseIdToken, { force: true });
+      return identity ? { displayName: identity.display_name, photoUrl: identity.photo_url } : null;
+    } } : {}),
+  });
+  if (!isVaultSessionEpochCurrent(epoch)) throw new Error("Vault session changed");
+  const { projections, unavailableScopes, sourceManifestRevisions } = retrieved;
 
   const period =
     work.periodStart && work.periodEnd
@@ -371,19 +157,27 @@ export async function buildAnswerPayload(
     period,
   });
 
+  const photoScopes = work.approvedScopes.filter(isAnswerProfilePhotoScope);
+  const photoUrl = photoScopes.map(scope => {
+    const value = projected.byScope[scope] as Record<string, unknown> | undefined;
+    return answerProfilePhotoUrl(readPath(value?.identity ?? value, scope.split(".").slice(2).join(".")));
+  }).find(Boolean) ?? null;
+  const approvedName = work.approvedScopes.filter(isOwnProfileNameScope).map(scope => {
+    const value = projected.byScope[scope] as Record<string, unknown> | undefined;
+    return readPath(value?.identity ?? value, scope.split(".").slice(2).join("."));
+  }).find(value => typeof value === "string" && value.trim()) as string | undefined;
   const composerValues = structuredClone(projected.byScope);
-  for (const scope of work.approvedScopes.filter(isOwnPhotoScope)) {
+  for (const scope of photoScopes) {
     if (photoUrl) setPath(composerValues[scope] as Record<string, unknown>, scope.split(".").slice(2).join("."), answerPhotoReference(photoUrl));
   }
 
   // The approved slice of this person's living memory, in the same shape as
-  // their own memory.md: who they are, then every approved value in full.
+  // their own memory.md, containing only approved values and source metadata.
   const memorySlice = buildAnswerMemorySlice({
     byScope: composerValues,
     sourceRevisions: projected.sourceRevisions,
     sourceManifestRevisions,
-    ownerIdentity: identity ? { ...identity, photoUrl: answerPhotoReference(photoUrl) } : null,
-    builtAt: new Date().toISOString(),
+    builtAt: retrieved.builtAt,
   });
 
   // Have the answer written from that memory document. A failure is carried
@@ -393,29 +187,18 @@ export async function buildAnswerPayload(
     answer: string | null;
     covers?: string[];
     gaps?: string[];
+    compositionReceipt?: string;
   } = {
     answerMode: "projection",
     answer: null,
   };
   if (!isVaultSessionEpochCurrent(epoch))
     throw new Error("Vault session changed");
-  // Content is what the APPROVED scopes hold, and nothing else.
-  //
-  // Counting the account's own name, email or photo here made every owner who
-  // has a profile name produce a "complete" answer to any question at all --
-  // including one whose fact nobody ever recorded. "Answer not found" could
-  // not happen, and the requester was charged for an answer that did not
-  // exist. The account block is context ABOUT the person, carried in every
-  // answer because the requester already sees it on the profile they asked
-  // from; it is not an answer to what they asked.
-  //
-  // Where the account genuinely does answer the question -- a name request
-  // with no stated legal name -- it is projected into that scope above and
-  // counts through `projected` like any other fact.
-  const missingRequiredIdentityFact = ["identity_profile.declared_age", "identity_profile.sex", "profile.age", "profile.sex"].some(path =>
-    work.approvedScopes.some(scope => scopeCoversPath(scope, path) && !hasAnyValue(readPath((projected.byScope[scope] as Record<string, unknown> | undefined)?.identity ?? projected.byScope[scope], path))));
-  const hasContent = projected.hasContent && !missingRequiredIdentityFact;
-  if (firebaseIdToken && hasContent && !unavailableScopes.length && memorySlice.complete) {
+  // Profile context never supplies content for an unrelated approved fact.
+  // Account name/photo count only when projected into their exact scopes.
+  const missingApprovedFact = work.approvedScopes.some(scope => !hasAnyValue(projected.byScope[scope]));
+  const hasContent = projected.hasContent && !missingApprovedFact;
+  if (firebaseIdToken && hasContent && !unavailableScopes.length && retrieved.complete && memorySlice.complete) {
     written = await AnswerRequestService.compose(
       firebaseIdToken,
       work.requestId,
@@ -424,9 +207,12 @@ export async function buildAnswerPayload(
         // values travel beside it so the gene can cite exact figures.
         memory: memorySlice.markdown,
         values: composerValues,
+        sourceFreshness: retrieved.sourceFreshness,
       },
     ).catch(() => ({ answerMode: "projection" as const, answer: null }));
   }
+
+  if (firebaseIdToken && retrieved.complete) await retrieved.assertCurrent();
 
   return {
     payload: {
@@ -440,14 +226,16 @@ export async function buildAnswerPayload(
       approvedScopes: [...work.approvedScopes],
       approvedInformation: projected.byScope,
       memory: memorySlice.markdown,
-      memoryComplete: memorySlice.complete,
+      memoryComplete: retrieved.complete && memorySlice.complete,
       sourceRevisions: projected.sourceRevisions,
       excludedByPeriod: projected.excludedByPeriod,
       unavailableScopes,
       builtAt: new Date().toISOString(),
-      ...(work.approvedScopes.some(isOwnPhotoScope) && photoUrl ? { ownerIdentity: { displayName: identity?.displayName ?? null, photoUrl } } : {}),
+      ...(photoUrl ? { ownerIdentity: { displayName: approvedName ?? null, photoUrl } } : {}),
     },
     hasContent,
+    compositionReceipt: written.compositionReceipt,
+    assertCurrent: retrieved.assertCurrent,
   };
 }
 
@@ -481,7 +269,7 @@ export async function runAnswerDeliverySweep(
     if (params.requestId && work.requestId !== params.requestId) continue;
     if (!isVaultSessionEpochCurrent(epoch)) break;
     try {
-      const { payload, hasContent } = await buildAnswerPayload(
+      const { payload, hasContent, compositionReceipt, assertCurrent } = await buildAnswerPayload(
         work,
         params,
         params.firebaseIdToken,
@@ -512,7 +300,7 @@ export async function runAnswerDeliverySweep(
 
       // A question the owner's information CAN answer, but which the writer
       // failed to answer, is not finished work either.
-      if (hasContent && (payload.answerMode !== "agent" || !payload.answer?.trim())) {
+      if (hasContent && (payload.answerMode !== "agent" || !payload.answer?.trim() || payload.gaps.length > 0 || !compositionReceipt)) {
         result.retry += 1;
         continue;
       }
@@ -525,6 +313,7 @@ export async function runAnswerDeliverySweep(
         metadata: { kind: "pkm_answer", requestId: work.requestId },
       });
       if (!isVaultSessionEpochCurrent(epoch)) break;
+      await assertCurrent();
       await AnswerRequestService.deliver(
         params.firebaseIdToken,
         work.requestId,
@@ -532,6 +321,7 @@ export async function runAnswerDeliverySweep(
           envelope,
           sourceRevisions: payload.sourceRevisions,
           hasContent,
+          compositionReceipt,
         },
       );
       if (hasContent) result.delivered += 1;

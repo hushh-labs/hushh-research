@@ -1719,10 +1719,10 @@
       "exact_tables": [
         "pkm_answer_deliveries"
       ],
-      "primary_access_path": "The unlocked owner device prepares from exact approved PKM/account facts before checkout, explicitly sends the approved plaintext transiently to the gated backend/Vertex composer, and seals the readable answer to the requester ECDH P-256 key. Ciphertext is staged before payment and requester access is released only after verified settlement; historical paid requests retain manual preparation/recovery.",
+      "primary_access_path": "The unlocked owner device retrieves exact approved scope slices from the shared encrypted source-linked memory.md, refreshing stale/missing slices from authoritative PKM/account facts before absence. Every successful answer is composed by consent-gated Gemini with approved values and freshness metadata only, then sealed to the requester ECDH P-256 key. New staging requires a request-bound composition receipt; requester access is released only after verified settlement. Historical immutable staged orders retain recovery and settlement eligibility.",
       "retention_policy": "Retained while the requester may still read the delivered answer; removed with the request.",
       "deletion_behavior": "Hard-delete with the request on account reset and account deletion for either participant.",
-      "trust_boundary": "Delivery persistence contains ciphertext and source revision numbers only; the backend has no answer-decryption key. Approved plaintext transits the separately consented transient composer/provider call with NO_CONTENT application telemetry. No vault key or general decryption authority is transferred.",
+      "trust_boundary": "Delivery persistence contains ciphertext, source revision numbers and reserved signed composition/terms metadata with keyed input/answer digests; the backend has no answer-decryption key. Approved plaintext transits the separately consented transient Gemini call with NO_CONTENT application telemetry. The receipt proves successful composition for approved terms, not plaintext equality inside client ciphertext. No vault key or general decryption authority is transferred. Reserved receipt metadata is excluded from requester DTOs.",
       "plaintext_posture": "ciphertext_or_hash_only",
       "expected_row_growth": "low_per_user"
     },

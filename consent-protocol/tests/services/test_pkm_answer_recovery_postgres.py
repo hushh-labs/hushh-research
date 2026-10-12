@@ -30,6 +30,7 @@ from tests.services.test_pkm_answer_requests_postgres import (  # noqa: F401
     OWNER,
     REQUESTER,
     _db,
+    _deliver_composed,
     _mark_paid,
     answer_engine,
     clean,
@@ -85,6 +86,18 @@ async def paid(engine):
     return service, request
 
 
+def select_live_with_retained_test_keys(monkeypatch):
+    """Mirror UAT's live shared Drive lane beside historical answer orders."""
+    monkeypatch.setenv("PKM_ANSWER_STRIPE_TEST_SECRET_KEY", "sk_test_local_only_synthetic")
+    monkeypatch.setenv("PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET", "whsec_payment_test_secret_value")
+    monkeypatch.setenv("STRIPE_MODE", "live")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_live_shared_synthetic_only_key")
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_shared_synthetic_only_live_secret")
+    monkeypatch.setenv("PKM_ANSWER_STRIPE_MODE", "live")
+    monkeypatch.setenv("PKM_ANSWER_STRIPE_SECRET_KEY", "sk_live_synthetic_only_key")
+    monkeypatch.setenv("PKM_ANSWER_STRIPE_WEBHOOK_SECRET", "whsec_synthetic_only_secret")
+
+
 async def test_overlapping_checkout_reuses_durable_attempt_and_parameters(answer_engine):
     _, request, _ = await _approved(answer_engine, prepared=True)
     entered = threading.Event()
@@ -130,7 +143,9 @@ async def test_overlapping_checkout_reuses_durable_attempt_and_parameters(answer
 
 
 @pytest.mark.parametrize("switch_live", [False, True])
-async def test_lost_checkout_response_recovers_same_provider_session(answer_engine, monkeypatch, switch_live):
+async def test_lost_checkout_response_recovers_same_provider_session(
+    answer_engine, monkeypatch, switch_live
+):
     _, request, _ = await _approved(answer_engine, prepared=True)
     api = Mock()
     seen = []
@@ -150,13 +165,42 @@ async def test_lost_checkout_response_recovers_same_provider_session(answer_engi
     with pytest.raises(TimeoutError):
         await service.checkout(requester_user_id=REQUESTER, request_id=request)
     if switch_live:
-        monkeypatch.setenv("PKM_ANSWER_STRIPE_MODE", "live")
+        select_live_with_retained_test_keys(monkeypatch)
         monkeypatch.setenv("PKM_ANSWER_LIVE_PROVIDER_REVIEWED", "true")
-        monkeypatch.delenv("PKM_ANSWER_STRIPE_SECRET_KEY", raising=False)
-        monkeypatch.delenv("PKM_ANSWER_STRIPE_WEBHOOK_SECRET", raising=False)
     await service.checkout(requester_user_id=REQUESTER, request_id=request)
     assert seen[0] == seen[1]
     assert seen[1]["api_key"].startswith("sk_test_")
+
+
+@pytest.mark.parametrize("blocker", ["receiptless", "composer_paused"])
+async def test_old_reserved_checkout_cannot_mint_payable_session_without_prepared_gemini(
+    answer_engine, monkeypatch, blocker
+):
+    _, request, _ = await _approved(answer_engine, prepared=True)
+    api = Mock()
+    api.checkout.Session.create.side_effect = TimeoutError("provider dispatch outcome unknown")
+    service = PkmAnswerPaymentService(_db(answer_engine), stripe_api=api)
+    with pytest.raises(TimeoutError):
+        await service.checkout(requester_user_id=REQUESTER, request_id=request)
+    before = row(answer_engine, "pkm_answer_payment_orders", request)
+    assert before["status"] == "awaiting_payment"
+    if blocker == "receiptless":
+        with answer_engine.begin() as c:
+            c.execute(
+                text(
+                    "UPDATE pkm_answer_deliveries SET source_revisions='{}'::jsonb WHERE request_id=:r"
+                ),
+                {"r": request},
+            )
+    else:
+        monkeypatch.setenv("PKM_ANSWER_COMPOSER_ENABLED", "false")
+    with pytest.raises(
+        AnswerPaymentError,
+        match="answer_not_ready" if blocker == "receiptless" else "composer_not_enabled",
+    ):
+        await service.checkout(requester_user_id=REQUESTER, request_id=request)
+    assert api.checkout.Session.create.call_count == 1
+    assert row(answer_engine, "pkm_answer_payment_orders", request) == before
 
 
 async def test_webhook_and_cancel_overlap_without_deadlock_or_lost_refund(answer_engine):
@@ -279,14 +323,18 @@ async def test_revocation_blocks_claim_compose_delivery_and_refunds(answer_engin
     with pytest.raises(AnswerRequestError, match="connection_required"):
         await service.assert_answerable(owner_user_id=OWNER, request_id=request)
     with pytest.raises(AnswerRequestError, match="connection_required"):
-        await service.deliver(owner_user_id=OWNER, request_id=request, envelope=ENVELOPE)
+        await _deliver_composed(
+            service, answer_engine, owner_user_id=OWNER, request_id=request, envelope=ENVELOPE
+        )
     assert (await PkmAnswerWorkWorker(_db(answer_engine)).run_timeouts())["refunds_filed"] == 1
 
 
 async def test_delivery_rejects_unrelated_or_revoked_recipient_key(answer_engine):
     service, request = await paid(answer_engine)
     with pytest.raises(AnswerRequestError, match="invalid_envelope"):
-        await service.deliver(
+        await _deliver_composed(
+            service,
+            answer_engine,
             owner_user_id=OWNER,
             request_id=request,
             envelope={**ENVELOPE, "recipientKeyId": "other"},
@@ -294,13 +342,20 @@ async def test_delivery_rejects_unrelated_or_revoked_recipient_key(answer_engine
     with answer_engine.begin() as c:
         c.execute(text("UPDATE marketplace_recipient_keys SET status='revoked'"))
     with pytest.raises(AnswerRequestError, match="invalid_envelope"):
-        await service.deliver(owner_user_id=OWNER, request_id=request, envelope=ENVELOPE)
+        await _deliver_composed(
+            service, answer_engine, owner_user_id=OWNER, request_id=request, envelope=ENVELOPE
+        )
 
 
 async def test_empty_answer_service_files_full_refund_and_no_earning(answer_engine):
     service, request = await paid(answer_engine)
-    await service.deliver(
-        owner_user_id=OWNER, request_id=request, envelope=ENVELOPE, has_content=False
+    await _deliver_composed(
+        service,
+        answer_engine,
+        owner_user_id=OWNER,
+        request_id=request,
+        envelope=ENVELOPE,
+        has_content=False,
     )
     assert row(answer_engine, "pkm_answer_payment_refunds", request)["reason"] == "empty_answer"
     worker = PkmAnswerWorkWorker(_db(answer_engine), stripe_api=refund_api())
@@ -310,7 +365,9 @@ async def test_empty_answer_service_files_full_refund_and_no_earning(answer_engi
 
 async def test_account_enrollment_recovers_waiting_payout_without_legacy_fallback(answer_engine):
     service, request = await paid(answer_engine)
-    await service.deliver(owner_user_id=OWNER, request_id=request, envelope=ENVELOPE)
+    await _deliver_composed(
+        service, answer_engine, owner_user_id=OWNER, request_id=request, envelope=ENVELOPE
+    )
     with answer_engine.begin() as c:
         c.execute(
             text(
@@ -335,7 +392,9 @@ async def test_account_enrollment_recovers_waiting_payout_without_legacy_fallbac
 
 async def test_stale_provider_account_is_not_paid(answer_engine):
     service, request = await paid(answer_engine)
-    await service.deliver(owner_user_id=OWNER, request_id=request, envelope=ENVELOPE)
+    await _deliver_composed(
+        service, answer_engine, owner_user_id=OWNER, request_id=request, envelope=ENVELOPE
+    )
     with answer_engine.begin() as c:
         c.execute(
             text(
@@ -352,7 +411,9 @@ async def test_stale_provider_account_is_not_paid(answer_engine):
     api.Transfer.create.assert_not_called()
 
 
-async def test_test_obligations_use_test_credentials_when_new_orders_are_live(answer_engine, monkeypatch):
+async def test_test_obligations_use_test_credentials_when_new_orders_are_live(
+    answer_engine, monkeypatch
+):
     service, request = await paid(answer_engine)
     await service.cancel(requester_user_id=REQUESTER, request_id=request)
     monkeypatch.setenv("PKM_ANSWER_STRIPE_MODE", "live")
@@ -369,7 +430,9 @@ async def test_test_obligations_use_test_credentials_when_new_orders_are_live(an
 
 async def test_expand_only_rollback_preserves_financial_recovery_bindings(answer_engine):
     service, request = await paid(answer_engine)
-    await service.deliver(owner_user_id=OWNER, request_id=request, envelope=ENVELOPE)
+    await _deliver_composed(
+        service, answer_engine, owner_user_id=OWNER, request_id=request, envelope=ENVELOPE
+    )
     worker = PkmAnswerWorkWorker(_db(answer_engine), stripe_api=_stripe_payout_api(amount=1000))
     await worker.run_payouts()
     with answer_engine.begin() as c:
@@ -649,7 +712,9 @@ async def test_refund_verifies_source_mode_and_terms_before_dispatch(answer_engi
     api.Refund.create.assert_not_called()
 
 
-async def test_missing_historical_key_preserves_refund_without_consuming_attempt(answer_engine, monkeypatch):
+async def test_missing_historical_key_preserves_refund_without_consuming_attempt(
+    answer_engine, monkeypatch
+):
     service, request = await paid(answer_engine)
     await service.cancel(requester_user_id=REQUESTER, request_id=request)
     monkeypatch.setenv("PKM_ANSWER_STRIPE_MODE", "live")
@@ -658,33 +723,50 @@ async def test_missing_historical_key_preserves_refund_without_consuming_attempt
     monkeypatch.delenv("STRIPE_SECRET_KEY")
     monkeypatch.delenv("STRIPE_WEBHOOK_SECRET")
     api = refund_api()
-    assert (await PkmAnswerWorkWorker(_db(answer_engine), stripe_api=api).run_refunds())["succeeded"] == 0
+    assert (await PkmAnswerWorkWorker(_db(answer_engine), stripe_api=api).run_refunds())[
+        "succeeded"
+    ] == 0
     assert row(answer_engine, "pkm_answer_payment_refunds", request)["attempts"] == 0
     api.Refund.create.assert_not_called()
 
 
 async def test_old_test_answer_delivery_and_payout_survive_live_switch(answer_engine, monkeypatch):
     service, request = await paid(answer_engine)
-    monkeypatch.setenv("PKM_ANSWER_STRIPE_MODE", "live")
-    monkeypatch.setenv("PKM_ANSWER_STRIPE_SECRET_KEY", "sk_live_synthetic_only_key")
-    monkeypatch.setenv("PKM_ANSWER_STRIPE_WEBHOOK_SECRET", "whsec_synthetic_only_secret")
+    monkeypatch.setenv("PKM_ANSWER_LIVE_PROVIDER_REVIEWED", "true")
+    select_live_with_retained_test_keys(monkeypatch)
     assert len(await service.claim_answerable(owner_user_id=OWNER)) == 1
-    await service.deliver(owner_user_id=OWNER, request_id=request, envelope=ENVELOPE)
-    assert (await service.fetch_answer(requester_user_id=REQUESTER, request_id=request))["ciphertext"] == ENVELOPE["ciphertext"]
+    await _deliver_composed(
+        service, answer_engine, owner_user_id=OWNER, request_id=request, envelope=ENVELOPE
+    )
+    assert (await service.fetch_answer(requester_user_id=REQUESTER, request_id=request))[
+        "ciphertext"
+    ] == ENVELOPE["ciphertext"]
     with answer_engine.begin() as c:
-        c.execute(text("INSERT INTO stripe_owner_payout_accounts(user_id,stripe_mode,stripe_account_id,payouts_enabled,account_ready) VALUES (:u,'test','acct_ready',true,true)"), {"u": OWNER})
+        c.execute(
+            text(
+                "INSERT INTO stripe_owner_payout_accounts(user_id,stripe_mode,stripe_account_id,payouts_enabled,account_ready) VALUES (:u,'test','acct_ready',true,true)"
+            ),
+            {"u": OWNER},
+        )
     api = _stripe_payout_api(amount=1000)
-    assert (await PkmAnswerWorkWorker(_db(answer_engine), stripe_api=api).run_payouts())["transferred"] == 1
+    assert (await PkmAnswerWorkWorker(_db(answer_engine), stripe_api=api).run_payouts())[
+        "transferred"
+    ] == 1
     assert api.Transfer.create.call_args.kwargs["api_key"].startswith("sk_test_")
 
 
 async def test_old_test_timeout_still_files_refund_after_live_switch(answer_engine, monkeypatch):
     service, request = await paid(answer_engine)
-    monkeypatch.setenv("PKM_ANSWER_STRIPE_MODE", "live")
-    monkeypatch.setenv("PKM_ANSWER_STRIPE_SECRET_KEY", "sk_live_synthetic_only_key")
-    monkeypatch.setenv("PKM_ANSWER_STRIPE_WEBHOOK_SECRET", "whsec_synthetic_only_secret")
+    select_live_with_retained_test_keys(monkeypatch)
     with answer_engine.begin() as c:
-        c.execute(text("UPDATE pkm_answer_requests SET answer_deadline_at=clock_timestamp()-INTERVAL '1 hour' WHERE request_id=:r"), {"r": request})
-    worker = PkmAnswerWorkWorker(_db(answer_engine), stripe_api=refund_api())
+        c.execute(
+            text(
+                "UPDATE pkm_answer_requests SET answer_deadline_at=clock_timestamp()-INTERVAL '1 hour' WHERE request_id=:r"
+            ),
+            {"r": request},
+        )
+    api = refund_api()
+    worker = PkmAnswerWorkWorker(_db(answer_engine), stripe_api=api)
     assert (await worker.run_timeouts())["refunds_filed"] == 1
     assert (await worker.run_refunds())["succeeded"] == 1
+    assert api.Refund.create.call_args.kwargs["api_key"].startswith("sk_test_")

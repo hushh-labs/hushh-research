@@ -215,3 +215,16 @@ it("shows corrections once and removes deleted identity rows without changing th
   expect(document.sourceLinks).toContainEqual({ domain: "one_memory", path: "markdown.legal name", contentRevision: 9, manifestRevision: null });
   expect(document.sourceLinks.some(link => link.domain === "identity" && ["identity_profile.full_name", "identity_profile.sex", "identity_profile.date_of_birth", "identity_profile.declared_age"].includes(link.path))).toBe(false);
 });
+
+it("derives current shared age from canonical saved PKM DOB and never renders a stale age number", () => {
+  const identity = { identity_profile: { date_of_birth: "1998-10-13", declared_age: 999 }, profile: { age: 888 } };
+  const build = (builtAt: string, one_memory?: unknown) => buildMemoryDocument({ snapshot: snapshotOf([]), audience: "self", builtAt,
+    sources: [{ domain: "identity", contentRevision: 7, manifestRevision: 3 }, ...(one_memory ? [{ domain: "one_memory", contentRevision: 9 }] : [])], domainData: { identity, ...(one_memory ? { one_memory } : {}) } });
+  expect(build("2026-10-12T23:59:59Z").markdown).toContain("| declared age | 27 |");
+  const birthday = build("2026-10-13T00:00:00Z");
+  expect(birthday.markdown).toContain("| declared age | 28 |");
+  expect(birthday.markdown).not.toContain("999"); expect(birthday.markdown).not.toContain("888");
+  expect(birthday.sourceLinks).toContainEqual({ domain: "identity", path: "identity_profile.date_of_birth", contentRevision: 7, manifestRevision: 3 });
+  expect(build("2026-10-13T00:00:00Z", { markdown: "", _deleted_fact_labels: ["date of birth"] }).markdown).not.toContain("| declared age |");
+  expect(build("2026-10-13T00:00:00Z", { markdown: "- Date of birth: 2026-02-31\n" }).markdown).not.toContain("| declared age |");
+});

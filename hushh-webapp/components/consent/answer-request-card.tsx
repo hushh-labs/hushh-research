@@ -1,5 +1,6 @@
 "use client";
 
+import { isOwnProfileNameScope } from "@/lib/pkm/identity-memory-facts";
 import { answerProfilePhotoUrl, isAnswerProfilePhotoScope } from "@/lib/answers/answer-profile-photo";
 
 /**
@@ -232,7 +233,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
       const photoApproved = scopes.some(scope => typeof scope === "string" && isAnswerProfilePhotoScope(scope));
       let photo: { url: string; name: string } | null = null;
       const photoUrl = photoApproved ? answerProfilePhotoUrl(identity?.photoUrl) : null;
-      if (photoUrl) photo = { url: photoUrl, name: typeof identity?.displayName === "string" ? identity.displayName : "Profile" };
+      if (photoUrl) photo = { url: photoUrl, name: scopes.some(scope => typeof scope === "string" && isOwnProfileNameScope(scope)) && typeof identity?.displayName === "string" ? identity.displayName : "Profile" };
       setAnswer({ userId: owner, epoch, value: value.answer, photo });
     }), [isVaultUnlocked, requestId, run, user?.uid]);
 

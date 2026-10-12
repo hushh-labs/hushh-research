@@ -384,19 +384,23 @@ export class AnswerRequestService {
    * Have the answer written from the projection this device just built.
    *
    * The projection is the approved scopes and dates only, and nothing is
-   * persisted server-side. A model failure returns answerMode 'projection',
-   * which the caller must carry through rather than presenting the projection
-   * as a written answer.
+   * persisted server-side. A successful Gemini answer carries a request-bound
+   * composition receipt for staging; a model failure remains retryable.
    */
   static async compose(
     firebaseIdToken: string,
     requestId: string,
-    projection: { memory: string; values: Record<string, unknown> },
+    projection: {
+      memory: string;
+      values: Record<string, unknown>;
+      sourceFreshness?: import("@/lib/pkm/memory-scope-retrieval").ApprovedMemoryRetrieval["sourceFreshness"];
+    },
   ): Promise<{
     answerMode: "agent" | "projection";
     answer: string | null;
     covers?: string[];
     gaps?: string[];
+    compositionReceipt?: string;
   }> {
     if (!firebaseIdToken) throw new Error("Sign in to compose this answer");
     const response = await ApiService.apiFetch(
@@ -419,10 +423,11 @@ export class AnswerRequestService {
         ? value.answer
         : null;
     // An 'agent' mode with no answer is not an agent answer.
-    if (mode === "agent" && answer) {
+    if (mode === "agent" && answer && Array.isArray(value.gaps) && value.gaps.length === 0 && typeof value.compositionReceipt === "string" && value.compositionReceipt.trim()) {
       return {
         answerMode: "agent",
         answer,
+        compositionReceipt: value.compositionReceipt,
         covers: Array.isArray(value.covers) ? (value.covers as string[]) : [],
         gaps: Array.isArray(value.gaps) ? (value.gaps as string[]) : [],
       };
@@ -434,7 +439,7 @@ export class AnswerRequestService {
   static async deliver(
     firebaseIdToken: string,
     requestId: string,
-    body: { envelope: unknown; sourceRevisions?: unknown; hasContent: boolean },
+    body: { envelope: unknown; sourceRevisions?: unknown; hasContent: boolean; compositionReceipt?: string },
   ): Promise<void> {
     if (!firebaseIdToken) throw new Error("Sign in to deliver this answer");
     const response = await ApiService.apiFetch(

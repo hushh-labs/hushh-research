@@ -145,7 +145,7 @@ beforeEach(() => {
   m.decrypt.mockResolvedValue({ version: 1, answerMode: "agent", answer: "SYNTHETIC_ANSWER", memory: "INTERNAL_DEBUG" });
   m.sweep.mockResolvedValue({ delivered: 1, empty: 0 });
 });
-afterEach(() => { cleanup(); vi.useRealTimers(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 it.each(["lock", "owner", "request"])(
   "does not decrypt when %s changes while an envelope is pending",
   async (change) => {
@@ -389,7 +389,7 @@ it("does not publish decrypted plaintext from the previous question after select
 });
 
 it.each(["https://example.test/avatar.png", "data:image/png;base64,aW1hZ2U="])("renders the sealed, explicitly approved profile photo (%s)", async photoUrl => {
-  m.decrypt.mockResolvedValue({ version: 1, answerMode: "agent", answer: "Synthetic Ava's approved profile.", approvedScopes: ["attr.identity.identity_profile.profile_photo_url"], ownerIdentity: { displayName: "Synthetic Ava", photoUrl } });
+  m.decrypt.mockResolvedValue({ version: 1, answerMode: "agent", answer: "Synthetic Ava's approved profile.", approvedScopes: ["attr.identity.identity_profile.full_name", "attr.identity.identity_profile.profile_photo_url"], ownerIdentity: { displayName: "Synthetic Ava", photoUrl } });
   const view = render(<AnswerRequestCard requestId={REQUEST} />);
   fireEvent.click(await screen.findByRole("button", { name: "Open answer" }));
   expect(await screen.findByRole("figure", { name: "Approved profile photo" })).toHaveTextContent("Synthetic Ava");
@@ -404,4 +404,50 @@ it.each([["attr.identity.other.profile_photo_url", "https://example.test/avatar.
   fireEvent.click(await screen.findByRole("button", { name: "Open answer" }));
   await screen.findByText("Readable answer");
   expect(screen.queryByRole("figure", { name: "Approved profile photo" })).not.toBeInTheDocument();
+});
+
+
+it("loads the canonical avatar only after verified release and clears it on account change", async () => {
+  class ImageProbe extends EventTarget {
+    static instances: ImageProbe[] = [];
+    src = "";
+    complete = false;
+    naturalWidth = 0;
+    referrerPolicy = "";
+    constructor() { super(); ImageProbe.instances.push(this); }
+    settle() { this.complete = true; this.naturalWidth = 1; this.dispatchEvent(new Event("load")); }
+  }
+  vi.stubGlobal("Image", ImageProbe);
+  const photoUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jZe0AAAAASUVORK5CYII=";
+  m.state.mockResolvedValue({ role: "requester", requestStatus: "approved", question: "Name and photo" });
+  m.payment.mockResolvedValue({ requestStatus: "approved", orderStatus: "checkout_open", preparationStatus: "ready", amountCents: 1000 });
+  m.decrypt.mockResolvedValue({ version: 1, answerMode: "agent", answer: "Gemini composed profile answer.", approvedScopes: ["attr.identity.identity_profile.full_name", "attr.identity.identity_profile.profile_photo_url"], ownerIdentity: { displayName: "Synthetic Ava", photoUrl } });
+  const view = render(<AnswerRequestCard requestId={REQUEST} />);
+  await screen.findByRole("button", { name: "Pay $10" });
+  expect(screen.queryByRole("figure", { name: "Approved profile photo" })).toBeNull();
+  expect(m.answer).not.toHaveBeenCalled();
+  expect(ImageProbe.instances).toHaveLength(0);
+  m.state.mockResolvedValue({ role: "requester", requestStatus: "answered", question: "Name and photo" });
+  m.payment.mockResolvedValue({ requestStatus: "answered", orderStatus: "paid", preparationStatus: "ready", amountCents: 1000 });
+  fireEvent(window, new Event("focus"));
+  fireEvent.click(await screen.findByRole("button", { name: "Open answer" }));
+  await waitFor(() => expect(ImageProbe.instances.length).toBeGreaterThan(0));
+  const image = ImageProbe.instances.at(-1)!;
+  expect(image.src).toBe(photoUrl);
+  expect(image.referrerPolicy).toBe("no-referrer");
+  act(() => image.settle());
+  expect(await screen.findByRole("img", { name: "Synthetic Ava's profile photo" })).toHaveAttribute("src", photoUrl);
+  expect(screen.getByRole("figure", { name: "Approved profile photo" })).toHaveTextContent("Synthetic Ava");
+  m.uid = "other-requester"; m.epoch++;
+  view.rerender(<AnswerRequestCard requestId={REQUEST} />);
+  expect(screen.queryByRole("img", { name: "Synthetic Ava's profile photo" })).toBeNull();
+  expect(screen.queryByText("Gemini composed profile answer.")).toBeNull();
+});
+
+it("does not use an unapproved name as a photo caption", async () => {
+  m.decrypt.mockResolvedValue({ version: 1, answerMode: "agent", answer: "Your approved photo.", approvedScopes: ["attr.identity.identity_profile.profile_photo_url"], ownerIdentity: { displayName: "UNAPPROVED_NAME", photoUrl: "https://example.test/photo.png" } });
+  render(<AnswerRequestCard requestId={REQUEST} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Open answer" }));
+  expect(await screen.findByRole("figure", { name: "Approved profile photo" })).toHaveTextContent("Profile");
+  expect(screen.queryByText("UNAPPROVED_NAME")).toBeNull();
 });

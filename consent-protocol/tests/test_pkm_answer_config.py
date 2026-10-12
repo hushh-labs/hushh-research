@@ -77,6 +77,35 @@ def test_live_composition_requires_separate_provider_review(monkeypatch):
     assert config.answer_composer_enabled()
 
 
+@pytest.mark.parametrize("mode,expected_code", [("live", 1), ("test", 0)])
+def test_cloud_build_provider_review_gate_runs_before_deployment(monkeypatch, mode, expected_code):
+    """Execute the actual pre-deploy gate, including the test-mode exception."""
+    import os
+    import subprocess
+    from pathlib import Path
+
+    import yaml
+
+    root = Path(__file__).resolve().parents[2]
+    cloudbuild = yaml.safe_load((root / "deploy/backend.cloudbuild.yaml").read_text())
+    gate = next(step for step in cloudbuild["steps"] if "Live answers require verified provider" in str(step.get("args")))
+    body = gate["args"][1]
+    start = body.index('if [[ "${_PKM_ANSWER_PAYMENTS_ENABLED}" == "true" && "${_PKM_ANSWER_STRIPE_MODE}" == "live"')
+    actual_gate = body[start:body.index("\nfi", start) + len("\nfi")]
+    deploy_index = next(index for index, step in enumerate(cloudbuild["steps"]) if step.get("id") == "deploy-backend")
+    assert cloudbuild["steps"].index(gate) < deploy_index
+    completed = subprocess.run(["bash", "-c", actual_gate], capture_output=True, text=True, env={  # noqa: S603 - audited repository deployment gate
+        **os.environ, "_PKM_ANSWER_PAYMENTS_ENABLED": "true", "_PKM_ANSWER_COMPOSER_ENABLED": "true",
+        "_PKM_ANSWER_STRIPE_MODE": mode, "_PKM_ANSWER_LIVE_PROVIDER_REVIEWED": "false",
+    })
+    assert completed.returncode == expected_code
+    monkeypatch.setenv("PKM_ANSWER_STRIPE_MODE", mode)
+    monkeypatch.setenv("PKM_ANSWER_COMPOSER_ENABLED", "true")
+    monkeypatch.setenv("PKM_ANSWER_LIVE_PROVIDER_REVIEWED", "false")
+    assert config.answer_composer_enabled() is (mode == "test")
+    assert config.configured_stripe_mode() == "test"
+
+
 @pytest.mark.parametrize(
     "environment,mode,origin,allowed",
     [

@@ -35,6 +35,12 @@ export const SCOPE_PATH_TO_LABEL: ReadonlyArray<[string, string]> = [
 /** Approving this publishes whole years worked out from the birth date. */
 const DERIVED_AGE_PATH = "identity_profile.declared_age";
 
+/** Known own-name addresses only; a nested name may name somebody else. */
+export function isOwnProfileNameScope(scope: string): boolean {
+  return ["attr.identity.identity_profile.full_name", "attr.identity.full_name", "attr.identity.legal_name", "attr.identity.name",
+    "attr.identity.profile.name", "attr.identity.profile.full_name", "attr.identity.profile.legal_name"].includes(scope);
+}
+
 export interface ApprovedSoulFact {
   scope: string;
   /** The leaf name the answer document shows, e.g. `declared_age`. */

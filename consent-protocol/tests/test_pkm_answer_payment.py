@@ -124,7 +124,11 @@ class FakeConnection:
             self.seen_events.add(event_id)
             return SimpleNamespace(first=lambda: (event_id,))
         if sql.startswith("UPDATE pkm_answer_payment_orders SET status = 'paid'"):
-            self.order = {**(self.order or {}), "status": "paid"}
+            self.order = {
+                **(self.order or {}),
+                "status": "paid",
+                "stripe_payment_intent_id": params["intent"],
+            }
         return SimpleNamespace(
             mappings=lambda: SimpleNamespace(first=lambda: None), first=lambda: None
         )

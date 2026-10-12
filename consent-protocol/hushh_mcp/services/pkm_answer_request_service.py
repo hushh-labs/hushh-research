@@ -34,6 +34,12 @@ from hushh_mcp.consent.answer_scope_resolution import (
     validate_resolved_scopes,
 )
 from hushh_mcp.consent.requestable_scope_policy import is_scope_requestable_by_others
+from hushh_mcp.services.answer_composition_receipt import (
+    COMPOSITION_RECEIPT_KEY,
+    COMPOSITION_TERMS_KEY,
+    CompositionReceiptError,
+    verify_composition_receipt,
+)
 from hushh_mcp.services.external_connector_lifecycle_store import (
     ExternalConnectorLifecycleStore,
 )
@@ -89,20 +95,31 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 requester_user_id,
                 owner_user_id,
             )
-        safe = [entry for entry in entries if is_scope_requestable_by_others(entry.get("scope", ""))]
+        safe = [
+            entry for entry in entries if is_scope_requestable_by_others(entry.get("scope", ""))
+        ]
         # Answer-owned selectors, not a new general Consent catalog. These
         # public account fields and optional owner-stated facts need no KYC.
         # Values remain private; preparation proves availability before Pay.
         known = {entry["scope"] for entry in safe}
         for path, label in (
-            ("full_name", "Name"), ("profile_photo_url", "Profile photo"),
-            ("declared_age", "Age (if recorded)"), ("sex", "Sex (if provided)"),
+            ("full_name", "Name"),
+            ("profile_photo_url", "Profile photo"),
+            ("declared_age", "Age (if recorded)"),
+            ("sex", "Sex (if provided)"),
             ("date_of_birth", "Date of birth (if recorded)"),
             ("citizenship", "Citizenship (if recorded)"),
         ):
             scope = f"attr.identity.identity_profile.{path}"
             if scope not in known:
-                safe.append({"scope": scope, "domain": "identity", "path": f"identity_profile.{path}", "label": label})
+                safe.append(
+                    {
+                        "scope": scope,
+                        "domain": "identity",
+                        "path": f"identity_profile.{path}",
+                        "label": label,
+                    }
+                )
         return safe
 
     # ------------------------------------------------------------------ gate
@@ -585,7 +602,9 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                        LEFT JOIN pkm_answer_payment_orders o ON o.request_id = r.request_id
                        LEFT JOIN pkm_answer_deliveries d ON d.request_id = r.request_id
                        WHERE r.owner_user_id = :owner
-                         AND d.request_id IS NULL
+                         AND (d.request_id IS NULL OR
+                              (d.has_content AND
+                               (d.source_revisions->>'_composition_terms' IS DISTINCT FROM r.terms_digest)))
                          AND EXISTS (SELECT 1 FROM connections c WHERE c.status='active'
                            AND ((c.user_a_id=r.owner_user_id AND c.user_b_id=r.requester_user_id)
                              OR (c.user_b_id=r.owner_user_id AND c.user_a_id=r.requester_user_id)))
@@ -734,6 +753,7 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 PkmAnswerPaymentService.require_paid_answer(connection, request)
             return {
                 "requestId": str(request["request_id"]),
+                "termsDigest": request["terms_digest"],
                 "question": request["question"],
                 "modelProcessingConsented": request["composer_consent_digest"]
                 == request["terms_digest"],
@@ -766,6 +786,7 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
         envelope: dict[str, Any],
         source_revisions: dict[str, Any] | None = None,
         has_content: bool = True,
+        composition_receipt: str | None = None,
     ) -> dict[str, Any]:
         """Store the sealed answer the owner's device produced.
 
@@ -779,11 +800,24 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
             raise AnswerRequestError("invalid_envelope")
         if any(key in envelope for key in ("plaintext", "answer", "value")):
             raise AnswerRequestError("invalid_envelope")
+        if source_revisions is not None and (
+            not isinstance(source_revisions, dict)
+            or len(source_revisions) > 100
+            or any(
+                not isinstance(key, str)
+                or len(key) > 200
+                or key.startswith("_")
+                or (value is not None and (type(value) is not int or not 0 <= value <= 2**53 - 1))
+                for key, value in source_revisions.items()
+            )
+        ):
+            raise AnswerRequestError("invalid_envelope")
 
         def write(connection):
             request = self._row(
                 connection,
-                """SELECT request_id, owner_user_id, requester_user_id, status, terms_digest, answer_deadline_at
+                """SELECT request_id, owner_user_id, requester_user_id, status, terms_digest, answer_deadline_at,
+                          composer_consent_digest
                    FROM pkm_answer_requests WHERE request_id = :request FOR UPDATE""",
                 {"request": request_id},
             )
@@ -809,6 +843,21 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
             )
             if recipient is None:
                 raise AnswerRequestError("invalid_envelope")
+            revisions = dict(source_revisions or {})
+            if has_content:
+                if request["composer_consent_digest"] != request["terms_digest"]:
+                    raise AnswerRequestError("model_processing_consent_required")
+                try:
+                    verify_composition_receipt(
+                        composition_receipt,
+                        request_id=request_id,
+                        owner_user_id=owner_user_id,
+                        terms_digest=request["terms_digest"],
+                    )
+                except CompositionReceiptError:
+                    raise AnswerRequestError("composition_receipt_required") from None
+                revisions[COMPOSITION_RECEIPT_KEY] = composition_receipt
+                revisions[COMPOSITION_TERMS_KEY] = request["terms_digest"]
             connection.execute(
                 text(
                     """INSERT INTO pkm_answer_deliveries
@@ -816,7 +865,19 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                         sender_ephemeral_public_key_jwk, source_revisions, has_content)
                        VALUES (:request, :key_id, :ciphertext, :iv,
                                CAST(:jwk AS JSONB), CAST(:revisions AS JSONB), :has_content)
-                       ON CONFLICT (request_id) DO NOTHING"""
+                       ON CONFLICT (request_id) DO UPDATE SET
+                         recipient_key_id=EXCLUDED.recipient_key_id,
+                         ciphertext=EXCLUDED.ciphertext, iv=EXCLUDED.iv,
+                         sender_ephemeral_public_key_jwk=EXCLUDED.sender_ephemeral_public_key_jwk,
+                         source_revisions=EXCLUDED.source_revisions,
+                         has_content=EXCLUDED.has_content,
+                         created_at=clock_timestamp()
+                       WHERE pkm_answer_deliveries.has_content
+                         AND ((pkm_answer_deliveries.source_revisions->>'_composition_terms'
+                              IS DISTINCT FROM EXCLUDED.source_revisions->>'_composition_terms'
+                              AND EXCLUDED.source_revisions ? '_composition_receipt')
+                           OR (NOT EXCLUDED.has_content
+                               AND NOT pkm_answer_deliveries.source_revisions ? '_composition_receipt'))"""
                 ),
                 {
                     "request": request_id,
@@ -824,10 +885,22 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                     "ciphertext": envelope["ciphertext"],
                     "iv": envelope["iv"],
                     "jwk": json.dumps(envelope["senderEphemeralPublicKeyJwk"]),
-                    "revisions": json.dumps(source_revisions or {}),
+                    "revisions": json.dumps(revisions),
                     "has_content": bool(has_content),
                 },
             )
+            stored = self._row(
+                connection,
+                "SELECT has_content, source_revisions FROM pkm_answer_deliveries WHERE request_id=:request",
+                {"request": request_id},
+            )
+            stored_has_content = bool(stored["has_content"])
+            if stored_has_content and not PkmAnswerPaymentService._has_composed_answer(
+                stored, request
+            ):
+                # A duplicate empty delivery must never release a legacy
+                # success envelope which has not yet been repaired by Gemini.
+                raise AnswerRequestError("composition_receipt_required")
             if staging:
                 # Prepared, sealed to the requester's key, and withheld. The
                 # request stays `approved`: nothing is owed, nothing is owned,
@@ -838,12 +911,14 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                     connection,
                     user_id=request["requester_user_id"],
                     event_type=(
-                        "answer_request_payment_ready" if has_content else "answer_request_declined"
+                        "answer_request_payment_ready"
+                        if stored_has_content
+                        else "answer_request_declined"
                     ),
                     request_id=request_id,
-                    status="approved" if has_content else "empty",
+                    status="approved" if stored_has_content else "empty",
                 )
-                return
+                return stored_has_content
             connection.execute(
                 text(
                     """UPDATE pkm_answer_requests
@@ -860,9 +935,9 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                        SET owner_earning_status = :earning, updated_at = clock_timestamp()
                        WHERE request_id = :request AND status = 'paid'"""
                 ),
-                {"request": request_id, "earning": "due" if has_content else "none"},
+                {"request": request_id, "earning": "due" if stored_has_content else "none"},
             )
-            if not has_content:
+            if not stored_has_content:
                 # No charge when the approved scopes yielded nothing. Filed
                 # here so the refund cannot be lost between the delivery
                 # commit and a separate provider call.
@@ -872,11 +947,12 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 user_id=request["requester_user_id"],
                 event_type="answer_delivered",
                 request_id=request_id,
-                status="answered" if has_content else "empty",
+                status="answered" if stored_has_content else "empty",
             )
+            return stored_has_content
 
-        await self._transaction(write)
-        return {"delivered": True, "hasContent": bool(has_content)}
+        stored_has_content = await self._transaction(write)
+        return {"delivered": True, "hasContent": stored_has_content}
 
     async def fetch_answer(self, *, requester_user_id: str, request_id: str) -> dict[str, Any]:
         def read(connection):
@@ -910,7 +986,11 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
             "iv": row["iv"],
             "senderEphemeralPublicKeyJwk": row["sender_ephemeral_public_key_jwk"],
             "algorithm": row["algorithm"],
-            "sourceRevisions": row["source_revisions"],
+            "sourceRevisions": {
+                key: value
+                for key, value in row["source_revisions"].items()
+                if key not in {COMPOSITION_RECEIPT_KEY, COMPOSITION_TERMS_KEY}
+            },
             "hasContent": row["has_content"],
         }
 
