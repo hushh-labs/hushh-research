@@ -108,6 +108,7 @@ export function KaiMarketHubPage() {
       as="div"
       fitContent
       width="agent"
+      headerContentSpacing="compact"
       className="relative"
       data-finance-workspace="true"
       nativeTest={{
@@ -118,7 +119,7 @@ export function KaiMarketHubPage() {
       }}
     >
       <AppPageHeaderRegion
-        className="space-y-3.5 sm:space-y-3.5"
+        className="space-y-[var(--page-header-section-gap)]"
         data-finance-workspace-header="true"
       >
         <PageHeader
@@ -140,7 +141,7 @@ export function KaiMarketHubPage() {
         holdHeightDuringTransition={false}
         panelInset="none"
         viewportMinHeight="fill"
-        className="mt-3.5 sm:mt-3.5"
+        className="mt-[var(--page-header-section-gap)]"
       >
         <div className="w-full">
           <AppPageContentRegion>
