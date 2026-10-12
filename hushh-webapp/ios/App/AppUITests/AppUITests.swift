@@ -193,6 +193,11 @@ final class AppUITests: XCTestCase {
                 guard waitForAdmittedControl(close) else {
                     XCTFail("QUALIFICATION_DRAWER_NOT_ADMITTED"); return
                 }
+                XCTAssertEqual(close.frame.minX, initialOpen.minX, accuracy: 1,
+                    "History Close must occupy the opener's leading slot")
+                XCTAssertEqual(close.frame.minY, initialOpen.minY, accuracy: 1)
+                XCTAssertEqual(close.frame.width, initialOpen.width, accuracy: 1)
+                XCTAssertEqual(close.frame.height, initialOpen.height, accuracy: 1)
                 XCTAssertFalse(open.isHittable, "Covered base navigation must not receive touches")
                 XCTAssertTrue(app.staticTexts["Synthetic conversations"].isHittable)
                 if cycle % 2 == 0 {
@@ -252,6 +257,20 @@ final class AppUITests: XCTestCase {
             XCTFail("PUBLIC_EDITOR_MODE_NOT_RESTORED"); return
         }
         XCTAssertTrue((editor.value as? String) == sample, "Mode changes must not erase the retained draft")
+        let selector = app.segmentedControls["chat-agent-surface"].firstMatch
+        let cloud = selector.buttons["One, your cloud agent"].firstMatch
+        let puppy = selector.buttons["Puppy One, on your machine, with its own conversation"].firstMatch
+        guard waitForAdmittedControl(cloud), waitForAdmittedControl(puppy) else {
+            XCTFail("PUBLIC_AGENT_SELECTOR_NOT_ADMITTED"); return
+        }
+        for _ in 0..<10 {
+            puppy.tap()
+            XCTAssertTrue(puppy.isSelected)
+            cloud.tap()
+            XCTAssertTrue(cloud.isSelected)
+            XCTAssertEqual(app.textViews.matching(identifier: "native-dock-editor").count, 1)
+            XCTAssertTrue((editor.value as? String) == sample, "Agent choice must not recreate the public editor")
+        }
         open.tap()
         guard waitForAdmittedControl(close) else { XCTFail("PUBLIC_EDITING_DRAWER_NOT_ADMITTED"); return }
         XCTAssertFalse(editor.isHittable)

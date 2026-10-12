@@ -305,14 +305,19 @@ struct NativeDrawerContent: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
+                if model.projection.family == "history" {
+                    control("xmark", "Close chat history") { model.close?() }
+                }
                 if model.detailRow != nil {
                     control("arrow.left", "Back") { model.clearDetails() }
                 } else if model.projection.backEnabled {
                     control("arrow.left", "Back") { model.choice("back") }
                 }
                 Text(model.projection.title).font(.title2.bold()).frame(maxWidth: .infinity, alignment: .leading)
-                control("xmark", model.projection.family == "history" ? "Close chat history" : "Close Profile") { model.close?() }
-            }.padding(.horizontal, 16).padding(.vertical, 12)
+                if model.projection.family != "history" {
+                    control("xmark", "Close Profile") { model.close?() }
+                }
+            }.padding(.horizontal, 16).padding(.vertical, model.projection.family == "history" ? 8 : 12)
             if let row = detailedRow {
                 details(row)
             } else {
@@ -383,8 +388,12 @@ struct NativeDrawerContent: View {
     }
     @ViewBuilder private func control(_ symbol: String, _ label: String, action: @escaping () -> Void) -> some View {
         if #available(iOS 26.0, *) {
-            Button(action: action) { Image(systemName: symbol).font(.system(size: 18)) }
-                .frame(width: 44, height: 44).buttonStyle(.glass).accessibilityLabel(label)
+            Button(action: action) {
+                Image(systemName: symbol).font(.system(size: 18))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(.interaction, Rectangle())
+            }
+                .buttonStyle(.glass).buttonBorderShape(.circle).frame(width: 44, height: 44).accessibilityLabel(label)
                 .disabled(!model.interactionEnabled)
         } else {
             Button(action: action) { Image(systemName: symbol) }.frame(width: 44, height: 44)

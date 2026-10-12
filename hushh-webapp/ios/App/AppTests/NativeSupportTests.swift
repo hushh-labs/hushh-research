@@ -312,6 +312,7 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(fixture.view.accessibilityViewIsModal)
         fixture.appearance.dark = true
         fixture.appearance.gold = true
+        fixture.appearance.agentSurface = "puppy"
         fixture.beginDrag()
         XCTAssertTrue(fixture.baseHost === base)
         XCTAssertTrue(fixture.drawerHost === drawer)

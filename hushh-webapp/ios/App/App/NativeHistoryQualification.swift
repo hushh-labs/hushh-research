@@ -21,6 +21,7 @@ final class NativeHistoryQualificationAppearance: ObservableObject {
     @Published var dark = false { didSet { changed?() } }
     @Published var gold = false { didSet { changed?() } }
     @Published var messageMode = true { didSet { changed?() } }
+    @Published var agentSurface = "one" { didSet { changed?() } }
     var changed: (() -> Void)?
     var accent: Color { gold ? Color(red: 0.72, green: 0.49, blue: 0.14) : .blue }
 }
@@ -341,6 +342,8 @@ struct NativeHistoryQualificationBase: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Public fixture — not your Chat").font(.subheadline).foregroundStyle(.primary)
+                    Button("Exit qualification", action: exit).frame(minHeight: 44)
+                        .accessibilityIdentifier("qualification-exit")
                     Button("Reset public samples", action: reset).frame(minHeight: 44)
                         .foregroundStyle(.primary)
                         .accessibilityIdentifier("qualification-reset")
@@ -367,8 +370,14 @@ struct NativeHistoryQualificationBase: View {
                     Spacer()
                     Text("Native study").font(.headline)
                     Spacer()
-                    NativeHistoryQualificationButton(appearance: appearance, symbol: "xmark",
-                        label: "Exit qualification", identifier: "qualification-exit", action: exit)
+                    if let theme = HushhNativeControlAppearance(appearance: appearance.dark ? "dark" : "light",
+                        accentHex: appearance.gold ? "#b87d24" : "#007aff",
+                        foregroundHex: appearance.dark ? "#ffffff" : "#000000") {
+                        // Reuse the product selector, not a decorative replica.
+                        // This choice is synthetic and grants no product action.
+                        NativeAgentSurfaceSelector(selected: appearance.agentSurface, width: 96, theme: theme,
+                            action: { appearance.agentSurface = $0 }, layout: { _ in })
+                    }
                 }
                 Spacer()
                 NativeAgentDockView(model: dock)
@@ -387,10 +396,10 @@ struct NativeHistoryQualificationDrawer: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("History").font(.largeTitle.bold())
-                Spacer()
                 NativeHistoryQualificationButton(appearance: appearance, symbol: "xmark",
                     label: "Close synthetic History", identifier: "qualification-history-close", action: close)
+                Text("History").font(.title2.bold())
+                Spacer()
             }
             Text("Synthetic conversations").foregroundStyle(.secondary)
             ScrollView {
