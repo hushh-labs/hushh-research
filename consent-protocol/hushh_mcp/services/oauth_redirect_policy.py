@@ -7,11 +7,11 @@ from urllib.parse import urlsplit, urlunsplit
 
 
 def allowed_oauth_callback_uris(configured: str) -> frozenset[str]:
-    """Keep the configured callback and its admitted, same-environment spelling.
+    """Keep the configured callback and admitted, same-environment domain aliases.
 
-    CORS alone does not authorize arbitrary OAuth destinations. The only extra
-    destination has the identical scheme, environment hostname and path, with
-    hushh.ai/hussh.ai exchanged; both origins must be explicitly admitted.
+    CORS alone does not authorize arbitrary OAuth destinations. Every extra
+    destination has the identical scheme, environment prefix and path, under
+    hushh.ai, hussh.ai or hussh.si; both origins must be explicitly admitted.
     Local and custom callbacks retain their existing exact-match behavior.
     """
 
@@ -28,18 +28,16 @@ def allowed_oauth_callback_uris(configured: str) -> frozenset[str]:
     ):
         return frozenset(allowed)
     host = parsed.hostname
-    alias = ""
-    for old, new in ((".hushh.ai", ".hussh.ai"), (".hussh.ai", ".hushh.ai")):
-        if host.endswith(old):
-            prefix = host[: -len(old)]
-            if prefix in {"one", "dev.one", "uat.one"}:
-                alias = prefix + new
-            break
-    if not alias:
+    suffixes = (".hushh.ai", ".hussh.ai", ".hussh.si")
+    prefix = next((host[: -len(suffix)] for suffix in suffixes if host.endswith(suffix)), "")
+    if prefix not in {"one", "dev.one", "uat.one"}:
         return frozenset(allowed)
     origins = {value.strip() for value in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",")}
     origin = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
-    alias_origin = f"https://{alias}"
-    if origin in origins and alias_origin in origins:
-        allowed.add(f"{alias_origin}{parsed.path}")
+    if origin not in origins:
+        return frozenset(allowed)
+    for suffix in suffixes:
+        alias_origin = f"https://{prefix}{suffix}"
+        if alias_origin in origins:
+            allowed.add(f"{alias_origin}{parsed.path}")
     return frozenset(allowed)
