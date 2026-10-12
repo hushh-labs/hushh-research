@@ -136,6 +136,16 @@ export class OneLocationService {
 
 export const findCardShareRecipients = () => OneLocationService.listRecipientsPage();
 export const shareSavedCard = async () => { throw new Error("No delivery from the layout fixture."); };
+export class CardRecipientKeyUnavailableError extends Error {
+  constructor() { super("Ask each recipient to unlock Hushh once before sharing card details."); }
+}
+export const prepareTemporaryCardShares = async (
+  _context: CardShareContext,
+  _cardId: string,
+  _personRefs: string[],
+): Promise<Record<string, string>> => {
+  throw new Error("No delivery from the layout fixture.");
+};
 export const prepareSavedCardFile = async (context: CardShareContext, cardId: string, password: string) => {
   const saved = await WalletService.getCard({ cardId });
   if (!saved || !context.isCurrent()) throw new Error("Fixture card unavailable.");
