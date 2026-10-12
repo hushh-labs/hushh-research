@@ -1,0 +1,55 @@
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+const mocks = vi.hoisted(() => ({ view: vi.fn(), verify: vi.fn(), reauthenticate: vi.fn(), token: vi.fn() }));
+const user = { uid: "recipient", getIdToken: mocks.token, providerData: [{ providerId: "google.com" }] };
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user }) }));
+vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => false } }));
+vi.mock("@/lib/services/auth-service", () => ({ AuthService: { reauthenticateIdentity: mocks.reauthenticate } }));
+vi.mock("@/lib/services/wallet-card-access-service", () => ({ WalletCardAccessService: { view: mocks.view, verify: mocks.verify } }));
+vi.mock("@/components/profile/settings-ui", () => ({ SettingsDetailPanel: ({ open, children }: any) => open ? <div>{children}</div> : null, SettingsPresentationProvider: ({ children }: any) => children }));
+import { WalletCardAccessMessage } from "@/components/wallet/wallet-card-access-message";
+const pending = { status: "verification_required", senderName: "Sender", expiresAt: "2030-01-01T00:15:00Z", serverNow: "2030-01-01T00:00:00Z" };
+const active = { ...pending, status: "active", card: { brand: "visa", last4: "1234", expiryMonth: 6, expiryYear: 2030, issuingRegion: "IN" } };
+beforeEach(() => { vi.resetAllMocks(); mocks.token.mockResolvedValue("token"); mocks.view.mockResolvedValue(pending); mocks.verify.mockResolvedValue(active); });
+afterEach(() => vi.restoreAllMocks());
+it("renders the authorized masked card face", async () => {
+  mocks.view.mockResolvedValue(active);
+  render(<WalletCardAccessMessage grantId="grant" />);
+  fireEvent.click(screen.getByRole("button", { name: "View card" }));
+  expect(await screen.findByTestId("wallet-card-face")).toHaveTextContent("1234");
+});
+it("completes verification after authentication backgrounds the tab", async () => {
+  let finish!: (value: string) => void;
+  mocks.reauthenticate.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+  render(<WalletCardAccessMessage grantId="grant" />);
+  fireEvent.click(screen.getByRole("button", { name: "View card" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Verify identity" }));
+  visibility.mockReturnValue("hidden"); fireEvent(document, new Event("visibilitychange"));
+  expect(screen.queryByTestId("wallet-card-face")).toBeNull();
+  visibility.mockReturnValue("visible"); fireEvent(document, new Event("visibilitychange"));
+  mocks.view.mockResolvedValue(active);
+  await act(async () => finish("fresh-token"));
+  await waitFor(() => expect(mocks.verify).toHaveBeenCalledWith("fresh-token", "grant"));
+  expect(await screen.findByTestId("wallet-card-face")).toHaveTextContent("1234");
+});
+it("still hides an active card when backgrounded", async () => {
+  mocks.view.mockResolvedValue(active);
+  const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+  render(<WalletCardAccessMessage grantId="grant" />);
+  fireEvent.click(screen.getByRole("button", { name: "View card" }));
+  await screen.findByTestId("wallet-card-face");
+  visibility.mockReturnValue("hidden"); fireEvent(document, new Event("visibilitychange"));
+  expect(screen.queryByTestId("wallet-card-face")).toBeNull();
+});
+it("discards authentication after page navigation", async () => {
+  let finish!: (value: string) => void;
+  mocks.reauthenticate.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  render(<WalletCardAccessMessage grantId="grant" />);
+  fireEvent.click(screen.getByRole("button", { name: "View card" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Verify identity" }));
+  fireEvent(window, new Event("pagehide"));
+  await act(async () => finish("fresh-token"));
+  expect(mocks.verify).not.toHaveBeenCalled();
+  expect(screen.queryByTestId("wallet-card-face")).toBeNull();
+});
