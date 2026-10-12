@@ -8,7 +8,7 @@ description: Use when operating reviewer-account browser rehearsals that require
 
 - Primary scope: `reviewer-app-testing`
 - Trigger on reviewer Playwright flows, BYOK unlock continuity, protected route chains, or cold-session re-unlock proof.
-- Avoid overlap with `vault-pkm-governance`, `pkm-upgrade-rehearsal`, and `frontend-cache-coherence`.
+- Avoid overlap with `security-audit`, `pkm-upgrade-rehearsal`, and `frontend-cache-coherence`.
 
 ## Coverage and Ownership
 
@@ -36,7 +36,7 @@ Non-owned surfaces:
 
 ## Do Not Use
 
-1. Vault cryptography or PKM storage implementation changes; use `vault-pkm-governance`.
+1. Vault cryptography or PKM storage implementation changes; use `security-audit`.
 2. PKM restructuring, preservation, scope, rollback, or payload acceptance; use `pkm-upgrade-rehearsal`.
 3. Generic public-route browser checks that do not depend on an unlocked vault.
 4. Shared reviewer mutation without explicit operator authority for the current task.
@@ -71,7 +71,7 @@ Non-owned surfaces:
 Local enablement and identity reconciliation follow `.codex/skills/reviewer-app-testing/references/reviewer-rehearsal-preflight.md`.
 
 ## Handoff Rules
-1. Vault and encrypted-storage implementation work routes to `vault-pkm-governance`.
+1. Vault and encrypted-storage implementation work routes to `security-audit`.
 2. PKM upgrade and exact payload rehearsal routes to `pkm-upgrade-rehearsal`.
 3. Cache behavior proof routes to `frontend-cache-coherence`; broad security work returns to `security-audit`.
 

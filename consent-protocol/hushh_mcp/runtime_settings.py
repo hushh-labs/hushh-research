@@ -170,6 +170,10 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "one_places_directory_enabled": "ONE_PLACES_DIRECTORY_ENABLED",
     "one_business_directory_enabled": "ONE_BUSINESS_DIRECTORY_ENABLED",
     "one_profile_research_enabled": "ONE_PROFILE_RESEARCH_ENABLED",
+    "one_magic_intelligence_phase": "ONE_MAGIC_INTELLIGENCE_PHASE",
+    "one_magic_intelligence_inner_team_emails": "ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS",
+    "one_magic_intelligence_senior_team_emails": "ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS",
+    "one_magic_intelligence_qa_emails": "ONE_MAGIC_INTELLIGENCE_QA_EMAILS",
     # Withdraws One Live Voice mail reads and nothing else. Its own key rather
     # than GMAIL_CHAT_READS, which is owner-available by construction and so has
     # no runtime effect; making that one effective would close typed-chat mail
@@ -493,6 +497,20 @@ def one_business_directory_enabled() -> bool:
 def one_profile_research_enabled() -> bool:
     """Default-off rollout for One's reviewed public-profile card."""
     return _clean_env("ONE_PROFILE_RESEARCH_ENABLED").lower() == "true"
+
+
+def one_magic_intelligence_phase() -> int:
+    """Explicit revision rollout: 0/off, 1/owner, 2/inner, 3/senior, 4/QA."""
+    raw = _clean_env("ONE_MAGIC_INTELLIGENCE_PHASE", "0")
+    return int(raw) if raw in {"0", "1", "2", "3", "4"} else 0
+
+
+def one_magic_intelligence_cohorts() -> tuple[tuple[str, ...], ...]:
+    """Exact primary emails, read afresh; no client or token-claim roster."""
+    return tuple(
+        _csv_list(_clean_env(f"ONE_MAGIC_INTELLIGENCE_{cohort}_EMAILS"))
+        for cohort in ("INNER_TEAM", "SENIOR_TEAM", "QA")
+    )
 
 
 def one_business_local_rehearsal_enabled(user_id: str, *, loopback: bool) -> bool:

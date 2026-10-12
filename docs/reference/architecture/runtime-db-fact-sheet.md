@@ -79,10 +79,10 @@ that file for the full record; this table is the index.
 | `one_email_kyc_workflow` | `workflow_state` | `backend-runtime-governance` | 4 tables |
 | `one_location_agent` | `workflow_state` | `iam-consent-governance` | 24 tables |
 | `one_location_named_circle_relationships` | `personal_metadata` | `iam-consent-governance` | 3 tables |
-| `pkm_default_available_projection` | `personal_projection` | `vault-pkm-governance` | 1 table |
-| `pkm_encrypted_memory` | `personal_encrypted` | `vault-pkm-governance` | 3 tables |
-| `pkm_metadata_and_scope` | `personal_metadata` | `vault-pkm-governance` | 5 tables |
-| `pkm_upgrade_workflows` | `workflow_state` | `vault-pkm-governance` | 5 tables |
+| `pkm_default_available_projection` | `personal_projection` | `security-audit` | 1 table |
+| `pkm_encrypted_memory` | `personal_encrypted` | `security-audit` | 3 tables |
+| `pkm_metadata_and_scope` | `personal_metadata` | `security-audit` | 5 tables |
+| `pkm_upgrade_workflows` | `workflow_state` | `security-audit` | 5 tables |
 | `preference_world_model` | `personal_metadata` | `iam-consent-governance` | 1 table |
 | `public_investor_reference` | `reference` | `backend-api-contracts` | 2 tables |
 | `relay_ticket_replay_guard` | `workflow_state` | `iam-consent-governance` | 1 table |
@@ -95,14 +95,14 @@ that file for the full record; this table is the index.
 | `trusted_device_authorization_workflows` | `workflow_state` | `iam-consent-governance` | 2 tables |
 | `trusted_device_audit` | `audit_regulated` | `iam-consent-governance` | 1 table |
 | `two_way_connection_graph` | `workflow_state` | `iam-consent-governance` | 3 tables |
-| `vault_key_material` | `personal_encrypted` | `vault-pkm-governance` | 2 tables |
+| `vault_key_material` | `personal_encrypted` | `security-audit` | 2 tables |
 | `connected_system_audit` *(customer0)* | `audit_regulated` | `iam-consent-governance` | 1 table |
 | `connected_system_workflows` *(customer0)* | `workflow_state` | `iam-consent-governance` | 2 tables |
 | `crm_schema_mapping_cache` *(customer0)* | `provider_cache` | `backend-agents-operons` | 2 tables |
-| `domain_reference_registry` *(transitional)* | `reference` | `vault-pkm-governance` | 1 table |
+| `domain_reference_registry` *(transitional)* | `reference` | `security-audit` | 1 table |
 | `enterprise_crm_registry` *(customer0)* | `reference` | `iam-consent-governance` | 3 tables |
 | `enterprise_crm_registry_audit` *(customer0)* | `audit_regulated` | `iam-consent-governance` | 1 table |
-| `legacy_memory_cutover` *(legacy_migration)* | `personal_encrypted` | `vault-pkm-governance` | 10 tables |
+| `legacy_memory_cutover` *(legacy_migration)* | `personal_encrypted` | `security-audit` | 10 tables |
 
 ## Identity Boundary Rule
 

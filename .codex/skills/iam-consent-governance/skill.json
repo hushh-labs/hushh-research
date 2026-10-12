@@ -51,13 +51,13 @@
   ],
   "handoff_targets": [
     "security-audit",
-    "vault-pkm-governance",
+    "security-audit",
     "backend"
   ],
   "adjacent_skills": [
     "security-audit",
     "backend",
-    "vault-pkm-governance"
+    "security-audit"
   ],
   "risk_tags": [
     "consent-scope-drift",

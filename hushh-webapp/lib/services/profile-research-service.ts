@@ -64,6 +64,7 @@ const response = z.discriminatedUnion("status", [
         "not_ready",
         "insufficient_identity",
         "unavailable",
+        "saved",
       ]),
       pkm_written: z.literal(false),
     })
@@ -80,6 +81,34 @@ export const PROFILE_SECTION_LABELS = {
 } as const;
 
 export const ProfileResearchService = {
+  /** Only acknowledged owner-reviewed PKM receipts can complete the offer. */
+  async complete(input: {
+    vaultKey: string;
+    vaultOwnerToken: string;
+    commits: { domain: string; planId: string }[];
+  }): Promise<void> {
+    const result = await apiJson<unknown>(
+      "/api/one/profile-research/complete",
+      {
+        method: "POST",
+        cache: "no-store",
+      headers: {
+        Authorization: `Bearer ${input.vaultOwnerToken}`,
+        "Content-Type": "application/json",
+        ...(await oneChatKeyHeaders(input.vaultKey)),
+        },
+        body: JSON.stringify({
+          commits: input.commits.map(({ domain, planId }) => ({
+            domain,
+            plan_id: planId,
+          })),
+        }),
+      },
+    );
+    z.object({ saved: z.literal(true) })
+      .strict()
+      .parse(result);
+  },
   /** The server selects the current owner; identifiers never ride in request bodies. */
   async research(input: {
     vaultKey: string;

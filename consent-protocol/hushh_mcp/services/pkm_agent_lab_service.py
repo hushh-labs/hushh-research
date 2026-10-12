@@ -1956,6 +1956,16 @@ class PKMAgentLabService:
     ) -> dict[str, Any]:
         if not isinstance(simulated_state, dict):
             return {"domains": [], "recent_memories": []}
+        soul = memory_profile == "soul_markdown_v1"
+        supplied = simulated_state.get("memories") or []
+        if soul and (
+            len(supplied) > 256
+            or sum(
+                len(str(item.get("message") or "")) for item in supplied if isinstance(item, dict)
+            )
+            > 18000
+        ):
+            raise ValueError("Soul reconciliation snapshot exceeds its bound")
         recent_memories = []
         for memory in simulated_state.get("memories") or []:
             if not isinstance(memory, dict):
@@ -1968,12 +1978,16 @@ class PKMAgentLabService:
                     "intent_class": cls._normalize_segment(str(memory.get("intent_class") or "")),
                     "message": cls._safe_excerpt(
                         str(memory.get("message") or ""),
-                        limit=4000 if memory_profile == "business_directory_v1" else 200,
+                        limit=18000
+                        if soul
+                        else 4000
+                        if memory_profile == "business_directory_v1"
+                        else 200,
                     ),
                     "active": bool(memory.get("active", True)),
                 }
             )
-            if len(recent_memories) >= 10:
+            if len(recent_memories) >= (256 if soul else 10):
                 break
         domains = [
             cls._normalize_segment(str(domain))
@@ -2108,7 +2122,7 @@ class PKMAgentLabService:
 
         summary = (
             cls._compact_state_summary(simulated_state)
-            if compact and memory_profile != "business_directory_v1"
+            if compact and memory_profile not in {"business_directory_v1", "soul_markdown_v1"}
             else cls._build_state_summary(simulated_state, memory_profile=memory_profile)
         )
         entities = []
@@ -3274,6 +3288,10 @@ class PKMAgentLabService:
         message: str = "",
         memory_profile: str = "general",
     ) -> dict[str, Any]:
+        # The flat-document profile has exact offered references, not legacy
+        # subject/path heuristics. Preserve the model's decision; validate below.
+        if memory_profile == "soul_markdown_v1" and isinstance(raw, dict):
+            return deepcopy(raw)
         decision = deepcopy(fallback)
         if isinstance(raw, dict):
             merge_mode = cls._normalize_segment(str(raw.get("merge_mode") or ""))
@@ -3972,6 +3990,19 @@ class PKMAgentLabService:
                 return True
         return False
 
+    @staticmethod
+    def _soul_structure_schema() -> dict[str, Any]:
+        schema = deepcopy(_STRUCTURE_PREVIEW_SCHEMA)
+        schema["properties"]["candidate_payload"] = {
+            "type": "OBJECT",
+            "properties": {
+                "soul_text": {"type": "STRING"},
+                "soul_section": {"type": "STRING", "enum": ["Facts", "Preferences", "Commitments"]},
+            },
+            "required": ["soul_text", "soul_section"],
+        }
+        return schema
+
     @classmethod
     def _normalize_structure_preview(
         cls,
@@ -4013,6 +4044,67 @@ class PKMAgentLabService:
         raw_structure = parsed_structure or {}
         raw_decision = raw_structure.get("structure_decision")
         raw_decision = raw_decision if isinstance(raw_decision, dict) else {}
+        if memory_profile == "soul_markdown_v1":
+            if parsed_structure is None and cls._should_skip_structure_agent(
+                intent_frame=intent_frame
+            ):
+                return {
+                    "candidate_payload": {},
+                    "structure_decision": {"target_domain": "one_memory"},
+                    "write_mode": "do_not_save",
+                    "primary_json_path": None,
+                    "target_entity_scope": None,
+                    "validation_hints": [],
+                }
+            payload = raw_structure.get("candidate_payload") or {}
+            mode = merge_decision.get("merge_mode")
+            known = cls._existing_entities(
+                simulated_state, compact=False, memory_profile=memory_profile
+            )
+            targeted = isinstance(mode, str) and mode in {
+                "correct_entity",
+                "delete_entity",
+                "extend_entity",
+            }
+            target_valid = not targeted or any(
+                entity["domain"] == merge_decision.get("target_domain") == "one_memory"
+                and entity["entity_id"] == merge_decision.get("target_entity_id")
+                and f"{entity['entity_scope']}.entities.{entity['entity_id']}"
+                == merge_decision.get("target_entity_path")
+                for entity in known
+            )
+            valid = (
+                isinstance(payload, dict)
+                and set(payload) == {"soul_text", "soul_section"}
+                and isinstance(payload.get("soul_text"), str)
+            )
+            valid = (
+                valid
+                and isinstance(payload.get("soul_section"), str)
+                and payload.get("soul_section") in {"Facts", "Preferences", "Commitments"}
+                and target_valid
+            )
+            valid = (
+                valid
+                and isinstance(mode, str)
+                and mode in _MERGE_MODES
+                and raw_decision.get("target_domain") == "one_memory"
+                and raw_decision.get("externalizable_paths") == []
+            )
+            valid = valid and (
+                mode in {"delete_entity", "no_op"} or bool(payload.get("soul_text", "").strip())
+            )
+            valid = valid and not cls._contains_sensitive_secret(payload.get("soul_text", ""))
+            write_mode = raw_structure.get("write_mode")
+            valid = valid and isinstance(write_mode, str) and write_mode in _WRITE_MODES
+            return {
+                "candidate_payload": payload if valid else {},
+                "structure_decision": {"target_domain": "one_memory", **raw_decision},
+                "write_mode": write_mode if valid and mode != "no_op" else "do_not_save",
+                "primary_json_path": raw_structure.get("primary_json_path"),
+                "target_entity_scope": raw_structure.get("target_entity_scope"),
+                "validation_hints": [] if valid else ["soul_profile_contract_invalid"],
+            }
 
         suggested_target_domain = (
             cls._normalize_segment(str(raw_decision.get("target_domain") or ""))
@@ -5451,6 +5543,8 @@ class PKMAgentLabService:
                     message, _STRUCTURE_PREVIEW_SCHEMA, merge_raw
                 )
                 if memory_profile == "business_directory_v1"
+                else self._soul_structure_schema()
+                if memory_profile == "soul_markdown_v1"
                 else _STRUCTURE_PREVIEW_SCHEMA,
                 model_override=model_override,
                 timeout_seconds=self._remaining_preview_budget_seconds(deadline),
@@ -5471,6 +5565,9 @@ class PKMAgentLabService:
         business_contract_failed = memory_profile == "business_directory_v1" and (
             not valid_business_preview(message, structure_raw or {}, merge_decision)
             or not valid_business_preview(message, normalized_preview, merge_decision)
+        )
+        soul_contract_failed = (
+            "soul_profile_contract_invalid" in normalized_preview["validation_hints"]
         )
         if business_contract_failed:
             # Explicit schema rejection. No rerouting, filtering or substitute
@@ -5494,11 +5591,14 @@ class PKMAgentLabService:
             errors.append("pkm_structure_agent_fallback")
         if business_contract_failed:
             errors.append("business_profile_contract_invalid")
+        if soul_contract_failed:
+            errors.append("soul_profile_contract_invalid")
         used_fallback = (
             intent_used_fallback
             or merge_used_fallback
             or structure_used_fallback
             or business_contract_failed
+            or soul_contract_failed
         )
         drift_flags = self._drift_flags_from_preview(
             validation_hints=normalized_preview["validation_hints"],

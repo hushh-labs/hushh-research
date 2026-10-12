@@ -185,6 +185,22 @@ Any new semantic backend feature must declare:
 
 If a feature cannot provide that declaration, it is not agent-only compliant.
 
+### Declared: Soul.md reconciliation profile
+
+- Owners: existing Memory Segmentation, Intent, Merge and PKM Structure agents;
+  manifests in `consent-protocol/hushh_mcp/agents/{memory_segmentation,memory_intent,memory_merge,pkm_structure}/agent.yaml`.
+- Output: existing stage schemas; Soul structure payload contains exactly
+  `soul_text` (complete attributed fact) and `soul_section` (Facts, Preferences,
+  Commitments). Merge owns create/extend/correct/delete/no-op and exact targeting.
+- Validators reject unknown targets, oversized snapshots, invalid payloads,
+  credential material and export paths; they never select a replacement target
+  or rewrite a successful model's fact. Skipped no-op stages remain traced.
+- The browser validates the offered bullet again before RAM mutation and cloud
+  CAS. Masked or ambiguous targets are refused rather than partially replaced.
+- Promotion evidence: synthetic full-pipeline/negative-control tests are the UAT
+  contract gate; owner verification of live correction, deletion and attribution
+  is required before claiming live-model quality or production readiness.
+
 ### Declared: first-connect insights
 
 - Owning agent: `agent_one`, gene `one_first_connect_insights`.

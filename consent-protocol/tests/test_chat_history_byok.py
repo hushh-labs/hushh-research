@@ -16,7 +16,7 @@ import time
 from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from ag_ui.core import EventType, StateSnapshotEvent, TextMessageContentEvent
@@ -426,6 +426,26 @@ def test_durable_agent_never_runs_the_idle_session_sweeper() -> None:
     assert manager._save_session_to_memory_on_cleanup is False
     manager._start_cleanup_task()
     assert manager._cleanup_task is None
+
+
+async def test_durable_manager_finds_thread_with_one_exact_read(monkeypatch) -> None:
+    from api.routes.one import agent_chat
+
+    exact = AsyncMock(return_value=SimpleNamespace(id="thread-1"))
+    listed = AsyncMock()
+    manager = agent_chat._DurableSessionManager(
+        session_service=SimpleNamespace(get_session=exact, list_sessions=listed),
+        delete_session_on_cleanup=False,
+        save_session_to_memory_on_cleanup=False,
+        use_thread_id_as_session_id=True,
+    )
+    monkeypatch.setattr(manager, "_cache_session", Mock())
+
+    found = await manager._find_session_by_thread_id("hussh_one", "owner-1", "thread-1")
+
+    assert found.id == "thread-1"
+    exact.assert_awaited_once_with(session_id="thread-1", app_name="hussh_one", user_id="owner-1")
+    listed.assert_not_awaited()
 
 
 # ── Every reader ──────────────────────────────────────────────────────────────

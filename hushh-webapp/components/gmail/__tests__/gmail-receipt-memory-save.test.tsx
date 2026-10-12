@@ -11,8 +11,9 @@ const toast = vi.fn();
 vi.mock("sonner", () => ({ toast: (...args: unknown[]) => toast(...args) }));
 
 const vault = { vaultKey: "vault-key", vaultOwnerToken: "owner-token", isVaultUnlocked: true };
+const auth = { user: { uid: "user-1" } };
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => vault }));
-vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: "user-1" } }) }));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => auth }));
 
 import {
   GmailReceiptMemorySave,
@@ -52,6 +53,8 @@ describe("GmailReceiptMemorySave (headless, after a finished sync)", () => {
     vi.useFakeTimers();
     vi.clearAllMocks();
     vault.isVaultUnlocked = true;
+    auth.user.uid = "user-1";
+    vault.vaultOwnerToken = "owner-token";
     saveReceiptCanonicalIndexToMemory.mockResolvedValue({ count: 1 });
   });
   afterEach(() => {
@@ -74,13 +77,14 @@ describe("GmailReceiptMemorySave (headless, after a finished sync)", () => {
     rerender(view(longer, 1, ledger));
     await settle();
     expect(saveReceiptCanonicalIndexToMemory).toHaveBeenCalledOnce();
-    expect(saveReceiptCanonicalIndexToMemory).toHaveBeenCalledWith({
+    expect(saveReceiptCanonicalIndexToMemory).toHaveBeenCalledWith(expect.objectContaining({
       userId: "user-1",
       vaultKey: "vault-key",
       vaultOwnerToken: "owner-token",
       receipts: longer,
       accountKey: "owner@example.com",
-    });
+      partialScan: true, isCurrent: expect.any(Function), now: expect.any(Date),
+    }));
 
     // The same finished sync is never saved twice, even after a remount.
     rerender(view([...longer], 1, ledger));
@@ -153,5 +157,55 @@ describe("GmailReceiptMemorySave (headless, after a finished sync)", () => {
     await settle();
     expect(saveReceiptCanonicalIndexToMemory).not.toHaveBeenCalled();
     expect(toast).not.toHaveBeenCalled();
+  });
+
+  it("cancels an old owner's pending assessment and retries instead of using the next owner's authority", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    saveReceiptCanonicalIndexToMemory.mockRejectedValue(new Error("Temporary"));
+    const ledger = { current: 0 };
+    const { rerender } = render(view(receipts, 1, ledger));
+    await settle();
+    const originatingGuard = saveReceiptCanonicalIndexToMemory.mock.calls[0]![0].isCurrent;
+    expect(originatingGuard()).toBe(true);
+    auth.user.uid = "user-2";
+    // The page exposes no completed scan until the new account finishes one.
+    rerender(view([], 0, ledger));
+    expect(originatingGuard()).toBe(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(saveReceiptCanonicalIndexToMemory).toHaveBeenCalledOnce();
+    expect(toast).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it("captures coverage and cancels old account work before a newer completed scan", async () => {
+    saveReceiptCanonicalIndexToMemory.mockResolvedValue({ count: 1 });
+    const ledger = { current: 0 };
+    const { rerender } = render(view(receipts, 1, ledger));
+    await settle();
+    const oldGuard = saveReceiptCanonicalIndexToMemory.mock.calls[0]![0].isCurrent;
+    rerender(<GmailReceiptMemorySave receipts={longer} accountKey="other@example.com" partialScan={false}
+      syncCompletion={2} savedCompletionRef={ledger} />);
+    await settle();
+    expect(oldGuard()).toBe(false);
+    expect(saveReceiptCanonicalIndexToMemory).toHaveBeenLastCalledWith(expect.objectContaining({
+      accountKey: "other@example.com", receipts: longer, partialScan: false,
+    }));
+  });
+
+  it("retries the same completed scan after a vault-token renewal cancels pending assessment", async () => {
+    let failOld!: (error: Error) => void;
+    saveReceiptCanonicalIndexToMemory.mockImplementationOnce(() => new Promise((_resolve, reject) => { failOld = reject; }));
+    const ledger = { current: 0 };
+    const { rerender } = render(view(receipts, 1, ledger));
+    await settle();
+    expect(ledger.current).toBe(0);
+    vault.vaultOwnerToken = "renewed-token";
+    rerender(view(receipts, 1, ledger));
+    await settle();
+    expect(saveReceiptCanonicalIndexToMemory).toHaveBeenLastCalledWith(expect.objectContaining({ vaultOwnerToken: "renewed-token" }));
+    expect(ledger.current).toBe(1);
+    await act(async () => { failOld(new Error("Old authority cancelled")); });
+    expect(toast).not.toHaveBeenCalled();
+    vault.vaultOwnerToken = "owner-token";
   });
 });

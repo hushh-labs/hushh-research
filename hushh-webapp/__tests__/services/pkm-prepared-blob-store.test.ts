@@ -49,6 +49,31 @@ describe("PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob", () =
     });
   });
 
+  it("rejects malformed commit lookup responses instead of treating them as uncommitted checkpoints", async () => {
+    vi.spyOn(ApiService, "apiFetch").mockResolvedValue(new Response(JSON.stringify({ commits: [] })));
+    await expect(PersonalKnowledgeModelService.lookupMutationCommits({
+      userId: "synthetic-owner", vaultOwnerToken: "synthetic-token",
+      commits: [{ domain: "one_memory", planId: "synthetic-plan" }],
+    })).rejects.toThrow("could not be confirmed");
+  });
+
+  it.each([false, true])("retains an idempotent replay receipt without publishing speculative rebuilt Markdown (native=%s)", async native => {
+    transport.native = native;
+    transport.nativeStore.mockResolvedValue({ success: true, dataVersion: 1, idempotentReplay: true });
+    vi.spyOn(PersonalKnowledgeModelService, "getDomainManifest").mockResolvedValue(null);
+    vi.spyOn(ApiService, "apiFetch").mockResolvedValue(new Response(JSON.stringify({
+      success: true, data_version: 1, idempotent_replay: true,
+    })));
+    const publish = vi.spyOn(CacheSyncService, "onPkmDomainStored");
+    const result = await PersonalKnowledgeModelService.storePreparedDomainWithPreparedBlob({
+      userId: "synthetic-owner", vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-token",
+      domain: "one_memory", domainData: { markdown: "# Memory\n- Previously deleted fact.\n" },
+      summary: {}, baseFullBlob: {}, cacheFullBlob: false,
+    });
+    expect(result).toMatchObject({ success: true, idempotentReplay: true });
+    expect(publish).not.toHaveBeenCalled();
+  });
+
   it.each(["create_entity", "extend_entity"])("encrypts and round-trips only selected business fields (%s)", async mode => {
     vi.stubGlobal("crypto", webcrypto);
     const vaultKey = "7f".repeat(32); // Synthetic key; no live owner writes.

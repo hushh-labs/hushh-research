@@ -179,12 +179,17 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/release-tools"
           cp scripts/ci/resolve-cloud-run-deploy-revision.py \
             "${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py"
+          cp scripts/ops/verify_uat_release.py \
+            "${RUNNER_TEMP}/release-tools/verify_uat_release.py"
 
       - name: Checkout deployment SHA
         shell: bash
         run: |
           set -euo pipefail
           git checkout --detach "${{ steps.resolve-sha.outputs.sha }}"
+          # Keep the current opt-in contract when verifying an older approved build.
+          cp "${RUNNER_TEMP}/release-tools/verify_uat_release.py" \
+            scripts/ops/verify_uat_release.py
 
       - name: Validate Google Cloud workload identity configuration
         shell: bash
@@ -519,6 +524,11 @@ jobs:
         # through the environment (not inline expressions in shell) keeps an
         # opaque Firebase UID cohort from becoming executable shell text.
         env:
+          UAT_ONE_PROFILE_RESEARCH_ENABLED: ${{ vars.ONE_PROFILE_RESEARCH_ENABLED_UAT || 'true' }}
+          UAT_ONE_MAGIC_INTELLIGENCE_PHASE: ${{ vars.ONE_MAGIC_INTELLIGENCE_PHASE_UAT || '1' }}
+          UAT_ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS: ${{ vars.ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS_UAT || '' }}
+          UAT_ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS: ${{ vars.ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS_UAT || 'ankit@hushh.ai,i-akshat@hush1one.com,i-neelesh@hushh.ai,kushal@hushh.ai' }}
+          UAT_ONE_MAGIC_INTELLIGENCE_QA_EMAILS: ${{ vars.ONE_MAGIC_INTELLIGENCE_QA_EMAILS_UAT || 'jhumma@hushh.ai' }}
           UAT_CONNECTIONS_PANEL_V2: ${{ vars.CONNECTIONS_PANEL_V2_UAT || 'false' }}
           UAT_GOOGLE_DRIVE_CONNECTION: ${{ vars.GOOGLE_DRIVE_CONNECTION_UAT || 'false' }}
           UAT_GOOGLE_DRIVE_LIVE: ${{ vars.GOOGLE_DRIVE_LIVE_UAT || 'false' }}
@@ -585,6 +595,11 @@ jobs:
             --insurance-agents-api-base-url "${{ vars.INSURANCE_AGENTS_API_BASE_URL || 'https://insurance-agents.34.61.69.175.sslip.io' }}" \
             --one-places-directory-enabled "${{ vars.ONE_PLACES_DIRECTORY_ENABLED_UAT || 'true' }}" \
             --one-business-directory-enabled "${{ vars.ONE_BUSINESS_DIRECTORY_ENABLED_UAT || 'false' }}" \
+            --one-profile-research-enabled "$UAT_ONE_PROFILE_RESEARCH_ENABLED" \
+            --one-magic-intelligence-phase "$UAT_ONE_MAGIC_INTELLIGENCE_PHASE" \
+            --one-magic-intelligence-inner-team-emails "$UAT_ONE_MAGIC_INTELLIGENCE_INNER_TEAM_EMAILS" \
+            --one-magic-intelligence-senior-team-emails "$UAT_ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS" \
+            --one-magic-intelligence-qa-emails "$UAT_ONE_MAGIC_INTELLIGENCE_QA_EMAILS" \
             --one-voice-mail-reply-enabled "${{ vars.ONE_VOICE_MAIL_REPLY_ENABLED_UAT || 'true' }}" \
             --one-voice-mail-schedule-send-enabled "${{ vars.ONE_VOICE_MAIL_SCHEDULE_SEND_ENABLED_UAT || 'true' }}" \
             --one-voice-mail-drafts-enabled "${{ vars.ONE_VOICE_MAIL_DRAFTS_ENABLED_UAT || 'true' }}" \
@@ -672,7 +687,7 @@ jobs:
           echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
 
       - name: Install Cloud SQL Auth Proxy
-        if: steps.scope.outputs.deploy_backend == 'true'
+        if: steps.scope.outputs.deploy_backend == 'true' || steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -865,11 +880,21 @@ jobs:
           BOOTSTRAP_FOCUS_PROFILE=uat bash scripts/env/bootstrap_profiles.sh --strict
           bash scripts/env/use_profile.sh uat
 
-          if [ "${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}" = "true" ]; then
-            PKM_UPGRADE_PROTECTED_UAT=1 \
-            PKM_UPGRADE_RUNTIME_AUDIT_DEFERRED=1 \
-              ./scripts/ci/pkm-upgrade-gate.sh
+
+      - name: Install PostgreSQL client for selected preservation
+        if: steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
+        shell: bash
+        run: |
+          if ! command -v psql >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
           fi
+
+      - name: Verify selected PKM preservation before deployment
+        id: verify-pkm-preservation
+        if: steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
+        shell: bash
+        run: bash scripts/ci/run-release-pkm-gate.sh uat
 
       - name: Verify One mail sender configuration
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -932,6 +957,10 @@ jobs:
           SUBSTITUTIONS="${SUBSTITUTIONS}##_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_DIRECT_MESSAGE_ENCRYPTION_KEY_V1_SECRET=DIRECT_MESSAGE_ENCRYPTION_KEY_V1"
+          # Older deployment SHAs do not declare this substitution.
+          if grep -q '^[[:space:]]*_WALLET_CARD_ACCESS_ENABLED:' deploy/backend.cloudbuild.yaml; then
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_WALLET_CARD_ACCESS_ENABLED=${{ vars.WALLET_CARD_ACCESS_UAT_ENABLED || 'true' }}"
+          fi
           SUBSTITUTIONS="${SUBSTITUTIONS}##_GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_ID##_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET##_GOOGLE_DRIVE_PICKER_API_KEY_SECRET=GOOGLE_DRIVE_PICKER_API_KEY##_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET=EXTERNAL_CONNECTOR_CREDENTIAL_KEY##_DRIVE_DOCUMENT_KEY_V1_SECRET=DRIVE_DOCUMENT_KEY_V1##_DRIVE_SHARING_KEY_V1_SECRET=DRIVE_SHARING_KEY_V1"
           # Curated connector OAuth client secrets are derived from the checked-in
           # manifests by the "Resolve curated connector secrets" step; empty (the
@@ -1730,6 +1759,7 @@ jobs:
         run: |
           set -euo pipefail
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify_uat_release.py \
+            --run-live-model-checks "${{ steps.verification-plan.outputs.run_live_model_checks }}" \
             --backend-url "${{ steps.current-state.outputs.backend_url }}" \
             --frontend-url "${{ env.APP_FRONTEND_ORIGIN }}" \
             --protocol-env consent-protocol/.env \
@@ -1745,6 +1775,7 @@ jobs:
           set -euo pipefail
           sleep 20
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify_uat_release.py \
+            --run-live-model-checks "${{ steps.verification-plan.outputs.run_live_model_checks }}" \
             --backend-url "${{ steps.current-state.outputs.backend_url }}" \
             --frontend-url "${{ env.APP_FRONTEND_ORIGIN }}" \
             --protocol-env consent-protocol/.env \

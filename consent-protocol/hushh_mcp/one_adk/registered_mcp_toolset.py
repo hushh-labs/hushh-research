@@ -281,18 +281,21 @@ class RegisteredMcpToolset(BaseToolset):
             raise ExternalMcpError("Connector turn changed.", code="MCP_TURN_UNAVAILABLE")
         scope.track_catalog_view(self)
         budget = mcp_call_timeout_seconds()
-        try:
-            async with asyncio.timeout(budget):
-                definitions = (
-                    await get_external_connector_registry_service().list_active_connectors(
-                        user_id=None if scope.has_vault_configurations else context.user_id
+        definitions = scope.registry_definitions
+        if definitions is None:
+            try:
+                async with asyncio.timeout(budget):
+                    definitions = (
+                        await get_external_connector_registry_service().list_active_connectors(
+                            user_id=None if scope.has_vault_configurations else context.user_id
+                        )
                     )
-                )
-        except Exception:
-            # The registry is slow or down. The turn still runs without connector
-            # tools, instead of failing every other thing One can do.
-            logger.warning("mcp_registry_unavailable")
-            return []
+                scope.registry_definitions = definitions
+            except Exception:
+                # The registry is slow or down. The turn still runs without connector
+                # tools, instead of failing every other thing One can do.
+                logger.warning("mcp_registry_unavailable")
+                return []
         admitted = [
             (item.connector_id, item.display_name)
             for item in definitions

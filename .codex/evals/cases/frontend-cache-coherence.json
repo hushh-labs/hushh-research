@@ -22,7 +22,7 @@
       },
       {
         "prompt": "we are changing where encrypted PKM information is persisted in the vault",
-        "owner": "vault-pkm-governance"
+        "owner": "security-audit"
       }
     ]
   }

@@ -338,6 +338,286 @@ class RetentionSafetyTest(unittest.TestCase):
 
 
 class MaintenanceAuthorityTest(unittest.TestCase):
+    def production_cleanup_failure(self):
+        run = {
+            **self.trusted_source(123, "deploy-production.yml"),
+            "actor": {"login": "kushaltrivedi5"},
+            "conclusion": "failure",
+        }
+        steps = [
+            {"name": name, "status": "completed", "conclusion": "success"}
+            for name in MAINTENANCE.REQUIRED_PRODUCTION_STEPS
+        ]
+        steps.append(
+            {
+                "name": MAINTENANCE.POST_RELEASE_CLEANUP_STEP,
+                "status": "completed",
+                "conclusion": "failure",
+            }
+        )
+        jobs = {
+            "total_count": 1,
+            "jobs": [
+                {
+                    "name": "Deploy Production Scope",
+                    "status": "completed",
+                    "conclusion": "failure",
+                    "steps": steps,
+                }
+            ],
+        }
+        release = {
+            "status": "healthy",
+            "scope": "all",
+            "sha": "a" * 40,
+            "final": {
+                "backend_revision": "consent-protocol-00003-abc",
+                "frontend_revision": "hushh-webapp-00003-abc",
+            },
+            "verification": {
+                name: "success"
+                for name in (
+                    "runtime_parity",
+                    "connected_systems",
+                    "backend_provenance",
+                    "frontend_provenance",
+                    "backend_health",
+                    "frontend_health",
+                    "passkey_domain_associations",
+                    "account_deletion_activation",
+                )
+            },
+            "classification": {
+                name: "false"
+                for name in (
+                    "release_failed",
+                    "promote_failed",
+                    "backend_provenance_failed",
+                    "frontend_provenance_failed",
+                )
+            },
+            "rollback": {
+                "backend": "skipped",
+                "frontend": "skipped",
+                "drive_jobs": "skipped",
+            },
+        }
+        release["verification"]["account_deletion_activated"] = "true"
+        return run, jobs, release
+
+    def test_cleanup_only_failure_requires_complete_release_proof_before_cloud_auth(
+        self,
+    ):
+        artifact = {"name": "prod-release-123", "expired": False}
+        for artifacts, total, allowed in (
+            ([artifact], 1, True),
+            ([artifact, artifact], 2, False),
+            ([artifact], 2, False),
+            ([{**artifact, "expired": True}], 1, False),
+        ):
+            with (
+                self.subTest(artifacts=artifacts, total=total),
+                mock.patch.object(
+                    MAINTENANCE,
+                    "api",
+                    return_value={"artifacts": artifacts, "total_count": total},
+                ),
+            ):
+                if allowed:
+                    self.assertTrue(
+                        MAINTENANCE.artifact_exists("org/repo", 123, "prod-release-123")
+                    )
+                else:
+                    with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+                        MAINTENANCE.artifact_exists("org/repo", 123, "prod-release-123")
+        original_run, original_jobs, original_release = (
+            self.production_cleanup_failure()
+        )
+        for defect in (
+            None,
+            "health_step",
+            "missing_gate",
+            "partial_jobs",
+            "artifact_health",
+            "artifact_sha",
+            "wrong_actor",
+            "fork",
+            "uat",
+        ):
+            with (
+                self.subTest(defect=defect),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                run, jobs, release = copy.deepcopy(
+                    (original_run, original_jobs, original_release)
+                )
+                if defect == "health_step":
+                    jobs["jobs"][0]["steps"][6]["conclusion"] = "failure"
+                elif defect == "missing_gate":
+                    jobs["jobs"][0]["steps"].pop(0)
+                elif defect == "partial_jobs":
+                    jobs["total_count"] = 2
+                elif defect == "artifact_health":
+                    release["verification"]["backend_health"] = "failure"
+                elif defect == "artifact_sha":
+                    release["sha"] = "mutable-tag"
+                elif defect == "wrong_actor":
+                    run["actor"] = {"login": "Roopmann30"}
+                elif defect == "fork":
+                    run["head_repository"] = {"full_name": "fork/repo"}
+                elif defect == "uat":
+                    run["path"] = ".github/workflows/deploy-uat.yml"
+
+                def download(_repo, _run, _name, directory):
+                    directory.mkdir(parents=True)
+                    (directory / "prod-release-status.json").write_text(
+                        json.dumps(release)
+                    )
+
+                with (
+                    mock.patch.object(
+                        MAINTENANCE,
+                        "api",
+                        side_effect=lambda _repo, endpoint: (
+                            jobs if "/jobs?" in endpoint else run
+                        ),
+                    ),
+                    mock.patch.object(
+                        MAINTENANCE, "artifact_exists", return_value=True
+                    ),
+                    mock.patch.object(MAINTENANCE, "download", side_effect=download),
+                    mock.patch.object(
+                        MAINTENANCE.retention,
+                        "service_state",
+                        side_effect=AssertionError(
+                            "source validation cannot access cloud"
+                        ),
+                    ),
+                ):
+                    if defect is None:
+                        found = MAINTENANCE.find_release(
+                            "org/repo",
+                            "123",
+                            pathlib.Path(temporary),
+                            environment="production",
+                            require_live=False,
+                        )
+                        self.assertEqual(found[1]["_maintenance_source_run"], 123)
+                        self.assertFalse(
+                            MAINTENANCE.trusted_run(
+                                run, "org/repo", "capacity-maintenance.yml"
+                            )
+                        )
+                    else:
+                        with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+                            MAINTENANCE.find_release(
+                                "org/repo",
+                                "123",
+                                pathlib.Path(temporary),
+                                environment="production",
+                                require_live=False,
+                            )
+
+    def test_cleanup_failure_live_proof_rejects_stale_provenance_and_mutable_images(
+        self,
+    ):
+        _, _, release = self.production_cleanup_failure()
+        release["_maintenance_source_run"] = 123
+        for defect in (
+            None,
+            "sha",
+            "run",
+            "env",
+            "image",
+            "not_ready",
+            "partial_traffic",
+        ):
+            with self.subTest(defect=defect):
+
+                def state(name, _project, _region):
+                    lane = "backend" if name == "consent-protocol" else "frontend"
+                    return {
+                        "status": {
+                            "conditions": [{"type": "Ready", "status": "True"}],
+                            "traffic": [
+                                {
+                                    "revisionName": release["final"][
+                                        lane + "_revision"
+                                    ],
+                                    "percent": 50
+                                    if defect == "partial_traffic"
+                                    else 100,
+                                }
+                            ],
+                        }
+                    }
+
+                def revisions(name, _project, _region):
+                    lane = "backend" if name == "consent-protocol" else "frontend"
+                    return [
+                        {
+                            "metadata": {
+                                "name": release["final"][lane + "_revision"],
+                                "labels": {
+                                    "deploy-sha": "b" * 40
+                                    if defect == "sha"
+                                    else release["sha"],
+                                    "github-run-id": "999"
+                                    if defect == "run"
+                                    else "123",
+                                },
+                            },
+                            "spec": {
+                                "containers": [
+                                    {
+                                        "image": "gcr.io/project/app:latest"
+                                        if defect == "image"
+                                        else "gcr.io/project/app@sha256:" + "c" * 64,
+                                        "env": [
+                                            {
+                                                "name": "HUSHH_DEPLOY_SHA",
+                                                "value": "b" * 40
+                                                if defect == "env"
+                                                else release["sha"],
+                                            }
+                                        ],
+                                    }
+                                ]
+                            },
+                            "status": {
+                                "conditions": [
+                                    {
+                                        "type": "Ready",
+                                        "status": "False"
+                                        if defect == "not_ready"
+                                        else "True",
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+
+                with (
+                    mock.patch.object(
+                        MAINTENANCE.retention, "service_state", side_effect=state
+                    ),
+                    mock.patch.object(
+                        MAINTENANCE.retention, "revision_state", side_effect=revisions
+                    ),
+                ):
+                    if defect == "partial_traffic":
+                        with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+                            MAINTENANCE.live_release_matches(
+                                release, environment="production"
+                            )
+                        continue
+                    self.assertEqual(
+                        MAINTENANCE.live_release_matches(
+                            release, environment="production"
+                        ),
+                        defect is None,
+                    )
+
     def test_historical_predeploy_absence_does_not_block_safe_rollback_cleanup(self):
         previous, current, known_good = (
             revision(n)["metadata"]["name"] for n in range(1, 4)

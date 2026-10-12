@@ -2,6 +2,7 @@
 
 import { useId, type CSSProperties, type RefObject } from "react";
 import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
+import { OneRosterAgentIcon } from "@/components/icons/agents/one-roster-agent-icon";
 import {
   FigmaHushhLogo,
   FigmaOneLogo,
@@ -10,7 +11,8 @@ import {
 import styles from "./IntroStep.module.css";
 
 // Tile bounds in the original exports, normalized to their source canvases.
-// Mask and reveal the same image bytes so the settled art is the original UI.
+// Keep the original box, light beams and tile shells; render the roster glyphs
+// as vectors so welcome and dashboard show the same agent identities.
 const LIGHT_TILES = [
   [128, 300, 177, 170],
   [374, 253, 167, 162],
@@ -23,6 +25,13 @@ const LIGHT_TILES = [
   [377, 690, 166, 152],
   [549, 636, 169, 163],
 ] as const;
+
+// The nine roster agents plus the existing identity-card tile.
+const TILE_AGENTS = [
+  "location", "email", "wallet", "finance", "gmail",
+  "calendar", "ria", "consent", "messages", "pkm",
+] as const;
+const TILE_ANGLES = [-15, 3, 15, -17, -10, 10, 18, -15, 5, 14] as const;
 const DARK_TILES = [
   [385, 98, 192, 181],
   [666, 32, 183, 173],
@@ -52,6 +61,10 @@ function WelcomeArtwork({ dark = false }: { dark?: boolean }) {
       data-welcome-artwork={dark ? "dark" : "light"}
     >
       <defs>
+        <linearGradient id={`${id}-tile-surface`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={dark ? "#252c43" : "#fff"} />
+          <stop offset="100%" stopColor={dark ? "#17253d" : "#fff"} />
+        </linearGradient>
         <image
           id={`${id}-source`}
           href={source}
@@ -112,9 +125,25 @@ function WelcomeArtwork({ dark = false }: { dark?: boolean }) {
               href={`#${id}-source`}
               clipPath={`url(#${id}-tile-${index})`}
             />
+            <g transform={`rotate(${TILE_ANGLES[index]} ${x + w / 2} ${y + h / 2})`}>
+              <rect
+                x={x + w / 2 - Math.min(w, h) * 0.4}
+                y={y + h / 2 - Math.min(w, h) * 0.4}
+                width={Math.min(w, h) * 0.8}
+                height={Math.min(w, h) * 0.8}
+                rx={Math.min(w, h) * 0.16}
+                fill={`url(#${id}-tile-surface)`}
+              />
+              <OneRosterAgentIcon
+                agentId={TILE_AGENTS[index]!}
+                x={x + w / 2 - Math.min(w, h) * 0.26}
+                y={y + h / 2 - Math.min(w, h) * 0.26}
+                size={Math.min(w, h) * 0.52}
+                data-welcome-agent={TILE_AGENTS[index]}
+              />
+            </g>
           </g>
         ))}
-        <use href={`#${id}-source`} className={styles.restingArtwork} />
       </g>
     </svg>
   );
