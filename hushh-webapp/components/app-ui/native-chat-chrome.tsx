@@ -22,8 +22,9 @@ const rehearsalFailureCodes = new Set([
   "NATIVE_CHROME_DOCUMENT_OR_GEOMETRY_STALE", "NATIVE_CHROME_OVERLAPPING_CONTROLS",
   "NATIVE_CHROME_OPTIONS_INVALID", "NATIVE_CHROME_LAYOUT_UNCONFIRMED",
   "NATIVE_CHROME_LAYOUT_RETIRED", "NATIVE_CHROME_ACTIVATE_REFUSED",
-  "NATIVE_CHROME_ACTIVATE_UNCONFIRMED", "NATIVE_CHROME_RETIRE_UNCONFIRMED",
+  "NATIVE_CHROME_ACTIVATE_UNCONFIRMED", "NATIVE_CHROME_RETIRE_UNCONFIRMED", "NATIVE_CHROME_RETIRE_STALE",
   "NATIVE_CHROME_UPDATE_INVALID", "NATIVE_CHROME_UPDATE_UNCONFIRMED",
+  "NATIVE_CHROME_SUSPEND_REFUSED", "NATIVE_CHROME_SUSPEND_UNCONFIRMED",
 ]);
 function rehearsalFailureCode(error: unknown): string {
   return error instanceof Error && rehearsalFailureCodes.has(error.message) ? error.message : "other";
@@ -93,6 +94,9 @@ export function NativeChatChrome(props: Props) {
   const expanded = props.kind === "history" ? !coherent && (props.expanded ?? false) : undefined;
   const current = useRef({ allowed, epoch, context, value, props, owningLayer, theme, expanded });
   const lease = useRef<NativeChromeLease | null>(null);
+  // Native invalidation removes the host, whereas local geometry/coverage
+  // invalidation only revokes its binding. Never suspend/resume a removed host.
+  const removedLease = useRef<NativeChromeLease | null>(null);
   const replacementCandidate = useRef<NativeChromeLease | null>(null);
   const heldFocus = useRef(false);
   const moving = useRef(false);
@@ -320,6 +324,7 @@ export function NativeChatChrome(props: Props) {
       if (cancelled || subscriptionsFailed) await handle.remove(); else handles.push(handle);
     };
     const invalidate = () => { lease.current?.invalidate(); remeasure((count) => count + 1); };
+    const invalidateRemoved = () => { removedLease.current = lease.current; invalidate(); };
     const readmit = () => {
       const active = lease.current, snapshot = current.current;
       if (cancelled || subscriptionsFailed || !active?.ownsInstallation || active.context !== snapshot.context || active.projection.ownerEpoch !== snapshot.epoch || !snapshot.theme) return;
@@ -364,8 +369,8 @@ export function NativeChatChrome(props: Props) {
           }).then(outcome => {
             if (outcome && lease.current === active) reportChoice(outcome);
           }).catch(() => { if (lease.current === active) reportChoice("uncertain"); });
-        })), retain(nativeChrome.addListener("invalidated", invalidate)),
-        retain(nativeChrome.addListener("readmissionRequested", readmit)), retain(subscribeNativeSessionPrivacy(invalidate))]);
+        })), retain(nativeChrome.addListener("invalidated", invalidateRemoved)),
+        retain(nativeChrome.addListener("readmissionRequested", readmit)), retain(subscribeNativeSessionPrivacy(invalidateRemoved))]);
         if (!cancelled) {
           setInPlaceUpdates(capability.inPlaceUpdates === true);
           setRetainedControls(capability.retainedControls === true);
@@ -518,7 +523,8 @@ export function NativeChatChrome(props: Props) {
           props.kind === "selection" ? { kind: "selection", value: props.value, options: props.options, label: props.label } :
           { kind: "more", options: props.options, label: props.label };
         const retainHost = peekNativeChromeCapabilities()?.retainedControls === true &&
-          props.eligible && badgeAdmitted && !!props.owner && !isSessionChromeSuppressed() && retiring?.projection.ownerEpoch === epoch;
+          props.eligible && badgeAdmitted && !!props.owner && !isSessionChromeSuppressed() &&
+          retiring !== removedLease.current && retiring?.projection.ownerEpoch === epoch;
         // A compatible active handoff must stay visible. Suspension belongs to
         // an actually inactive surface, not a route/action revision change.
         // The native replacement contract fences interaction until activation.
@@ -529,7 +535,7 @@ export function NativeChatChrome(props: Props) {
             previous.canReplaceBackWith({ kind: "profile-back", label: props.label, enabled: true, ...theme, ...geometry }, epoch, context));
         if (!replacing && retainHost && retiring) await suspendOwnedNativeChrome(retiring);
         if (cancelled) return;
-        const resuming = !replacing && peekNativeChromeCapabilities()?.retainedControls === true && theme && geometry &&
+        const resuming = !replacing && retiring !== removedLease.current && peekNativeChromeCapabilities()?.retainedControls === true && theme && geometry &&
           await canResumeNativeChrome({ ...control, enabled: true, ...theme, ...geometry }, epoch);
         if (cancelled || current.current.epoch !== epoch || current.current.context !== context) return;
         if (!replacing && !resuming && !(inactive && retainHost)) {

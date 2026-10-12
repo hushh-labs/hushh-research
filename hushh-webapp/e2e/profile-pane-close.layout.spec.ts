@@ -187,6 +187,32 @@ test.describe("Profile pane custom close layout", () => {
         expect(bounds.y).toBeCloseTo(124, 0);
         expect(bounds.width).toBe(44);
         expect(bounds.height).toBe(44);
+        const title = page.locator('.native-feature-page-header [data-slot="dialog-title"]');
+        // Real product header/CSS, synthetic text only. Long sub-route names
+        // must wrap without changing the Back track or clipping essential text.
+        for (const scale of [1, 2]) {
+          await title.evaluate((node, scale) => {
+            node.textContent = "Connected accounts and privacy preferences";
+            document.documentElement.style.setProperty("--type-navigation-title-size", `${17 * scale}px`);
+            document.documentElement.style.setProperty("--type-navigation-title-line", `${22 * scale}px`);
+          }, scale);
+          const geometry = await title.evaluate(node => {
+            const header = node.closest("header")!;
+            const back = header.querySelector('[data-native-chrome-slot="profile-back"]')!;
+            const title = node.getBoundingClientRect(), control = back.getBoundingClientRect();
+            return { width: node.clientWidth, scroll: node.scrollWidth, left: title.left, right: title.right,
+              center: title.top + title.height / 2, backRight: control.right, backCenter: control.top + control.height / 2 };
+          });
+          expect(geometry.scroll).toBeLessThanOrEqual(geometry.width + 1);
+          expect(geometry.left - geometry.backRight).toBeCloseTo(8, 0);
+          expect(geometry.right).toBeLessThanOrEqual(viewport.width - 24 + 1);
+          expect(geometry.center).toBeCloseTo(geometry.backCenter, 0);
+        }
+        await title.evaluate(node => {
+          node.textContent = "Preferences";
+          document.documentElement.style.removeProperty("--type-navigation-title-size");
+          document.documentElement.style.removeProperty("--type-navigation-title-line");
+        });
         // Reproduce the shipped broken centering, not a markup snapshot.
         await page.locator(".native-feature-page").evaluate(node => {
           node.classList.remove("translate-x-0", "translate-y-0");

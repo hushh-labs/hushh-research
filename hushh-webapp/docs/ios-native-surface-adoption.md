@@ -49,6 +49,28 @@ passes remain required before product admission or shared-family expansion.
 
 #### Shared Profile follow-up — 2026-10-12
 
+The History follow-up restores the web drawer's 24-point right-hand curves by
+shaping only its SwiftUI background. Its transparent host and unmasked controls
+retain system effects. Age is compact inline metadata; it no longer reserves a
+second line or changes the title's vertical centering. The shared feature-page
+header wraps long destination names within the existing Back/gutter tracks.
+Production-optimized Chromium/WebKit checks cover portrait, landscape and
+enlarged text; the old truncated title fails the overflow negative control.
+
+Warm checks at `75cc325072` completed ten integrated Chat/History/Profile cycles
+and, separately, nine Profile destinations. Subsequent runs failed initial
+composition admission and Puppy selection after four cycles; those failures
+remain evidence, not discarded retries. The credential-free probe found History
+and the selector absent while the editor and Profile opener remained admitted.
+Source-backed reproduction isolates a retained-control defect: native privacy
+invalidation removes a host, but its adapter tries to suspend that absent host.
+The native-invalidated lease now requires confirmed retirement before fresh
+admission; ordinary drawer coverage still retains presentation. Existing owner,
+privacy, choice and popup fences are unchanged. The retained History/Profile Back
+regression fails the old adapter and the full 147-case suite passes the correction.
+Physical qualification of this follow-up is recorded separately below; source
+and build checks alone do not establish transition or visual acceptance.
+
 `components/profile/profile-menu-model.ts` now authors the roster, labels and
 availability for both renderers. Callbacks remain in the Profile workspace;
 the projection carries no executable action, URL or credential. Existing Legal

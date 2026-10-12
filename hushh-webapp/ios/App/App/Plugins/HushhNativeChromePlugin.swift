@@ -536,7 +536,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
           return JSON.stringify({stage: state.stage, outcome: state.outcome, code: state.code,
             present: !!slot, focused: !!slot?.contains(document.activeElement), inert: !!slot?.closest('[inert]'),
             width: rect?.width ?? 0, height: rect?.height ?? 0, top: rect?.top ?? 0,
-            historyStage: history.stage, historyOutcome: history.outcome, historyChoice: history.choice,
+            historyStage: history.stage, historyOutcome: history.outcome, historyCode: history.code, historyChoice: history.choice,
             historyAllowed: history.allowed === true, historyPresent: !!historySlot, historyInert: !!historySlot?.closest('[inert]')});
         })()
         """) { [weak self] result, _ in
@@ -563,9 +563,10 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                 "NATIVE_CHROME_UPDATE_INVALID", "NATIVE_CHROME_UPDATE_UNCONFIRMED"])
             let historyStage = choice("historyStage", ["skip", "retire", "prepare", "activate", "update"])
             let historyOutcome = choice("historyOutcome", ["pending", "acknowledged", "rejected"])
+            let historyCode = choice("historyCode", ["none", "other", "NATIVE_CHROME_ACK_UNCERTAIN", "NATIVE_CHROME_RETIRE_STALE", "NATIVE_CHROME_RETIRE_UNCONFIRMED", "NATIVE_CHROME_SUSPEND_REFUSED", "NATIVE_CHROME_SUSPEND_UNCONFIRMED"])
             let historyChoice = choice("historyChoice", ["applied", "inactive", "disabled", "not-allowed", "update-pending", "identity-stale",
                 "sequence-stale", "value-refused", "confirmation-refused", "isolation-changed", "uncertain"])
-            self.profileBackAdmission?.update(status: "stage=\(stage);outcome=\(outcome);code=\(code);present=\(packet["present"] as? Bool == true);focused=\(packet["focused"] as? Bool == true);inert=\(packet["inert"] as? Bool == true);width=\(dimension("width"));height=\(dimension("height"));top=\(dimension("top"));historyStage=\(historyStage);historyOutcome=\(historyOutcome);historyChoice=\(historyChoice);historyAllowed=\(packet["historyAllowed"] as? Bool == true);historyPresent=\(packet["historyPresent"] as? Bool == true);historyInert=\(packet["historyInert"] as? Bool == true);historyNative=\(self.historyChoiceStage)")
+            self.profileBackAdmission?.update(status: "stage=\(stage);outcome=\(outcome);code=\(code);present=\(packet["present"] as? Bool == true);focused=\(packet["focused"] as? Bool == true);inert=\(packet["inert"] as? Bool == true);width=\(dimension("width"));height=\(dimension("height"));top=\(dimension("top"));historyStage=\(historyStage);historyOutcome=\(historyOutcome);historyCode=\(historyCode);historyChoice=\(historyChoice);historyAllowed=\(packet["historyAllowed"] as? Bool == true);historyPresent=\(packet["historyPresent"] as? Bool == true);historyInert=\(packet["historyInert"] as? Bool == true);historyNative=\(self.historyChoiceStage)")
         }
     }
     #endif

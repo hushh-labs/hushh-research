@@ -71,7 +71,8 @@ vi.mock("@/lib/capacitor/session-privacy", () => ({ nativeDocumentId: () => brid
     privacy.callbacks.add(callback);
     return { remove: async () => { privacy.callbacks.delete(callback); } };
   } }));
-vi.mock("@/lib/voice/voice-surface-metadata", () => ({ useVoiceSurfaceMetadata: () => null, getVoiceSurfaceMetadata: () => null }));
+const voiceSurface = vi.hoisted(() => ({ current: null as null | { interactionLayer: { blocksUnderlyingActions: boolean } } }));
+vi.mock("@/lib/voice/voice-surface-metadata", () => ({ useVoiceSurfaceMetadata: () => voiceSurface.current, getVoiceSurfaceMetadata: () => voiceSurface.current }));
 describe("private native drawer action boundary", () => {
   it("selects recovery before discovery unless the wrapper explicitly bootstraps qualification", () => {
     const key = "__HUSHH_NATIVE_DRAWER_BOOTSTRAP__";
@@ -899,6 +900,7 @@ describe("native chrome presentation lease", () => {
     document.documentElement.style.removeProperty("--background");
     bridge.platform = "ios";
     profile.query = "profile_pane=1"; profile.unlocked = true; profile.pathname = "/";
+    voiceSurface.current = null;
     bridge.documentId = crypto.randomUUID();
     bridge.callbacks.clear();
     bridge.listeners.clear();
@@ -2124,10 +2126,28 @@ describe("native chrome presentation lease", () => {
     const initialRetirements = bridge.retire.mock.calls.length;
     view.rerender(<RouteControl covered />);
     await waitFor(() => expect(bridge.update.mock.calls.at(-1)?.[0].enabled).toBe(false));
+    if (kind === "history") {
+      act(() => bridge.callbacks.get("choiceRequested")?.({ ...bridge.update.mock.calls.at(-1)![0], sequence: 1, privacyGeneration: 0 }));
+      expect(action).not.toHaveBeenCalled();
+    }
     expect(bridge.retire).toHaveBeenCalledTimes(initialRetirements);
     expect(bridge.prepare).toHaveBeenCalledOnce();
     view.rerender(<RouteControl />);
     await waitFor(() => expect(bridge.update.mock.calls.at(-1)?.[0].enabled).toBe(true));
+    if (kind === "history") {
+      await act(async () => { await Promise.resolve(); });
+      const admitted = bridge.update.mock.calls.at(-1)![0];
+      // Event-time metadata can withdraw authority before another React render.
+      // Native visibility/enabled state alone must not permit the old choice.
+      voiceSurface.current = { interactionLayer: { blocksUnderlyingActions: true } };
+      act(() => bridge.callbacks.get("choiceRequested")?.({ ...admitted, sequence: 2, privacyGeneration: 0 }));
+      expect(action).not.toHaveBeenCalled();
+      expect(bridge.confirmChoice).not.toHaveBeenCalled();
+      voiceSurface.current = null;
+      act(() => bridge.callbacks.get("choiceRequested")?.({ ...admitted, sequence: 3, privacyGeneration: 0 }));
+      await waitFor(() => expect(action).toHaveBeenCalledOnce());
+      expect(bridge.confirmChoice).toHaveBeenCalledOnce();
+    }
     expect(bridge.prepare).toHaveBeenCalledOnce();
     expect(bridge.activate).toHaveBeenCalledOnce();
     view.rerender(<RouteControl eligible={false} />);
@@ -2360,10 +2380,11 @@ describe("native chrome presentation lease", () => {
 
   it.each(["back", "history", "profile-back"] as const)("never hands off %s across owner, suppression, native invalidation or geometry changes", async (kind) => {
     measureSlot();
-    const replacement = admitReplacement(kind);
+    const replacement = admitReplacement(kind, true);
     // Model the native monotonic admission fence, not unconditional bridge
     // success. Reserving a preparation before retirement fails this journey.
     let tombstone = 0;
+    let physicallyRemoved = false;
     bridge.retire.mockImplementation(async (value) => {
       tombstone = Math.max(tombstone, value.revision);
       return { ...value, phase: "retired" };
@@ -2371,7 +2392,12 @@ describe("native chrome presentation lease", () => {
     bridge.prepare.mockImplementation(async (value) => {
       if (value.revision <= tombstone) throw new Error("NATIVE_CHROME_PREPARE_REFUSED");
       tombstone = value.revision;
+      physicallyRemoved = false;
       return { ...value, phase: "prepared" };
+    });
+    bridge.suspend.mockImplementation(async value => {
+      if (physicallyRemoved) throw new Error("NATIVE_CHROME_SUSPEND_REFUSED");
+      return { ...value, phase: "suspended" };
     });
     const view = render(retainedControl(kind, "original"));
     await waitFor(() => expect(bridge.activate).toHaveBeenCalledOnce());
@@ -2381,6 +2407,9 @@ describe("native chrome presentation lease", () => {
     await waitFor(() => expect(view.getByRole("button")).toBeVisible());
     view.rerender(retainedControl(kind, "owner-replaced", undefined, "other-owner"));
     await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(3));
+    // Native invalidation has already removed the host. A local retained
+    // reference must not try to suspend/resume that absent installation.
+    physicallyRemoved = true;
     act(() => bridge.callbacks.get("invalidated")?.(undefined));
     await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(4));
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({

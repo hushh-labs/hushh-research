@@ -104,7 +104,9 @@ final class NativeDrawerPresentationController: UIViewController, UIGestureRecog
         view.addSubview(scrim)
         host = UIHostingController(rootView: NativeDrawerContent(model: model))
         addChild(host)
-        host.view.backgroundColor = .systemBackground
+        // History's rounded edge belongs to its SwiftUI background, not an
+        // ancestor mask that would also clip/disable effect-bearing controls.
+        host.view.backgroundColor = .clear
         host.view.accessibilityIdentifier = "native-\(model.projection.family)-drawer-body"
         view.addSubview(host.view)
         host.didMove(toParent: self)
@@ -351,6 +353,7 @@ struct NativeDrawerContent: View {
     @ScaledMetric(relativeTo: .body) private var profileRowFont: CGFloat = 16
     @ScaledMetric(relativeTo: .subheadline) private var profileGroupFont: CGFloat = 14
     @ScaledMetric(relativeTo: .title3) private var profileNameFont: CGFloat = 22
+    @ScaledMetric(relativeTo: .body) private var historyTitleFont: CGFloat = 15
     private var detailedRow: NativeDrawerRow? {
         model.projection.sections.flatMap(\.rows).first { $0.id == model.detailRow }
     }
@@ -388,14 +391,12 @@ struct NativeDrawerContent: View {
                             Button { model.choice("row", row: row.id) } label: {
                                 HStack(spacing: 12) {
                                     if let symbol = row.symbol { Image(systemName: symbol).frame(width: 24).accessibilityHidden(true) }
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(row.label).foregroundStyle(row.destructive == true ? Color.red : Color.primary)
-                                            .lineLimit(model.projection.family == "history" ? 1 : 2)
-                                        if let detail = row.detail {
-                                            Text(detail).font(model.projection.family == "history" ? .caption : .subheadline)
-                                                .foregroundStyle(.secondary).lineLimit(model.projection.family == "history" ? 1 : 2)
-                                        }
-                                    }
+                                    // Match the web row: age follows the title's
+                                    // text flow. It owns neither a trailing
+                                    // column nor a second vertical padding track.
+                                    Text("\(Text(row.label).foregroundStyle(row.destructive == true ? Color.red : Color.primary))\(historyAge(row.detail))")
+                                        .font(.system(size: historyTitleFont)).fixedSize(horizontal: false, vertical: true)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
                                     Spacer(minLength: 8)
                                     if row.pending == true { ProgressView() }
                                     else if row.selected == true { Image(systemName: "checkmark").accessibilityHidden(true) }
@@ -415,9 +416,21 @@ struct NativeDrawerContent: View {
                         }
                     } header: { if let title = section.title { Text(title) } }
                 }
-                }.listStyle(.insetGrouped)
+                }.listStyle(.insetGrouped).scrollContentBackground(.hidden)
             }
-        }.background(Color(uiColor: model.projection.family == "profile" ? .systemGroupedBackground : .systemBackground))
+        }.background {
+            if model.projection.family == "history" {
+                UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 0,
+                    bottomTrailingRadius: 24, topTrailingRadius: 24, style: .continuous)
+                    .fill(Color(uiColor: .systemBackground))
+            } else {
+                Color(uiColor: .systemGroupedBackground)
+            }
+        }
+    }
+    private func historyAge(_ detail: String?) -> Text {
+        guard let detail, !detail.isEmpty else { return Text("") }
+        return Text("  \(detail)").font(.caption2).foregroundStyle(.secondary)
     }
     /// Mirrors the shared Profile roster, not List's platform-specific default
     /// paddings. React owns grouping, availability and actions; native owns its

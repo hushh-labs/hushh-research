@@ -58,7 +58,7 @@ export function NativeFeaturePage({ open, title, owner, context, onBack, onReady
       {!authoredHeader && <header className="native-feature-page-header">
         <NativeFeatureBack owner={owner} context={context} layer={layer} label={layer === "profile-pane" ? "Back in Profile" : "Back to Chat"}
           onBack={onBack} onReady={onReady} />
-        <DialogTitle ref={heading} tabIndex={-1} className="ui-text-navigation-title truncate">{title}</DialogTitle>
+        <DialogTitle ref={heading} tabIndex={-1} className="ui-text-navigation-title min-w-0 flex-1 whitespace-normal break-words">{title}</DialogTitle>
       </header>}
       <div data-native-feature-scroll-root="true" className={bodyClassName ? `native-feature-page-body ${bodyClassName}` : "native-feature-page-body"}>{children}</div>
     </DialogContent>

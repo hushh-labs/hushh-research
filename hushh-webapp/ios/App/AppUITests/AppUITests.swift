@@ -92,8 +92,8 @@ final class AppUITests: XCTestCase {
     private var activeUiFlowRunId = ""
 
     private func printNativeControlStatuses(_ web: XCUIElement) {
-        for control in ["chat-history-toggle", "chat-history-close", "profile-close", "profile-back"] {
-            let status = web.staticTexts["native-control-status-\(control)"].firstMatch
+        for control in ["chat-history-toggle", "chat-history-close", "profile-close", "profile-back", "chat-agent-surface"] {
+            let status = web.descendants(matching: .any).matching(identifier: control == "chat-agent-surface" ? "native-selector-rehearsal-status" : "native-control-status-\(control)").firstMatch
             guard status.exists, status.label.hasPrefix("NATIVE_SELECTOR_STATUS ") else { continue }
             let raw = String(status.label.dropFirst("NATIVE_SELECTOR_STATUS ".count))
             guard raw.utf8.count <= 1024, let data = raw.data(using: .utf8),
@@ -105,11 +105,15 @@ final class AppUITests: XCTestCase {
                 "NATIVE_CHROME_ACK_UNCERTAIN", "NATIVE_CHROME_PREPARE_REFUSED",
                 "NATIVE_CHROME_DOCUMENT_OR_GEOMETRY_STALE", "NATIVE_CHROME_OVERLAPPING_CONTROLS",
                 "NATIVE_CHROME_OPTIONS_INVALID", "NATIVE_CHROME_LAYOUT_UNCONFIRMED", "NATIVE_CHROME_LAYOUT_RETIRED",
-                "NATIVE_CHROME_ACTIVATE_REFUSED", "NATIVE_CHROME_ACTIVATE_UNCONFIRMED", "NATIVE_CHROME_RETIRE_UNCONFIRMED",
-                "NATIVE_CHROME_UPDATE_INVALID", "NATIVE_CHROME_UPDATE_UNCONFIRMED"]
+                "NATIVE_CHROME_ACTIVATE_REFUSED", "NATIVE_CHROME_ACTIVATE_UNCONFIRMED", "NATIVE_CHROME_RETIRE_UNCONFIRMED", "NATIVE_CHROME_RETIRE_STALE",
+                "NATIVE_CHROME_UPDATE_INVALID", "NATIVE_CHROME_UPDATE_UNCONFIRMED", "NATIVE_CHROME_SUSPEND_REFUSED", "NATIVE_CHROME_SUSPEND_UNCONFIRMED"]
             let code = fields["code"] as? String ?? "other"
             guard knownCodes.contains(code) else { continue }
             print("NATIVE_CONTROL_STAGE control=\(control.replacingOccurrences(of: "-", with: "_")) stage=\(stage) outcome=\(outcome) code=\(code) eligible=\(fields["eligible"] as? Bool ?? false) allowed=\(fields["allowed"] as? Bool ?? false) focused=\(fields["focusInside"] as? Bool ?? false) held=\(fields["heldFocus"] as? Bool ?? false) in_viewport=\(fields["inViewport"] as? Bool ?? false)")
+            if let choice = fields["choice"] as? String,
+               ["none", "applied", "inactive", "disabled", "not-allowed", "update-pending", "identity-stale", "sequence-stale", "value-refused", "confirmation-refused", "isolation-changed", "uncertain"].contains(choice) {
+                print("NATIVE_CONTROL_CHOICE control=\(control.replacingOccurrences(of: "-", with: "_")) outcome=\(choice)")
+            }
         }
     }
 
@@ -125,6 +129,13 @@ final class AppUITests: XCTestCase {
             let body = app.otherElements["native-\(family)-drawer-body"].firstMatch
             print("COHERENT_DRAWER_ADMISSION family=\(family) present=\(body.exists) hittable=\(body.exists && body.isHittable)")
         }
+        for (name, control) in [("editor", app.textViews["native-dock-editor"].firstMatch),
+            ("history", app.buttons["chat-history-toggle"].firstMatch),
+            ("selector", app.segmentedControls["chat-agent-surface"].firstMatch),
+            ("chat_tab", app.buttons["one-native-tab-chat"].firstMatch)] {
+            print("COHERENT_SHELL_ADMISSION control=\(name) present=\(control.exists) hittable=\(control.exists && control.isHittable) enabled=\(control.exists && control.isEnabled)")
+        }
+        print("COHERENT_SHELL_ISOLATION privacy_cover=\(app.otherElements["session-privacy-shield"].exists) software_keyboard=\(softwareKeyboardIsOnscreen(app.keyboards.firstMatch, in: app))")
         let probe = app.buttons["native-profile-back-admission"].firstMatch
         if let raw = probe.exists ? probe.value as? String : nil, raw.utf8.count <= 1024 {
             let fields = Dictionary(raw.split(separator: ";").compactMap { item -> (String, String)? in
@@ -140,13 +151,15 @@ final class AppUITests: XCTestCase {
                   [width, height, top].allSatisfy({ abs($0) <= 10_000 }) else { return }
             print("COHERENT_BACK_ADMISSION stage=\(stage) outcome=\(outcome) code=\(code) present=\(fields["present"]!) focused=\(fields["focused"]!) inert=\(fields["inert"]!) width=\(width) height=\(height) top=\(top)")
             let historyStage = fields["historyStage"] ?? "none", historyOutcome = fields["historyOutcome"] ?? "none"
+            let historyCode = fields["historyCode"] ?? "none"
             let historyChoice = fields["historyChoice"] ?? "none", historyNative = fields["historyNative"] ?? "none"
             if ["none", "skip", "retire", "prepare", "activate", "update"].contains(historyStage),
                ["none", "pending", "acknowledged", "rejected"].contains(historyOutcome),
+               ["none", "other", "NATIVE_CHROME_ACK_UNCERTAIN", "NATIVE_CHROME_RETIRE_STALE", "NATIVE_CHROME_RETIRE_UNCONFIRMED", "NATIVE_CHROME_SUSPEND_REFUSED", "NATIVE_CHROME_SUSPEND_UNCONFIRMED"].contains(historyCode),
                ["none", "applied", "inactive", "disabled", "not-allowed", "update-pending", "identity-stale", "sequence-stale", "value-refused", "confirmation-refused", "isolation-changed", "uncertain"].contains(historyChoice),
                ["none", "tap", "refused", "emitted", "confirmed", "confirmation-refused"].contains(historyNative),
                ["historyAllowed", "historyPresent", "historyInert"].allSatisfy({ ["true", "false"].contains(fields[$0] ?? "") }) {
-                print("COHERENT_HISTORY_TRACE stage=\(historyStage) outcome=\(historyOutcome) choice=\(historyChoice) native=\(historyNative) allowed=\(fields["historyAllowed"]!) present=\(fields["historyPresent"]!) inert=\(fields["historyInert"]!)")
+                print("COHERENT_HISTORY_TRACE stage=\(historyStage) outcome=\(historyOutcome) code=\(historyCode) choice=\(historyChoice) native=\(historyNative) allowed=\(fields["historyAllowed"]!) present=\(fields["historyPresent"]!) inert=\(fields["historyInert"]!)")
             }
         }
     }
@@ -851,6 +864,7 @@ final class AppUITests: XCTestCase {
             throw XCTSkip("Installed coherent qualification candidate only")
         }
         let app = XCUIApplication()
+        let agentSwitchOnly = ProcessInfo.processInfo.environment["HUSHH_COHERENT_AGENT_SWITCH_ONLY"] == "true"
         guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
             throw XCTSkip("Attach only; installation and unlock are separate")
         }
@@ -868,6 +882,8 @@ final class AppUITests: XCTestCase {
         let profile = app.buttons["Open Profile"].firstMatch
         let selector = app.segmentedControls["chat-agent-surface"].firstMatch
         guard waitForAdmittedControl(editor), waitForAdmittedControl(history), waitForAdmittedControl(profile), selector.exists else {
+            printCoherentPresentationAdmission(app)
+            printNativeControlStatuses(web)
             XCTFail("COHERENT_SHELL_COMPOSITION_NOT_ADMITTED"); return
         }
         let initialDraft = editor.value as? String // Process-only; never an assertion operand or artifact.
@@ -889,92 +905,107 @@ final class AppUITests: XCTestCase {
             XCTAssertFalse(web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message One")).firstMatch.isHittable)
         }
         for cycle in 0..<10 {
-            let openerFrame = history.frame
-            history.coordinate(withNormalizedOffset: CGVector(dx: cycle % 2 == 0 ? 0.5 : 0.2, dy: 0.5)).tap()
-            let close = app.buttons["Close chat history"].firstMatch
-            guard waitForAdmittedControl(close), app.textFields["native-history-search"].firstMatch.exists else {
-                printCoherentPresentationAdmission(app)
-                printNativeControlStatuses(web)
-                let search = app.textFields["native-history-search"].firstMatch
-                print("COHERENT_HISTORY_ADMISSION search_present=\(search.exists) search_hittable=\(search.exists && search.isHittable) opener_hittable=\(history.exists && history.isHittable)")
-                XCTFail("COHERENT_HISTORY_NOT_ADMITTED"); return
-            }
-            print("NATIVE_HISTORY_LEADING_SLOT opener_x=\(Int(openerFrame.minX)) opener_y=\(Int(openerFrame.minY)) close_x=\(Int(close.frame.minX)) close_y=\(Int(close.frame.minY))")
-            XCTAssertEqual(close.frame.minX, openerFrame.minX, accuracy: 1, "COHERENT_HISTORY_CLOSE_HORIZONTAL_ALIGNMENT")
-            XCTAssertEqual(close.frame.minY, openerFrame.minY, accuracy: 1, "COHERENT_HISTORY_CLOSE_VERTICAL_ALIGNMENT")
-            if cycle == 0 {
-                let actions = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "native-history-actions-")).firstMatch
-                guard waitForAdmittedControl(actions) else { XCTFail("COHERENT_HISTORY_ACTION_FIXTURE_MISSING"); return }
-                actions.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap()
-                let rename = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Rename")).firstMatch
-                print("COHERENT_HISTORY_MENU rename=\(rename.exists) close_hittable=\(close.isHittable)")
-                // UIKit's compact menu owns interaction until dismissal. A
-                // covered Close is not required to be simultaneously tappable.
-                guard waitForAdmittedControl(rename) else { XCTFail("COHERENT_HISTORY_ACTIONS_NOT_DELIVERED"); return }
-                rename.tap()
-                guard app.textFields["native-history-rename"].firstMatch.waitForExistence(timeout: 10) else {
-                    XCTFail("COHERENT_HISTORY_RENAME_NOT_OPENED"); return
+            if !agentSwitchOnly {
+                let openerFrame = history.frame
+                history.coordinate(withNormalizedOffset: CGVector(dx: cycle % 2 == 0 ? 0.5 : 0.2, dy: 0.5)).tap()
+                let close = app.buttons["Close chat history"].firstMatch
+                guard waitForAdmittedControl(close), app.textFields["native-history-search"].firstMatch.exists else {
+                    printCoherentPresentationAdmission(app)
+                    printNativeControlStatuses(web)
+                    let search = app.textFields["native-history-search"].firstMatch
+                    print("COHERENT_HISTORY_ADMISSION search_present=\(search.exists) search_hittable=\(search.exists && search.isHittable) opener_hittable=\(history.exists && history.isHittable)")
+                    XCTFail("COHERENT_HISTORY_NOT_ADMITTED"); return
                 }
-                app.buttons["Cancel"].firstMatch.tap() // No rename/delete mutation.
-                guard app.textFields["native-history-search"].firstMatch.waitForExistence(timeout: 10) else {
-                    XCTFail("COHERENT_HISTORY_ACTION_RETURN_FAILED"); return
+                print("NATIVE_HISTORY_LEADING_SLOT opener_x=\(Int(openerFrame.minX)) opener_y=\(Int(openerFrame.minY)) close_x=\(Int(close.frame.minX)) close_y=\(Int(close.frame.minY))")
+                XCTAssertEqual(close.frame.minX, openerFrame.minX, accuracy: 1, "COHERENT_HISTORY_CLOSE_HORIZONTAL_ALIGNMENT")
+                XCTAssertEqual(close.frame.minY, openerFrame.minY, accuracy: 1, "COHERENT_HISTORY_CLOSE_VERTICAL_ALIGNMENT")
+                if cycle == 0 {
+                    let actions = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "native-history-actions-")).firstMatch
+                    guard waitForAdmittedControl(actions) else { XCTFail("COHERENT_HISTORY_ACTION_FIXTURE_MISSING"); return }
+                    let row = app.buttons[actions.identifier.replacingOccurrences(of: "native-history-actions-", with: "native-history-row-")].firstMatch
+                    let title = row.staticTexts.firstMatch
+                    guard row.exists, title.exists else { XCTFail("COHERENT_HISTORY_ROW_GEOMETRY_UNAVAILABLE"); return }
+                    XCTAssertEqual(row.staticTexts.count, 1, "History age must share title flow, not add a second label/padding track")
+                    XCTAssertGreaterThanOrEqual(row.frame.height, 44)
+                    XCTAssertEqual(title.frame.midY, row.frame.midY, accuracy: 1, "History title must be centered in its hit region")
+                    XCTAssertLessThanOrEqual(title.frame.maxX, actions.frame.minX + 1, "History text must not collide with More")
+                    XCTAssertEqual(actions.frame.width, 44, accuracy: 1)
+                    XCTAssertEqual(actions.frame.height, 44, accuracy: 1)
+                    print("COHERENT_HISTORY_ROW_GEOMETRY centered=true inline_age=true hit_region=true")
+                    actions.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap()
+                    let rename = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Rename")).firstMatch
+                    print("COHERENT_HISTORY_MENU rename=\(rename.exists) close_hittable=\(close.isHittable)")
+                    // UIKit's compact menu owns interaction until dismissal. A
+                    // covered Close is not required to be simultaneously tappable.
+                    guard waitForAdmittedControl(rename) else { XCTFail("COHERENT_HISTORY_ACTIONS_NOT_DELIVERED"); return }
+                    rename.tap()
+                    guard app.textFields["native-history-rename"].firstMatch.waitForExistence(timeout: 10) else {
+                        XCTFail("COHERENT_HISTORY_RENAME_NOT_OPENED"); return
+                    }
+                    app.buttons["Cancel"].firstMatch.tap() // No rename/delete mutation.
+                    guard app.textFields["native-history-search"].firstMatch.waitForExistence(timeout: 10) else {
+                        XCTFail("COHERENT_HISTORY_ACTION_RETURN_FAILED"); return
+                    }
                 }
+                XCTAssertFalse(editor.isHittable)
+                let drawer = app.otherElements["native-history-drawer-body"].firstMatch
+                XCTAssertEqual(drawer.frame.minY, app.frame.minY, accuracy: 1)
+                XCTAssertEqual(drawer.frame.maxY, app.frame.maxY, accuracy: 1)
+                if cycle % 2 == 0 {
+                    let start = drawer.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.85))
+                    let held = drawer.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.85))
+                    start.press(forDuration: 0.05, thenDragTo: held, withVelocity: .slow, thenHoldForDuration: 0.25)
+                    guard waitForAdmittedControl(close) else { XCTFail("COHERENT_HISTORY_CANCEL_LOST_CLOSE"); return }
+                }
+                close.tap()
+                guard waitForAdmittedControl(editor), waitForAdmittedControl(history) else { XCTFail("COHERENT_HISTORY_RETURN_FAILED"); return }
+                continuity()
+                profile.tap()
+                let profileClose = app.buttons["Close Profile"].firstMatch
+                let preferences = app.buttons["native-profile-row-preferences"].firstMatch
+                // Profile intentionally resumes its prior query-owned position.
+                // A previous failed rehearsal can leave a nested page; unwind it
+                // through the real native Back, never reset/cold-navigate the app.
+                let resumedBack = app.buttons["profile-back"].firstMatch
+                for _ in 0..<3 {
+                    let entry = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                        profileClose.exists && profileClose.isHittable && profileClose.isEnabled ||
+                            resumedBack.exists && resumedBack.isHittable && resumedBack.isEnabled
+                    }, object: app)
+                    guard XCTWaiter.wait(for: [entry], timeout: 10) == .completed else { break }
+                    if profileClose.exists && profileClose.isHittable && profileClose.isEnabled { break }
+                    resumedBack.tap()
+                }
+                guard waitForAdmittedControl(profileClose) else {
+                    printCoherentPresentationAdmission(app)
+                    printNativeControlStatuses(web)
+                    XCTFail("COHERENT_PROFILE_NOT_ADMITTED"); return
+                }
+                guard waitForAdmittedControl(preferences) else { XCTFail("COHERENT_PROFILE_PREFERENCES_NOT_ADMITTED"); return }
+                XCTAssertFalse(editor.isHittable)
+                preferences.tap()
+                let back = app.buttons["profile-back"].firstMatch
+                guard waitForAdmittedControl(back) else {
+                    printCoherentPresentationAdmission(app)
+                    printNativeControlStatuses(web)
+                    XCTFail("COHERENT_DETAIL_BACK_NOT_ADMITTED"); return
+                }
+                XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
+                back.tap()
+                guard waitForAdmittedControl(profileClose) else { XCTFail("COHERENT_DETAIL_MENU_RETURN_FAILED"); return }
+                profileClose.tap()
+                guard waitForAdmittedControl(editor), waitForAdmittedControl(history) else { XCTFail("COHERENT_PROFILE_RETURN_FAILED"); return }
+                continuity()
             }
-            XCTAssertFalse(editor.isHittable)
-            let drawer = app.otherElements["native-history-drawer-body"].firstMatch
-            XCTAssertEqual(drawer.frame.minY, app.frame.minY, accuracy: 1)
-            XCTAssertEqual(drawer.frame.maxY, app.frame.maxY, accuracy: 1)
-            if cycle % 2 == 0 {
-                let start = drawer.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.85))
-                let held = drawer.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.85))
-                start.press(forDuration: 0.05, thenDragTo: held, withVelocity: .slow, thenHoldForDuration: 0.25)
-                guard waitForAdmittedControl(close) else { XCTFail("COHERENT_HISTORY_CANCEL_LOST_CLOSE"); return }
-            }
-            close.tap()
-            guard waitForAdmittedControl(editor), waitForAdmittedControl(history) else { XCTFail("COHERENT_HISTORY_RETURN_FAILED"); return }
-            continuity()
-            profile.tap()
-            let profileClose = app.buttons["Close Profile"].firstMatch
-            let preferences = app.buttons["native-profile-row-preferences"].firstMatch
-            // Profile intentionally resumes its prior query-owned position.
-            // A previous failed rehearsal can leave a nested page; unwind it
-            // through the real native Back, never reset/cold-navigate the app.
-            let resumedBack = app.buttons["profile-back"].firstMatch
-            for _ in 0..<3 {
-                let entry = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                    profileClose.exists && profileClose.isHittable && profileClose.isEnabled ||
-                        resumedBack.exists && resumedBack.isHittable && resumedBack.isEnabled
-                }, object: app)
-                guard XCTWaiter.wait(for: [entry], timeout: 10) == .completed else { break }
-                if profileClose.exists && profileClose.isHittable && profileClose.isEnabled { break }
-                resumedBack.tap()
-            }
-            guard waitForAdmittedControl(profileClose) else {
-                printCoherentPresentationAdmission(app)
-                printNativeControlStatuses(web)
-                XCTFail("COHERENT_PROFILE_NOT_ADMITTED"); return
-            }
-            guard waitForAdmittedControl(preferences) else { XCTFail("COHERENT_PROFILE_PREFERENCES_NOT_ADMITTED"); return }
-            XCTAssertFalse(editor.isHittable)
-            preferences.tap()
-            let back = app.buttons["profile-back"].firstMatch
-            guard waitForAdmittedControl(back) else {
-                printCoherentPresentationAdmission(app)
-                printNativeControlStatuses(web)
-                XCTFail("COHERENT_DETAIL_BACK_NOT_ADMITTED"); return
-            }
-            XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
-            back.tap()
-            guard waitForAdmittedControl(profileClose) else { XCTFail("COHERENT_DETAIL_MENU_RETURN_FAILED"); return }
-            profileClose.tap()
-            guard waitForAdmittedControl(editor), waitForAdmittedControl(history) else { XCTFail("COHERENT_PROFILE_RETURN_FAILED"); return }
-            continuity()
             guard waitForAdmittedControl(puppy) else { XCTFail("COHERENT_PUPPY_SELECTOR_UNAVAILABLE"); return }
             puppy.tap()
             let puppySelected = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 puppy.exists && puppy.isSelected
             }, object: app)
             guard XCTWaiter.wait(for: [puppySelected], timeout: 10) == .completed else {
+                printCoherentPresentationAdmission(app)
+                printNativeControlStatuses(web)
+                print("COHERENT_AGENT_SELECTION one_selected=\(cloud.isSelected) puppy_selected=\(puppy.isSelected)")
                 XCTFail("COHERENT_PUPPY_SELECTION_NOT_APPLIED"); return
             }
             // The actual product deliberately requires New chat when Puppy
@@ -995,7 +1026,12 @@ final class AppUITests: XCTestCase {
             cloud.tap()
             guard waitForAppliedPort(cloud, label: "Message One") else { XCTFail("COHERENT_ONE_PORT_RETURN_FAILED"); return }
             continuity()
-            print("COHERENT_NATIVE_SHELL_CYCLE completed=\(cycle + 1) warm=true submitted=false")
+            print("\(agentSwitchOnly ? "COHERENT_AGENT_SWITCH" : "COHERENT_NATIVE_SHELL")_CYCLE completed=\(cycle + 1) warm=true submitted=false")
+        }
+        if agentSwitchOnly {
+            // Focused diagnosis is not the full drawer/route/keyboard receipt.
+            print("COHERENT_AGENT_SWITCH_CONTINUITY cycles=10 warm=true submitted=false")
+            return
         }
         let bar = app.descendants(matching: .any).matching(identifier: "one-native-navigation").firstMatch
         let historyProbe = app.buttons["native-history-continuity"].firstMatch
