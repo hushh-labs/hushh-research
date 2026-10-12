@@ -41,6 +41,7 @@ import {
   type ReviewedProfile,
 } from "@/lib/agent/profile-research-review";
 import { useBackLayer } from "@/lib/navigation/back-layers";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import {
   PROFILE_SECTION_LABELS,
   ProfileResearchService,
@@ -77,7 +78,7 @@ export function ProfileResearchCard({
   ownerId,
   vaultKey,
   vaultOwnerToken,
-  enabled,
+  enabled: requestedEnabled,
   pathname,
   renderMessage,
   embedded = false,
@@ -85,6 +86,8 @@ export function ProfileResearchCard({
   onAvailabilityChange,
   onBusinessAvailabilityChange,
 }: Props) {
+  const enabled =
+    requestedEnabled && !shouldSkipReviewerBackgroundWritesForAutomation();
   const consume = useOneConversationSession(
     (state) => state.consumeProfileResearch,
   );

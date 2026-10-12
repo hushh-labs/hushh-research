@@ -18221,7 +18221,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/profile-research-card.test.tsx",
       "symbol": null,
-      "value": 979
+      "value": 997
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -32668,6 +32668,21 @@
           "source_sha256": "a2e3a91f0693809699defa672af1db6caf7ed94b74d0bf0e6cb2dac77594a943",
           "classification": "exact_incoming_main",
           "reason": "Exact incoming-main capacity or release-cleanup authority and nearest negative coverage; no new payment authority."
+        }
+      ]
+    },
+    "ambient_reviewer_research_20261012": {
+      "parent_revision": "c30ac139ad79fc23904ee72593cc596ca6110b46",
+      "reviewer": "adk_authority_review",
+      "scope": "One nearest read-only reviewer regression only; no global budget, scanner or unrelated allowance changes.",
+      "slots": [
+        {
+          "key": "module_size|hushh-webapp/__tests__/components/profile-research-card.test.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/__tests__/components/profile-research-card.test.tsx",
+          "before": 979,
+          "after": 997,
+          "source_sha256": "3d310accd68d86f598109ea3b08760f680a6fc2f66bcad03f04f130a8f9c2af4",
+          "reason": "One regression protects the observed ambient profile-research refusal in dev381874 and mutation-authorized resumption in the nearest existing suite. 27 cases pass; old behavior fails the exact zero-request assertion."
         }
       ]
     }

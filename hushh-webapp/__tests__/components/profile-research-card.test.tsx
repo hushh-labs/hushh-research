@@ -176,11 +176,29 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  delete window.__HUSHH_NATIVE_TEST__;
   publishValidatedAuthSessionOwner(null);
   useOneConversationSession.getState().clearSession();
 });
 
 describe("onboarding profile draft and owner confirmation", () => {
+  it("suppresses ambient research for read-only review while preserving authorized owner research", async () => {
+    window.__HUSHH_NATIVE_TEST__ = {
+      enabled: true,
+      autoReviewerLogin: true,
+      reviewerMutationPolicy: "read_only",
+    };
+    const view = render(<ProfileResearchCard {...props} />);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
+    expect(mocks.apiFetch).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("profile-research-card")).toBeNull();
+
+    window.__HUSHH_NATIVE_TEST__.reviewerMutationPolicy = "mutation_authorized";
+    view.rerender(<ProfileResearchCard {...props} />);
+    expect(await screen.findByTestId("profile-research-card")).toBeTruthy();
+    expect(mocks.apiFetch.mock.calls.filter(([path]) => path === "/api/one/profile-research")).toHaveLength(1);
+  });
+
   it("keeps the whole Magic offer hidden for a saved owner even when Business has a candidate", async () => {
     useOneConversationSession.getState().clearSession();
     const businessUid = `urn:hushh:business:directory:business:${"a".repeat(64)}`;
