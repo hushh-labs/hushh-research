@@ -10,6 +10,7 @@ import re
 from typing import Any
 
 from hushh_mcp.runtime_settings import (
+    one_magic_intelligence_all_uat_enabled,
     one_magic_intelligence_cohorts,
     one_magic_intelligence_phase,
 )
@@ -28,7 +29,7 @@ def _email(value: Any) -> str | None:
 def magic_intelligence_emails() -> frozenset[str]:
     """Invalid or incomplete promoted cohorts fail closed, including the pilot."""
     phase = one_magic_intelligence_phase()
-    if not phase:
+    if phase not in {1, 2, 3, 4}:
         return frozenset()
     members = {PILOT_EMAIL}
     for raw, expected in zip(
@@ -41,15 +42,22 @@ def magic_intelligence_emails() -> frozenset[str]:
     return frozenset(members)
 
 
+def magic_intelligence_rollout_enabled() -> bool:
+    """General rollout is explicit; invalid cohort promotions remain closed."""
+    return one_magic_intelligence_all_uat_enabled() or bool(magic_intelligence_emails())
+
+
 def magic_intelligence_owner_admitted(user_id: str, record: Any) -> bool:
     """Use only the freshly fetched enabled owner's verified primary Firebase email.
 
     Normalizing case/outer whitespace never merges dots, plus aliases or domains.
     Verified phone/shadow identity remains research input, never rollout authority.
     """
+    email = _email(getattr(record, "email", None))
     return (
         getattr(record, "uid", None) == user_id
         and getattr(record, "disabled", True) is False
         and getattr(record, "email_verified", False) is True
-        and _email(getattr(record, "email", None)) in magic_intelligence_emails()
+        and email is not None
+        and (one_magic_intelligence_all_uat_enabled() or email in magic_intelligence_emails())
     )

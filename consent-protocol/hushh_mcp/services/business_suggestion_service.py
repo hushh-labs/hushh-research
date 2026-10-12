@@ -20,8 +20,8 @@ from hushh_mcp.services.business_directory_suggestions import (
 )
 from hushh_mcp.services.business_profile_completion import business_profile_saved
 from hushh_mcp.services.magic_intelligence_admission import (
-    magic_intelligence_emails,
     magic_intelligence_owner_admitted,
+    magic_intelligence_rollout_enabled,
 )
 from hushh_mcp.services.magic_intelligence_completion import magic_intelligence_saved
 from hushh_mcp.services.one_owner_admission import (
@@ -58,7 +58,7 @@ async def get_business_suggestion(user_id: str, *, local_loopback: bool = False)
     # Gate BEFORE provider access. A conflicting deployment label always wins.
     real_enabled = one_business_directory_enabled()
     local_rehearsal = one_business_local_rehearsal_enabled(user_id, loopback=local_loopback)
-    if not (local_rehearsal or (real_enabled and magic_intelligence_emails())):
+    if not (local_rehearsal or (real_enabled and magic_intelligence_rollout_enabled())):
         return result
     try:
         if await asyncio.wait_for(magic_intelligence_saved(user_id), timeout=5):
@@ -116,7 +116,7 @@ async def get_business_suggestion(user_id: str, *, local_loopback: bool = False)
     if local_rehearsal:
         active = one_business_local_rehearsal_enabled(user_id, loopback=local_loopback)
     else:
-        active = one_business_directory_enabled() and bool(magic_intelligence_emails())
+        active = one_business_directory_enabled() and magic_intelligence_rollout_enabled()
     if not active:
         return result
     try:

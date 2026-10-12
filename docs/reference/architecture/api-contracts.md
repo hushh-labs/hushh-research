@@ -1070,8 +1070,102 @@ personality turn, including when ordinary chat messages interrupt onboarding.
 Already-onboarded owners use the same discovery path once their loaded
 personality progress is resolved and their vault is unlocked. No onboarding
 reset or new-user marker is required. One authority-bound attempt per mounted
-controller prevents duplicate requests under StrictMode or marker consumption;
-only an explicit retry retries an unsaved report within that controller.
+controller prevents duplicate paid work through server-side coalescing. StrictMode's
+trial effect is cancelled before dispatch; marker consumption does not restart
+research. Effect restarts resume status under current authority rather than
+inheriting a stale attempted latch from cancelled polling.
+
+Personal discovery uses `POST /api/one/profile-research/jobs` to claim or recover
+one owner-bound background run, then authenticated `GET` on the same path.
+Both require VAULT_OWNER and the derived chat key, accept no caller-selected
+identity, and return private/no-store responses. Pending returns HTTP 202 with
+`{status:"pending", pkm_written:false, restart_required:false}`. An absent or
+expired execution lease sets `restart_required:true`; only a fresh POST can
+resume it. Terminal results retain the personal research envelope. Current offered results
+carry a grounded report and Search suggestions, with no separate verification
+metadata, score or numerical threshold. Readers retain legacy scored envelope
+compatibility during policy migration; new policy binding prevents older scored
+drafts from being released.
+A charged discovery failure returns
+`{status:"unavailable",pkm_written:false,retry_exhausted:true,attempts:1}`,
+with no invented report or confidence. This is terminal and cannot restart
+research or reveal a Business fallback. Ordinary pre-research unavailable
+responses retain compatibility without these two fields.
+The legacy synchronous POST remains compatible; the chat no longer uses it.
+Onboarding progress remains an admission prerequisite; transient progress-read
+failures retry with bounded backoff and on foreground/online resume instead of
+silently keeping discovery disabled. A failed read never implies completion.
+Transport cancellation stops polling, not admitted background research. Lost
+start responses recover through GET, not repeated paid POST. Foreground/online
+resume wakes one status read, with no total browser discovery deadline.
+
+The existing `one_adk_sessions` table stores one person-key encrypted draft per
+owner under `one.magic.discovery.v1/profile`, not a profile authority or PKM
+write. Revision plus exact ciphertext CAS fences competing/old workers. Jobs
+have a 200-second execution budget, a 240-second lease and at most three actual
+research starts per owner/hour; process admission is bounded to eight jobs.
+The research root and its local Search child apply the task's authored LOW
+thinking policy and 4096-token output cap, rather than provider defaults.
+Search exposes its remaining read budget. After its two allowed reads, the
+parent's available action is only `finish_task`; a third Search call is still
+rejected. The raw compatibility task supplies its grounded report within five
+model calls. Default discovery performs one grounded research task, with all
+available full owner identifiers together, and up to three logical model calls.
+There is no independent confidence assessment, numerical release threshold,
+alternate query or research retry. The researcher owns the report's
+matched/uncertain/no-match result; ordinary categorical fact uncertainty remains
+visible during review and uncertain facts remain unchecked by default.
+The Search child request must equal the unchanged JSON-quoted owner identifier
+string. Native Google grounding may reformulate internal queries, as authorized;
+literal query receipt matching is not required. Actual grounded source evidence,
+known source refs, owner authority and schema integrity remain required.
+Identity comes only from fresh owner ingress, never a request body; no
+private-account tools are added.
+The sole research slot is charged before dispatch in the same encrypted checkpoint
+under revision/ciphertext CAS. Expired-lease recovery preserves this charge and
+the original 24-hour window for the same identity/policy. Older seven-mask
+metadata is validated during policy migration, not replayed. A changed policy
+invalidates old scored drafts without resetting the rolling paid-start budget.
+Deployment and broader disclosure acceptance remain separate from localhost proof.
+The raw compatibility task searches broad public identity and background first, then uses
+one remaining read to fill missing education, projects, competitions, leadership
+or achievement evidence. A failed initial match instead targets original public
+profile, project, university and event pages with the supplied name, without
+invented context or unhelpful domain restrictions. Namesake candidates stay
+separate; occurrence lists and answer-site assertions alone are insufficient.
+Same-person evidence, role/date precision, deduplication and exact source
+receipts remain required; there is no minimum fact count or exhaustive-coverage
+claim. Supported first-pass facts can form a partial draft if enrichment fails.
+The model's internal citation contract uses short `ref` handles exposed by its
+Search child instead of copying opaque redirect URLs. The host resolves only
+selected, exposed handles from that invocation to exact received URLs, preserves
+model-authored facts/titles/confidence/order, then validates the unchanged public
+`sources:{title,url}` shape. Unknown refs, parent-only metadata, raw-URL fallbacks
+and unsafe resolved URLs fail closed. Search source refs never enter the public
+API or PKM. Current discovery has no separate verification metadata.
+Cached drafts bind the effective identity and active research policy (task and
+Search instructions, resolved model, output schema and execution limits) under
+the person's key. A changed policy requires a fresh authenticated start, not
+reuse of an older draft; it preserves the rolling paid-start budget.
+The single-shot discovery is bounded to one 160-second deadline with no
+assessment pass. Raw compatibility research retains 90-second inactivity limits
+inside the 200-second job budget. Nested Search does not stream intermediate
+events to the browser; none of these limits is a browser request deadline.
+The original request's derived key is retained only for checkpoint commit under
+the existing absolute 300-second ceiling. No token/key is persisted. A restart
+does not autonomously resume unfinished work; fresh owner authority must claim
+its expired lease. Completed drafts expire after 24 hours and namespace-scoped
+hourly cleanup physically prunes at most 500 expired rows per pass. Every draft
+release rechecks strict first-party authority, rollout, setup, fresh admitted
+identity (including canonical name/verified-phone fallback) and saved status.
+Pre-research unavailable results retain their 60-second dependency cooldown;
+charged search or assessment failures are terminal and never become no-match
+evidence. Client status recovery stops rather than automatically dispatching
+another POST, and mounted cards do not schedule research retries.
+Initial pending personal discovery cannot reveal the outer Magic card,
+even if the optional directory lookup is already ready. Review and explicit
+receipt-confirmed PKM completion are unchanged. Hosted multi-instance acceptance
+and physical-device suspension are separate verification, not localhost proof.
 
 Personal completion is independent of Business completion. A successful review
 calls `POST /api/one/profile-research/complete` with 1–64 unique domain/plan
@@ -1110,10 +1204,13 @@ collapsing Magic and then reaching route navigation; busy mutations consume Back
 Both discovery services share a server-owned cumulative Magic rollout. Phase 0
 is off; phase 1 admits only `parth.mawai.12@gmail.com`; phase 2 adds the four
 inner-team accounts; phase 3 adds four senior-team accounts; phase 4 adds QA.
+Phase 5 admits any enabled owner with a fresh verified primary email only when
+both `ENVIRONMENT` and revision provenance `HUSHH_DEPLOY_ENV` are `uat`.
+It removes the email roster, not owner, vault, setup, saved-state or rate gates.
 Admission uses fresh Firebase UID, enabled state and verified primary email,
 with only case/outer whitespace normalization. Client input, phone identity,
 shadow records, aliases and token email claims cannot select a rollout account.
-Missing, malformed, duplicated, overlapping or incomplete promoted cohorts
+For phases 1–4, missing, malformed, duplicated, overlapping or incomplete promoted cohorts
 close discovery. Independent profile/Business switches still apply; Business
 never blocks personal research. Both services recheck current identity and their
 worker's policy before returning provider results. Initial pending, denied,
@@ -1128,7 +1225,11 @@ Smirthika; four accounts), `ONE_MAGIC_INTELLIGENCE_SENIOR_TEAM_EMAILS_UAT` (Anki
 Akshat, Neelesh, Kushal; four accounts), and `ONE_MAGIC_INTELLIGENCE_QA_EMAILS_UAT`
 (Jhumma; one account). These feed the corresponding lowercase structured
 runtime-config keys and uppercase backend environment names. Unconfirmed
-inner-team addresses remain empty, so phase 2+ stays closed until supplied.
+inner-team addresses remain empty, so phases 2–4 stay closed until supplied.
+For the approved UAT-wide rollout, set that UAT variable to `5`; no per-email
+CSV is needed. The config writer rejects phase 5 outside UAT, and runtime
+admission rejects missing or conflicting environment provenance. Production
+defaults remain off. Accounts without a verified primary email are not admitted.
 For rollback, set phase to 0, or set `ONE_PROFILE_RESEARCH_ENABLED_UAT=false`
 and `ONE_BUSINESS_DIRECTORY_ENABLED_UAT=false`, then deploy a new backend
 revision and retire old traffic. Secret/variable edits alone do not update
