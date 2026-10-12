@@ -59,7 +59,11 @@ export async function prepareConnectorMemoryReview(input: MemorySession & {
     currentManifests: Object.values(context.manifests || {}).filter(Boolean),
     vaultOwnerToken: input.vaultOwnerToken,
     source: input.source,
-    memoryProfile: input.source === "business_profile_review" ? "business_directory_v1" : "general",
+    memoryProfile: input.source === "business_profile_review"
+      ? "business_directory_v1"
+      : input.source === "profile_research_review"
+        ? "profile_review_v1"
+        : "general",
     allowEmpty: true,
     findDuplicate: candidate => profileInventory ? profileInventory.findLocalDuplicate(candidate)
       : AgentPkmContextStore.findLocalDuplicate({ userId: input.userId, candidate }),
