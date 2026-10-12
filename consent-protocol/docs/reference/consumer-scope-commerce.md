@@ -28,12 +28,19 @@ verified below; they do not prove a consumer purchase or payout.
 
 ### Shared Dev checkpoint — 2026-10-12 UTC
 
-- Full application CI passed all 23 jobs at `22e9146432a5`. Dev application
+- Full application CI passed all 23 jobs at `1aeb1b4e83b6` in
+  [38198263668](https://github.com/hushh-labs/hushh-research/actions/runs/38198263668).
+  Earlier Dev application
   release [38191971231](https://github.com/hushh-labs/hushh-research/actions/runs/38191971231)
   and backend configuration release
   [38194634611](https://github.com/hushh-labs/hushh-research/actions/runs/38194634611)
-  completed successfully. The frontend is `hushh-webapp-00139-q79`; the backend
-  is `consent-protocol-00164-r2w`. Both health/login reads passed.
+  completed successfully. Frontend release
+  [38199862501](https://github.com/hushh-labs/hushh-research/actions/runs/38199862501)
+  subsequently passed candidate verification, provenance, environment parity,
+  semantic checks and reviewer BYOK verification. It promotes exact source
+  `1aeb1b4e83b6` as `hushh-webapp-00140-kc6` at 100% traffic on
+  `https://dev.one.hussh.ai`. The backend remains `consent-protocol-00164-r2w`
+  at source `22e9146432a5`; this frontend release changes no backend or pod image.
 - New paid activity is enabled for the two approved Sandbox reviewers. The
   account remains pinned to `acct_1UNyyyLsJU9ZDBZX`, test mode, with the approved
   synthetic cost model and cumulative funding/capital caps. Live approval
@@ -43,18 +50,35 @@ verified below; they do not prove a consumer purchase or payout.
   Monitoring observations were fresh, settled backing was $5, and liabilities,
   reconciliation backlog, unbalanced journals and receipt failures were zero.
   The dedicated Google OIDC reconciliation schedule was healthy.
-- At `02:20:37Z`, there were no reviewer funding, purchase, withdrawal or seller
+- At `03:47:59Z`, there were no reviewer funding, purchase, withdrawal or seller
   account records. The primary's authorized test-phone transfer is verified; its
-  private Azure setup still requires owner Microsoft OAuth. The completed phone
+  private Azure placement remained pending. Owner Microsoft sign-in reached the
+  actual Dev callback, but the interrupted attempt exceeded its ten-minute
+  authorization deadline. A fresh, normal owner-bound attempt is being verified;
+  neither a callback arrival nor an admin Azure session proves provisioning. The completed phone
   fixture is disabled. The counterpart's existing Azure placement is preserved.
 - Headless inspection reached Memory's Saved/Add tabs, earnings and Saved sharing,
-  then Account's Payments and earnings and three history filters. The journey
+  then Account's Payments and earnings and three history filters. The earlier journey
   failed the unchanged read-only gate on an unsolicited private-agent wake.
   The bounded source correction uses the existing reviewer background-write
   guard before wake/cooldown state changes. All 14 focused cases and 438 Back
   cases pass; removing the guard fails all three reviewer-policy controls.
-  Generated UI parity passes. Deployment and repeated browser acceptance of this
-  correction remain required; exact-scope price controls were not yet verified.
+  Generated UI parity passes. After deployment, the counterpart's complete
+  read-only journey and separate cold re-unlock passed with no blocked mutation
+  or critical first-party API failure. Its authenticated commerce readiness is
+  platform ready, seller not onboarded: funding and onboarding are available,
+  while paid tariffs remain unavailable. No exact-scope price editor was opened;
+  visible control count was zero with an unverified sharing-settings observation.
+  This is presentation and authority proof, not purchase acceptance.
+- The authored One and Memory manifests now distinguish consent from payment,
+  fixed scheduled activation from current access, gross amounts from costs/net
+  earnings, and pending earnings from transfers and bank payouts. Detailed price
+  and fee policy belongs to the existing Memory specialist; One retains direct
+  consent decisions and the human action boundary. Source `e3454d4e1643` passes
+  all 85 nearest manifest/registry tests, the unchanged composed prompt budget,
+  generated registry/capability/topology parity and the architecture growth ratchet.
+  The full core and exact-source hosted CI remain required. An installed private
+  pod does not acquire these changed instructions through a shared-service release.
 - The installed counterpart image contains the canonical nested Memory proposal
   route and Stripe verification route. Static source parity does not prove an
   authenticated private-runtime session. Do not rebuild or relax device authority
