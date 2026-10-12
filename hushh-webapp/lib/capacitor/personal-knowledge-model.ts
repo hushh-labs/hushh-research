@@ -226,6 +226,7 @@ export interface HushhPersonalKnowledgeModelPlugin {
     vaultOwnerToken?: string;
   }): Promise<{
     success: boolean;
+    idempotentReplay?: boolean;
     conflict?: boolean;
     message?: string;
     dataVersion?: number;

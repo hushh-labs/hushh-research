@@ -22,7 +22,7 @@
       },
       {
         "prompt": "change ordinary vault encryption and PKM manifest persistence code",
-        "owner": "vault-pkm-governance"
+        "owner": "security-audit"
       }
     ]
   }

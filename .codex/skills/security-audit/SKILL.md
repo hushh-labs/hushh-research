@@ -1,6 +1,6 @@
 ---
 name: security-audit
-description: Use when the request is broadly about IAM, consent, trust, vault, PKM, streaming safety, verification, or audit workflows and the correct security specialist skill is not yet clear.
+description: Use when the request is about IAM, consent, trust, ordinary vault encryption, failures decrypting PKM entries, PKM storage or persistence, encrypted PKM records, plaintext localStorage leaks, streaming safety, verification, or security audit workflows and no narrower specialist owns the change.
 ---
 
 # Hussh Security Audit Skill
@@ -8,7 +8,7 @@ description: Use when the request is broadly about IAM, consent, trust, vault, P
 ## Purpose and Trigger
 
 - Primary scope: `security-audit-intake`
-- Trigger on broad IAM, consent, trust, vault, PKM, verification, streaming, and audit-oriented requests where the correct spoke is not yet obvious.
+- Trigger on IAM, consent, trust, ordinary vault encryption, PKM storage or manifest persistence, encrypted PKM records, plaintext localStorage leaks, verification, streaming, and audit-oriented requests where no narrower spoke owns the change.
 - Avoid overlap with `backend`, `repo-operations`, and `repo-context`.
 
 ## Coverage and Ownership
@@ -38,7 +38,7 @@ Non-owned surfaces:
 
 1. Broad trust-boundary and audit intake before the correct spoke is clear.
 2. IAM, consent, vault, PKM, streaming-safety, and verification questions spanning docs and code.
-3. Choosing whether the work belongs to IAM/consent, vault/PKM, reviewer/BYOK testing, PKM upgrade rehearsal, quality contracts, or streaming contracts.
+3. Owning ordinary vault/PKM persistence and choosing when work belongs to IAM/consent, reviewer/BYOK testing, PKM upgrade rehearsal, quality contracts, or streaming contracts.
 
 ## Do Not Use
 
@@ -54,21 +54,22 @@ Non-owned surfaces:
 4. `docs/reference/iam/agent-delegation-boundary.md`
 5. `consent-protocol/docs/reference/consent-protocol.md`
 6. `.codex/skills/security-audit/references/anti-rationalization.md`
+7. `consent-protocol/docs/reference/personal-knowledge-model.md`
 
 ## Workflow
 
 1. Identify whether the real ownership surface is IAM/consent, vault/PKM, quality contracts, or streaming contracts.
-2. Keep trust-boundary docs aligned with code and verification changes.
-3. Route general backend runtime work back to `backend` when trust is not the primary concern.
+2. For ordinary vault/PKM changes, preserve memory-only keys, encrypted persistence, manifest authority, revision safety, and cache invalidation.
+3. Keep trust-boundary docs aligned with code and verification changes.
+4. Route general backend runtime work back to `backend` when trust is not the primary concern.
 
 ## Handoff Rules
 
 1. Route consent scopes, actor model, and IAM/runtime gate work to `iam-consent-governance`.
-2. Route vault and PKM storage/boundary work to `vault-pkm-governance`.
-3. Route reviewer-account BYOK browser proof to `reviewer-app-testing`.
-4. Route zero-loss PKM upgrade acceptance to `pkm-upgrade-rehearsal`.
-5. Route cross-surface test policy to `quality-contracts` and streaming work to `streaming-contracts`.
-6. If the request begins as a cross-domain scan, start with `repo-context`.
+2. Route reviewer-account BYOK browser proof to `reviewer-app-testing`.
+3. Route zero-loss PKM upgrade acceptance to `pkm-upgrade-rehearsal`.
+4. Route cross-surface test policy to `quality-contracts` and streaming work to `streaming-contracts`.
+5. If the request begins as a cross-domain scan, start with `repo-context`.
 
 ## Required Checks
 

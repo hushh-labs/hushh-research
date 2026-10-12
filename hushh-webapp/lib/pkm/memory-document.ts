@@ -1,8 +1,10 @@
 /**
- * Renders the owner's living `memory.md` from decrypted PKM.
+ * Renders the owner's legacy full-profile Markdown export from decrypted PKM.
  *
- * This is a derived view, never an authority: the encrypted PKM domains remain
- * the only source of truth, and every line here is reproducible from them. The
+ * This is a derived compatibility/export view, not One chat's V1 canonical
+ * `one_memory.markdown` document (`lib/pkm/markdown-memory.ts`). The encrypted
+ * structured PKM domains remain the source of truth for this renderer, and every
+ * line here is reproducible from them. The
  * renderer is pure and import-safe (no network, no database, no vault access)
  * so it can be unit-tested and so a pod can call it too.
  *
@@ -176,6 +178,9 @@ function excludeForAudience(
   key: string,
   branch = "",
 ): boolean {
+  // One chat's canonical Markdown document is already a projection. Never
+  // recursively render it into this legacy structured-domain export.
+  if (key === "one_memory") return true;
   if (audience !== "agent") return shouldSkipPkmMemoryKey(key);
   return shouldSkipPkmAgentContextKey(key) || restrictedByReservedRegistry(key, branch);
 }

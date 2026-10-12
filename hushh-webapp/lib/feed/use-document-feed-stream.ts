@@ -5,20 +5,26 @@ import type { User } from "firebase/auth";
 import { Capacitor } from "@capacitor/core";
 
 import { useAuth } from "@/hooks/use-auth";
+import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 import {
   createDocumentFeedStreamManager,
   type DocumentFeedStreamManager,
 } from "@/lib/feed/document-feed-stream-manager";
+import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { dispatchPayoutStateChanged } from "@/lib/payouts/payout-events";
 import { setPayoutStreamState } from "@/lib/payouts/payout-live-store";
+import { registerPeriodicTask } from "@/lib/perf/idle-scheduler";
 import {
   createDocumentFeedTransport,
   createFeedStreamCoordinator,
   observeIdTokenChanges,
   type DocumentFeedPlatform,
 } from "@/lib/services/document-feed-transport";
+
+/** While no healthy stream covers this tab, the Feed is repaired on this clock. */
+const REPAIR_INTERVAL_MS = 45_000;
 
 type FeedUser = Pick<User, "uid" | "getIdToken">;
 type SharedStream = {
@@ -29,7 +35,12 @@ type SharedStream = {
 };
 const sharedStreams = new Map<string, SharedStream>();
 
-/** Feed and Profile share one authenticated stream; frames are invalidation hints. */
+/**
+ * One owner-scoped connection per tab, opened by the app-level
+ * AuthenticatedFeedStream; Feed and Profile calls join it, never open another.
+ * Across tabs, one leader streams and relays (document-feed-transport.ts).
+ * Frames are invalidation hints.
+ */
 export function useDocumentFeedStream(user: FeedUser | null): void {
   const { sessionVerificationRequired } = useAuth();
 
@@ -61,6 +72,10 @@ export function useDocumentFeedStream(user: FeedUser | null): void {
 function openSharedStream(user: FeedUser): SharedStream {
   const uid = user.uid;
   const platform: DocumentFeedPlatform = Capacitor.isNativePlatform() ? "native" : "web";
+  // Fence: once another account (or a new sign-in) owns this tab, nothing
+  // from this stream reaches its caches or event buses.
+  const owner = snapshotValidatedAuthSessionOwner();
+  const isCurrent = () => !owner || isValidatedAuthSessionOwnerCurrent(owner);
   let stopTokenWatch: (() => void) | null = null;
   const shared = { subscribers: 0, user } as SharedStream;
   const manager = createDocumentFeedStreamManager({
@@ -68,10 +83,16 @@ function openSharedStream(user: FeedUser): SharedStream {
     transport: createDocumentFeedTransport(platform),
     coordinator: createFeedStreamCoordinator(uid, platform),
     getToken: (forceRefresh) => shared.user.getIdToken(forceRefresh),
-    dispatchFeed: ({ requestId }) => {
-      CacheSyncService.onConsentMutated(uid);
-      // All Feed surfaces listen to this one signal and perform a forced
+    isCurrent,
+    isVisible: () => document.visibilityState !== "hidden",
+    dispatchFeed: ({ general, consent, requestId }) => {
+      // Server activity invalidates both Feed projections and fences older reads.
+      CacheSyncService.onFeedChanged(uid);
+      if (general) dispatchFeedStateChanged("arrived");
+      if (!consent) return;
+      // Feed surfaces listen to this one signal and perform a forced
       // authenticated reread. Consent Center also repairs its current view.
+      CacheSyncService.onConsentMutated(uid);
       dispatchConsentStateChanged({
         source: "sse_document_feed",
         requestId: requestId ? `document_share_request:${requestId}` : undefined,
@@ -91,9 +112,15 @@ function openSharedStream(user: FeedUser): SharedStream {
     },
   });
   const detachLifecycle = attachLifecycle(manager, platform);
+  const stopRepair = registerPeriodicTask({
+    id: `feed-stream-repair:${uid}`,
+    intervalMs: REPAIR_INTERVAL_MS,
+    run: () => manager.repairIfUncovered(),
+  });
   shared.manager = manager;
   shared.stop = () => {
     detachLifecycle();
+    stopRepair();
     manager.stop();
     stopTokenWatch?.();
     stopTokenWatch = null;
@@ -105,7 +132,8 @@ function openSharedStream(user: FeedUser): SharedStream {
 function attachLifecycle(manager: DocumentFeedStreamManager, platform: DocumentFeedPlatform): () => void {
   const onOnline = () => manager.online();
   const onFocus = () => manager.focus();
-  const onVisibility = () => manager.visibility(document.visibilityState === "visible");
+  // Hidden aborts the stream (freeing its server slot); visible repairs and reconnects.
+  const onVisibility = () => manager.visibility(document.visibilityState !== "hidden");
   window.addEventListener("online", onOnline);
   window.addEventListener("focus", onFocus);
   document.addEventListener("visibilitychange", onVisibility);

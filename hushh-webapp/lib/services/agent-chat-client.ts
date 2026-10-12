@@ -476,13 +476,19 @@ function parseStateActionDirective(
   const actionId = String(payload?.actionId || "").trim();
   const slots = asRecord(payload?.slots);
   const action = getKaiActionById(actionId);
-  if (!actionId || !slots || !action) return null;
+  // `pkm.add` is a private-memory tool owned by the chat workspace, not a
+  // navigable Kai action. It intentionally is not generated into the route
+  // gateway, but its parked directive must still reach the local executor.
+  const localMemoryAction = actionId === "pkm.add";
+  if (!actionId || !slots || (!action && !localMemoryAction)) return null;
+
+  const label = action?.label ?? "Add to Memory";
 
   const needsConfirmation =
-    payload?.needsConfirmation === true || action.execution_policy === "confirm_required";
+    payload?.needsConfirmation === true || action?.execution_policy === "confirm_required";
   const trustedActivationRequired =
     payload?.trustedActivationRequired === true ||
-    action.activation_policy === "trusted_activation_required";
+    action?.activation_policy === "trusted_activation_required";
   const directiveId = path.slice("/".length);
   const callId = `${threadId}:state:${directiveId}`;
   return {
@@ -492,10 +498,10 @@ function parseStateActionDirective(
     contextRevision: null,
     expiresAt: null,
     actionId,
-    label: action.label,
+    label,
     execution: "frontend",
     slots,
-    message: describeDirectiveForOwner(actionId, action.label, slots, {
+    message: describeDirectiveForOwner(actionId, label, slots, {
       requiresConfirmation: needsConfirmation || trustedActivationRequired,
     }),
     requiresConfirmation: needsConfirmation,

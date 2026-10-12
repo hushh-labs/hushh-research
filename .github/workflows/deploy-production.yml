@@ -158,12 +158,20 @@ jobs:
             work_drain_scheduler_snapshot_prod.py restore_prod_after_release_failure.sh; do
             cp "deploy/drive/${tool}" "${RUNNER_TEMP}/release-tools/drive/${tool}"
           done
+          cp hushh-webapp/lib/vault/passkey-domain-aliases.json \
+            "${RUNNER_TEMP}/release-tools/drive-domain-aliases.json"
           cp scripts/ops/sync_backend_runtime_secrets.py \
             "${RUNNER_TEMP}/release-tools/sync_backend_runtime_secrets.py"
           cp scripts/ops/verify-env-secrets-parity.py \
             "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py"
           cp scripts/ci/cloudrun-retention.py \
             "${RUNNER_TEMP}/release-tools/cloudrun-retention.py"
+          # Capacity policy and phase support belong to current release tooling,
+          # including when promoting or rolling back an older approved app image.
+          cp scripts/ci/runtime-capacity-budget.py \
+            "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py"
+          cp config/runtime-capacity.json \
+            "${RUNNER_TEMP}/release-tools/runtime-capacity.json"
           git log -1 --diff-filter=A --format=%H -- \
             consent-protocol/hushh_mcp/services/drive_prod_registry_provisioning.py \
             > "${RUNNER_TEMP}/release-tools/prod-drive-feature-commit"
@@ -187,6 +195,10 @@ jobs:
             scripts/ops/verify-env-secrets-parity.py
           cp "${RUNNER_TEMP}/release-tools/cloudrun-retention.py" \
             scripts/ci/cloudrun-retention.py
+          cp "${RUNNER_TEMP}/release-tools/runtime-capacity-budget.py" \
+            scripts/ci/runtime-capacity-budget.py
+          cp "${RUNNER_TEMP}/release-tools/runtime-capacity.json" \
+            config/runtime-capacity.json
 
       - name: Report production deploy lane
         run: |
@@ -335,7 +347,8 @@ jobs:
             exit 1
           fi
           python3 deploy/drive/verify_prod_prerequisites.py \
-            --project "${{ env.GCP_PROJECT_ID }}" --oauth-attested
+            --project "${{ env.GCP_PROJECT_ID }}" --oauth-attested \
+            --domain-catalog "${RUNNER_TEMP}/release-tools/drive-domain-aliases.json"
           PROJECT_ID="${{ env.GCP_PROJECT_ID }}" \
             bash deploy/drive/setup_native_callback_log_exclusion.sh --verify-only
 
@@ -893,7 +906,7 @@ jobs:
           fi
           DRIVE_SUBSTITUTIONS=",_BACKEND_RUNTIME_CONFIG_JSON_SECRET=${DRIVE_CANDIDATE_RUNTIME_SECRET}"
           DRIVE_SUBSTITUTIONS+=",_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET=STRIPE_CONNECT_WEBHOOK_SECRET"
-          DRIVE_SUBSTITUTIONS+=",_PKM_ANSWER_PAYMENTS_ENABLED=${{ vars.PKM_ANSWER_PAYMENTS_PROD_ENABLED || 'false' }},_PKM_ANSWER_COMPOSER_ENABLED=${{ vars.PKM_ANSWER_COMPOSER_PROD_ENABLED || 'false' }},_PKM_ANSWER_LIVE_PROVIDER_REVIEWED=${{ vars.PKM_ANSWER_LIVE_PROVIDER_PROD_REVIEWED || 'false' }},_PKM_ANSWER_STRIPE_MODE=live,_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY,_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET,_ANSWER_WORK_DRAIN_ENABLED=${{ vars.ANSWER_WORK_DRAIN_PROD_ENABLED || 'false' }},_ANSWER_WORK_DRAIN_AUDIENCE=https://api.hushh.ai"
+          DRIVE_SUBSTITUTIONS+=",_PKM_ANSWER_REQUESTS_ENABLED=${{ vars.PKM_ANSWER_REQUESTS_PROD_ENABLED || 'true' }},_PKM_ANSWER_PAYMENTS_ENABLED=${{ vars.PKM_ANSWER_PAYMENTS_PROD_ENABLED || 'false' }},_PKM_ANSWER_COMPOSER_ENABLED=${{ vars.PKM_ANSWER_COMPOSER_PROD_ENABLED || 'false' }},_PKM_ANSWER_LIVE_PROVIDER_REVIEWED=${{ vars.PKM_ANSWER_LIVE_PROVIDER_PROD_REVIEWED || 'false' }},_PKM_ANSWER_STRIPE_MODE=live,_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY,_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET,_ANSWER_WORK_DRAIN_ENABLED=${{ vars.ANSWER_WORK_DRAIN_PROD_ENABLED || 'false' }},_ANSWER_WORK_DRAIN_AUDIENCE=https://api.hushh.ai"
           if [ "${{ steps.drive-mode.outputs.active }}" = "true" ]; then
             DRIVE_SUBSTITUTIONS+=",_GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_ID,_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET,_GOOGLE_DRIVE_PICKER_API_KEY_SECRET=GOOGLE_DRIVE_PICKER_API_KEY,_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET=EXTERNAL_CONNECTOR_CREDENTIAL_KEY,_DRIVE_DOCUMENT_KEY_V1_SECRET=DRIVE_DOCUMENT_KEY_V1,_DRIVE_SHARING_KEY_V1_SECRET=DRIVE_SHARING_KEY_V1,_DRIVE_WORK_DRAIN_ENABLED=true,_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=hushh-pda,_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=drive-work-drain-sched@hushh-pda.iam.gserviceaccount.com,_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=https://api.hushh.ai"
           fi
@@ -2167,7 +2180,7 @@ jobs:
           bash scripts/ci/cloudrun-retention.sh "$FRONTEND_SERVICE" "$GCP_REGION" "$FRONTEND_REVISION_RETENTION" \
             "$FRONTEND_CURRENT" --rollback-revision "$FRONTEND_ROLLBACK" \
             --last-known-good-revision "$FRONTEND_CURRENT" --apply --healthy --tags-only
-          python3 scripts/ci/runtime-capacity-budget.py --environment production
+          python3 scripts/ci/runtime-capacity-budget.py --environment production --phase post-release
 
       - name: Fail workflow when production release did not end healthy
         if: always()

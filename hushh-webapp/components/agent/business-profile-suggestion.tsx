@@ -10,12 +10,15 @@ import { HelperText } from "@/components/app-ui/typography";
 import { AgentPkmReviewPanel } from "@/components/agent/agent-pkm-review-panel";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { BusinessSuggestionService } from "@/lib/services/business-suggestion-service";
+import { isDemoBusinessSource } from "@/lib/services/business-directory-source";
 import { createAgentPkmCaptureGuard } from "@/lib/agent/agent-pkm-capture-runtime";
 import { BusinessReviewPreparationError, connectorMemorySharingImpact, prepareConnectorMemoryReview } from "@/lib/agent/connector-memory-review";
-import { attachBusinessOrigin, buildSyntheticBusinessPreview, BusinessOriginValidationError, businessCandidateSnapshot, businessDraftMessage, createBusinessReviewJob, decideBusinessReview, loadBusinessReview, saveBusinessReview, type BusinessCandidate, type BusinessReviewJob } from "@/lib/agent/business-profile-review";
+import { attachBusinessOrigin, BusinessOriginValidationError, businessCandidateSnapshot, businessDraftMessage, createBusinessReviewJob, decideBusinessReview, loadBusinessReview, saveBusinessReview, type BusinessCandidate, type BusinessReviewJob } from "@/lib/agent/business-profile-review";
 import type { AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
 import { businessReviewFields, businessReviewItems, initialBusinessFieldSelection, selectBusinessReviewFields, type BusinessFieldSelection, type BusinessReviewItem } from "@/lib/agent/business-profile-fields";
 import { withDeadline } from "@/lib/utils/with-deadline";
+import { useBackLayer } from "@/lib/navigation/back-layers";
+import { useForegroundChatActive } from "@/lib/agent/foreground-chat-priority";
 
 const BUSINESS_REVIEW_BUDGET_MS = 90_000;
 
@@ -29,6 +32,10 @@ type Props = {
   onSaved?: (businessUid: string) => void;
   /** Candidates already saved in this session stay suppressed if discovery refreshes. */
   dismissedBusinessUids?: ReadonlySet<string>;
+  /** Optional content inside Magic; no separate assistant identity or card chrome. */
+  embedded?: boolean;
+  present?: boolean;
+  pathname?: string;
 };
 type Review = {
   candidate: BusinessCandidate; name: string; website: string; message: string;
@@ -40,6 +47,8 @@ type Review = {
 
 /** On-demand discovery; each distinct business has an independent review. */
 export function BusinessProfileSuggestion(props: Props) {
+  const [completedOwner, setCompletedOwner] = useState<string | null>(null);
+  const foregroundChatActive = useForegroundChatActive();
   const [discovery, setDiscovery] = useState<{ ownerId: string; token: string; key: string;
     candidates: BusinessCandidate[]; incomplete: boolean; status: string } | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -52,18 +61,21 @@ export function BusinessProfileSuggestion(props: Props) {
       return next;
     });
   }, []);
-  const visible = visibleIds.size > 0;
+  const { ownerId, vaultKey, vaultOwnerToken, enabled, tokenExpiresAt } = props;
+  const currentDiscovery = enabled && !foregroundChatActive && !!ownerId && !!vaultKey && !!vaultOwnerToken &&
+    tokenExpiresAt !== null && Date.now() < tokenExpiresAt && completedOwner !== ownerId &&
+    discovery?.ownerId === ownerId && discovery.token === vaultOwnerToken && discovery.key === vaultKey;
+  const visible = currentDiscovery && visibleIds.size > 0;
   const { onVisibleChange } = props;
   useEffect(() => {
     onVisibleChange?.(visible);
     return () => onVisibleChange?.(false);
   }, [onVisibleChange, visible]);
-  const { ownerId, vaultKey, vaultOwnerToken, enabled, tokenExpiresAt } = props;
   useEffect(() => {
     const abort = new AbortController();
     setDiscovery(null);
     const guard = createAgentPkmCaptureGuard({ userId: ownerId || "", signal: abort.signal,
-      isEnabled: () => enabled && !!ownerId && !!vaultKey && !!vaultOwnerToken && tokenExpiresAt !== null && Date.now() < tokenExpiresAt });
+      isEnabled: () => enabled && !foregroundChatActive && !!ownerId && !!vaultKey && !!vaultOwnerToken && tokenExpiresAt !== null && Date.now() < tokenExpiresAt });
     if (guard.isCurrent()) void (async () => {
       try {
         const result = await BusinessSuggestionService.get(vaultOwnerToken!, abort.signal);
@@ -76,26 +88,30 @@ export function BusinessProfileSuggestion(props: Props) {
       }
     })();
     return () => abort.abort();
-  }, [ownerId, vaultKey, vaultOwnerToken, enabled, tokenExpiresAt, attempt]);
-  if (!enabled || !ownerId || !vaultKey || !vaultOwnerToken || tokenExpiresAt === null || Date.now() >= tokenExpiresAt ||
-    discovery?.ownerId !== ownerId || discovery.token !== vaultOwnerToken || discovery.key !== vaultKey) return null;
-  const candidates = discovery.candidates.filter(candidate => !props.dismissedBusinessUids?.has(candidate.businessUid));
+  }, [ownerId, vaultKey, vaultOwnerToken, enabled, foregroundChatActive, tokenExpiresAt, attempt]);
+  if (!currentDiscovery) return null;
+  const candidates = discovery.candidates.filter(candidate => candidate.synthetic === false &&
+    candidate.sourceIdentity.source === "directory" && !isDemoBusinessSource(candidate.sourceIdentity.sourceKey) &&
+    !props.dismissedBusinessUids?.has(candidate.businessUid));
   const retryableStatus = discovery.status === "unavailable" || discovery.incomplete;
   if (!candidates.length && !retryableStatus && discovery.status !== "insufficient_signals") return null;
   return <div className="space-y-[var(--app-form-section-gap)]">
-    {retryableStatus && <div className="space-y-[var(--app-form-field-gap)]">
+    {props.present !== false && retryableStatus && <div className="space-y-[var(--app-form-field-gap)]">
       <HelperText>{discovery.status === "unavailable"
         ? "Business lookup is temporarily unavailable. Nothing was saved; try again when the directory is reachable."
         : "Business lookup is incomplete. Available suggestions may not include every business."}</HelperText>
       <Button variant="link" size="standard" onClick={() => setAttempt(value => value + 1)}>Retry business lookup</Button>
     </div>}
-    {discovery.status === "insufficient_signals" && <HelperText>Your verified contacts could not be used for business lookup yet. Nothing has been saved.</HelperText>}
-    {candidates.length > 1 && <HelperText>I found several possible businesses. Review each one separately; you can save more than one.</HelperText>}
-    {candidates.map(candidate => <BusinessCandidateReview key={candidate.businessUid} {...props} candidate={candidate} onCandidateVisible={onCandidateVisible} />)}
+    {props.present !== false && discovery.status === "insufficient_signals" && <HelperText>Your verified contacts could not be used for business lookup yet. Nothing has been saved.</HelperText>}
+    {props.present !== false && candidates.length > 1 && <HelperText>I found several possible businesses. Choose the details you want to review.</HelperText>}
+    {candidates.map(candidate => <BusinessCandidateReview key={candidate.businessUid} {...props} candidate={candidate}
+      onCompleted={() => setCompletedOwner(ownerId)}
+      onCandidateVisible={onCandidateVisible} />)}
   </div>;
 }
 
 function BusinessCandidateReview(props: Props & { candidate: BusinessCandidate;
+  onCompleted: () => void;
   onCandidateVisible: (id: string, visible: boolean) => void }) {
   const fieldId = useId();
   const { ownerId, vaultKey, vaultOwnerToken, enabled, tokenExpiresAt } = props;
@@ -115,7 +131,7 @@ function BusinessCandidateReview(props: Props & { candidate: BusinessCandidate;
   const [recoveryAttempt, setRecoveryAttempt] = useState(0);
   const [operation, setOperation] = useState<"refresh" | "later" | "not_me" | null>(null);
   const review = state?.context === context ? state.review : null;
-  const reviewVisible = Boolean(review);
+  const reviewVisible = Boolean(review) || (Boolean(props.embedded) && recoveryError);
   const { onCandidateVisible } = props;
   useEffect(() => {
     onCandidateVisible(props.candidate.businessUid, reviewVisible);
@@ -139,6 +155,8 @@ function BusinessCandidateReview(props: Props & { candidate: BusinessCandidate;
           (checkpoint?.decision === "later" && (checkpoint.until || 0) > Date.now())) return;
         const job = checkpoint?.job;
         const reviewedCandidate = job?.candidate || candidate;
+        if (reviewedCandidate.synthetic !== false || reviewedCandidate.sourceIdentity.source !== "directory" ||
+          isDemoBusinessSource(reviewedCandidate.sourceIdentity.sourceKey)) return;
         setState({ context, review: { candidate: reviewedCandidate,
           name: job?.reviewedName ?? reviewedCandidate.draft.name,
           website: job?.reviewedWebsite ?? reviewedCandidate.draft.website,
@@ -198,12 +216,7 @@ function BusinessCandidateReview(props: Props & { candidate: BusinessCandidate;
       preparation.stage = "details";
       const message = businessDraftMessage(review.candidate, review.name, review.website);
       preparation.stage = "preview";
-      // Keep older isolated test/module mocks compatible while the real
-      // implementation supplies the deterministic UAT card builder.
-      const syntheticCards = buildSyntheticBusinessPreview?.(review.candidate, review.name, review.website) ?? [];
-      const result = syntheticCards.length
-        ? { cards: syntheticCards, incomplete: false, alreadySaved: false }
-        : await prepareConnectorMemoryReview({ ...guard, userId: context.ownerId!,
+      const result = await prepareConnectorMemoryReview({ ...guard, userId: context.ownerId!,
           vaultKey: context.vaultKey!, vaultOwnerToken: context.vaultOwnerToken!, message, source: "business_profile_review",
           businessUid: review.candidate.businessUid });
       await guard.assertCurrent();
@@ -291,6 +304,7 @@ function BusinessCandidateReview(props: Props & { candidate: BusinessCandidate;
       // card immediately. The parent callback covers a discovery refresh that
       // would otherwise recreate the same ephemeral chat message.
       setSaved(true);
+      props.onCompleted();
       props.onSaved?.(review.candidate.businessUid);
       setState(null); setOpen(false);
       return result;
@@ -334,7 +348,16 @@ function BusinessCandidateReview(props: Props & { candidate: BusinessCandidate;
     } catch { if (guard.isCurrent()) morphyToast.error("Your choice could not be saved. Try again."); }
     finally { if (guard.isCurrent()) { busy.current = false; setOperation(null); } }
   };
-
+  useBackLayer(props.pathname || "/", props.embedded && props.present !== false && eligible() && review &&
+    (editing || acknowledging || review.phase !== "offer" || operation !== null) ? 3 : 0, useCallback(() => {
+      if (busy.current) return true;
+      if (acknowledging) { setAcknowledging(false); return true; }
+      if (editing) { setEditing(false); return true; }
+      // Keep an approved recovery job intact when returning to the subsection.
+      if (open) { setOpen(false); return true; }
+      return false;
+    }, [acknowledging, editing, open]));
+  if (props.present === false) return null;
   if (recoveryError && eligible()) return <div role="status" className="space-y-2">
     <HelperText>Your saved business review could not be opened. Nothing has been changed.</HelperText>
     <Button variant="muted" size="standard" onClick={() => setRecoveryAttempt(value => value + 1)}>Retry saved review</Button>
@@ -373,10 +396,10 @@ function BusinessCandidateReview(props: Props & { candidate: BusinessCandidate;
       </span>
     </label>;
   };
-  const card = <section aria-label="Is this your business?"
+  const card = <section aria-label={props.embedded ? "Business details" : "Is this your business?"}
     className="min-w-0 space-y-[var(--app-form-section-gap)]">
     {!open && <Button variant="muted" size="standard" onClick={() => setOpen(true)}>Review business details</Button>}
-    {open && <div className="min-w-0 space-y-5 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-separator)] p-4 sm:p-5">
+    {open && <div className={props.embedded ? "min-w-0 space-y-3" : "min-w-0 space-y-5 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-separator)] p-4 sm:p-5"}>
         <div className="flex min-w-0 items-start justify-between gap-3">
           <div className="min-w-0">
           <h3 className="ui-text-row-title break-words text-foreground">{review.name || review.candidate.draft.name}</h3>
@@ -387,10 +410,8 @@ function BusinessCandidateReview(props: Props & { candidate: BusinessCandidate;
         </div>
         <details className="ui-text-helper text-muted-foreground">
           <summary className="min-h-11 cursor-pointer py-3">Why this match</summary>
-          {review.candidate.synthetic && <HelperText className="font-semibold text-foreground">UAT test suggestion</HelperText>}
-          <HelperText>{review.candidate.synthetic ? "Email domain matches this test business." :
-            [...new Set(review.candidate.matchEvidence.map(item => item.kind === "verified_phone" ? "Verified phone matches." : item.kind === "verified_email_identity" ? "Verified email matches." : "Email domain matches."))].join(" ")}</HelperText>
-          {!review.candidate.synthetic && <HelperText>Public directory · {review.candidate.sourceIdentity.vertical}</HelperText>}
+          <HelperText>{[...new Set(review.candidate.matchEvidence.map(item => item.kind === "verified_phone" ? "Verified phone matches." : item.kind === "verified_email_identity" ? "Verified email matches." : "Email domain matches."))].join(" ")}</HelperText>
+          <HelperText>Public directory · {review.candidate.sourceIdentity.vertical}</HelperText>
         </details>
         {review.phase !== "review" && review.phase !== "saving" && <dl className="space-y-2">
           {Object.entries(overview).filter(([, value]) => Boolean(value)).map(([key, value]) => <div key={key}
@@ -456,7 +477,7 @@ function BusinessCandidateReview(props: Props & { candidate: BusinessCandidate;
       </AlertDialogFooter></AlertDialogContent>
     </AlertDialog>
   </section>;
-  return props.renderMessage
+  return props.embedded ? card : props.renderMessage
     ? props.renderMessage(review.candidate.businessUid, introduction, card)
     : <div data-message-role="assistant" className="space-y-3"><p>{introduction}</p>{card}</div>;
 }

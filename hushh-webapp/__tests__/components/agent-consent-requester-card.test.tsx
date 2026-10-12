@@ -452,8 +452,12 @@ describe("InformationRequestReviewView with and without progress", () => {
     phase = "reading";
     view.rerender(card());
     const progress = screen.getByTestId("requester-progress");
-    expect(progress).toHaveAttribute("data-outcome", "granted");
-    expect(within(progress).getByRole("status")).toHaveTextContent("Reading what Kushal shared…");
+    // The published approval crosses an effect's Promise before React renders
+    // it. Await that render, while every subsequent ledger read remains stalled.
+    await waitFor(() => {
+      expect(progress).toHaveAttribute("data-outcome", "granted");
+      expect(within(progress).getByRole("status")).toHaveTextContent("Reading what Kushal shared…");
+    });
   });
 
   it("drops revealed values and shows Access ended when the owner revokes", async () => {

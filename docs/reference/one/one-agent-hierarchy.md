@@ -11,9 +11,15 @@ verified email/phone when available. The task uses One's existing public
 Its prompt starts with public name searches, treats an organization domain as
 an optional hint, and allows one broader name-only follow-up in the same budget.
 Contact identifiers are matching context; a public phone match is not required.
-Personal research is independent of Business Intelligence. A person with no
+Magic Intelligence is the single profile feature in One. Business Intelligence
+populates its optional Business subsection, with no separate chat identity.
+Personal research is independent of the optional business lookup. A person with no
 business can review and save career, education and public personal findings.
-Business sections are optional. Search calls run sequentially, with at most one
+The initial offer shows one short notice and Review details, with findings
+revealed only after opening. Business facts start unchecked; public-source
+business facts and directory listings share the Business subsection. Its
+failure, absence or pending lookup does not hold up personal review or saving.
+Search calls run sequentially, with at most one
 follow-up, so an unavailable attempt cannot borrow another attempt's receipts.
 Structured task output and Search grounding receipts form the editable card.
 The report stays outside ordinary transcript persistence and automatic capture.
@@ -243,14 +249,15 @@ them. It preserves One's conversation and permits only `list_recent` (the newest
 INBOX page, "my last N emails"), `list_needs_reply`, `search_inbox`, and the body
 reads `read_message` / `read_thread` (size-capped text seen only by the tool-less
 interpreter), each scoped to `inbox`, `sent` or `anywhere` and returning an `unread`
-flag. It also admits `read_receipts`, which answers questions about the owner's
-own receipts, invoices, bills and purchases from their saved receipt memory and
-never from an inbox search: the owner's device decrypts the bounded canonical
-index in `shopping.receipts_memory` (saved only by the owner-confirmed
-`gmail_receipt_memory_save_button`) and sends it beside that one typed turn, the
-Email hop filters, pages and formats it with no model and no Gmail call, and a
-missing or stale memory answers "not ready" with the generated Open Receipts
-action. A request to find emails that mention receipts stays `search_inbox`. See
+flag. High-level receipt and purchase trends use the aggregate observations in
+the supplied Soul.md, not the Email receipt-list tool. New Radar scans save only
+these observations, never individual transactions. The retained `read_receipts`
+compatibility tool can filter/page a bounded legacy canonical index when an
+older admitted client supplies one; current One Chat does not attach that second
+memory channel. An individual-record lookup without an admitted index answers
+"not ready" with the generated Open Receipts action. The receipt list remains
+available in Radar, and a request to find emails that mention receipts stays
+`search_inbox`. See
 the "Email receipts read from saved receipt memory" declaration in
 [Backend Semantic Boundary](../../../consent-protocol/docs/reference/backend-semantic-boundary.md).
 Reviewed mailbox changes (archive, labels, read state, Trash) go through One's

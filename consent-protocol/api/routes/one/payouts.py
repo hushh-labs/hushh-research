@@ -2,7 +2,8 @@
 
   GET  /api/one/payouts          -> payout account readiness + earnings totals
   POST /api/one/payouts/onboard  -> {url} Stripe-hosted Express onboarding
-  GET  /api/one/payouts/account  -> account readiness and verification, for document owners
+  GET  /api/one/payouts/account?fresh= -> account readiness and verification, for document
+       owners (a 30 s display cache; fresh=true reads Stripe again)
   POST /api/one/payouts/account/onboard -> {url} document-owner onboarding
        (optional body {"purpose":"verify"} collects upcoming requirements too)
   GET  /api/one/payouts/account/bank-payouts?cursor= -> owner's aggregate bank deposits
@@ -115,12 +116,14 @@ async def onboard(
 
 @router.get("/account")
 async def get_payout_account(
-    response: Response, token_data: dict = Depends(require_vault_owner_token)
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+    fresh: bool = Query(False),
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "private, no-store"
     try:
         account: dict[str, Any] = await _document_service().account_status(
-            user_id=token_data["user_id"]
+            user_id=token_data["user_id"], force_refresh=fresh
         )
         return account
     except PacketOrderError as exc:

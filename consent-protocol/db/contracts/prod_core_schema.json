@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 312,
+  "expected_migration_version": 321,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -76,7 +76,8 @@
     "activate_reserved_wallet_cards",
     "remove_wallet_card_registrations",
     "guard_wallet_card_access_grant",
-    "notify_pkm_answer_changed"
+    "notify_pkm_answer_changed",
+    "notify_feed_changed"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -2800,6 +2801,8 @@
       "recovery_iv",
       "one_runtime_setup_choice",
       "one_chat_onboarding",
+      "one_business_profile_saved",
+      "one_magic_intelligence_saved",
       "onboarding_journey_version",
       "onboarding_phase",
       "onboarding_active_capability",

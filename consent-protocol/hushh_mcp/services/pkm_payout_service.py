@@ -10,6 +10,7 @@ always there; credit orders are paid from hussh's balance. Migration 268.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import re
 from datetime import UTC, datetime
@@ -18,6 +19,11 @@ from urllib.parse import urlsplit
 
 from db.db_client import get_db
 from hushh_mcp.runtime_settings import get_app_runtime_settings
+from hushh_mcp.services.payout_account_status_cache import (
+    StatusReadInvalidated,
+    account_status_cache,
+    invalidate_payout_account_status,
+)
 from hushh_mcp.services.pkm_packet_order_service import (
     TABLE as ORDERS,
 )
@@ -454,10 +460,12 @@ class PkmPayoutService:
         """Create (once) the owner's Express account and a fresh onboarding link.
 
         purpose="verify" reuses an existing account only and asks Stripe to
-        collect everything it will need, now and upcoming, in one visit.
+        collect everything it will need, now and upcoming, in one visit. Either
+        purpose fences the display cache, so verification shows Stripe's state.
         """
         if purpose not in {"onboarding", "verify"}:
             raise ValueError("invalid onboarding purpose")
+        invalidate_payout_account_status(user_id=user_id, mode=self.account_mode)
         key = self._account_key()
         origin = _app_origin()
         return_path = ONBOARDING_RETURN_PATHS[surface]
@@ -560,6 +568,7 @@ class PkmPayoutService:
             raise PacketOrderError(
                 "PAYOUT_UNAVAILABLE", "Could not start payout setup. Please retry."
             )
+        invalidate_payout_account_status(user_id=user_id, mode=self.account_mode)
         return {"url": link["url"]}
 
     async def _retrieve_account(self, account_id: str, *, key: str) -> dict[str, Any]:
@@ -579,10 +588,22 @@ class PkmPayoutService:
         return remote
 
     async def refresh_account(self, user_id: str) -> dict[str, Any] | None:
-        account = await self._account(user_id)
-        if account is None:
-            return None
-        key = self._account_key()
+        """Fresh provider authority for redemption and transfers; never use display cache."""
+        mode = self.account_mode
+        invalidate_payout_account_status(user_id=user_id, mode=mode)
+        try:
+            account = await self._account(user_id)
+            if account is None:
+                return None
+            return await self._refresh_bound_account(
+                user_id, account=account, mode=mode, key=self._account_key()
+            )
+        finally:
+            invalidate_payout_account_status(user_id=user_id, mode=mode)
+
+    async def _refresh_bound_account(
+        self, user_id: str, *, account: dict[str, Any], mode: str, key: str
+    ) -> dict[str, Any]:
         remote = await self._retrieve_account(account["stripe_account_id"], key=key)
         readiness = _account_readiness(remote)
         patch = {
@@ -591,12 +612,20 @@ class PkmPayoutService:
             "account_ready": readiness["ready"],
             "updated_at": _now(),
         }
-        await self._rows(
+        updated = await self._rows(
             self.db.table(ACCOUNTS)
             .update(patch)
             .eq("user_id", user_id)
-            .eq("stripe_mode", self.account_mode)
+            .eq("stripe_mode", mode)
+            .eq("stripe_account_id", account["stripe_account_id"])
         )
+        if not updated:
+            # The mapping was removed/rebound during provider I/O. It cannot
+            # authorize a transfer or publish readiness for the old account.
+            invalidate_payout_account_status(user_id=user_id, mode=mode)
+            raise PacketOrderError(
+                "PAYOUT_UNAVAILABLE", "Could not verify payout setup. Please retry."
+            )
         if self._resume_documents and account.get("account_ready") is not readiness["ready"]:
             await resume_document_owner_setup(self.db, user_id)
         return {**account, **patch, "readiness": readiness}
@@ -633,15 +662,50 @@ class PkmPayoutService:
             raise PacketOrderError(
                 "PAYOUT_UNAVAILABLE", "Couldn't open bank settings. Try again."
             ) from None
+        invalidate_payout_account_status(user_id=user_id, mode=self.account_mode)
         return {"url": link["url"]}
 
-    async def account_status(self, *, user_id: str) -> dict[str, Any]:
-        """Document checkout consumes this without exposing PKM sales or account IDs."""
-        account = await self.refresh_account(user_id)
-        return {
-            "account": account["readiness"] if account is not None else None,
-            "stripeMode": self.account_mode,
-        }
+    async def account_status(self, *, user_id: str, force_refresh: bool = False) -> dict[str, Any]:
+        """Short-lived display metadata; every read still resolves the owner binding."""
+        mode = self.account_mode
+        if force_refresh:
+            invalidate_payout_account_status(user_id=user_id, mode=mode)
+        for _attempt in range(3):
+            account = await self._account(user_id)
+            if account is None:
+                invalidate_payout_account_status(user_id=user_id, mode=mode)
+                return {"account": None, "stripeMode": mode}
+            key = self._account_key()
+            # A rotation or provider endpoint change must not reuse a different
+            # provider's readiness. Retain a digest only, never the credential.
+            configuration = hashlib.sha256(
+                repr(
+                    (
+                        key,
+                        stripe_environment(),
+                        id(self.stripe_api),
+                        getattr(self.stripe_api, "api_base", None),
+                        getattr(self.stripe_api, "api_version", None),
+                    )
+                ).encode()
+            ).hexdigest()
+            cache_key = (user_id, mode, configuration, account["stripe_account_id"])
+
+            async def load(account: dict[str, Any] = account, key: str = key) -> dict[str, Any]:
+                # A display lookup may outlive invalidation. Keep it read-only
+                # so an old result cannot overwrite newer authoritative state
+                # or wake document work before its cache generation is checked.
+                # Verification and payout schedule come from this same read and
+                # key; they are display only and never gate money.
+                remote = await self._retrieve_account(account["stripe_account_id"], key=key)
+                return _account_readiness(remote)
+
+            try:
+                readiness = await account_status_cache.get(cache_key, load)
+            except StatusReadInvalidated:
+                continue
+            return {"account": readiness, "stripeMode": mode}
+        raise PacketOrderError("PAYOUT_UNAVAILABLE", "Could not verify payout setup. Please retry.")
 
     async def _earning_orders(
         self, *, state: str | None = None, owner: str | None = None, limit: int | None = None

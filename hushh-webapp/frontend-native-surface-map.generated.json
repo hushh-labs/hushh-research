@@ -84,6 +84,10 @@
       "file": "app/api/consent/data/route.ts"
     },
     {
+      "template": "/api/consent/document-feed/{userId}",
+      "file": "app/api/consent/document-feed/[userId]/route.ts"
+    },
+    {
       "template": "/api/consent/events/{userId}",
       "file": "app/api/consent/events/[userId]/route.ts"
     },
@@ -370,7 +374,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Chat actions complete only after the correlated browser or capability settlement succeeds. The onboarding public-profile card stays a draft until the owner confirms the exact memory preview; Edit and Review unwind locally on Back.",
+          "completion_boundary": "Chat actions complete only after the correlated browser or capability settlement succeeds. Magic Intelligence and public business cards start only after personality onboarding finishes, in a separate follow-up turn. After every selected business detail is confirmed saved, a permanent owner-scoped flag suppresses the automatic business card across sessions and devices; partial or failed saves stay retryable. Business website edits accept bare domains as HTTPS and reject unsafe URLs before preparing details. The public-profile card stays a draft until the owner confirms the exact memory preview; Edit and Review unwind locally on Back.",
           "next_route": "/",
           "return_policy": "resolve_root",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -4703,7 +4707,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.pkm",
-          "purpose": "Help the person understand and use the pkm screen through its generated controls.",
+          "purpose": "Memory opens on Soul.md, the formatted document One uses in conversations. The owner can edit and save it; Saved, Add, and Sharing retain the specialist memory flows. Back cancels the Soul.md editor before leaving Memory, and saving completes only after encrypted persistence succeeds.",
           "screen": "pkm",
           "entry_cue": "You can say “Open Memory” to use the primary control on this screen.",
           "proactivity": "on_entry",
@@ -10117,5 +10121,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "7c1b4024613858dda16cc1ec2aaf41860cfa7f624f21580c46e3d26e6cc90e0e"
+  "content_sha256": "90d37b89b926cbd7e257564d3b2b3d7a9e2c75968bebb702d94b8ccac0765d0f"
 }

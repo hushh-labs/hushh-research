@@ -269,8 +269,17 @@ def world(monkeypatch, request):
 
 
 @pytest.mark.asyncio
-async def test_account_update_refreshes_owner_readiness_and_rejects_replayed_id_binding(world):
+async def test_account_update_refreshes_owner_readiness_and_rejects_replayed_id_binding(
+    world, monkeypatch
+):
     service, fake, engine = world
+    invalidated = []
+    monkeypatch.setattr(
+        bank_payouts,
+        "invalidate_payout_account_status",
+        lambda **kwargs: invalidated.append(kwargs),
+        raising=False,
+    )
     assert (
         await service.process_webhook(
             **signed_event(event_id="evt_account", kind="account.updated")
@@ -294,6 +303,7 @@ async def test_account_update_refreshes_owner_readiness_and_rejects_replayed_id_
     with pytest.raises(ConnectBankPayoutError, match="provider_mismatch"):
         await service.process_webhook(**signed_event(event_id="evt_account", kind="payout.updated"))
     assert len(fake.retrieve_calls) == 1
+    assert invalidated == [{"user_id": "owner", "mode": service.mode}]
 
 
 @pytest.mark.asyncio

@@ -277,6 +277,9 @@
     "303_hashcoin_live_redemption.sql",
     "304_connect_bank_payout_reconciliation.sql",
     "305_pkm_answer_payment_recovery.sql",
+    "306_one_business_profile_saved.sql",
+    "313_feed_realtime_changes.sql",
+    "314_one_magic_intelligence_saved.sql",
     "315_payout_activity_indexes.sql",
     "316_connect_bank_payout_snapshot.sql",
     "317_connect_balance_ledger.sql",
@@ -440,7 +443,10 @@
       "275_scheduled_mail_send.sql",
       "283_gmail_send_grant_generation.sql",
       "285_one_wallet_card_auto_provision.sql",
-      "286_one_referral_link_open_notify.sql"
+      "286_one_referral_link_open_notify.sql",
+      "306_one_business_profile_saved.sql",
+      "313_feed_realtime_changes.sql",
+      "314_one_magic_intelligence_saved.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -586,6 +592,9 @@
     "303_hashcoin_live_redemption.sql": "rollback/303_hashcoin_live_redemption.rollback.sql",
     "304_connect_bank_payout_reconciliation.sql": "rollback/304_connect_bank_payout_reconciliation.rollback.sql",
     "305_pkm_answer_payment_recovery.sql": "rollback/305_pkm_answer_payment_recovery.rollback.sql",
+    "306_one_business_profile_saved.sql": "rollback/306_one_business_profile_saved.rollback.sql",
+    "313_feed_realtime_changes.sql": "rollback/313_feed_realtime_changes.rollback.sql",
+    "314_one_magic_intelligence_saved.sql": "rollback/314_one_magic_intelligence_saved.rollback.sql",
     "315_payout_activity_indexes.sql": "rollback/315_payout_activity_indexes.rollback.sql",
     "316_connect_bank_payout_snapshot.sql": "rollback/316_connect_bank_payout_snapshot.rollback.sql",
     "317_connect_balance_ledger.sql": "rollback/317_connect_balance_ledger.rollback.sql",

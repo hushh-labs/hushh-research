@@ -213,7 +213,7 @@ function safeErrorMessage(code: string | null, status: number): string {
     return "Reconnect Mail to grant mail sending permission.";
   }
   if (code === "GMAIL_SEND_DISABLED") {
-    return "Turn on Gmail sending to continue. Your draft is still here.";
+    return "Reconnect Mail to continue. Your draft is still here.";
   }
   if (code === "GMAIL_COMPOSE_PERMISSION_REQUIRED") {
     return "Enable Gmail drafts in Connectors, then review this draft again.";

@@ -49,7 +49,7 @@
     },
     {
       "prompt": "why is the vault not decrypting PKM entries on iOS?",
-      "expect_id": "vault-pkm-governance",
+      "expect_id": "security-audit",
       "forbid_reply_rules": true,
       "why": "A question mark in an engineering prompt must not pull in 180 lines of community reply rules."
     },

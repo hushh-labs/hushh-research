@@ -93,7 +93,9 @@ describe("document payout account", () => {
         detail: { code: "PAYOUT_PLATFORM_SETUP_REQUIRED", message: "Private provider details" },
       })).mockResolvedValueOnce({ url: "https://connect.stripe.com/setup/safe_link" });
       render(<DocumentPayoutAccountCard compact />);
-      fireEvent.click(await screen.findByRole("button", { name: "Link bank" }));
+      const linkBank = await screen.findByRole("button", { name: "Link bank" });
+      await waitFor(() => expect(linkBank).toBeEnabled());
+      fireEvent.click(linkBank);
       expect(await screen.findByRole("alert")).toHaveTextContent("Bank setup is unavailable. Hushh needs to activate payouts.");
       expect(screen.queryByText(/Private provider details/)).toBeNull();
       expect(assign).not.toHaveBeenCalled();
@@ -193,13 +195,13 @@ describe("document payout account", () => {
     rerender(<DocumentPayoutAccountCard />);
     expect(screen.queryByText("Bank linked")).toBeNull();
     expect(screen.getByText("Checking…")).toBeVisible();
-    resolveSecond({ account: null });
-    await screen.findByRole("button", { name: "Link bank" });
+    await act(async () => { resolveSecond({ account: null }); });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Link bank" })).toBeEnabled());
   });
 
   it("refetches after Stripe return and announces actual readiness once without a loop", async () => {
     const { rerender } = render(<DocumentPayoutAccountCard handleReturn compact />);
-    await screen.findByRole("button", { name: "Link bank" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Link bank" })).toBeEnabled());
     const events = vi.fn();
     window.addEventListener(CONSENT_STATE_CHANGED_EVENT, events);
     try {
@@ -211,6 +213,7 @@ describe("document payout account", () => {
       expect(await screen.findByText("Bank linked")).toBeVisible();
       await waitFor(() => expect(events).toHaveBeenCalledOnce());
       expect(state.account).toHaveBeenCalledTimes(2);
+      expect(state.account).toHaveBeenLastCalledWith("owner-token", { fresh: true });
       expect(state.onboard).not.toHaveBeenCalled();
       fireEvent.click(screen.getByRole("button", { name: "Manage bank" }));
       await waitFor(() => expect(state.manage).toHaveBeenCalledExactlyOnceWith("owner-token"));
@@ -227,7 +230,9 @@ describe("document payout account", () => {
     const startSetup = async (query: string) => {
       state.query = query;
       const view = render(<DocumentPayoutAccountCard handleReturn showHistory={false} />);
-      fireEvent.click(await screen.findByRole("button", { name: "Link bank" }));
+      const linkBank = await screen.findByRole("button", { name: "Link bank" });
+      await waitFor(() => expect(linkBank).toBeEnabled());
+      fireEvent.click(linkBank);
       await waitFor(() => expect(assign).toHaveBeenCalledOnce());
       view.unmount();
       assign.mockReset();
@@ -303,15 +308,24 @@ describe("document payout account", () => {
   });
 
   it("drops an old owner's onboarding result after an account switch", async () => {
+    let finishAccount!: (value: { account: null }) => void;
+    state.account.mockImplementationOnce(() => new Promise((resolve) => { finishAccount = resolve; }));
     let finish!: (value: { url: string }) => void;
     state.onboard.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
     const view = render(<DocumentPayoutAccountCard compact />);
-    fireEvent.click(await screen.findByRole("button", { name: "Link bank" }));
-    await waitFor(() => expect(state.onboard).toHaveBeenCalledOnce());
+    const linkBank = await screen.findByRole("button", { name: "Link bank" });
+    // The accessible label exists during the initial read, before setup can open.
+    expect(linkBank).toBeDisabled();
+    fireEvent.click(linkBank);
+    expect(state.onboard).not.toHaveBeenCalled();
+    await act(async () => { finishAccount({ account: null }); });
+    await waitFor(() => expect(linkBank).toBeEnabled());
+    fireEvent.click(linkBank);
+    await waitFor(() => expect(state.onboard).toHaveBeenCalledExactlyOnceWith("owner-token"));
     state.token = "new-owner";
     state.epoch++;
     view.rerender(<DocumentPayoutAccountCard compact />);
-    await screen.findByRole("button", { name: "Link bank" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Link bank" })).toBeEnabled());
     await act(async () => { finish({ url: "https://unsafe.invalid/old-account" }); });
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getByRole("button", { name: "Link bank" })).toBeEnabled();
@@ -329,9 +343,7 @@ describe("document payout account", () => {
     expect(screen.getByText("Update your bank")).toBeVisible();
     fireEvent.click(action);
     await waitFor(() => expect(state.manage).toHaveBeenCalledExactlyOnceWith("owner-token"));
-    act(() => window.dispatchEvent(new CustomEvent(CONSENT_STATE_CHANGED_EVENT, {
-      detail: { source: "sse_document_feed", reconcile: true },
-    })));
+    act(() => { dispatchPayoutStateChanged({ kinds: ["account"], source: "sse" }); });
     expect(await screen.findByText("Bank needed")).toBeVisible();
     expect(screen.queryByText("Bank linked")).toBeNull();
     expect(screen.getByRole("button", { name: "Manage bank" })).toBeEnabled();
@@ -353,6 +365,8 @@ describe("document payout account", () => {
     expect(screen.getByText("Example Bank •••• 6789 · Default for deposits")).toBeVisible();
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
     expect(state.account).toHaveBeenCalledTimes(2);
+    // A retry asks Stripe again; the server's display cache would repeat "unavailable".
+    expect(state.account).toHaveBeenLastCalledWith("owner-token", { fresh: true });
     expect(state.onboard).not.toHaveBeenCalled();
   });
 });
@@ -455,8 +469,12 @@ describe("payout bank rows", () => {
     act(() => { dispatchPayoutStateChanged({ kinds: ["wallet", "earnings"], source: "sse" }); });
     await settle();
     expect(state.account).toHaveBeenCalledOnce();
+    // Focus moving inside the page is not a return from Stripe.
+    act(() => { screen.getByRole("button", { name: "Manage bank" }).focus(); });
     act(() => { dispatchPayoutStateChanged({ kinds: ["account"], source: "sse" }); });
     await waitFor(() => expect(state.account).toHaveBeenCalledTimes(2));
+    // Server doorbells keep the cached read; only the owner's own actions skip it.
+    expect(state.account).toHaveBeenLastCalledWith("owner-token");
   });
 
   it("keeps the compact card's Bank linked only while Stripe needs nothing now", async () => {

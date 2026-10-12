@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { act, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -160,5 +161,21 @@ describe("document payout account", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("stops calling a read current once its vault session ends, before any re-render", async () => {
+    const seen: Array<{ isCurrent: () => boolean }> = [];
+    function Reader() {
+      const snapshot = usePayoutSnapshot(state.earnings);
+      useEffect(() => { seen.push(snapshot); });
+      return null;
+    }
+    render(<Reader />);
+    await act(async () => { await Promise.resolve(); });
+    const reader = seen.at(-1)!;
+    expect(reader.isCurrent()).toBe(true);
+    // A lock or a new vault session lands while a page request is still out.
+    state.epoch++;
+    expect(reader.isCurrent()).toBe(false);
   });
 });

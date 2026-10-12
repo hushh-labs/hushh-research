@@ -173,15 +173,16 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain('source: "agent_chat_auto_capture"');
     expect(workspace).toContain("captureEligiblePkmFactsInBackground({");
     expect(workspace).toContain("beforeEffect: guard.assertCurrent");
-    expect(workspace).toContain("mayPublish: guard.isCurrent");
+    expect(workspace).toContain("const facts = markdownFactsFromCards(prepared.cards, candidates)");
+    expect(workspace).toContain('memoryProfile: "soul_markdown_v1"');
     expect(workspace).not.toContain("Long paste detected — choose where it belongs.");
     expect(workspace).not.toContain("composerPurpose");
     expect(workspace).not.toContain("Review for Memory");
     expect(workspace).not.toContain("Send as chat");
     expect(workspace).not.toContain("AgentPkmReviewPanel");
-    expect(workspace).toContain("getPkmConfirmationCards");
-    expect(workspace).toContain("const reviewRequired =");
-    expect(workspace).toContain('phase: reviewRequired ? "review" : "skipped"');
+    expect(workspace).not.toContain("getPkmConfirmationCards");
+    expect(workspace).not.toContain("const reviewRequired =");
+    expect(workspace).not.toContain('phase: reviewRequired ? "review" : "skipped"');
   });
 
   it("keeps active assistant streams full-width and errors compact", () => {
@@ -379,5 +380,16 @@ describe("private-agent chat shell contract", () => {
     // `voiceActive` is the same gate the card itself renders on.
     expect(workspace).toContain("absolute inset-x-0 bottom-0 z-10");
     expect(workspace).toContain('const voiceActive = voiceState !== "idle"');
+  });
+
+  it("keeps automatic Markdown memory capture silent", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+
+    expect(workspace).toContain('event.actionId === "pkm.add"');
+    expect(workspace).toContain('event.raw?.toolName === "add_to_pkm"');
+    expect(workspace).not.toContain("<AgentMemoryCaptureStatus");
+    expect(workspace).not.toContain('return "Saving to Memory"');
+    expect(workspace).not.toContain("confirmMemoryNeedsOwner");
+    expect(workspace).not.toContain("saved in Memory");
   });
 });

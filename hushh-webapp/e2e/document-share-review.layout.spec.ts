@@ -12,7 +12,7 @@ let script: string;
 let css: string;
 test.beforeEach(async ({ page }) => {
   await page.route("**/api/one/answer-requests/availability", (route) =>
-    route.fulfill({ contentType: "application/json", body: '{"enabled":true}' }),
+    route.fulfill({ contentType: "application/json", body: '{"enabled":true,"requests":true,"payments":true,"payouts":true}' }),
   );
   await page.route("**/api/connectors", (route) =>
     route.fulfill({
@@ -1157,7 +1157,7 @@ for (const width of [320, 390, 1440]) {
       route.fulfill({ contentType: "text/html", body: fixtureHtml() }),
     );
     await page.route("**/api/one/answer-requests/availability", (route) =>
-      route.fulfill({ contentType: "application/json", body: '{"enabled":true}' }),
+      route.fulfill({ contentType: "application/json", body: '{"enabled":true,"requests":true,"payments":true,"payouts":true}' }),
     );
     await page.route("**/api/one/answer-requests", (route) => {
       expect(route.request().headers().authorization).toBe("Bearer synthetic-firebase-proof");

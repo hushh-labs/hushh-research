@@ -3,15 +3,14 @@
  *
  * No React, no I/O: `reduceChatOnboarding` takes an event and returns the next
  * state plus the side effects the host must run. That keeps the ordering
- * guarantees (one question per turn, save only on confirm, typed text is an
- * answer only after an explicit "Something else") provable in unit tests.
+ * guarantees (one question per turn, save only on confirm, explicit dismissal
+ * without capturing ordinary chat text) provable in unit tests.
  */
 import {
   CHAT_ONBOARDING_FOCUS_PLAN,
   CHAT_ONBOARDING_QUESTIONS,
   CHAT_ONBOARDING_TONE_LABEL,
   DONE_TEXT,
-  NAME_TYPING_HINT,
   NOT_SAVED_TEXT,
   SAVED_TEXT,
   SAVE_FAILED_TEXT,
@@ -99,7 +98,7 @@ export type ChatOnboardingEvent =
       today: string;
     }
   | { type: "chip"; chipId: ChatOnboardingChipId; anchor: string | null; today: string; firstName: string | null }
-  | { type: "typed_answer"; text: string; anchor: string | null }
+  | { type: "typed_answer"; text: string; anchor: string | null; today: string }
   | { type: "save_result"; ok: boolean; anchor: string | null; today: string };
 
 export type ChatOnboardingResult = {
@@ -265,9 +264,17 @@ export function reduceChatOnboarding(
     if (state.step !== "name_typing") return { state, effects: [], consumed: false };
     const name = normalizePreferredName(event.text);
     if (!name) {
-      // Not name-shaped (format validation only, never a meaning guess):
-      // One answers it as an ordinary message and the name question waits.
-      return { state: { ...state, step: "name" }, effects: [], consumed: false };
+      // The person left the explicit name entry. Let One answer the ordinary
+      // turn without resuming recommendations or saving a guessed name.
+      const progress = complete({
+        ...state.progress,
+        questions: { name: "skipped", focus: "skipped", tone: "skipped" },
+      }, event.today);
+      return {
+        state: { ...state, progress, step: "done", draft: { name: null, tone: null } },
+        effects: [{ type: "persist_progress", progress }],
+        consumed: false,
+      };
     }
     const answered = answerQuestion(
       { ...state, draft: { ...state.draft, name } },
@@ -336,20 +343,23 @@ export function reduceChatOnboarding(
       );
     }
     if (chipId === "name_other") {
-      if (current === "name_typing") {
-        return { state, effects: [{ type: "focus_composer" }] };
-      }
+      // Explicitly leave the optional questions. Do not classify the next
+      // message as a name or resume recommendations on another visit.
+      const progress = complete({
+        ...state.progress,
+        questions: { name: "skipped", focus: "skipped", tone: "skipped" },
+      }, today);
       const next = pushTurn(
-        { ...state, step: "name_typing" },
-        { role: "assistant", text: NAME_TYPING_HINT, anchor, chips: nameChips(firstName) },
+        { ...state, progress, step: "done", draft: { name: null, tone: null } },
+        { role: "user", text: "Something else", anchor },
       );
-      return { state: next, effects: [{ type: "focus_composer" }] };
+      return { state: next, effects: [{ type: "persist_progress", progress }, { type: "focus_composer" }] };
     }
     return { state, effects: [] };
   }
 
   if (current === "focus" && chipId.startsWith("focus_")) {
-    const focus = chipId.slice("focus_".length) as ChatOnboardingFocus;
+    const focus = chipId.slice("focus_".length) as ChatOnboardingFocus | "chat";
     const plan = CHAT_ONBOARDING_FOCUS_PLAN[focus];
     if (!plan) return { state, effects: [] };
     const progress = mark(state.progress, "focus", "answered");

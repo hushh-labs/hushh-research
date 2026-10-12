@@ -4,7 +4,7 @@ import {
   isVaultSessionEpochCurrent,
   snapshotVaultSessionEpoch,
 } from "@/lib/vault/session-epoch";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AuthService } from "@/lib/services/auth-service";
 import { AnswerRequestService } from "@/lib/services/answer-request-service";
 import { Button } from "@/lib/morphy-ux/button";
@@ -14,6 +14,31 @@ import { HelperText } from "@/components/app-ui/typography";
 export function AnswerPayoutAccount() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  // Payout setup has its own reachability rule (`_payout_mode_allowed`): a
+  // paused lane must not open an Express account in another Connect mode, so
+  // the endpoint 404s. Asked before the control is offered, because the
+  // owner can now reach this sheet with payments paused and a button that
+  // reports a failure is still a dead button.
+  const [reachable, setReachable] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const token = await AuthService.getIdToken();
+        if (!token) throw new Error("no token");
+        const gates = await AnswerRequestService.gates(token);
+        if (!cancelled) setReachable(gates.payouts);
+      } catch {
+        // Unknown, not "off": the button stays, and a real attempt reports
+        // the real reason rather than this component inventing one.
+        if (!cancelled) setReachable(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const manage = async () => {
     const epoch = snapshotVaultSessionEpoch();
     setBusy(true);
@@ -43,6 +68,16 @@ export function AnswerPayoutAccount() {
       setBusy(false);
     }
   };
+  if (reachable === false) {
+    return (
+      <HelperText as="p" role="status">
+        Answer payout setup opens once paid answers are switched on here.
+        Approving still records the price; nothing is charged or paid out
+        until then.
+      </HelperText>
+    );
+  }
+
   return (
     <div className="space-y-1">
       <Button

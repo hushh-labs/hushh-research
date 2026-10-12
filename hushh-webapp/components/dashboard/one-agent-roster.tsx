@@ -9,8 +9,7 @@ import {
   ListIcon,
   SearchIcon,
 } from "@/components/icons/ui";
-import { AGENT_ICON_MAP } from "@/components/icons/agents";
-import { MessageSquareIcon } from "@/components/icons/ui";
+import { OneRosterAgentIcon } from "@/components/icons/agents/one-roster-agent-icon";
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
@@ -28,6 +27,7 @@ import {
   type CapabilityStatusTone,
 } from "@/lib/onboarding/capability-status-display";
 import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
+import { compareOneRosterDisplayOrder } from "@/lib/onboarding/roster-display-order";
 import { buildOneSetupCapabilityRoute, ROUTES } from "@/lib/navigation/routes";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
@@ -266,26 +266,11 @@ function useCachedAgentMetrics(
   return resolveCachedAgentMetrics(userId);
 }
 
-const ROSTER_DISPLAY_ORDER: readonly string[] = [
-  "location",
-  "gmail",
-  "calendar",
-  "finance",
-  "ria",
-  "wallet",
-  "consent",
-  "pkm",
-  "messages",
-];
-
-// Outline icons belong to the One roster only; other surfaces keep their defaults.
+// The welcome illustration shares this roster's outline treatment.
 function rosterIcon(mode: OneAgentMode): OneCapabilityIcon {
-  const Icon = AGENT_ICON_MAP[mode.id as keyof typeof AGENT_ICON_MAP];
   return {
     kind: "custom",
-    component: (props) => Icon
-      ? <Icon {...props} weight="regular" color={mode.id === "location" ? "#FF3B30" : undefined} />
-      : <MessageSquareIcon {...props} weight="regular" color="var(--app-accent)" />,
+    component: (props) => <OneRosterAgentIcon {...props} agentId={mode.id} />,
   };
 }
 
@@ -353,13 +338,7 @@ function buildModes(
       tone: capability.tone,
       isExploreOnly: capability.isExploreOnly === true,
     };
-  }).sort((a, b) => {
-    const rank = (id: string) => {
-      const index = ROSTER_DISPLAY_ORDER.indexOf(id);
-      return index < 0 ? ROSTER_DISPLAY_ORDER.length : index;
-    };
-    return rank(a.id) - rank(b.id);
-  });
+  }).sort(compareOneRosterDisplayOrder);
 }
 
 /**

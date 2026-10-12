@@ -4,38 +4,145 @@ import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import type { AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), load: vi.fn(), prepare: vi.fn(), save: vi.fn(), decide: vi.fn(), create: vi.fn(), attach: vi.fn(), syntheticPreview: vi.fn() }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), load: vi.fn(), prepare: vi.fn(), save: vi.fn(), decide: vi.fn(), create: vi.fn(), attach: vi.fn(), research: vi.fn() }));
+vi.mock("@/lib/services/profile-research-service", async original => ({
+  ...(await original<typeof import("@/lib/services/profile-research-service")>()),
+  ProfileResearchService: { research: mocks.research },
+}));
 vi.mock("@/lib/services/business-suggestion-service", () => ({ BusinessSuggestionService: { get: mocks.get } }));
-vi.mock("@/lib/agent/business-profile-review", () => ({
+vi.mock("@/lib/agent/business-profile-review", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/agent/business-profile-review")>()),
   BusinessOriginValidationError: class extends Error {},
   loadBusinessReview: mocks.load, saveBusinessReview: mocks.save, decideBusinessReview: mocks.decide,
   createBusinessReviewJob: mocks.create, attachBusinessOrigin: mocks.attach,
-  buildSyntheticBusinessPreview: mocks.syntheticPreview,
   businessCandidateSnapshot: (candidate: unknown) => JSON.stringify(candidate),
-  businessDraftMessage: (_candidate: unknown, name: string, website: string) => `${name}\n${website}`,
 }));
 vi.mock("@/lib/agent/connector-memory-review", () => ({ prepareConnectorMemoryReview: mocks.prepare,
   BusinessReviewPreparationError: class extends Error {},
   connectorMemorySharingImpact: (cards: AgentPkmPreviewCard[]) => Math.max(0, ...cards.map(card => card.sharing_impact?.active_recipient_count || 0)) }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: { error: vi.fn(), success: vi.fn(), promise: vi.fn() } }));
 import { BusinessProfileSuggestion } from "@/components/agent/business-profile-suggestion";
+import { OneBackgroundCards } from "@/components/agent/one-background-cards";
+import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { AgentBubble } from "@/components/agent/agent-chat-workspace";
-const candidate = { businessUid: "urn:hushh:business:uat:hushh.ai:v1", synthetic: true,
-  sourceIdentity: { source: "uat_fixture", sourceKey: "hushh.ai:v1" }, draft: { name: "Hushh — UAT Test Business", website: "https://hushh.ai" } };
-const cards: AgentPkmPreviewCard[] = [{ card_id: "one", source_text: "Synthetic company detail", write_mode: "confirm_first", target_domain: "professional",
-  candidate_payload: { businesses: { entities: { demo: { name: "Synthetic company detail", phone: "+15555550100" } } } } }];
+const candidate = { businessUid: `urn:hushh:business:directory:business:${"a".repeat(64)}`, synthetic: false,
+  sourceIdentity: { source: "directory", sourceKey: '{"id":"1"}', vertical: "business" },
+  matchEvidence: [{ kind: "verified_email_domain", domain: "example.test" }],
+  draft: { name: "Example Business", website: "https://example.test" } };
+const cards: AgentPkmPreviewCard[] = [{ card_id: "one", source_text: "Example company detail", write_mode: "confirm_first", target_domain: "professional",
+  candidate_payload: { businesses: { entities: { demo: { name: "Example company detail", phone: "+15555550100" } } } } }];
 const props = { ownerId: "owner", vaultKey: "key", vaultOwnerToken: "token", tokenExpiresAt: Date.now() + 100000, enabled: true };
 const deferred = <T,>() => { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; };
 beforeEach(() => {
   vi.clearAllMocks(); publishValidatedAuthSessionOwner("owner");
+  useOneConversationSession.getState().clearSession();
+  mocks.research.mockResolvedValue({ status: "disabled", pkm_written: false });
   mocks.get.mockResolvedValue({ candidates: [candidate] }); mocks.load.mockResolvedValue(null);
-  mocks.syntheticPreview.mockReturnValue(cards);
   mocks.prepare.mockResolvedValue({ cards, incomplete: false, alreadySaved: false });
   mocks.save.mockResolvedValue({ saved: 1, remaining: 0 }); mocks.decide.mockResolvedValue(true);
   mocks.create.mockImplementation((_owner, _candidate, message, selected) => ({ cards: selected, message, revision: "synthetic" }));
 });
-afterEach(() => { cleanup(); publishValidatedAuthSessionOwner(null); });
+afterEach(() => { cleanup(); publishValidatedAuthSessionOwner(null); useOneConversationSession.getState().clearSession(); });
 describe("post-onboarding business suggestion", () => {
+  it.each(["absent", "pending", "unavailable", "offered"])("reviews Business only inside one compact Magic offer when personal research is %s", async status => {
+    if (status !== "absent") useOneConversationSession.getState().queueProfileResearch("owner");
+    mocks.research.mockImplementation(() => status === "pending" ? new Promise(() => {}) : Promise.resolve(status === "offered" ? {
+      status: "offered", search_suggestions: [], report: { match_status: "matched", name: "Alex Example", summary: "A public personal profile.", sections: [
+        { kind: "career", facts: [{ statement: "I work in engineering.", confidence: "supported", sources: [{ title: "Team", url: "https://example.test/team" }] }] },
+        { kind: "business", facts: [{ statement: "I founded Example.", confidence: "supported", sources: [{ title: "Company", url: "https://example.test/company" }] }] },
+      ] }, pkm_written: false,
+    } : { status: "unavailable", pkm_written: false }));
+    const onVisibleChange = vi.fn();
+    render(<OneBackgroundCards {...props} pathname="/" onVisibleChange={onVisibleChange}
+      renderMessage={(id, text, card) => <article key={id} data-message-role="assistant">{text}{card}</article>} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review details", exact: true }));
+    expect(screen.getAllByTestId("magic-intelligence-card")).toHaveLength(1);
+    expect(screen.queryByText("Is this your business?")).toBeNull();
+    expect(screen.queryByText("Example Business")).toBeNull();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.save).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("button", { name: "Business", exact: true })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Business", exact: true }));
+    await screen.findByRole("region", { name: "Business details" });
+    expect(screen.getByText("Example Business")).toBeVisible();
+    if (status === "offered") {
+      fireEvent.click(screen.getByRole("button", { name: /Public sources/ }));
+      expect(screen.getByRole("checkbox", { name: "Keep I founded Example." })).not.toBeChecked();
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Review details", exact: true }));
+    await screen.findByText("Example company detail");
+    act(() => { expect(unwindBackLayer("/")).toBe(true); });
+    fireEvent.click(screen.getByRole("button", { name: "Review business details" }));
+    expect(mocks.prepare).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByTestId("agent-pkm-review-save"));
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Business details" })).toBeNull());
+    if (status === "offered") expect(screen.getByText("Alex Example")).toBeVisible();
+    if (status === "absent") await waitFor(() => expect(onVisibleChange).toHaveBeenLastCalledWith(false));
+  });
+  it("refuses Business collapse through the toggle or Back while an approved save is pending", async () => {
+    const pending = deferred<{ saved: number; remaining: number }>();
+    mocks.save.mockReturnValueOnce(pending.promise);
+    render(<OneBackgroundCards {...props} pathname="/" renderMessage={(_id, _text, card) => card} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review details", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Business", exact: true }));
+    fireEvent.click(await screen.findByRole("button", { name: "Review details", exact: true }));
+    fireEvent.click(await screen.findByTestId("agent-pkm-review-save"));
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "Business", exact: true }));
+    act(() => { expect(unwindBackLayer("/")).toBe(true); });
+    expect(screen.getByRole("region", { name: "Business details" })).toBeVisible();
+    expect(screen.getByTestId("agent-pkm-review-save")).toBeDisabled();
+    await act(async () => pending.resolve({ saved: 1, remaining: 0 }));
+    await waitFor(() => expect(screen.getByTestId("magic-intelligence-card")).not.toBeVisible());
+  });
+  it("stays absent on a new browser session when account discovery is complete", async () => {
+    mocks.get.mockResolvedValue({ status: "no_match", candidates: [] });
+    const first = render(<BusinessProfileSuggestion {...props} />);
+    await act(async () => undefined);
+    first.unmount();
+    render(<BusinessProfileSuggestion {...props} vaultOwnerToken="renewed-token" />);
+    await act(async () => undefined);
+    expect(mocks.get).toHaveBeenCalledTimes(2);
+    expect(mocks.load).not.toHaveBeenCalled();
+    expect(screen.queryByRole("region", { name: "Is this your business?" })).toBeNull();
+  });
+  it("reviewing an existing duplicate does not complete the other offered business", async () => {
+    const second = { ...candidate, businessUid: `urn:hushh:business:directory:business:${"b".repeat(64)}`,
+      draft: { ...candidate.draft, name: "Second business" } };
+    mocks.get.mockResolvedValue({ candidates: [candidate, second] });
+    mocks.prepare.mockResolvedValue({ cards: [], incomplete: false, alreadySaved: true });
+    render(<BusinessProfileSuggestion {...props} />);
+    const buttons = await screen.findAllByRole("button", { name: "Review details", exact: true });
+    fireEvent.click(buttons[0]!);
+    await waitFor(() => expect(screen.queryByText("Example Business")).toBeNull());
+    expect(screen.getByText("Second business")).toBeInTheDocument();
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+  it.each([
+    { ...candidate, synthetic: true, sourceIdentity: { source: "uat_fixture", sourceKey: "hushh.ai:v1" } },
+    { ...candidate, sourceIdentity: { source: "directory", sourceKey: '{"source":"uat_test","source_key":"team-demo-v1"}' } },
+  ])("does not display or prepare a team demo returned by an old discovery client", async demo => {
+    mocks.get.mockResolvedValue({ candidates: [demo] });
+    render(<BusinessProfileSuggestion {...props} />);
+    await act(async () => undefined);
+    expect(mocks.get).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("region", { name: "Is this your business?" })).toBeNull();
+    expect(mocks.load).not.toHaveBeenCalled();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+  it("does not restore a demo checkpoint as a real profile", async () => {
+    mocks.load.mockResolvedValue({ version: 1, job: { candidate: { ...candidate, synthetic: true,
+      sourceIdentity: { source: "uat_fixture", sourceKey: "hushh.ai:v1" } }, cards } });
+    render(<BusinessProfileSuggestion {...props} />);
+    await act(async () => undefined);
+    expect(mocks.load).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("region", { name: "Is this your business?" })).toBeNull();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
   it("keeps the approved field count stable while a partial save is pending", async () => {
     const pending = deferred<{ saved: number; remaining: number }>();
     mocks.save.mockReturnValueOnce(pending.promise);
@@ -52,7 +159,6 @@ describe("post-onboarding business suggestion", () => {
     await waitFor(() => expect(screen.queryByLabelText("Is this your business?")).toBeNull());
   });
   it("recovers from a failed preparation and supports repeated reviews without writes", async () => {
-    mocks.syntheticPreview.mockReturnValue([]);
     mocks.prepare.mockRejectedValueOnce(new Error("temporary failure"));
     render(<BusinessProfileSuggestion {...props} />);
     fireEvent.click(await screen.findByRole("button", { name: "Review details", exact: true }));
@@ -66,7 +172,6 @@ describe("post-onboarding business suggestion", () => {
   });
 
   it("bounds the whole Review and rejects late results while a retry succeeds", async () => {
-    mocks.syntheticPreview.mockReturnValue([]);
     const pending = deferred<{ cards: AgentPkmPreviewCard[]; incomplete: boolean }>();
     mocks.prepare.mockReturnValueOnce(pending.promise);
     render(<BusinessProfileSuggestion {...props} />);
@@ -86,7 +191,6 @@ describe("post-onboarding business suggestion", () => {
   });
 
   it("a renewed session drops old preparation and permits a fresh Review", async () => {
-    mocks.syntheticPreview.mockReturnValue([]);
     const pending = deferred<{ cards: AgentPkmPreviewCard[]; incomplete: boolean }>();
     mocks.prepare.mockReturnValueOnce(pending.promise);
     const root = render(<BusinessProfileSuggestion {...props} />);
@@ -129,7 +233,6 @@ describe("post-onboarding business suggestion", () => {
     expect(screen.getByLabelText("Business name")).not.toBeDisabled();
   });
   it("shows an actionable version mismatch instead of hiding a failed Review click", async () => {
-    mocks.syntheticPreview.mockReturnValue([]);
     const failure = new Error("Synthetic mismatch"); failure.name = "PkmBackendContractMismatch";
     mocks.prepare.mockRejectedValue(failure);
     render(<BusinessProfileSuggestion {...props} />);
@@ -141,7 +244,7 @@ describe("post-onboarding business suggestion", () => {
   it("reviews repeated facts once and deselects all backing fields without leaking record metadata", async () => {
     const repeated = ["a", "b"].map(id => ({ ...cards[0]!, card_id: id,
       candidate_payload: { businesses: { entities: { [id]: { kind: "profile_fact", summary: "state: TX", observations: ["state: TX"], status: "active" } } } } }));
-    mocks.syntheticPreview.mockReturnValue(repeated);
+    mocks.prepare.mockResolvedValue({ cards: repeated, incomplete: false, alreadySaved: false });
     render(<BusinessProfileSuggestion {...props} />);
     fireEvent.click(await screen.findByRole("button", { name: "Review details", exact: true }));
     const state = await screen.findByRole("checkbox", { name: "Save state", exact: true });
@@ -173,7 +276,6 @@ describe("post-onboarding business suggestion", () => {
     expect(screen.getByTestId("agent-pkm-review-list")).not.toHaveClass("overflow-y-auto");
   });
   it("dismisses exact duplicates without a new write or ownership claim", async () => {
-    mocks.syntheticPreview.mockReturnValue([]);
     mocks.prepare.mockResolvedValue({ cards: [], incomplete: false, alreadySaved: true });
     const onSaved = vi.fn();
     render(<BusinessProfileSuggestion {...props} onSaved={onSaved} />);
@@ -194,7 +296,7 @@ describe("post-onboarding business suggestion", () => {
     fireEvent.click(screen.getByTestId("agent-pkm-review-save"));
     await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
     const job = mocks.save.mock.calls[0]![0].job;
-    expect(job.cards[0].candidate_payload.businesses.entities.demo).toEqual({ name: "Synthetic company detail" });
+    expect(job.cards[0].candidate_payload.businesses.entities.demo).toEqual({ name: "Example company detail" });
     expect(JSON.stringify(job)).not.toContain("+15555550100");
   });
   it("retries an unreadable checkpoint without preparing or replacing the pending review", async () => {
@@ -221,7 +323,7 @@ describe("post-onboarding business suggestion", () => {
     expect(screen.getByText("Second business")).toBeTruthy();
     expect(mocks.save).not.toHaveBeenCalled();
   });
-  it("opens a visibly synthetic nudge; discovery and preparation never save", async () => {
+  it("opens a real directory nudge; discovery and preparation never save", async () => {
     const onVisibleChange = vi.fn();
     const onSaved = vi.fn();
     render(<BusinessProfileSuggestion {...props} onVisibleChange={onVisibleChange}
@@ -236,9 +338,10 @@ describe("post-onboarding business suggestion", () => {
     expect(assistantBubble?.textContent).toContain("Is this your business?");
     expect(region.closest('[data-message-role="assistant"]')).toBeTruthy();
     await waitFor(() => expect(onVisibleChange).toHaveBeenLastCalledWith(true));
-    expect(screen.getByText(/UAT test suggestion/)).toBeTruthy(); expect(mocks.prepare).not.toHaveBeenCalled(); expect(mocks.save).not.toHaveBeenCalled();
+    expect(screen.queryByText(/UAT test suggestion/)).toBeNull();
+    expect(mocks.prepare).not.toHaveBeenCalled(); expect(mocks.save).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Review details", exact: true }));
-    await screen.findByText("Synthetic company detail"); expect(mocks.save).not.toHaveBeenCalled();
+    await screen.findByText("Example company detail"); expect(mocks.save).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("agent-pkm-review-save"));
     await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith(candidate.businessUid));
@@ -273,19 +376,41 @@ describe("post-onboarding business suggestion", () => {
     expect(mocks.prepare).not.toHaveBeenCalled(); expect(mocks.save).not.toHaveBeenCalled();
   });
   it("editing invalidates the prepared selection and requires another review", async () => {
-    mocks.syntheticPreview.mockReturnValue([]);
     render(<BusinessProfileSuggestion {...props} />);
     fireEvent.click(await screen.findByRole("button", { name: "Review details", exact: true }));
-    await screen.findByText("Synthetic company detail");
+    await screen.findByText("Example company detail");
     fireEvent.click(screen.getByRole("button", { name: "Edit details", exact: true }));
-    fireEvent.change(screen.getByLabelText("Business name"), { target: { value: "Edited synthetic company" } });
+    fireEvent.change(screen.getByLabelText("Business name"), { target: { value: "Edited company" } });
     expect(screen.queryByTestId("agent-pkm-review-save")).toBeNull(); expect(mocks.save).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Review details", exact: true }));
     await waitFor(() => expect(mocks.prepare).toHaveBeenCalledTimes(2));
-    expect(mocks.prepare.mock.calls[1]![0].message).toContain("Edited synthetic company");
+    expect(mocks.prepare.mock.calls[1]![0].message).toContain("Edited company");
+  });
+  it("prepares an edited scheme-less website through the real draft formatter without saving", async () => {
+    render(<BusinessProfileSuggestion {...props} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit details", exact: true }));
+    fireEvent.change(screen.getByLabelText("Website"), { target: { value: "hushh.ai" } });
+    fireEvent.click(screen.getByRole("button", { name: "Review details", exact: true }));
+    await screen.findByRole("checkbox", { name: "Save phone", exact: true });
+    expect(mocks.prepare).toHaveBeenCalledOnce();
+    expect(JSON.parse(mocks.prepare.mock.calls[0]![0].message)).toEqual({ name: candidate.draft.name, website: "https://hushh.ai/" });
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+  it.each(["javascript:alert(1)", "user:pass@example.test", "relative/path"])("rejects an unsafe website edit (%s) before preparation and lets the owner correct it", async website => {
+    render(<BusinessProfileSuggestion {...props} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit details", exact: true }));
+    fireEvent.change(screen.getByLabelText("Website"), { target: { value: website } });
+    fireEvent.click(screen.getByRole("button", { name: "Review details", exact: true }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Check the name and website.");
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.save).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Website"), { target: { value: "example.test" } });
+    fireEvent.click(screen.getByRole("button", { name: "Review details", exact: true }));
+    await screen.findByRole("checkbox", { name: "Save phone", exact: true });
+    expect(mocks.prepare).toHaveBeenCalledOnce();
+    expect(mocks.save).not.toHaveBeenCalled();
   });
   it.each(["owner", "vault", "unmount"])("discards late preparation after %s", async cause => {
-    mocks.syntheticPreview.mockReturnValue([]);
     const pending = deferred<{ cards: AgentPkmPreviewCard[]; incomplete: boolean }>(); mocks.prepare.mockReturnValue(pending.promise);
     const root = render(<BusinessProfileSuggestion {...props} />);
     fireEvent.click(await screen.findByRole("button", { name: "Review details", exact: true }));
@@ -294,35 +419,32 @@ describe("post-onboarding business suggestion", () => {
     if (cause === "vault") { advanceVaultSessionEpoch(); root.rerender(<BusinessProfileSuggestion {...props} enabled={false} />); }
     if (cause === "unmount") root.unmount();
     await act(async () => { pending.resolve({ cards, incomplete: false }); });
-    expect(mocks.save).not.toHaveBeenCalled(); expect(screen.queryByText("Synthetic company detail")).toBeNull();
+    expect(mocks.save).not.toHaveBeenCalled(); expect(screen.queryByText("Example company detail")).toBeNull();
   });
   it("a changed fresh candidate prevents saving even if the preview was valid", async () => {
-    mocks.syntheticPreview.mockReturnValue([]);
     render(<BusinessProfileSuggestion {...props} />);
     fireEvent.click(await screen.findByRole("button", { name: "Review details", exact: true }));
-    await screen.findByText("Synthetic company detail"); mocks.get.mockResolvedValue({ candidates: [] });
+    await screen.findByText("Example company detail"); mocks.get.mockResolvedValue({ candidates: [] });
     fireEvent.click(screen.getByTestId("agent-pkm-review-save"));
     await waitFor(() => expect(mocks.get).toHaveBeenCalledTimes(3));
     expect(mocks.save).not.toHaveBeenCalled();
   });
   it("rejects a changed public snapshot even when the business UID is unchanged", async () => {
-    mocks.syntheticPreview.mockReturnValue([]);
     render(<BusinessProfileSuggestion {...props} />);
     fireEvent.click(await screen.findByRole("button", { name: "Review details", exact: true }));
-    await screen.findByText("Synthetic company detail");
+    await screen.findByText("Example company detail");
     mocks.get.mockResolvedValue({ candidates: [{ ...candidate, draft: { ...candidate.draft, website: "https://changed.test" } }] });
     fireEvent.click(screen.getByTestId("agent-pkm-review-save"));
     await waitFor(() => expect(mocks.get).toHaveBeenCalledTimes(3));
     expect(mocks.save).not.toHaveBeenCalled();
   });
   it("reconciles a lost save response from the durable saved checkpoint", async () => {
-    mocks.syntheticPreview.mockReturnValue([]);
     let reads = 0;
     mocks.load.mockImplementation(async () => reads++ === 0 ? null : { version: 1, decision: "saved" });
     mocks.save.mockRejectedValueOnce(new Error("response lost after commit"));
     render(<BusinessProfileSuggestion {...props} />);
     fireEvent.click(await screen.findByRole("button", { name: "Review details", exact: true }));
-    await screen.findByText("Synthetic company detail");
+    await screen.findByText("Example company detail");
     fireEvent.click(screen.getByTestId("agent-pkm-review-save"));
     await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.queryByRole("region", { name: "Is this your business?" })).toBeNull());

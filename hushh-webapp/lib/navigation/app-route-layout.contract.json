@@ -28,7 +28,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Chat actions complete only after the correlated browser or capability settlement succeeds. The onboarding public-profile card stays a draft until the owner confirms the exact memory preview; Edit and Review unwind locally on Back.",
+      "completionBoundary": "Chat actions complete only after the correlated browser or capability settlement succeeds. Magic Intelligence and public business cards start only after personality onboarding finishes, in a separate follow-up turn. After every selected business detail is confirmed saved, a permanent owner-scoped flag suppresses the automatic business card across sessions and devices; partial or failed saves stay retryable. Business website edits accept bare domains as HTTPS and reject unsafe URLs before preparing details. The public-profile card stays a draft until the owner confirms the exact memory preview; Edit and Review unwind locally on Back.",
       "nextRoute": "/",
       "returnPolicy": "resolve_root",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -1776,7 +1776,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.pkm",
-      "purpose": "Help the person understand and use the pkm screen through its generated controls.",
+      "purpose": "Memory opens on Soul.md, the formatted document One uses in conversations. The owner can edit and save it; Saved, Add, and Sharing retain the specialist memory flows. Back cancels the Soul.md editor before leaving Memory, and saving completes only after encrypted persistence succeeds.",
       "screen": "pkm",
       "entryCue": "You can say “Open Memory” to use the primary control on this screen.",
       "proactivity": "on_entry",

@@ -841,7 +841,7 @@ Local Android release signing:
 
 ### Passkeys across the domain transition
 
-`hushh-webapp/lib/vault/passkey-domain-aliases.json` owns the exact dev, UAT and production pairs for `hushh.ai` and `hussh.ai`. Browser registration keeps the current host RP; unlock uses the stored RP, credential and PRF salt unchanged. Each RP serves `/.well-known/webauthn` over HTTPS with only its own environment origins. Native unlock also retains the stored RP; existing OS associations remain required.
+`hushh-webapp/lib/vault/passkey-domain-aliases.json` owns the exact dev, UAT and production alias groups for `hushh.ai`, `hussh.ai` and `hussh.si`. Browser registration keeps the current host RP; unlock uses the stored RP, credential and PRF salt unchanged. Each RP serves `/.well-known/webauthn` over HTTPS with only its own environment origins. Native unlock also retains the stored RP; existing OS associations remain required.
 
 Related Origin Requests requires browser support. Keep passphrase/recovery available for unsupported browsers; do not replace or reset an existing vault. Firebase sign-in and HttpOnly cookies are origin-bound, and vault keys remain memory-only. A cross-domain navigation requires sign-in and unlock again; account-owned history is restored through the existing authenticated APIs. Never transfer tokens, keys or decrypted information in redirect URLs or browser storage.
 
@@ -863,6 +863,10 @@ secret values or copy test balances/account IDs into live state.
 
 ### Request scope enablement follow-up (2026-10-11)
 
+`PKM_ANSWER_REQUESTS_ENABLED` gates request intake and owner review on its own, independently of the payment and composer flags. **It is open by default and `false` is the only value that closes it**, which is deliberate and is the opposite of the paid-lane flags: an active connection is already the authorization gate for asking someone a question, so a second default-closed flag in front of it only ships a control that explains it cannot be used. Cloud Build passes it through `_PKM_ANSWER_REQUESTS_ENABLED` (default `"true"`), mapped from the environment's `PKM_ANSWER_REQUESTS_*_ENABLED` repository variable; set that variable to `false` to close intake in one environment. **The question form needs no variable at all: do not enable payments, the composer or live mode to make it appear.** With intake open and payments off the owner can review and price a question, the requester sees that price and no pay control, and the Cloud Build preflight still requires no answer Stripe bindings.
+
+History worth keeping: the first revision of this flag inherited `PKM_ANSWER_PAYMENTS_ENABLED` when unset. Every deployed environment runs payments off and had no answer-requests binding, so intake stayed shut and UAT shipped the dead control the change existed to remove. Do not reintroduce an inherit-from-payments default here.
+
 Request scope uses the existing Stripe Secret Manager lane through dedicated `PKM_ANSWER_STRIPE_SECRET_KEY` and `PKM_ANSWER_STRIPE_WEBHOOK_SECRET` bindings. `PKM_ANSWER_STRIPE_MODE` is independent of Drive's mode and `ENVIRONMENT`; keep UAT at `uat`. `PKM_ANSWER_COMPOSER_ENABLED` defaults false. Live composition/admission additionally requires `PKM_ANSWER_LIVE_PROVIDER_REVIEWED=true`, mapped from the environment's `PKM_ANSWER_LIVE_PROVIDER_*_REVIEWED` repository variable. Set that attestation only after checking the exact selected provider project/model, regional failover, caching, request-response logging and applicable abuse-monitoring retention, and verifying the owner's disclosure/consent. The 2026-10-11 probe found cache enabled; logging/exemption remain unverified. See [runtime and key-control review](../architecture/living-memory-freshness-adr.md).
 
 The canonical counterpart's `REVIEWER_COUNTERPART_UID`, `REVIEWER_COUNTERPART_VAULT_PASSPHRASE` and `REVIEWER_COUNTERPART_PERSON_REF` are provisioned in UAT Secret Manager and its encrypted vault passphrase readback was verified. Reviewer credential values remain process-only. No deployed runtime was changed: bind the counterpart pair explicitly for a later reviewer-enabled deployment or inject it only into the local rehearsal process. Never put a passphrase, vault key, token or decrypted projection into a committed/ignored environment file, trace, screenshot or report.
@@ -881,3 +885,19 @@ A shutdown disables answer admission/composition while retaining financial drain
 Verification evidence for this follow-up is local and uses Stripe test mode only. The canonical two-account reviewer rehearsal completed the profile Request scope dialog, owner Feed review with exact scope/price/model consent, real hosted Stripe test Checkout, signed test webhook, unlocked owner composition from approved encrypted memory, and requester-only encrypted answer readback on the requesting device. A real full test refund also settled through the answer refund worker. The Refund object has no required `livemode` field: the worker first retrieves and verifies the source PaymentIntent under the mode-bound answer credential, then verifies the refund's payment intent, amount, currency and status. A previously held refund requires explicit reconciliation against verified provider evidence; never reset a manual-review row blindly.
 
 The rehearsal does not prove provider owner onboarding/transfer, live account readiness, deployed scheduler execution, or Google Drive's two-account provider journey. Drive regressions ran locally with answer flags off and on. Answer delivery currently uses the requesting device's existing private recipient key; successful readback in that session does not establish cross-device key recovery. No new key escrow or recovery authority is introduced. Provider retention, hosted workers and verified owner settlement remain external enablement blockers, and live/composer gates remain off in deployed environments. The locked/closed-app runtime proposal remains pending review.
+
+### Staging another public domain
+
+Register the environment-specific OAuth origins and exact callbacks with each
+existing provider application before directing browser navigation to the new
+domain. Preserve existing callback, authentication and `/.well-known` endpoints
+on their original hosts for in-flight requests and installed native clients.
+Firebase authorized domains, Contacts/Picker browser restrictions, provider
+registries, CORS and passkey RP allowlists are separate checks; a DNS alias does
+not grant any of them. The frontend build checks its host against the same
+environment-scoped passkey catalog used by runtime secret synchronization.
+
+Stage certificate validation, destination routing and application compatibility
+first. Verify the deployed destination and provider registrations before changing
+canonical application origins or enabling redirects. Domain preparation is not
+proof of a completed migration or an enabled connector.

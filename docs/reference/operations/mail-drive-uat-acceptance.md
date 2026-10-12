@@ -354,9 +354,23 @@ second is read-only verification. Both require the canonical UAT environment,
 project, Cloud SQL instance and server-derived database identity. They accept
 no endpoint, scope, redirect, OAuth client or secret argument, serialize on a
 connector-specific advisory lock, and refuse registry drift rather than
-rewriting it. Their output contains only connector ID, transport, policy hash
-and redirect count. Registry activation does not enable Drive: the independent
-feature flags and UAT admission mode remain default-off.
+rewriting it. The reconciler also migrates the exact reviewed three-, four- or
+six-callback policy to the nine-callback UAT policy, preserving every earlier
+callback while adding the three `hussh.si` callbacks. Register those additions
+in the existing UAT Google client and verify persisted provider readback before
+running the reconciler. Foreign-environment, extra or altered callbacks remain
+policy drift; do not widen the row manually. Their output contains only connector ID, transport, policy hash
+and redirect count. Callback migration does not change staged live/indexing/
+sharing flags or cohorts. Ordinary connection, Picker and Chat reads remain
+available only with the active catalog row, credentials, owner grants and
+scoped authority.
+
+The existing production reconciler likewise accepts only its exact reviewed
+three- or six-callback predecessors, adds the three production `hussh.si`
+callbacks, and preserves every earlier callback. UAT callbacks never enter
+the production policy. Verify the production Google client registration and
+the existing production prerequisite gate before activation; this additive
+source change does not authorize enabling a disabled production connector.
 
 ## Required UAT Drive work-drain configuration
 

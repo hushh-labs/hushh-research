@@ -39,6 +39,8 @@ const RESET = "event: feed_reset\ndata: {}\n\n";
 const changed = (id: string) => `event: feed_changed\nid: e\ndata: {"request_id":"${id}"}\n\n`;
 const PAYOUT = `event: payout_changed\ndata: {"kinds":["wallet"],"request_ids":["${REQUEST}"]}\n\n`;
 const ALL_KINDS = [...PAYOUT_KINDS];
+const FULL = { general: true, consent: true };
+const targeted = (requestId: string) => ({ general: false, consent: true, requestId });
 const encoder = new TextEncoder();
 
 type FakeStream = { push(text: string): void; close(): void; signal: AbortSignal };
@@ -115,7 +117,7 @@ describe("document feed stream manager", () => {
     stream.push(HELLO + RESET);
     await tick();
     expect(deps.onStreamState.mock.calls.map(([state]) => state)).toEqual(["reconnecting", "live"]);
-    expect(deps.dispatchFeed).toHaveBeenCalledExactlyOnceWith({});
+    expect(deps.dispatchFeed).toHaveBeenCalledExactlyOnceWith(FULL);
     expect(deps.dispatchPayout).toHaveBeenCalledExactlyOnceWith({ kinds: ALL_KINDS, source: "sse_reset" });
 
     await tick(10_000);
@@ -141,14 +143,17 @@ describe("document feed stream manager", () => {
     expect(lastState(deps)).toBe("polling");
   });
 
-  it("rereads the Feed once per single-frame burst and adds one trailing reread only when it grew", async () => {
+  it("rereads the Feed on a burst's first frame and once after it settles, widening mixed requests", async () => {
     const { manager, transport, deps } = setup();
     manager.start();
     await tick();
     const stream = transport.last();
     stream.push(HELLO + changed(REQUEST) + 'event: feed_changed\ndata: {"request_id":"../../other"}\n\n');
+    await tick();
+    expect(deps.dispatchFeed.mock.calls).toEqual([[targeted(REQUEST)]]);
+    // The trailing reread catches a change that a joined in-flight read predates.
     await tick(10_000);
-    expect(deps.dispatchFeed.mock.calls).toEqual([[{ requestId: REQUEST }]]);
+    expect(deps.dispatchFeed.mock.calls).toEqual([[targeted(REQUEST)], [targeted(REQUEST)]]);
 
     deps.dispatchFeed.mockClear();
     stream.push(changed(REQUEST));
@@ -158,7 +163,42 @@ describe("document feed stream manager", () => {
     expect(deps.dispatchFeed).toHaveBeenCalledTimes(1);
     await tick(1);
     // Different requests in one burst widen the trailing reread to the account.
-    expect(deps.dispatchFeed.mock.calls).toEqual([[{ requestId: REQUEST }], [{}]]);
+    expect(deps.dispatchFeed.mock.calls).toEqual([[targeted(REQUEST)], [{ general: false, consent: true }]]);
+
+    // A general Feed write rereads the Feed without the consent cascade, and
+    // never widens a request-narrowed consent reread.
+    deps.dispatchFeed.mockClear();
+    stream.push('event: feed_changed\ndata: {}\n\n' + changed(REQUEST));
+    await tick(10_000);
+    expect(deps.dispatchFeed.mock.calls).toEqual([
+      [{ general: true, consent: false }],
+      [{ general: true, consent: true, requestId: REQUEST }],
+    ]);
+    expect(deps.dispatchPayout).toHaveBeenCalledTimes(0);
+    manager.stop();
+  });
+
+  it("repairs the Feed on the periodic clock only while no healthy stream covers this tab", async () => {
+    const { manager, transport, deps } = setup();
+    manager.start();
+    await tick();
+    transport.last().push(HELLO);
+    await tick();
+    manager.repairIfUncovered();
+    expect(deps.dispatchFeed).not.toHaveBeenCalled();
+
+    transport.last().close();
+    await tick();
+    expect(manager.phase()).toBe("backoff");
+    manager.repairIfUncovered();
+    expect(deps.dispatchFeed).toHaveBeenCalledExactlyOnceWith(FULL);
+    // Not a burst: the clock itself is the next reread.
+    await tick(10);
+    expect(deps.dispatchFeed).toHaveBeenCalledTimes(1);
+
+    manager.visibility(false);
+    manager.repairIfUncovered();
+    expect(deps.dispatchFeed).toHaveBeenCalledTimes(1);
     manager.stop();
   });
 
@@ -431,7 +471,7 @@ describe("leader and follower tabs", () => {
     leader.transport.last().push(HELLO + RESET + PAYOUT);
     await tick(10_000);
     for (const tab of [leader, follower]) {
-      expect(tab.deps.dispatchFeed).toHaveBeenCalledExactlyOnceWith({});
+      expect(tab.deps.dispatchFeed.mock.calls).toEqual([[FULL], [FULL]]);
       expect(tab.deps.dispatchPayout.mock.calls).toEqual([
         [{ kinds: ALL_KINDS, source: "sse_reset" }],
         [{ kinds: ["wallet"], requestIds: [REQUEST], source: "sse" }],
@@ -447,6 +487,44 @@ describe("leader and follower tabs", () => {
     await tick();
     expect(lastState(follower.deps)).toBe("live");
     follower.manager.stop();
+  });
+
+  it("a hidden leader frees its stream for a visible tab and repairs once on return", async () => {
+    const coordinator = relayHub();
+    const first = setup({ coordinator: coordinator() });
+    const second = setup({ coordinator: coordinator() });
+    first.manager.start();
+    second.manager.start();
+    await tick();
+    const hidden = first.transport.last();
+    hidden.push(HELLO);
+    await tick();
+
+    first.manager.visibility(false);
+    await tick();
+    expect(hidden.signal.aborted).toBe(true);
+    expect(second.transport.open).toHaveBeenCalledTimes(1);
+    second.transport.last().push(HELLO);
+    await tick(30_000);
+    expect(first.transport.open).toHaveBeenCalledTimes(1);
+    expect(first.deps.dispatchFeed).not.toHaveBeenCalled();
+    expect(lastState(second.deps)).toBe("live");
+
+    // Back in view (iOS may send no focus): it follows the new leader and
+    // rereads what it missed, once, however many signals arrive together.
+    first.manager.visibility(true);
+    await tick();
+    expect(first.deps.dispatchFeed).toHaveBeenCalledExactlyOnceWith(FULL);
+    first.manager.focus();
+    first.manager.online();
+    await tick();
+    expect(first.transport.open).toHaveBeenCalledTimes(1);
+    expect(first.deps.dispatchFeed).toHaveBeenCalledTimes(1);
+    second.transport.last().push(RESET);
+    await tick();
+    expect(lastState(first.deps)).toBe("live");
+    first.manager.stop();
+    second.manager.stop();
   });
 
   it("stops claiming live when a live leader goes silent, rereading payouts once", async () => {
@@ -561,6 +639,29 @@ describe("browser coordinator", () => {
     second.leave();
   });
 
+  it("never acts on an earlier lock request after a tab leaves and joins again", async () => {
+    const browser = fakeBrowser();
+    const leader = createFeedStreamCoordinator("owner", "web", browser);
+    const returning = createFeedStreamCoordinator("owner", "web", browser);
+    join(leader);
+    const roles: FeedStreamRole[] = [];
+    const messages: unknown[] = [];
+    const handlers = { onRole: (role: FeedStreamRole) => roles.push(role), onMessage: (m: unknown) => messages.push(m) };
+    returning.join(handlers);
+    // Hidden, then visible again while its first request is still queued.
+    returning.leave();
+    returning.join(handlers);
+    await tick();
+    expect(roles).toEqual(["follower", "follower"]);
+    leader.post({ v: 1, kind: "sync" });
+    await tick();
+    expect(messages).toEqual([{ v: 1, kind: "sync" }]);
+    leader.leave();
+    await tick();
+    expect(roles).toEqual(["follower", "follower", "leader"]);
+    returning.leave();
+  });
+
   it("lets every tab stream alone, relaying nothing, without Web Locks", () => {
     const openChannel = vi.fn();
     const coordinator = createFeedStreamCoordinator("owner", "web", { locks: null, openChannel });
@@ -593,6 +694,53 @@ describe("transports", () => {
     expect(invalidated).not.toHaveBeenCalled();
     window.removeEventListener(AUTH_SESSION_INVALIDATED_EVENT, invalidated);
     manager.stop();
+  });
+
+  it.each([
+    ["the browser blocks the direct origin", () => Promise.reject(new TypeError("Failed to fetch")), 5 * 60_000],
+    ["the direct stream is disabled", async () => new Response("{}", { status: 404 }), 30 * 60_000],
+    ["the backend is busy", async () => new Response("{}", { status: 503, headers: { "Retry-After": "120" } }), 120_000],
+  ])("falls back to the same-origin proxy when %s, and skips the direct route for a while", async (_case, direct, skipMs) => {
+    const proxied = () => new Response("event: feed_reset\ndata: {}\n\n", {
+      headers: { "Content-Type": "text/event-stream" },
+    });
+    const fetchMock = vi.fn(async (url: string) => (url.startsWith("https://backend.test/") ? direct() : proxied()));
+    vi.stubGlobal("fetch", fetchMock);
+    let now = 0;
+    const transport = createDocumentFeedTransport("web", () => now);
+    const open = () => transport.open({ uid: "owner/1", token: "token", signal: new AbortController().signal });
+
+    const first = await open();
+    expect(first.status).toBe(200);
+    const urls = () => (fetchMock.mock.calls as unknown as Array<[string, RequestInit]>).map(([url]) => url);
+    expect(urls()).toEqual([
+      "https://backend.test/api/one/feed/events?v=2",
+      "/api/consent/document-feed/owner%2F1?v=2",
+    ]);
+    const proxyInit = (fetchMock.mock.calls as unknown as Array<[string, RequestInit]>)[1]![1];
+    expect(proxyInit).toMatchObject({ headers: { Authorization: "Bearer token", Accept: "text/event-stream" } });
+
+    now = skipMs - 1;
+    await open();
+    expect(urls().filter((url) => url.startsWith("https://"))).toHaveLength(1);
+    now = skipMs;
+    await open();
+    expect(urls().filter((url) => url.startsWith("https://"))).toHaveLength(2);
+  });
+
+  it("does not fall back when the attempt itself was cancelled", async () => {
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      await new Promise((_resolve, reject) => {
+        init.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+      });
+      return new Response(null);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+    const pending = createDocumentFeedTransport("web").open({ uid: "owner", token: "token", signal: controller.signal });
+    controller.abort();
+    await expect(pending).rejects.toThrow();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("streams on native through the cancellable plugin with typed frames requested", async () => {

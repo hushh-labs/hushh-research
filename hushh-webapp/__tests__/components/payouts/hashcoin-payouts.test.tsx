@@ -350,7 +350,7 @@ describe("document payout account", () => {
     } finally { Object.defineProperty(window, "location", { configurable: true, value: realLocation }); }
   });
 
-  it("reads each payout source once on open and once per return to the tab", async () => {
+  it("coalesces returns and queues a fresh bank read behind an earlier display read", async () => {
     let now = 1_000_000;
     vi.spyOn(Date, "now").mockImplementation(() => now);
     // Activity reads its own feed; Payouts no longer reads deposits or earnings itself.
@@ -358,11 +358,16 @@ describe("document payout account", () => {
     state.hashcoins.mockResolvedValue(liveWallet);
     state.account.mockResolvedValue({ stripeMode: "live", account: readyAccount });
     render(<DocumentHashcoinPayouts />);
-    // A return during the first reads queues nothing behind them.
+    // A bank read started before Stripe return cannot satisfy its fresh check.
+    // The other first reads queue nothing behind them.
     act(() => { window.dispatchEvent(new Event("focus")); });
     await screen.findByRole("button", { name: "Manage bank" });
+    await waitFor(() => expect(state.account).toHaveBeenCalledTimes(2));
     await settle();
-    expect(loads()).toEqual([1, 1, 1, 0, 0]);
+    expect(loads()).toEqual([1, 2, 1, 0, 0]);
+    expect(state.account).toHaveBeenNthCalledWith(1, "owner-token");
+    expect(state.account).toHaveBeenLastCalledWith("owner-token", { fresh: true });
+    // One read per return; the bank's is fresh.
     act(() => {
       window.dispatchEvent(new Event("focus"));
       document.dispatchEvent(new Event("visibilitychange"));
@@ -370,11 +375,13 @@ describe("document payout account", () => {
     await settle();
     act(() => { document.dispatchEvent(new Event("visibilitychange")); });
     await settle();
-    expect(loads()).toEqual([2, 2, 2, 0, 0]);
+    expect(loads()).toEqual([2, 3, 2, 0, 0]);
+    expect(state.account).toHaveBeenLastCalledWith("owner-token", { fresh: true });
     now += 1_001;
     act(() => { document.dispatchEvent(new Event("visibilitychange")); });
     await settle();
-    expect(loads()).toEqual([3, 3, 3, 0, 0]);
+    expect(loads()).toEqual([3, 4, 3, 0, 0]);
+    expect(state.account).toHaveBeenLastCalledWith("owner-token", { fresh: true });
   });
 
   it("caps each test redemption and shows the amount before submitting", async () => {

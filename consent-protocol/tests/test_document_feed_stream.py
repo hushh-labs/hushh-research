@@ -1,4 +1,4 @@
-"""Document-feed stream protocol: v2 typed frames, v1 long-poll, admission caps, web entry."""
+"""Document-feed stream protocol: v2 typed frames, v1 long-poll, admission caps, entry points."""
 
 import asyncio
 import json
@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from api import consent_listener
 from api.routes import document_feed_stream as stream
+from api.routes import sse as sse_routes
 from api.routes.document_feed_stream import (
     PayoutChangeCoalescer,
     StreamAdmission,
@@ -45,7 +46,9 @@ def owner_queue(monkeypatch):
     queue: asyncio.Queue = asyncio.Queue()
     calls: list[tuple[str, str]] = []
 
-    async def subscribe(user_id):
+    async def subscribe(user_id, *, snapshot_resets=False):
+        # Feed streams understand whole-snapshot resets on queue overflow.
+        assert snapshot_resets
         calls.append(("subscribe", user_id))
         return queue
 
@@ -95,10 +98,15 @@ def test_only_an_explicit_v2_opts_into_typed_frames(raw, version):
 def test_lifetimes_stay_inside_the_contract():
     v2 = [stream_lifetime_seconds(2) for _ in range(300)]
     v1 = [stream_lifetime_seconds(1) for _ in range(300)]
+    proxied = [stream_lifetime_seconds(version, proxied=True) for version in (1, 2) * 150]
     # 840 s +/- 60 s, strictly below the iOS stream plugin's 900 s resource timeout.
     assert all(780 <= value < 900 for value in v2)
     assert max(v2) - min(v2) > 30
     assert all(110 <= value <= 120 for value in v1)
+    # Through the Next proxy: closed by the server before the web server's
+    # 120 s production request timeout, so the stream rotates cleanly.
+    assert all(90 <= value <= 110 for value in proxied)
+    assert max(proxied) - min(proxied) > 5
 
 
 # --- coalescing (pure, explicit clock) ----------------------------------------
@@ -279,6 +287,20 @@ async def test_v2_ends_with_a_reconnect_hint_at_its_lifetime(owner_queue):
     assert owner_queue.calls[-1] == ("unsubscribe", "owner")
 
 
+@pytest.mark.asyncio
+async def test_general_feed_writes_ring_a_content_free_feed_changed(owner_queue):
+    frames = document_feed_event_generator(
+        "owner", CONNECTED, version=2, lifetime_seconds=30, timing=FAST
+    )
+    await _next(frames)
+    await _next(frames)
+    owner_queue.queue.put_nowait(
+        {"type": "feed_changed", "user_id": "owner", "title": "private headline"}
+    )
+    assert await _next(frames) == {"event": "feed_changed", "data": "{}"}
+    await frames.aclose()
+
+
 # --- v1 protection for installed builds ------------------------------------------
 
 
@@ -296,6 +318,19 @@ async def test_v1_long_poll_closes_soon_after_its_first_change(owner_queue):
     assert [_payload(event)["request_id"] for event in events] == [REQUEST, OTHER_REQUEST]
     assert loop.time() - started < FAST.v1_close_after_frame_seconds + 0.15
     assert owner_queue.calls[-1] == ("unsubscribe", "owner")
+
+
+@pytest.mark.asyncio
+async def test_v1_long_poll_is_not_cut_short_by_general_feed_hints(owner_queue):
+    # Installed builds cannot read a general hint, so it must not cost them a
+    # reconnect (and the full reread that follows); their lifetime still applies.
+    frames = document_feed_event_generator("owner", CONNECTED, lifetime_seconds=0.3, timing=FAST)
+    assert await _next(frames) == RESET
+    owner_queue.queue.put_nowait({"type": "feed_changed", "user_id": "owner"})
+    assert await _next(frames) == {"event": "feed_changed", "data": "{}"}
+    started = asyncio.get_running_loop().time()
+    assert await _rest(frames) == []
+    assert asyncio.get_running_loop().time() - started > FAST.v1_close_after_frame_seconds + 0.05
 
 
 @pytest.mark.asyncio
@@ -418,16 +453,28 @@ async def test_the_response_releases_its_slot_however_it_ends(owner_queue):
 
 
 @pytest.mark.asyncio
-async def test_document_feed_route_negotiates_version_for_the_token_owner(monkeypatch):
+async def test_document_feed_route_negotiates_version_and_proxied_lifetime(monkeypatch):
     admission = StreamAdmission()
     monkeypatch.setattr(stream, "_ADMISSION", admission)
-    monkeypatch.setattr(stream, "verify_firebase_bearer", lambda _authorization: "owner")
-    for raw, version in ((None, 1), ("2", 2)):
-        response = await stream.document_feed_events(
-            "owner", CONNECTED, v=raw, authorization="Bearer token"
+    monkeypatch.setattr(sse_routes, "verify_firebase_bearer", lambda _authorization: "owner")
+    cases = (
+        (None, None, 1, (110, 120)),
+        ("2", None, 2, (780, 900)),
+        # The Next proxy's fixed marker shortens the life of both versions.
+        ("2", stream.STREAM_PROXY_VALUE, 2, (90, 110)),
+        (None, stream.STREAM_PROXY_VALUE, 1, (90, 110)),
+        # Anything else is a direct stream.
+        ("2", "next-proxy-ish", 2, (780, 900)),
+    )
+    for raw, via, version, (low, high) in cases:
+        response = await sse_routes.document_feed_events(
+            "owner", CONNECTED, v=raw, authorization="Bearer token", stream_via=via
         )
-        assert admission.active()[-1].version == version
+        lease = admission.active()[-1]
+        assert lease.version == version
+        assert low <= lease.lifetime_seconds <= high
         await response.body_iterator.aclose()
+        lease.release()
 
 
 # --- web entry point -----------------------------------------------------------------
@@ -468,6 +515,30 @@ def test_disabled_web_stream_is_404_before_any_token_check(monkeypatch):
 def test_enabled_web_stream_requires_a_firebase_token(monkeypatch):
     monkeypatch.setenv("DOCUMENT_FEED_WEB_STREAM_ENABLED", "true")
     assert _web_client().get("/api/one/feed/events?v=2").status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_web_stream_ends_once_its_token_stops_verifying(monkeypatch, owner_queue):
+    monkeypatch.setenv("DOCUMENT_FEED_WEB_STREAM_ENABLED", "true")
+    monkeypatch.setattr(stream, "_ADMISSION", StreamAdmission())
+    monkeypatch.setattr(stream, "FEED_AUTH_RECHECK_SECONDS", 0.05)
+    checks: list[str] = []
+
+    async def verify(authorization):
+        checks.append(authorization)
+        if len(checks) > 1:
+            raise HTTPException(status_code=401, detail="Token revoked")
+        return "user-a"
+
+    monkeypatch.setattr(feed_events, "require_firebase_auth_read_only", verify)
+    response = await feed_events.document_feed_web_events(CONNECTED, authorization="Bearer a")
+    frames = response.body_iterator
+    assert [frame["event"] for frame in await _rest(frames, timeout=1.0)] == [
+        "hello",
+        "feed_reset",
+    ]
+    assert checks == ["Bearer a", "Bearer a"]
+    assert owner_queue.calls == [("subscribe", "user-a"), ("unsubscribe", "user-a")]
 
 
 @pytest.mark.asyncio

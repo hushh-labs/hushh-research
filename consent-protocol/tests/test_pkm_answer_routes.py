@@ -15,15 +15,124 @@ def env(monkeypatch):
     monkeypatch.setenv("PKM_ANSWER_COMPOSER_ENABLED", "true")
 
 
-async def test_unapproved_composer_blocks_admission(monkeypatch):
+async def test_unapproved_composer_blocks_the_paid_lane_only(monkeypatch):
+    """An unreviewed composer closes checkout. It does not close intake.
+
+    Payments stay enabled here, so `requests` is reported from the payment
+    flag's fallback: the composer is not part of the intake decision.
+    """
     monkeypatch.setenv("PKM_ANSWER_COMPOSER_ENABLED", "false")
     payments = Mock(checkout=AsyncMock())
     monkeypatch.setattr(routes, "_payments", lambda: payments)
-    assert await routes.answer_requests_available(Response(), "requester") == {"enabled": False}
+    gates = await routes.answer_requests_available(Response(), "requester")
+    # Payments stay on, so payout setup stays reachable; only the paid
+    # answer path is closed by an unreviewed composer.
+    assert (gates["enabled"], gates["requests"], gates["payments"], gates["payouts"]) == (
+        False,
+        True,
+        False,
+        True,
+    )
     with pytest.raises(HTTPException) as error:
         await routes.create_answer_checkout(uuid4(), Response(), "requester")
     assert error.value.status_code == 503
     payments.checkout.assert_not_called()
+
+
+async def test_request_intake_survives_paused_payments_but_checkout_does_not(monkeypatch):
+    """Intake and owner review are admitted with the money lane off.
+
+    The negative control is in the same test on purpose: if the intake gate
+    ever starts consulting the payment flags again, the first three
+    assertions fail; if the paid gate is loosened to match, the checkout
+    assertion fails.
+    """
+    monkeypatch.setenv("PKM_ANSWER_REQUESTS_ENABLED", "true")
+    monkeypatch.setenv("PKM_ANSWER_PAYMENTS_ENABLED", "false")
+    monkeypatch.setenv("PKM_ANSWER_COMPOSER_ENABLED", "false")
+    requests = Mock(
+        create=AsyncMock(return_value={"requestId": "synthetic-request"}),
+        approve=AsyncMock(return_value={"termsDigest": "digest"}),
+    )
+    payments = Mock(checkout=AsyncMock())
+    monkeypatch.setattr(routes, "_requests", lambda: requests)
+    monkeypatch.setattr(routes, "_payments", lambda: payments)
+
+    gates = await routes.answer_requests_available(Response(), "requester")
+    assert (gates["enabled"], gates["requests"], gates["payments"]) == (False, True, False)
+    assert await routes.create_answer_request(
+        Response(),
+        {"ownerUserId": "owner", "question": "Which flights do you prefer?"},
+        "requester",
+    ) == {"requestId": "synthetic-request"}
+    assert await routes.approve_answer_request(
+        uuid4(),
+        Response(),
+        {"scopes": ["attr.travel.trips"], "amountCents": 500, "modelProcessingConsent": True},
+        "owner",
+    ) == {"termsDigest": "digest"}
+
+    with pytest.raises(HTTPException) as error:
+        await routes.create_answer_checkout(uuid4(), Response(), "requester")
+    assert error.value.status_code == 503
+    payments.checkout.assert_not_called()
+
+
+async def test_unset_request_flag_opens_intake_with_payments_off(monkeypatch):
+    """The production regression: no binding must still mean open.
+
+    The first revision of this gate defaulted to inheriting the payment
+    flag when unset. Every deployed environment runs with payments off and
+    no answer-requests binding, so intake stayed shut and UAT shipped the
+    dead control this whole lane exists to remove. Unset is open; only an
+    explicit "false" closes it.
+    """
+    monkeypatch.delenv("PKM_ANSWER_REQUESTS_ENABLED", raising=False)
+    monkeypatch.setenv("PKM_ANSWER_PAYMENTS_ENABLED", "false")
+    monkeypatch.setenv("PKM_ANSWER_COMPOSER_ENABLED", "false")
+    requests = Mock(create=AsyncMock(return_value={"requestId": "synthetic-request"}))
+    payments = Mock(checkout=AsyncMock())
+    monkeypatch.setattr(routes, "_requests", lambda: requests)
+    monkeypatch.setattr(routes, "_payments", lambda: payments)
+
+    gates = await routes.answer_requests_available(Response(), "requester")
+    assert (gates["requests"], gates["payments"]) == (True, False)
+    assert await routes.create_answer_request(
+        Response(),
+        {"ownerUserId": "owner", "question": "Which flights do you prefer?"},
+        "requester",
+    ) == {"requestId": "synthetic-request"}
+
+    # Negative control: defaulting intake open must not open the money path.
+    with pytest.raises(HTTPException) as error:
+        await routes.create_answer_checkout(uuid4(), Response(), "requester")
+    assert error.value.status_code == 503
+    payments.checkout.assert_not_called()
+
+
+async def test_request_kill_switch_closes_intake_even_with_payments_live(monkeypatch):
+    """The explicit flag wins over the payment flag in both directions."""
+    monkeypatch.setenv("PKM_ANSWER_REQUESTS_ENABLED", "false")
+    requests = Mock(create=AsyncMock(), approve=AsyncMock())
+    monkeypatch.setattr(routes, "_requests", lambda: requests)
+    for call in (
+        lambda: routes.create_answer_request(
+            Response(),
+            {"ownerUserId": "owner", "question": "Which flights do you prefer?"},
+            "requester",
+        ),
+        lambda: routes.approve_answer_request(
+            uuid4(),
+            Response(),
+            {"scopes": ["attr.travel.trips"], "amountCents": 500, "modelProcessingConsent": True},
+            "owner",
+        ),
+    ):
+        with pytest.raises(HTTPException) as error:
+            await call()
+        assert error.value.status_code == 503
+    requests.create.assert_not_called()
+    requests.approve.assert_not_called()
 
 
 async def test_cancel_remains_available_after_admission_paused(monkeypatch):

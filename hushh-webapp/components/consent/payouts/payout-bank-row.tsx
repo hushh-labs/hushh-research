@@ -12,7 +12,6 @@ import { isNative } from "@/lib/capacitor/platform";
 import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 import { resolveProfileRouteState } from "@/lib/navigation/profile-routes";
 import { normalizeInternalRouteHref } from "@/lib/navigation/routes";
-import { payoutChangeTouches, subscribePayoutStateChanged } from "@/lib/payouts/payout-events";
 import {
   DocumentPayoutService,
   documentPayoutLinkUrl,
@@ -46,6 +45,10 @@ function takePayoutReturn(): string | null {
     return null;
   }
 }
+
+// Stripe's return, a retry and a return to the page check Stripe itself, not
+// the server's short display cache.
+const loadFreshPayoutAccount = (token: string) => DocumentPayoutService.account(token, { fresh: true });
 
 /** The card's last bank read, so a screen can gate on it without a second read. */
 export type PayoutAccountState = {
@@ -86,8 +89,11 @@ export function usePayoutBank({ active = true, handleReturn = false, disabled = 
   // pane, the query belongs to the screen beneath it.
   const origin = handleReturn && resolveProfileRouteState(pathname).panel === "payouts"
     ? normalizeInternalRouteHref(searchParams.get("from")) : null;
+  // The store rereads the account on its payout doorbells (bank or
+  // verification) with the cached read; only the owner's own actions skip it.
   const resource = usePayoutSnapshot(DocumentPayoutService.account, {
     active, refreshKey: returnState ?? "", bankOnly: true, ignoreReadyEvent: true,
+    freshLoad: loadFreshPayoutAccount,
   });
   const { data, token, scope, loading, failed } = resource;
   const account = data?.account ?? null;
@@ -96,15 +102,6 @@ export function usePayoutBank({ active = true, handleReturn = false, disabled = 
   useEffect(() => {
     onAccountChange?.({ account, loading, failed, stripeMode });
   }, [onAccountChange, account, loading, failed, stripeMode]);
-  // A payout doorbell for the connected account (bank or verification) rereads it.
-  const reread = useRef(resource.retry);
-  useEffect(() => { reread.current = resource.retry; });
-  useEffect(() => {
-    if (!active) return;
-    return subscribePayoutStateChanged((detail) => {
-      if (payoutChangeTouches(detail, ["account"])) reread.current();
-    });
-  }, [active]);
   const [busy, setBusy] = useState<{ scope: typeof scope; action: BankAction } | null>(null);
   const [actionError, setActionError] = useState<{ scope: typeof scope; action: BankAction; text: string } | null>(null);
   const inFlight = useRef<typeof scope | null>(null);

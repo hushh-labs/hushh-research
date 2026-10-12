@@ -7,9 +7,10 @@ redirects, scopes, capability policy, or credential configuration.
 
 This module owns the one reviewed UAT definition. It attests the live
 database before every read or write and refuses policy drift, except for the
-exact previously reviewed redirect list that it can migrate to the dual-domain
-list. Activating this row does not enable any Drive feature; the independent
-runtime flags and explicit internal-owner cohort still fail closed.
+exact previously reviewed redirect lists that it can migrate additively.
+Migration preserves scopes, credentials and staged live/indexing/sharing
+flags. Ordinary connection, Picker and Chat reads still require the active
+catalog row, credentials, owner grants and scoped authority.
 """
 
 from __future__ import annotations
@@ -50,10 +51,16 @@ PREVIOUS_REGISTERED_REDIRECT_URIS = (
     NATIVE_OAUTH_REDIRECT_URI,
     NATIVE_PICKER_REDIRECT_URI,
 )
-REGISTERED_REDIRECT_URIS = (
+PRE_SI_REGISTERED_REDIRECT_URIS = (
     *PREVIOUS_REGISTERED_REDIRECT_URIS,
     "https://api.uat.hussh.ai/api/connectors/oauth/native/callback",
     "https://api.uat.hussh.ai/api/connectors/google_drive/picker/native/callback",
+)
+REGISTERED_REDIRECT_URIS = (
+    *PRE_SI_REGISTERED_REDIRECT_URIS,
+    "https://uat.one.hussh.si/one/profile/connectors/oauth/return",
+    "https://api.uat.hussh.si/api/connectors/oauth/native/callback",
+    "https://api.uat.hussh.si/api/connectors/google_drive/picker/native/callback",
 )
 LEGACY_REGISTERED_REDIRECT_URIS = (
     LEGACY_WEB_REDIRECT_URI,
@@ -307,7 +314,11 @@ class DriveUatRegistryProvisioner:
                 action = "activated"
             elif any(
                 _row_matches_policy(row, require_active=False, redirect_uris=prior)
-                for prior in (LEGACY_REGISTERED_REDIRECT_URIS, PREVIOUS_REGISTERED_REDIRECT_URIS)
+                for prior in (
+                    LEGACY_REGISTERED_REDIRECT_URIS,
+                    PREVIOUS_REGISTERED_REDIRECT_URIS,
+                    PRE_SI_REGISTERED_REDIRECT_URIS,
+                )
             ):
                 # Migrate only an exact previously reviewed policy, retaining
                 # every prior callback for in-flight OAuth.
