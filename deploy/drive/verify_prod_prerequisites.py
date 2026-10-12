@@ -11,13 +11,17 @@ import argparse
 import base64
 import binascii
 import json
+import re
 import subprocess
+from pathlib import Path
 
 PROJECT = "hushh-pda"
 RUNTIME_ACCOUNT = "consent-protocol-runtime@hushh-pda.iam.gserviceaccount.com"
 SCHEDULER_ACCOUNT = "drive-work-drain-sched@hushh-pda.iam.gserviceaccount.com"
 PICKER_KEY_NAME = "Hussh Drive Picker (Production)"
-PICKER_REFERRERS = {"https://one.hushh.ai/*", "https://one.hussh.ai/*"}
+DOMAIN_CATALOG = (
+    Path(__file__).resolve().parents[2] / "hushh-webapp/lib/vault/passkey-domain-aliases.json"
+)
 SECRETS = (
     "GOOGLE_DRIVE_OAUTH_CLIENT_ID",
     "GOOGLE_DRIVE_OAUTH_CLIENT_SECRET",
@@ -78,11 +82,29 @@ def _key_bytes(value: str, *, urlsafe: bool) -> bytes:
         raise PrerequisiteError("Production Drive encryption key has invalid encoding") from exc
 
 
-def verify(*, oauth_attested: bool) -> None:
+def _picker_referrers(domain_catalog: Path) -> set[str]:
+    try:
+        hosts = json.loads(domain_catalog.read_text())["production"]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise PrerequisiteError("Reviewed production domain catalog is unavailable") from exc
+    if (
+        not isinstance(hosts, list)
+        or not hosts
+        or any(
+            not isinstance(host, str) or not re.fullmatch(r"one\.[a-z0-9]+(?:[.-][a-z0-9]+)*", host)
+            for host in hosts
+        )
+    ):
+        raise PrerequisiteError("Reviewed production domain catalog is malformed")
+    return {f"https://{host}/*" for host in hosts}
+
+
+def verify(*, oauth_attested: bool, domain_catalog: Path = DOMAIN_CATALOG) -> None:
     if not oauth_attested:
         raise PrerequisiteError(
             "Production Google Auth Platform Drive scope and exact callback attestation is missing"
         )
+    picker_referrers = _picker_referrers(domain_catalog)
     values = {name: _secret(name) for name in SECRETS}
     if not values["GOOGLE_DRIVE_OAUTH_CLIENT_ID"].endswith(".apps.googleusercontent.com"):
         raise PrerequisiteError("Production Drive OAuth client ID is malformed")
@@ -122,7 +144,7 @@ def verify(*, oauth_attested: bool) -> None:
     referrers = (restrictions.get("browserKeyRestrictions") or {}).get("allowedReferrers") or []
     if (
         {target.get("service") for target in targets} != {"picker.googleapis.com"}
-        or set(referrers) != PICKER_REFERRERS
+        or set(referrers) != picker_referrers
         or any(target.get("methods") for target in targets)
     ):
         raise PrerequisiteError("Production Drive Picker API key restrictions are incomplete")
@@ -158,11 +180,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", required=True)
     parser.add_argument("--oauth-attested", action="store_true")
+    parser.add_argument("--domain-catalog", type=Path, default=DOMAIN_CATALOG)
     args = parser.parse_args()
     if args.project != PROJECT:
         parser.error("Production Drive preflight requires the fixed production project")
     try:
-        verify(oauth_attested=args.oauth_attested)
+        verify(oauth_attested=args.oauth_attested, domain_catalog=args.domain_catalog)
     except (KeyError, TypeError, ValueError, PrerequisiteError) as exc:
         parser.exit(1, f"Production Drive preflight blocked: {exc}\n")
     print("Production Drive credentials, Picker restrictions and scheduler identities verified")
