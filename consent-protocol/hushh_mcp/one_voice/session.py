@@ -67,6 +67,7 @@ from hushh_mcp.one_voice.tools.executor import (
 )
 from hushh_mcp.one_voice.tools.mail_compose import ComposeResult, MailComposeRuntime
 from hushh_mcp.one_voice.tools.session import OPENABLE_SCREENS
+from hushh_mcp.runtime_providers.factory import ManagedGeminiRuntimeBinding
 from hushh_mcp.services.gmail_delivery_service import (
     GmailDeliveryError,
     reconcile_owner_send_action,
@@ -530,6 +531,9 @@ class VoiceSession:
         self._provider_activity_end_at: float | None = None
         self._provider_activity_source: str | None = None
         self._provider_activity_started = False
+        self._provider_tags_cache: str | None = None
+        self._provider_connect_attempted = False
+        self._provider_connected = False
 
     # -- state guards (raise instead of assert; the relay must never run
     #    a frame before auth or a provider before the socket is ready) --------
@@ -688,11 +692,12 @@ class VoiceSession:
             if 0 <= elapsed_ms <= 120_000:
                 perf.provider_activity_end_at = self._provider_activity_end_at
                 logger.info(
-                    "one_voice.latency session=%s turn=%s phase=provider_activity_end_to_transcript source=%s ms=%d",
+                    "one_voice.latency session=%s turn=%s phase=provider_activity_end_to_transcript source=%s ms=%d %s",
                     self.session_id,
                     input_turn_id,
                     self._provider_activity_source,
                     elapsed_ms,
+                    self._provider_tags(),
                 )
         self._provider_activity_end_at = None
         self._provider_activity_source = None
@@ -754,15 +759,36 @@ class VoiceSession:
             ratios,
         )
 
+    def _provider_tags(self) -> str:
+        """Bounded provider dimensions for voice telemetry; never user content.
+
+        The explicit project pins UAT voice to its billing project. When that
+        override is absent, use the same binding resolver as the Live client.
+        Telemetry must not stop a session if a local test has no ADC project.
+        """
+        if self._provider_tags_cache is None:
+            project = self.config.vertex_project
+            if project is None:
+                try:
+                    project = ManagedGeminiRuntimeBinding.from_environment().project
+                except (RuntimeError, ValueError):
+                    project = None
+            self._provider_tags_cache = (
+                f"provider=vertex_ai vertex_project={project or 'unresolved'} "
+                f"live_model={self.config.model_id} live_location={self.config.location}"
+            )
+        return self._provider_tags_cache
+
     def _log_latency(self, phase: str, started: float | None, turn_id: str | None = None) -> None:
         if started is None:
             return
         logger.info(
-            "one_voice.latency session=%s turn=%s phase=%s ms=%d",
+            "one_voice.latency session=%s turn=%s phase=%s ms=%d %s",
             self.session_id,
             turn_id or self.turn.turn_id,
             phase,
             int((self.clock() - started) * 1000),
+            self._provider_tags(),
         )
 
     async def _close(self, code: int, reason: str) -> None:
@@ -875,12 +901,20 @@ class VoiceSession:
             from hushh_mcp.runtime_providers.dependency_health import classify_provider_error
 
             reason = classify_provider_error(exc)
+            if self._provider_connect_attempted and not self._provider_connected:
+                logger.warning(
+                    "one_voice.provider_binding session=%s status=connect_failed error=%s %s",
+                    self.session_id,
+                    type(exc).__name__,
+                    self._provider_tags(),
+                )
             logger.warning(
-                "one_voice.session.failed class=%s error=%s session=%s failures=%s",
+                "one_voice.session.failed class=%s error=%s session=%s failures=%s %s",
                 reason,
                 type(exc).__name__,
                 self.session_id,
                 json.dumps(_failure_fingerprints(exc), separators=(",", ":")),
+                self._provider_tags(),
             )
             try:
                 await self._send(
@@ -1004,11 +1038,18 @@ class VoiceSession:
             "resumption_handle": self.conversation.live_resumption_handle,
         }
         connect_started_at = self.clock()
+        self._provider_connect_attempted = True
         async with self.live_factory(self.config.model_id, live_config) as live:
+            self._provider_connected = True
             # The client receives session.ready before provider setup. Record
             # that separate wait so connection time does not disappear into a
             # long websocket request or get mistaken for response generation.
             self._log_latency("provider_connect", connect_started_at)
+            logger.info(
+                "one_voice.provider_binding session=%s status=connected %s",
+                self.session_id,
+                self._provider_tags(),
+            )
             self.live = live
             await self._send(protocol.voice_state("listening"))
             try:
@@ -1219,11 +1260,12 @@ class VoiceSession:
         if isinstance(frame, protocol.PerfFrame):
             # Telemetry is optional and must not extend the idle deadline.
             logger.info(
-                "one_voice.client_perf session=%s turn=%s metric=%s ms=%d",
+                "one_voice.client_perf session=%s turn=%s metric=%s ms=%d %s",
                 self.session_id,
                 frame.turn_id if frame.turn_id in self._issued_turn_ids else "none",
                 frame.metric,
                 frame.duration_ms,
+                self._provider_tags(),
             )
             return
         self._touch()
@@ -3384,11 +3426,12 @@ class VoiceSession:
             if perf is not None:
                 perf.tool_response_at = self._tool_response_at
             logger.info(
-                "one_voice.latency session=%s turn=%s phase=tool tool=%s ms=%d",
+                "one_voice.latency session=%s turn=%s phase=tool tool=%s ms=%d %s",
                 self.session_id,
                 origin_turn_id,
                 name[:80],
                 int((self._tool_response_at - dispatch_started) * 1000),
+                self._provider_tags(),
             )
 
     async def _dispatch_tool_call_inner(
@@ -3498,11 +3541,12 @@ class VoiceSession:
             # Executor phases only (store reads, prepare, handler), as short
             # key=ms pairs; the result status is bounded vocabulary.
             logger.info(
-                "one_voice.latency session=%s turn=%s phase=exec status=%s steps=%s",
+                "one_voice.latency session=%s turn=%s phase=exec status=%s steps=%s %s",
                 self.session_id,
                 origin_turn_id,
                 str(outcome.result.status)[:40],
                 ",".join(f"{key}:{value}" for key, value in sorted(outcome.timings.items())),
+                self._provider_tags(),
             )
         public = outcome.result.public()
         if (
