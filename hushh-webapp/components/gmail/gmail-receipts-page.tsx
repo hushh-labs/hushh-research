@@ -1018,6 +1018,7 @@ export default function ProfileReceiptsPage() {
     <AppPageShell
       as="div"
       width="reading"
+      headerContentSpacing="compact"
       className="pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
       nativeTest={{
         routeId: "/one/gmail",

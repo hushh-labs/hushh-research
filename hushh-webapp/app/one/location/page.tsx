@@ -3391,6 +3391,7 @@ function OneLocationAgentPageContent() {
   return (
     <AppPageShell
       width="standard"
+      headerContentSpacing="compact"
       nativeTest={nativeTestConfig}
     >
       <AppPageHeaderRegion className="mx-auto w-full max-w-[720px] min-w-0 overflow-hidden">

@@ -33,6 +33,14 @@ describe("AppPageShell", () => {
 
     expect(screen.getByRole("main").getAttribute("data-app-density")).toBe("comfortable");
   });
+
+  it("exposes the compact header-to-content spacing contract when requested", () => {
+    render(<AppPageShell headerContentSpacing="compact">Content</AppPageShell>);
+
+    expect(screen.getByRole("main").getAttribute("data-app-header-content-spacing")).toBe(
+      "compact"
+    );
+  });
     it("preserves shell rendering when header region is omitted", () => {
     render(
       <AppPageShell>

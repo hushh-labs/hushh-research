@@ -19,6 +19,7 @@ export type AppPageShellWidth =
   | "profile";
 
 export type AppPageDensity = "compact" | "comfortable";
+export type AppPageHeaderContentSpacing = "standard" | "compact";
 
 // 2. Mapped directly to Tailwind classes instead of raw string values
 export const APP_SHELL_MAX_WIDTHS: Record<AppPageShellWidth, string> = {
@@ -49,6 +50,8 @@ type AppPageShellProps<T extends ElementType> = {
   as?: T;
   width?: AppPageShellWidth;
   density?: AppPageDensity;
+  /** Opt in to the compact One-agent header-to-content handoff. */
+  headerContentSpacing?: AppPageHeaderContentSpacing;
   nativeTest?: {
     routeId: string;
     marker: string;
@@ -67,6 +70,7 @@ export function AppPageShell<T extends ElementType = "main">({
   as,
   width = "standard",
   density = "compact",
+  headerContentSpacing = "standard",
   nativeTest,
   className,
   children,
@@ -84,6 +88,7 @@ export function AppPageShell<T extends ElementType = "main">({
       )}
       data-slot="app-page-shell"
       data-app-density={density}
+      data-app-header-content-spacing={headerContentSpacing}
       data-app-shell-width={width}
       data-top-content-anchor="true"
       {...props}
