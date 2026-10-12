@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2411,
+  "finding_count": 2417,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -122,7 +122,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/one_adk/encrypted_session_service.py",
       "symbol": "EncryptedAdkSessionService",
-      "value": 377
+      "value": 475
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1076,7 +1076,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py",
       "symbol": "PKMAgentLabService",
-      "value": 5289
+      "value": 5389
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -3497,7 +3497,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
       "symbol": "_compose_one_runtime_instruction",
-      "value": 418
+      "value": 420
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -3695,7 +3695,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_adk/registered_mcp_toolset.py",
       "symbol": "_discover",
-      "value": 137
+      "value": 142
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -8042,7 +8042,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py",
       "symbol": "_generate_single_structure_preview",
-      "value": 231
+      "value": 239
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -8051,7 +8051,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py",
       "symbol": "_normalize_structure_preview",
-      "value": 502
+      "value": 563
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -8078,7 +8078,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py",
       "symbol": "_sanitize_merge_decision",
-      "value": 108
+      "value": 112
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -12389,7 +12389,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_prod_drive_deploy_contract.py",
       "symbol": "test_older_target_keeps_release_tooling_but_cannot_enable_drive",
-      "value": 117
+      "value": 127
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -13964,7 +13964,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_adk/action_tools.py",
       "symbol": null,
-      "value": 5574
+      "value": 5583
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13982,7 +13982,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_adk/agui_turn_timing.py",
       "symbol": null,
-      "value": 850
+      "value": 903
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14018,7 +14018,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_adk/encrypted_session_service.py",
       "symbol": null,
-      "value": 528
+      "value": 632
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14027,7 +14027,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_adk/governed_mcp_toolset.py",
       "symbol": null,
-      "value": 870
+      "value": 946
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14450,7 +14450,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/domain_contracts.py",
       "symbol": null,
-      "value": 800
+      "value": 807
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15080,7 +15080,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py",
       "symbol": null,
-      "value": 6021
+      "value": 6121
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15818,7 +15818,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/one_voice/test_relay_external_content_isolation.py",
       "symbol": null,
-      "value": 503
+      "value": 536
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16538,7 +16538,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_pkm_agent_lab_service.py",
       "symbol": null,
-      "value": 3171
+      "value": 3293
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16664,7 +16664,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_agui_turn_timing.py",
       "symbol": null,
-      "value": 1149
+      "value": 1161
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16727,7 +16727,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_chat_history_byok.py",
       "symbol": null,
-      "value": 755
+      "value": 775
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16934,7 +16934,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_encrypted_adk_session_service.py",
       "symbol": null,
-      "value": 732
+      "value": 789
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17015,7 +17015,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_governed_mcp_toolset.py",
       "symbol": null,
-      "value": 2190
+      "value": 2225
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17213,7 +17213,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
       "symbol": null,
-      "value": 6213
+      "value": 6245
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17240,7 +17240,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_one_external_read_boundary.py",
       "symbol": null,
-      "value": 1478
+      "value": 1539
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17672,7 +17672,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_registered_mcp_toolset.py",
       "symbol": null,
-      "value": 919
+      "value": 920
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18005,7 +18005,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/connectors-panel.test.tsx",
       "symbol": null,
-      "value": 1648
+      "value": 1676
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18554,7 +18554,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/agent-chat-client.test.ts",
       "symbol": null,
-      "value": 1868
+      "value": 1907
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18563,7 +18563,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/agent-pkm-memory.test.ts",
       "symbol": null,
-      "value": 1537
+      "value": 1616
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18680,7 +18680,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/pkm-prepared-blob-store.test.ts",
       "symbol": null,
-      "value": 1424
+      "value": 1449
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18977,7 +18977,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/connectors-panel.tsx",
       "symbol": null,
-      "value": 2886
+      "value": 2888
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20129,7 +20129,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/agent-markdown.layout.spec.ts",
       "symbol": null,
-      "value": 504
+      "value": 541
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20273,7 +20273,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/agent/agent-pkm-context-store.ts",
       "symbol": null,
-      "value": 898
+      "value": 902
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20354,7 +20354,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/capacitor/plugins/personal-knowledge-model-web.ts",
       "symbol": null,
-      "value": 717
+      "value": 719
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20822,7 +20822,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/personal-knowledge-model/manifest.ts",
       "symbol": null,
-      "value": 867
+      "value": 871
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20921,7 +20921,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/profile/pkm-profile-presentation.ts",
       "symbol": null,
-      "value": 773
+      "value": 774
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20957,7 +20957,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/agent-chat-client.ts",
       "symbol": null,
-      "value": 2513
+      "value": 2519
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21164,7 +21164,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/personal-knowledge-model-service.ts",
       "symbol": null,
-      "value": 4857
+      "value": 4865
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21191,7 +21191,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/pkm-write-coordinator.ts",
       "symbol": null,
-      "value": 785
+      "value": 787
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21227,7 +21227,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/secure-resource-cache-service.ts",
       "symbol": null,
-      "value": 614
+      "value": 629
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21290,7 +21290,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/vault/vault-context.tsx",
       "symbol": null,
-      "value": 1030
+      "value": 1039
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21706,6 +21706,60 @@
       "path": "hushh-webapp/e2e/bottom-chrome-width.layout.spec.ts",
       "symbol": null,
       "value": 504
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/runtime/test_run_backend_local_proxy_handoff.py|test_restarts_a_reused_proxy_that_disappears_before_backend_start|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/runtime/test_run_backend_local_proxy_handoff.py",
+      "symbol": "test_restarts_a_reused_proxy_that_disappears_before_backend_start",
+      "value": 96
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_pkm_agent_lab_service.py|test_soul_profile_preserves_model_fact_and_exact_offered_target|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_pkm_agent_lab_service.py",
+      "symbol": "test_soul_profile_preserves_model_fact_and_exact_offered_target",
+      "value": 91
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/one_adk/governed_mcp_toolset.py|get_tools|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/one_adk/governed_mcp_toolset.py",
+      "symbol": "get_tools",
+      "value": 83
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/lib/pkm/markdown-memory.test.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/lib/pkm/markdown-memory.test.ts",
+      "symbol": null,
+      "value": 831
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/pkm/markdown-memory.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/lib/pkm/markdown-memory.ts",
+      "symbol": null,
+      "value": 812
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_prod_drive_deploy_contract.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_prod_drive_deploy_contract.py",
+      "symbol": null,
+      "value": 514
     }
   ],
   "inspected_files": 6625,
@@ -29281,6 +29335,655 @@
       "review": "Independent read-only authority review and parent source inspection accept exactly seven bounded integration spans. OAuth settlement is origin/attempt bound; History publication and deletion retain owner/vault generation fences; private Puppy preserves direct routing and disables inactive composers without blocking Stop. Browser fixtures retain root text/voice materials and measured keyboard geometry. Calendar synchronization uses the existing canonical-origin and secret-upsert owners; two function lines are formatter reflow. Budgets, scanner, exclusions and all unrelated finding ceilings remain unchanged. No future-growth waiver.",
       "source_revision": "e19ce8db5ccb64f4cad868a2196ac4edf182a839",
       "verification": "124 focused intake cases, 48 nearest authority/cache/cancellation cases, 23 final History/gateway cases, 43 Calendar/runtime cases and 14 Chromium cases pass. Original History code fails three paired refusal/preservation cases. Original browser failures are retained; complete core and hosted CI remain required."
+    },
+    "frozen_main_privacy_union_20261012": {
+      "changes": [
+        {
+          "after": 5389,
+          "before": 5289,
+          "key": "class_size|consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py|PKMAgentLabService|class exceeds the advisory operon budget",
+          "origin": "exact_frozen_main_file",
+          "review": "Exact frozen-main Soul profile implementation: bounded 256-candidate reconciliation, exact offered-target validation, dedicated schema and fail-closed invalid Soul output. Retain the existing preparation service; this size admission does not authorize writes, deletions or sharing.",
+          "source_sha256": "081ca8d7a4b7c153fbde5963a37b81e9a4c7514d5d1fe530724ac13d8bd81e71",
+          "source_spans": [
+            {
+              "end": 6111,
+              "sha256": "2c6a3f30bdaea1b0a4c8dc34a3a2e5bb3293e7b203ac5582fe8fd061a33000e9",
+              "size": 5389,
+              "start": 723
+            }
+          ]
+        },
+        {
+          "after": 475,
+          "before": 377,
+          "key": "class_size|consent-protocol/hushh_mcp/one_adk/encrypted_session_service.py|EncryptedAdkSessionService|class exceeds the advisory operon budget",
+          "origin": "imported_delta_with_retained_branch_contracts",
+          "review": "Imported asyncpg execution and value-free timing are composed behind the existing shared Postgres adapter. Pod-mode refusal, repository injection and every repository operation remain intact. Retain the compatibility facade and authority-local CAS logic.",
+          "source_sha256": "a9fef94855b04f96de92647b9d182bbee02f66f1a5d9910a0545d5240e95e1bb",
+          "source_spans": [
+            {
+              "end": 624,
+              "sha256": "e247422c589a3f14816462457623ed5395eaae4bd5ec1f77c2a347c99bfe7443",
+              "size": 475,
+              "start": 150
+            }
+          ]
+        },
+        {
+          "after": 563,
+          "before": 502,
+          "key": "function_size|consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py|_normalize_structure_preview|function exceeds the advisory gene budget",
+          "origin": "exact_frozen_main_file",
+          "review": "Exact frozen-main Soul profile implementation: bounded 256-candidate reconciliation, exact offered-target validation, dedicated schema and fail-closed invalid Soul output. Retain the existing preparation service; this size admission does not authorize writes, deletions or sharing.",
+          "source_sha256": "081ca8d7a4b7c153fbde5963a37b81e9a4c7514d5d1fe530724ac13d8bd81e71",
+          "source_spans": [
+            {
+              "end": 4569,
+              "sha256": "40a393120452b0f0cf3c02c53de5e14c79fc7da3ecc9c140fb215ba9a8a22e81",
+              "size": 563,
+              "start": 4007
+            }
+          ]
+        },
+        {
+          "after": 420,
+          "before": 418,
+          "key": "function_size|consent-protocol/hushh_mcp/one_adk/agent_tree.py|_compose_one_runtime_instruction|function exceeds the advisory gene budget",
+          "origin": "imported_delta_with_retained_branch_contracts",
+          "review": "Two added instruction lines distinguish supplied Soul purchase trends from requests for individual receipts while preserving private runtime composition and source-specific connector authority. No new routing owner.",
+          "source_sha256": "8a0680b6893679e0d6aad5e6bdc8804a7dad2f38b3a5a5a216a22d9bf67bf86b",
+          "source_spans": [
+            {
+              "end": 1270,
+              "sha256": "21844735f382fa01acd469359a865ab5214e1f0c56b0c4513b489a19c903380a",
+              "size": 420,
+              "start": 851
+            }
+          ]
+        },
+        {
+          "after": 239,
+          "before": 231,
+          "key": "function_size|consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py|_generate_single_structure_preview|function exceeds the advisory gene budget",
+          "origin": "exact_frozen_main_file",
+          "review": "Exact frozen-main Soul profile implementation: bounded 256-candidate reconciliation, exact offered-target validation, dedicated schema and fail-closed invalid Soul output. Retain the existing preparation service; this size admission does not authorize writes, deletions or sharing.",
+          "source_sha256": "081ca8d7a4b7c153fbde5963a37b81e9a4c7514d5d1fe530724ac13d8bd81e71",
+          "source_spans": [
+            {
+              "end": 5637,
+              "sha256": "523f72bdf6d8e750959626dcf5022304da8869f5fabab87578b9a88905c0a4a1",
+              "size": 239,
+              "start": 5399
+            }
+          ]
+        },
+        {
+          "after": 142,
+          "before": 137,
+          "key": "function_size|consent-protocol/hushh_mcp/one_adk/registered_mcp_toolset.py|_discover|function exceeds the advisory gene budget",
+          "origin": "imported_delta_with_retained_branch_contracts",
+          "review": "The per-turn registry cache is nested inside the existing non-vault-only branch; registry failure preserves independently admitted vault configurations. The additional span retains private placement and owner admission.",
+          "source_sha256": "4c5a9eb3d2bf5fecb7b107c9020df9d3e818eaabcae917a98fd622a7673a0679",
+          "source_spans": [
+            {
+              "end": 418,
+              "sha256": "c77a869e3f83313af1a457e6cb4a297590cabbc883380bfa00ff2d07e9968086",
+              "size": 142,
+              "start": 277
+            }
+          ]
+        },
+        {
+          "after": 127,
+          "before": 117,
+          "key": "function_size|consent-protocol/tests/test_prod_drive_deploy_contract.py|test_older_target_keeps_release_tooling_but_cannot_enable_drive|function exceeds the advisory gene budget",
+          "origin": "imported_delta_with_retained_branch_contracts",
+          "review": "Combines frozen-main environment-catalog retention behavior with existing commerce, immutable pod release and backend deploy helper retention. The expanded fixture executes the same older-target refusal contract and retains both owners' tooling.",
+          "source_sha256": "a550e57562a7b8b18c9255b3c58c5d4c1bd704228870bee73befc3202d0de6b9",
+          "source_spans": [
+            {
+              "end": 514,
+              "sha256": "908e12dbdcebfef6a3a3e76370aa5af0db1a201f8f31b9aa8f8131f6d78fe9b1",
+              "size": 127,
+              "start": 388
+            }
+          ]
+        },
+        {
+          "after": 112,
+          "before": 108,
+          "key": "function_size|consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py|_sanitize_merge_decision|function exceeds the advisory gene budget",
+          "origin": "exact_frozen_main_file",
+          "review": "Exact frozen-main Soul profile implementation: bounded 256-candidate reconciliation, exact offered-target validation, dedicated schema and fail-closed invalid Soul output. Retain the existing preparation service; this size admission does not authorize writes, deletions or sharing.",
+          "source_sha256": "081ca8d7a4b7c153fbde5963a37b81e9a4c7514d5d1fe530724ac13d8bd81e71",
+          "source_spans": [
+            {
+              "end": 3391,
+              "sha256": "7acbaa68fa6caf515314250a985c4092c76ebf1b3f7841c5a1aa900b1cfec57f",
+              "size": 112,
+              "start": 3280
+            }
+          ]
+        },
+        {
+          "after": 96,
+          "before": null,
+          "key": "function_size|scripts/runtime/test_run_backend_local_proxy_handoff.py|test_restarts_a_reused_proxy_that_disappears_before_backend_start|function exceeds the advisory gene budget",
+          "origin": "exact_frozen_main_file",
+          "review": "Exact frozen-main behavioral regression: a temporary loopback proxy disappears between preflight and backend startup; the launcher must replace it and complete preflight. Cohesive process-lifecycle fixture; no product authority change.",
+          "source_sha256": "9b74a5e385ad17bb1311086724ea91c961244b4b23e3b75e9a01624bf4c82ad2",
+          "source_spans": [
+            {
+              "end": 116,
+              "sha256": "b82e7f738fff694460e5643c150fa98095751a0bc399b5b92534cd9828144cd1",
+              "size": 96,
+              "start": 21
+            }
+          ]
+        },
+        {
+          "after": 91,
+          "before": null,
+          "key": "function_size|consent-protocol/tests/services/test_pkm_agent_lab_service.py|test_soul_profile_preserves_model_fact_and_exact_offered_target|function exceeds the advisory gene budget",
+          "origin": "exact_frozen_main_span_in_combined_file",
+          "review": "Imports Soul fact/section/target and no-op boundary regressions while retaining previously reviewed prompt-compression assertions. The 91-line Soul test itself is byte-identical to frozen main.",
+          "source_sha256": "fdbc04628c9cea903665dcffdb724a10fd009b88aa0a18bf51435a9610d376b3",
+          "source_spans": [
+            {
+              "end": 194,
+              "sha256": "11f2051bcec0449ebd4093bc018d1e48c5f3381b5596070f58caaa32e90b03a0",
+              "size": 91,
+              "start": 104
+            }
+          ]
+        },
+        {
+          "after": 83,
+          "before": null,
+          "key": "function_size|consent-protocol/hushh_mcp/one_adk/governed_mcp_toolset.py|get_tools|function exceeds the advisory gene budget",
+          "origin": "imported_delta_with_retained_branch_contracts",
+          "review": "Imports bounded owner/policy-keyed descriptor caching and retains five existing Stripe verification lines in get_tools. Both execution-time discoveries force refresh; current headers, epoch/schema checks, private approval/resume and early decline remain. Keeping the 83-line transaction together avoids a line-count-only extraction.",
+          "source_sha256": "ad59e82d044b5593e48f103b1349d2a797f011dd4dfd4aaef3abb4215ce4449d",
+          "source_spans": [
+            {
+              "end": 792,
+              "sha256": "10b51153ff41cbf3e78d7bdcad3e95f388c96fe9758e2e7ac0cb5dcf0ffa9496",
+              "size": 83,
+              "start": 710
+            }
+          ]
+        },
+        {
+          "after": 6245,
+          "before": 6213,
+          "key": "module_size|consent-protocol/tests/test_one_adk_agent_tree.py||module exceeds the advisory operon budget",
+          "origin": "imported_delta_with_retained_branch_contracts",
+          "review": "Adds typed-chat refusal of the legacy summary memory lane, a non-chat positive control, truthful device-handoff assertions and receipt routing expectations while retaining private runtime cases.",
+          "source_sha256": "6e1440364f371363d82e52c9cd39723b3b314bbdf129244b5fb650f4cf5c7d82",
+          "source_spans": [
+            {
+              "sha256": "6e1440364f371363d82e52c9cd39723b3b314bbdf129244b5fb650f4cf5c7d82",
+              "size": 6245
+            }
+          ]
+        },
+        {
+          "after": 6121,
+          "before": 6021,
+          "key": "module_size|consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py||module exceeds the advisory operon budget",
+          "origin": "exact_frozen_main_file",
+          "review": "Exact frozen-main Soul profile implementation: bounded 256-candidate reconciliation, exact offered-target validation, dedicated schema and fail-closed invalid Soul output. Retain the existing preparation service; this size admission does not authorize writes, deletions or sharing.",
+          "source_sha256": "081ca8d7a4b7c153fbde5963a37b81e9a4c7514d5d1fe530724ac13d8bd81e71",
+          "source_spans": [
+            {
+              "sha256": "081ca8d7a4b7c153fbde5963a37b81e9a4c7514d5d1fe530724ac13d8bd81e71",
+              "size": 6121
+            }
+          ]
+        },
+        {
+          "after": 5583,
+          "before": 5574,
+          "key": "module_size|consent-protocol/hushh_mcp/one_adk/action_tools.py||module exceeds the advisory operon budget",
+          "origin": "imported_delta_with_retained_branch_contracts",
+          "review": "Adds the typed-chat legacy-memory refusal and keeps pkm.add as a truthful saved=false device handoff. Existing private command/tool entrypoints and authority checks are retained.",
+          "source_sha256": "cb76edf8be0ad6bbef975a9a9db27c9564dd768e7edd3da999ec5d3a5877b283",
+          "source_spans": [
+            {
+              "sha256": "cb76edf8be0ad6bbef975a9a9db27c9564dd768e7edd3da999ec5d3a5877b283",
+              "size": 5583
+            }
+          ]
+        },
+        {
+          "after": 4865,
+          "before": 4857,
+          "key": "module_size|hushh-webapp/lib/services/personal-knowledge-model-service.ts||module exceeds the advisory operon budget",
+          "origin": "imported_delta_with_retained_branch_contracts",
+          "review": "Propagates idempotent replay through existing native/web result contracts, rejects malformed commit receipts and prevents replay from republishing stale decrypted state. Existing mayPublish authority fencing remains.",
+          "source_sha256": "961d32b9673bc617f269c4c271ec18e7042a3a2b032fb023ed826e798871035f",
+          "source_spans": [
+            {
+              "sha256": "961d32b9673bc617f269c4c271ec18e7042a3a2b032fb023ed826e798871035f",
+              "size": 4865
+            }
+          ]
+        },
+        {
+          "after": 3293,
+          "before": 3171,
+          "key": "module_size|consent-protocol/tests/services/test_pkm_agent_lab_service.py||module exceeds the advisory operon budget",
+          "origin": "imported_delta_with_retained_branch_contracts",
+          "review": "Imports Soul fact/section/target and no-op boundary regressions while retaining previously reviewed prompt-compression assertions. The 91-line Soul test itself is byte-identical to frozen main.",
+          "source_sha256": "fdbc04628c9cea903665dcffdb724a10fd009b88aa0a18bf51435a9610d376b3",
+          "source_spans": [
+            {
+              "sha256": "fdbc04628c9cea903665dcffdb724a10fd009b88aa0a18bf51435a9610d376b3",
+              "size": 3293
+            }
+          ]
+        },
+        {
+          "after": 2888,
+          "before": 2886,
+          "key": "module_size|hushh-webapp/components/agent/connectors-panel.tsx||module exceeds the advisory operon budget",
+          "origin": "imported_delta_with_retained_branch_contracts",
+          "review": "Imports explicit Gmail send-grant intent and additive scope handling while retaining private connector routing, owner generation and popup/native confirmation paths. A send OAuth grant remains separate from per-email action approval.",
+          "source_sha256": "5101d1688b752f0819fce4a8ad2c141abf53c020d4f716050e97c9d41d943b05",
+          "source_spans": [
+            {
+              "sha256": "5101d1688b752f0819fce4a8ad2c141abf53c020d4f716050e97c9d41d943b05",
+              "size": 2888
+            }
+          ]
+        },
+        {
+          "after": 2519,
+          "before": 2513,
+          "key": "module_size|hushh-webapp/lib/services/agent-chat-client.ts||module exceeds the advisory operon budget",
+          "origin": "imported_delta_with_retained_branch_contracts",
+          "review": "Admits only the exact existing local pkm.add action to the workspace executor when it is absent from the navigable action catalog. Retains ordinary generated-action validation and confirmation flags; no parallel action router.",
+          "source_sha256": "4973e09024439ace1208c0ce362e304fecc21be0eb044bcdb26cd9f6078a30d4",
+          "source_spans": [
+            {
+              "sha256": "4973e09024439ace1208c0ce362e304fecc21be0eb044bcdb26cd9f6078a30d4",
+              "size": 2519
+            }
+          ]
+        },
+        {
+          "after": 2225,
+          "before": 2190,
+          "key": "module_size|consent-protocol/tests/test_governed_mcp_toolset.py||module exceeds the advisory operon budget",
+          "origin": "imported_delta_with_retained_branch_contracts",
+          "review": "Adds descriptor reuse with a current-authority resolver assertion and updates schema-change coverage to force a live rediscovery. Retains prior private approval and Stripe negative cases.",
+          "source_sha256": "ce4cd2c7e099d2265509bd4fdcba4994b23e14e0415c0d66a420ccc64e9e9a34",
+          "source_spans": [
+            {
+              "sha256": "ce4cd2c7e099d2265509bd4fdcba4994b23e14e0415c0d66a420ccc64e9e9a34",
+              "size": 2225
+            }
+          ]
+        },
+        {
+          "after": 1907,
+          "before": 1868,
+          "key": "module_size|hushh-webapp/__tests__/services/agent-chat-client.test.ts||module exceeds the advisory operon budget",
+          "origin": "imported_delta_with_retained_branch_contracts",
+          "review": "Behavioral SSE/state-action regression verifies delivery of the exact local pkm.add directive without adding it to route navigation. Existing private chat cases remain.",
+          "source_sha256": "1eade141f130a43c395267a276c9cf0ce9af1a60d786977ffb33a39ad791f6eb",
+          "source_spans": [
+            {
+              "sha256": "1eade141f130a43c395267a276c9cf0ce9af1a60d786977ffb33a39ad791f6eb",
+              "size": 1907
+            }
+          ]
+        },
+        {
+          "after": 1676,
+          "before": 1648,
+          "key": "module_size|hushh-webapp/__tests__/components/connectors-panel.test.tsx||module exceeds the advisory operon budget",
+          "origin": "imported_delta_with_retained_branch_contracts",
+          "review": "Behavioral native Gmail first-connection test binds requested and completed send purpose while preserving existing private placement and owner-change coverage.",
+          "source_sha256": "9b79e303882d591c02b913f1ea710dc7fb7c79ff2b65ac6a3770483b36d803d5",
+          "source_spans": [
+            {
+              "sha256": "9b79e303882d591c02b913f1ea710dc7fb7c79ff2b65ac6a3770483b36d803d5",
+              "size": 1676
+            }
+          ]
+        },
+        {
+          "after": 1616,
+          "before": 1537,
+          "key": "module_size|hushh-webapp/__tests__/services/agent-pkm-memory.test.ts||module exceeds the advisory operon budget",
+          "origin": "imported_delta_with_retained_branch_contracts",
+          "review": "Combines Soul-only recall/unlock/privacy cases with private preparation routing and a full 256-candidate/overflow/general-limit boundary case. Does not duplicate a separate execution owner.",
+          "source_sha256": "71d073dc524e688cba6fffd1b6ab8d31a85746d48cea382f6bd2a105cd2f09be",
+          "source_spans": [
+            {
+              "sha256": "71d073dc524e688cba6fffd1b6ab8d31a85746d48cea382f6bd2a105cd2f09be",
+              "size": 1616
+            }
+          ]
+        },
+        {
+          "after": 1539,
+          "before": 1478,
+          "key": "module_size|consent-protocol/tests/test_one_external_read_boundary.py||module exceeds the advisory operon budget",
+          "origin": "imported_delta_with_retained_branch_contracts",
+          "review": "Adds a model-backed Drive-failure fallback test: answer from already authorized memory, advertise no subsequent tools, never claim fresh file evidence. Preserves the external-content action wall.",
+          "source_sha256": "2f0f10b95cf0d3a6433d2153ed5a49775c44896cc05709d490da4f8089b19262",
+          "source_spans": [
+            {
+              "sha256": "2f0f10b95cf0d3a6433d2153ed5a49775c44896cc05709d490da4f8089b19262",
+              "size": 1539
+            }
+          ]
+        },
+        {
+          "after": 1449,
+          "before": 1424,
+          "key": "module_size|hushh-webapp/__tests__/services/pkm-prepared-blob-store.test.ts||module exceeds the advisory operon budget",
+          "origin": "exact_frozen_main_file",
+          "review": "Exact frozen-main commit-receipt and replay publication regressions at the existing encrypted persistence boundary.",
+          "source_sha256": "d575021ec6a9c88f23e25334636b043030f75083e20e6076a60d995b4f58c4a8",
+          "source_spans": [
+            {
+              "sha256": "d575021ec6a9c88f23e25334636b043030f75083e20e6076a60d995b4f58c4a8",
+              "size": 1449
+            }
+          ]
+        },
+        {
+          "after": 1161,
+          "before": 1149,
+          "key": "module_size|consent-protocol/tests/test_agui_turn_timing.py||module exceeds the advisory operon budget",
+          "origin": "imported_delta_with_retained_branch_contracts",
+          "review": "Extends the existing turn timing contract with value-free encrypted-session phase metrics; keeps prior pod timing and cleanup assertions.",
+          "source_sha256": "deb4d0cd050ecd0d90aa55f583e2798452c439156e56ee369ae421c211cc8805",
+          "source_spans": [
+            {
+              "sha256": "deb4d0cd050ecd0d90aa55f583e2798452c439156e56ee369ae421c211cc8805",
+              "size": 1161
+            }
+          ]
+        },
+        {
+          "after": 1039,
+          "before": 1030,
+          "key": "module_size|hushh-webapp/lib/vault/vault-context.tsx||module exceeds the advisory operon budget",
+          "origin": "imported_delta_with_retained_branch_contracts",
+          "review": "Renews the existing Soul queue with the successor vault token and epoch, preserving owner readiness, token identity, expiry and beforeEffect checks. No key persistence or alternate vault owner.",
+          "source_sha256": "3c948001c39c4e0cb4222bc2a9b48afadd2f2033dc547d7477559aaa4688924e",
+          "source_spans": [
+            {
+              "sha256": "3c948001c39c4e0cb4222bc2a9b48afadd2f2033dc547d7477559aaa4688924e",
+              "size": 1039
+            }
+          ]
+        },
+        {
+          "after": 946,
+          "before": 870,
+          "key": "module_size|consent-protocol/hushh_mcp/one_adk/governed_mcp_toolset.py||module exceeds the advisory operon budget",
+          "origin": "imported_delta_with_retained_branch_contracts",
+          "review": "Imports bounded owner/policy-keyed descriptor caching and retains five existing Stripe verification lines in get_tools. Both execution-time discoveries force refresh; current headers, epoch/schema checks, private approval/resume and early decline remain. Keeping the 83-line transaction together avoids a line-count-only extraction.",
+          "source_sha256": "ad59e82d044b5593e48f103b1349d2a797f011dd4dfd4aaef3abb4215ce4449d",
+          "source_spans": [
+            {
+              "sha256": "ad59e82d044b5593e48f103b1349d2a797f011dd4dfd4aaef3abb4215ce4449d",
+              "size": 946
+            }
+          ]
+        },
+        {
+          "after": 920,
+          "before": 919,
+          "key": "module_size|consent-protocol/tests/test_registered_mcp_toolset.py||module exceeds the advisory operon budget",
+          "origin": "imported_delta_with_retained_branch_contracts",
+          "review": "One additional assertion proves registry definitions are listed once per owner-bound turn; the existing vault-only and revocation cases remain.",
+          "source_sha256": "fcfe20de472e10f7ff98ac11b09ee2a67f85d9c98a36e2a4b31bfffb75d929ec",
+          "source_spans": [
+            {
+              "sha256": "fcfe20de472e10f7ff98ac11b09ee2a67f85d9c98a36e2a4b31bfffb75d929ec",
+              "size": 920
+            }
+          ]
+        },
+        {
+          "after": 903,
+          "before": 850,
+          "key": "module_size|consent-protocol/hushh_mcp/one_adk/agui_turn_timing.py||module exceeds the advisory operon budget",
+          "origin": "imported_delta_with_retained_branch_contracts",
+          "review": "Imports metadata-only session read/decrypt/append/persistence timing into the existing turn context while retaining pod stream hooks and lifetime behavior.",
+          "source_sha256": "483222ff47f9aaf25b8cc668340cb5d9066b2a82fa88e101d63103d1c8fc24e3",
+          "source_spans": [
+            {
+              "sha256": "483222ff47f9aaf25b8cc668340cb5d9066b2a82fa88e101d63103d1c8fc24e3",
+              "size": 903
+            }
+          ]
+        },
+        {
+          "after": 902,
+          "before": 898,
+          "key": "module_size|hushh-webapp/lib/agent/agent-pkm-context-store.ts||module exceeds the advisory operon budget",
+          "origin": "exact_frozen_main_file",
+          "review": "Exact frozen-main context-store integration for Soul memory clearing and decrypted-session lifecycle; no separate persistence.",
+          "source_sha256": "512622b252a089ef6e79306853b617d6a294275a7a15b80ae37ed58ca9005e04",
+          "source_spans": [
+            {
+              "sha256": "512622b252a089ef6e79306853b617d6a294275a7a15b80ae37ed58ca9005e04",
+              "size": 902
+            }
+          ]
+        },
+        {
+          "after": 871,
+          "before": 867,
+          "key": "module_size|hushh-webapp/lib/personal-knowledge-model/manifest.ts||module exceeds the advisory operon budget",
+          "origin": "owned_privacy_compatibility_union",
+          "review": "Owned integration closes one_memory exposure: internal-only, no consumer projection, no externalizable paths or top-level consent scopes. Necessary privacy boundary within the canonical manifest owner.",
+          "source_sha256": "c0bc648e0a34c781b59eb5f07476c39f8accbac23131ccf1206b33f50569c8d6",
+          "source_spans": [
+            {
+              "sha256": "c0bc648e0a34c781b59eb5f07476c39f8accbac23131ccf1206b33f50569c8d6",
+              "size": 871
+            }
+          ]
+        },
+        {
+          "after": 831,
+          "before": null,
+          "key": "module_size|hushh-webapp/__tests__/lib/pkm/markdown-memory.test.ts||module exceeds the advisory operon budget",
+          "origin": "exact_frozen_main_file",
+          "review": "Exact frozen-main behavioral suite for encrypted Soul recovery, ordered replay, receipt checks, deletion/correction continuity, lock/renewal and CAS conflicts. Retain one cohesive existing owner suite.",
+          "source_sha256": "674c76ba27509beca41086bf865ee7728fb7f9cc39ed7c0544cea54dbb535df3",
+          "source_spans": [
+            {
+              "sha256": "674c76ba27509beca41086bf865ee7728fb7f9cc39ed7c0544cea54dbb535df3",
+              "size": 831
+            }
+          ]
+        },
+        {
+          "after": 812,
+          "before": null,
+          "key": "module_size|hushh-webapp/lib/pkm/markdown-memory.ts||module exceeds the advisory operon budget",
+          "origin": "exact_frozen_main_file",
+          "review": "Exact frozen-main Soul operon: encrypted device checkpoints, bounded ordered retries, commit-receipt lookup, owner/vault generation checks and canonical PKM CAS writes. Admit imported module debt explicitly; no key persistence or second authoritative PKM store.",
+          "source_sha256": "766810956b6a1abd60045c9a15de085de4a1f041c750e56c2905e9b79dab7217",
+          "source_spans": [
+            {
+              "sha256": "766810956b6a1abd60045c9a15de085de4a1f041c750e56c2905e9b79dab7217",
+              "size": 812
+            }
+          ]
+        },
+        {
+          "after": 807,
+          "before": 800,
+          "key": "module_size|consent-protocol/hushh_mcp/services/domain_contracts.py||module exceeds the advisory operon budget",
+          "origin": "owned_privacy_compatibility_union",
+          "review": "Owned integration denies wildcard requests, requestable scopes and public projection for one_memory in the canonical sharing policy registry.",
+          "source_sha256": "9a513e19ba79e4e06395f803377dcf2555e3d10bf313d87658bc8d3577ed1818",
+          "source_spans": [
+            {
+              "sha256": "9a513e19ba79e4e06395f803377dcf2555e3d10bf313d87658bc8d3577ed1818",
+              "size": 807
+            }
+          ]
+        },
+        {
+          "after": 789,
+          "before": 732,
+          "key": "module_size|consent-protocol/tests/test_encrypted_adk_session_service.py||module exceeds the advisory operon budget",
+          "origin": "imported_delta_with_retained_branch_contracts",
+          "review": "Adds shared asyncpg telemetry/transient retry regression while retaining injected pod repository, ciphertext isolation, revocation, stale-writer and concurrent recovery tests.",
+          "source_sha256": "2d016f5787ae3a5249e42c8418519315abda8e7414d938fc880d220c19e2f54f",
+          "source_spans": [
+            {
+              "sha256": "2d016f5787ae3a5249e42c8418519315abda8e7414d938fc880d220c19e2f54f",
+              "size": 789
+            }
+          ]
+        },
+        {
+          "after": 787,
+          "before": 785,
+          "key": "module_size|hushh-webapp/lib/services/pkm-write-coordinator.ts||module exceeds the advisory operon budget",
+          "origin": "exact_frozen_main_file",
+          "review": "Exact frozen-main idempotent-replay propagation through the existing CAS write coordinator; no new write authority.",
+          "source_sha256": "4abd2981198427f0ca2e4a84a70ff0304775ec4df92edd8bea6958576c3cd627",
+          "source_spans": [
+            {
+              "sha256": "4abd2981198427f0ca2e4a84a70ff0304775ec4df92edd8bea6958576c3cd627",
+              "size": 787
+            }
+          ]
+        },
+        {
+          "after": 775,
+          "before": 755,
+          "key": "module_size|consent-protocol/tests/test_chat_history_byok.py||module exceeds the advisory operon budget",
+          "origin": "imported_delta_with_retained_branch_contracts",
+          "review": "Adds exact owner-bound thread lookup with a negative assertion against history scanning; existing BYOK history and private session tests remain.",
+          "source_sha256": "cff21c55e19dc42ca0740da0181b9d544f32c7b3cb3ed34897ece105a8948d7d",
+          "source_spans": [
+            {
+              "sha256": "cff21c55e19dc42ca0740da0181b9d544f32c7b3cb3ed34897ece105a8948d7d",
+              "size": 775
+            }
+          ]
+        },
+        {
+          "after": 774,
+          "before": 773,
+          "key": "module_size|hushh-webapp/lib/profile/pkm-profile-presentation.ts||module exceeds the advisory operon budget",
+          "origin": "owned_privacy_compatibility_union",
+          "review": "Owned integration adds one_memory to the canonical hidden-domain set, preventing encrypted private-agent memory from becoming an ordinary profile projection.",
+          "source_sha256": "0b2d175770dae1b1262c6e751895d47d373ee02accb28f4d62888d0eaa0060b7",
+          "source_spans": [
+            {
+              "sha256": "0b2d175770dae1b1262c6e751895d47d373ee02accb28f4d62888d0eaa0060b7",
+              "size": 774
+            }
+          ]
+        },
+        {
+          "after": 719,
+          "before": 717,
+          "key": "module_size|hushh-webapp/lib/capacitor/plugins/personal-knowledge-model-web.ts||module exceeds the advisory operon budget",
+          "origin": "exact_frozen_main_file",
+          "review": "Exact frozen-main native/web compatibility forwarding for idempotent replay, preserving the existing encrypted plugin contract.",
+          "source_sha256": "9890c49cf64048125239cbb72966b8c7cc12186d821212630d68fe91c4b0740c",
+          "source_spans": [
+            {
+              "sha256": "9890c49cf64048125239cbb72966b8c7cc12186d821212630d68fe91c4b0740c",
+              "size": 719
+            }
+          ]
+        },
+        {
+          "after": 632,
+          "before": 528,
+          "key": "module_size|consent-protocol/hushh_mcp/one_adk/encrypted_session_service.py||module exceeds the advisory operon budget",
+          "origin": "imported_delta_with_retained_branch_contracts",
+          "review": "Imported asyncpg execution and value-free timing are composed behind the existing shared Postgres adapter. Pod-mode refusal, repository injection and every repository operation remain intact. Retain the compatibility facade and authority-local CAS logic.",
+          "source_sha256": "a9fef94855b04f96de92647b9d182bbee02f66f1a5d9910a0545d5240e95e1bb",
+          "source_spans": [
+            {
+              "sha256": "a9fef94855b04f96de92647b9d182bbee02f66f1a5d9910a0545d5240e95e1bb",
+              "size": 632
+            }
+          ]
+        },
+        {
+          "after": 629,
+          "before": 614,
+          "key": "module_size|hushh-webapp/lib/services/secure-resource-cache-service.ts||module exceeds the advisory operon budget",
+          "origin": "imported_delta_with_retained_branch_contracts",
+          "review": "Imports owner-keyed encrypted checkpoint discovery and required invalidation into the existing cache owner while retaining private cache extensions. IndexedDB open/delete errors propagate; no ciphertext decryption or credentials in discovery results.",
+          "source_sha256": "a9302406885454e2208e0ef6e01488840861b267dc7db06746ccceabf0e49973",
+          "source_spans": [
+            {
+              "sha256": "a9302406885454e2208e0ef6e01488840861b267dc7db06746ccceabf0e49973",
+              "size": 629
+            }
+          ]
+        },
+        {
+          "after": 541,
+          "before": 504,
+          "key": "module_size|hushh-webapp/e2e/agent-markdown.layout.spec.ts||module exceeds the advisory operon budget",
+          "origin": "exact_frozen_main_file",
+          "review": "Exact frozen-main browser coverage for Markdown rendering/layout under the existing surface contract; no product authority change.",
+          "source_sha256": "9ea380c81bd11a188e61d8099e6c33d1445d12f370ff40d2c69a5f4d93c9a20e",
+          "source_spans": [
+            {
+              "sha256": "9ea380c81bd11a188e61d8099e6c33d1445d12f370ff40d2c69a5f4d93c9a20e",
+              "size": 541
+            }
+          ]
+        },
+        {
+          "after": 536,
+          "before": 503,
+          "key": "module_size|consent-protocol/tests/one_voice/test_relay_external_content_isolation.py||module exceeds the advisory operon budget",
+          "origin": "exact_frozen_main_file",
+          "review": "Exact frozen-main compatibility update to the relay external-content isolation regression. Retains refusal/no-action evidence while accommodating the revised content wrapper.",
+          "source_sha256": "ef6c53a8201bb668daee92ecb0e4cfa0214ca5c290974cdc49f0a295ef1aad84",
+          "source_spans": [
+            {
+              "sha256": "ef6c53a8201bb668daee92ecb0e4cfa0214ca5c290974cdc49f0a295ef1aad84",
+              "size": 536
+            }
+          ]
+        },
+        {
+          "after": 514,
+          "before": null,
+          "key": "module_size|consent-protocol/tests/test_prod_drive_deploy_contract.py||module exceeds the advisory operon budget",
+          "origin": "imported_delta_with_retained_branch_contracts",
+          "review": "Combines frozen-main environment-catalog retention behavior with existing commerce, immutable pod release and backend deploy helper retention. The expanded fixture executes the same older-target refusal contract and retains both owners' tooling.",
+          "source_sha256": "a550e57562a7b8b18c9255b3c58c5d4c1bd704228870bee73befc3202d0de6b9",
+          "source_spans": [
+            {
+              "sha256": "a550e57562a7b8b18c9255b3c58c5d4c1bd704228870bee73befc3202d0de6b9",
+              "size": 514
+            }
+          ]
+        }
+      ],
+      "incoming_main": "2460f8524fd88b42746b8e04ffb669d554d73c04",
+      "prior_candidate": "656e666310b5d2d2781f70372d142080d130a9a7",
+      "review": "Independent source review admits only 38 exact size-ceiling changes and six new measured keys from frozen main and the retained privacy/compatibility union. Main has no ratchet baseline. No lost baseline entries, authority defect, dependency-direction, import-initialization or parse regressions were found. Existing 500/250/80 budgets, scanner, exclusions, unrelated finding multiplicities and future-growth enforcement remain unchanged. This is measured debt admission, not test or live acceptance.",
+      "review_evidence_sha256": "c2aafb4f9484c0bdffb8ff3b4126c8a7fac6f4831f7dc84299232d555ab2f3e7",
+      "reviewer": "adk_authority_review",
+      "source_revision": "fb65eb76f37cb1e78fe09e3e5090ef4b0211bb24",
+      "verification": "Source/file/span hashes and individual rationales verified; owning focused privacy/deploy checks passed. Final canonical core and hosted CI remain required."
     }
   },
   "review": {
