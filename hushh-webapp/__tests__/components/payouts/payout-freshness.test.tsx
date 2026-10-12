@@ -19,7 +19,7 @@ import { PayoutFreshness } from "@/components/consent/payouts/payout-freshness";
 import { PAYOUT_KINDS } from "@/lib/payouts/payout-events";
 import { resetIdleSchedulerForTests } from "@/lib/perf/idle-scheduler";
 
-const NOW = Date.UTC(2026, 9, 11, 10);
+let NOW = Date.UTC(2026, 9, 11, 10);
 const line = () => screen.getByTestId("payout-freshness");
 const announced = () => screen.getByRole("status");
 const show = (freshness: Partial<Freshness>) => { state.freshness = { ...state.freshness, ...freshness }; };
@@ -28,6 +28,9 @@ const advance = (ms: number) => act(async () => { await vi.advanceTimersByTimeAs
 describe("payout freshness line", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    // The shared coarse clock retains its snapshot between mounts. Keep test
+    // time moving forward so a tick cannot equal a previous test's snapshot.
+    NOW += 24 * 60 * 60_000;
     vi.setSystemTime(NOW);
     state.freshness = { lastSuccessAt: null, refreshing: false, failures: 0, online: true, stream: "polling" };
     state.invalidate.mockReset();
