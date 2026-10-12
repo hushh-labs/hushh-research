@@ -680,7 +680,7 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
                 headline={draft.headline || card?.headline || ""}
                 organisation={draft.organisation}
                 locationLabel={draft.locationLabel}
-                shareUrl={shareLink?.shareUrl ?? null}
+                shareUrl={card?.status === "active" ? shareLink?.shareUrl ?? null : null}
               />
             </div>
           </SettingsGroup>
@@ -691,7 +691,7 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
           >
             <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
               {visitorPreview.status === "ready" ? (
-                <PublicWalletCardView card={visitorPreview.card} embedded />
+                <PublicWalletCardView card={visitorPreview.card} embedded profileUrl={card?.status === "active" ? shareLink?.shareUrl ?? null : null} />
               ) : visitorPreview.status === "error" ? (
                 <div className="space-y-3 text-sm text-muted-foreground">
                   <p>{visitorPreview.message}</p>
