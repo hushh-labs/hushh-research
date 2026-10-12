@@ -1,3 +1,4 @@
+import { MoonIcon } from "../../components/icons";
 import { FeedRow } from "../../components/feed/feed-row";
 import { presentFeedItem } from "../../lib/feed/feed-item-renderers";
 import { appendFeedPage, createFeedPaginationState, reconcileFeedFirstPage } from "../../lib/feed/feed-pagination";
@@ -58,7 +59,8 @@ function Lane() {
   const dark = document.documentElement.classList.contains("dark");
   return <div className={peopleStyles.page} data-direct-message-page style={{ display: "block" }} data-theme={dark ? "dark" : "light"}>
     <div className="flex h-dvh min-h-0 flex-col">
-      <div className="min-h-0 flex-1"><CircleMessagesPane initialCircleId={new URLSearchParams(location.search).has("list") ? null : "circle"} theme={dark ? "dark" : "light"} /></div>
+      <div className="min-h-0 flex-1"><CircleMessagesPane initialCircleId={new URLSearchParams(location.search).has("list") ? null : "circle"} theme={dark ? "dark" : "light"}
+        headerActions={<button type="button" className={peopleStyles.refreshButton} aria-label="Switch theme"><MoonIcon className="size-5" aria-hidden="true" /></button>} /></div>
       <div ref={dock?.setHost} className="shrink-0 rounded-full bg-background" />
     </div>
   </div>;

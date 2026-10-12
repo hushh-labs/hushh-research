@@ -61,6 +61,19 @@ afterEach(() => {
 });
 
 describe("SosPanel", () => {
+  it("explains missing sharing setup separately from unconfirmed verification and missing roster entries", () => {
+    render(<SosPanel {...baseProps} contactCount={4} isRecipientShareReady={isSosShareReadyRecipient} recipients={[
+      recipient({ userId: "ready", displayName: "Ready contact", keyId: "key", publicKeyJwk: { kty: "EC" } }),
+      recipient({ userId: "key-missing", displayName: "Key missing", canReceiveLocation: false }),
+      recipient({ userId: "verification-missing", displayName: "Verification missing", phoneVerified: false }),
+    ]} />);
+    expect(screen.getByText("1 of 4 contacts ready.")).toBeInTheDocument();
+    expect(screen.getByText("Key missing: Open One Location to finish secure sharing setup.")).toBeInTheDocument();
+    expect(screen.getByText("Verification missing: Account verification could not be confirmed. Reopen One and try again.")).toBeInTheDocument();
+    expect(screen.getByText("1 contact could not be checked. Reopen Save My Soul to refresh your circle.")).toBeInTheDocument();
+    expect(screen.queryByText(/Ready contact:/)).toBeNull();
+  });
+
   it("keeps Stop available if the circle becomes empty during an active alert", () => {
     render(<SosPanel {...baseProps} active recipients={[]} />);
     expect(screen.getByRole("button", { name: "Stop Save My Soul alert" })).toBeEnabled();

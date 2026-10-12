@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CircleMessagesPane } from "@/components/connect/circles/circle-messages-pane";
@@ -91,4 +91,43 @@ describe("CircleMessagesPane saved selection", () => {
     expect(parseLastMessagesSelection(readLastMessagesSelection("viewer")))
       .toEqual({ lane: "circles", circleId: null });
   });
+  it("filters names without ending the selected chat and refreshes membership", async () => {
+    mocks.listCircles.mockResolvedValue([circle("room"), circle("family")]);
+    render(<CircleMessagesPane active initialCircleId="room" />);
+    expect(await screen.findByTestId("circle-chat")).toHaveTextContent("room");
+    const search = screen.getByRole("searchbox", { name: "Search circles" });
+    fireEvent.change(search, { target: { value: " FAMILY " } });
+    expect(screen.queryByRole("button", { name: "room 2 members" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "family 2 members" })).toBeInTheDocument();
+    expect(mocks.startChat).toHaveBeenCalledTimes(1);
+    expect(mocks.stopChat).not.toHaveBeenCalled();
+    expect(mocks.listCircles).toHaveBeenCalledTimes(1);
+    fireEvent.change(search, { target: { value: "missing" } });
+    expect(screen.getByText("No matching circles")).toBeInTheDocument();
+    fireEvent.change(search, { target: { value: "" } });
+    expect(screen.getByRole("button", { name: "room 2 members" })).toBeInTheDocument();
+    mocks.listCircles.mockResolvedValue([circle("family")]);
+    fireEvent.click(screen.getByRole("button", { name: "Refresh circles" }));
+    await waitFor(() => expect(mocks.listCircles).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByTestId("circle-chat")).not.toBeInTheDocument());
+    expect(mocks.listCircles).toHaveBeenLastCalledWith("vault-token");
+    expect(mocks.stopChat).toHaveBeenCalledWith("room");
+  });
+
+  it("does not restore stale membership when overlapping refreshes finish out of order", async () => {
+    let finishOlder!: (items: ReturnType<typeof circle>[]) => void;
+    mocks.listCircles.mockResolvedValueOnce([circle("room")])
+      .mockImplementationOnce(() => new Promise(resolve => { finishOlder = resolve; }))
+      .mockResolvedValueOnce([circle("family")]);
+    render(<CircleMessagesPane active />);
+    expect(await screen.findByRole("button", { name: "room 2 members" })).toBeInTheDocument();
+    fireEvent(window, new Event("focus"));
+    fireEvent(window, new Event("focus"));
+    expect(await screen.findByRole("button", { name: "family 2 members" })).toBeInTheDocument();
+    await act(async () => { finishOlder([circle("room")]); });
+    // An unguarded older response would replace the newer membership here.
+    expect(screen.queryByRole("button", { name: "room 2 members" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "family 2 members" })).toBeInTheDocument();
+  });
+
 });

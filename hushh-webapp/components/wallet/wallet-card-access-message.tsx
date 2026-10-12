@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
-import { SettingsDetailPanel, SettingsGroup, SettingsRow, SettingsPresentationProvider } from "@/components/profile/settings-ui";
-import { ProfilePaneCardIcon, ProfilePaneCalendarIcon, ProfilePaneCardNetworkIcon, ProfilePaneGlobeIcon } from "@/components/profile/profile-pane-icons";
+import { SettingsDetailPanel, SettingsPresentationProvider } from "@/components/profile/settings-ui";
+import { WalletCardFace } from "@/components/wallet/wallet-card-face";
+import type { WalletCardSummary } from "@/lib/services/wallet-service";
 import profileStyles from "@/components/profile/profile-your-account.module.css";
 import { WalletCardAccessService, type CardAccessView } from "@/lib/services/wallet-card-access-service";
 import { AuthService } from "@/lib/services/auth-service";
@@ -21,12 +22,20 @@ export function WalletCardAccessMessage({ grantId, senderIsViewer = false }: { g
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [remaining, setRemaining] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0);
   const epoch = useRef(0);
+  const verifying = useRef(false);
   const view = result && result.owner === user?.uid && result.grant === grantId ? result : null;
   const close = () => { epoch.current += 1; setOpen(false); setResult(null); setBusy(false); setFailed(false); };
   useEffect(() => { epoch.current += 1; setResult(null); setOpen(false); setBusy(false); }, [user?.uid, grantId]);
   useEffect(() => {
-    const hide = () => { if (document.visibilityState === "hidden") close(); };
+    const hide = () => {
+      if (document.visibilityState !== "hidden") return;
+      // Authentication may background this tab. Clear card contents immediately,
+      // but keep the pending identity operation valid until it returns.
+      if (verifying.current) setResult(null);
+      else close();
+    };
     document.addEventListener("visibilitychange", hide);
     window.addEventListener("pagehide", close);
     return () => { epoch.current += 1; document.removeEventListener("visibilitychange", hide); window.removeEventListener("pagehide", close); };
@@ -38,7 +47,7 @@ export function WalletCardAccessMessage({ grantId, senderIsViewer = false }: { g
     const current = () => !cancelled && currentEpoch === epoch.current && document.visibilityState !== "hidden";
     let pending = false;
     const refresh = async () => {
-      if (pending || !current()) return;
+      if (pending || verifying.current || !current()) return;
       pending = true;
       const started = performance.now();
       try {
@@ -56,7 +65,7 @@ export function WalletCardAccessMessage({ grantId, senderIsViewer = false }: { g
     void refresh();
     const timer = window.setInterval(() => void refresh(), 2000);
     return () => { cancelled = true; window.clearInterval(timer); };
-  }, [open, user, grantId, senderIsViewer, nativeViewerUnavailable]);
+  }, [open, user, grantId, senderIsViewer, nativeViewerUnavailable, refreshKey]);
   useEffect(() => {
     if (!view || view.data.status !== "active") return;
     const tick = () => {
@@ -70,16 +79,21 @@ export function WalletCardAccessMessage({ grantId, senderIsViewer = false }: { g
   }, [view]);
   const verify = async () => {
     if (!user || busy) return;
-    const currentEpoch = epoch.current;
+    const currentEpoch = ++epoch.current;
     const isCurrent = () => currentEpoch === epoch.current;
     setBusy(true);
+    verifying.current = true;
     try {
       const provider = user.providerData.some(value => value.providerId === "google.com") ? "google.com" : "apple.com";
       const token = await AuthService.reauthenticateIdentity(user.uid, provider, isCurrent);
       if (!isCurrent()) return;
       await WalletCardAccessService.verify(token, grantId);
+      if (!isCurrent()) return;
+      setFailed(false);
+      // Polling re-fetches the authorized card only after the tab is visible.
+
     } catch { if (isCurrent()) setFailed(true); }
-    finally { if (isCurrent()) setBusy(false); }
+    finally { verifying.current = false; if (isCurrent()) { setBusy(false); setRefreshKey(value => value + 1); } }
   };
   const card = open && remaining > 0 && view?.data.status === "active" ? view.data.card : undefined;
   return <div className="space-y-2 print:hidden">
@@ -94,12 +108,18 @@ export function WalletCardAccessMessage({ grantId, senderIsViewer = false }: { g
           {view?.data.status === "expired" || view?.data.status === "revoked" ? <p role="status">This access has ended.</p> : null}
           {card ? <>
             <p className="text-xs">{view?.data.senderName} shared this card. {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, "0")} remaining.</p>
-            <SettingsGroup title="Card details">
-              <SettingsRow icon={ProfilePaneCardIcon} iconTone="transparent" title="Card number" trailing={`•••• ${card.last4}`} />
-              <SettingsRow icon={ProfilePaneCardNetworkIcon} iconTone="transparent" title="Card network" trailing={card.brand} />
-              <SettingsRow icon={ProfilePaneCalendarIcon} iconTone="transparent" title="Expiry" trailing={`${String(card.expiryMonth).padStart(2, "0")}/${String(card.expiryYear).slice(-2)}`} />
-              <SettingsRow icon={ProfilePaneGlobeIcon} iconTone="transparent" title="Issuing region" trailing={card.issuingRegion || "Not provided"} />
-            </SettingsGroup>
+            <div className="mx-auto mt-4 w-full max-w-md">
+              <WalletCardFace summary={{
+                cardId: grantId,
+                nickname: "Shared card",
+                brand: card.brand as WalletCardSummary["brand"],
+                last4: card.last4,
+                expiryMonth: card.expiryMonth,
+                expiryYear: card.expiryYear,
+                issuingRegion: card.issuingRegion,
+                createdAt: "",
+              }} />
+            </div>
           </> : null}
         </div>
       </SettingsPresentationProvider>
