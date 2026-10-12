@@ -77,8 +77,6 @@ type Snapshot = {
   /** The requester's own terms; absent for the owner and for requests without them. */
   context?: SharingRequestContext | null;
 };
-/** The owner's review carries the estimate the requester saw, on newer servers. */
-type ReviewWithEstimate = SharingReview & { estimateCents?: number | null };
 type SessionGuard = () => void;
 /** What the sheet is doing right now; "idle" means only background polls. */
 type Activity =
@@ -1304,7 +1302,7 @@ function UnlockedDocumentReview({
           periodStart={review.purpose.periodStart}
           periodEnd={review.purpose.periodEnd}
           paymentRequired={review.paymentRequired === true}
-          estimateCents={(review as ReviewWithEstimate).estimateCents ?? null}
+          estimateCents={review.estimateCents ?? null}
           initialAmountCents={review.priceCents ?? null}
           priceOnly={priceOnly}
           busy={activity === "allowing"}

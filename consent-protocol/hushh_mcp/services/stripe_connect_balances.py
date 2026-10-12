@@ -345,6 +345,11 @@ _UPSERT_TRANSACTION = """INSERT INTO stripe_connect_balance_transactions AS t
 _ACCOUNT_OWNER = """SELECT user_id FROM stripe_owner_payout_accounts
   WHERE stripe_account_id=:account AND stripe_mode=:mode LIMIT 1"""
 
+# Backstop for deposits the webhook did not queue. Every write that makes a
+# deposit ready (automatic=false, or reconciliation completed/not_applicable)
+# moves its updated_at, so only the last 7 days are read, on the partial index
+# stripe_connect_bank_payouts_reconcile_recent (317). The cost follows recent
+# deposit changes, not every deposit ever. now() (stable) keeps the index bound.
 _DISCOVER_RECONCILIATIONS = """INSERT INTO stripe_connect_payout_reconciliations
   (stripe_payout_id,stripe_account_id,status,completed_at)
   SELECT b.stripe_payout_id,b.stripe_account_id,
@@ -356,6 +361,7 @@ _DISCOVER_RECONCILIATIONS = """INSERT INTO stripe_connect_payout_reconciliations
   JOIN stripe_owner_payout_accounts a
     ON a.stripe_account_id=b.stripe_account_id AND a.stripe_mode=:mode
   WHERE b.livemode=:livemode
+    AND b.updated_at>=now()-interval '7 days'
     AND (b.automatic IS FALSE OR b.reconciliation_status IN ('completed','not_applicable'))
     AND NOT EXISTS (SELECT 1 FROM stripe_connect_payout_reconciliations r
       WHERE r.stripe_payout_id=b.stripe_payout_id)

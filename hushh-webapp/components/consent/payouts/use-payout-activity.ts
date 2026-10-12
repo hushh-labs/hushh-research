@@ -11,7 +11,7 @@ import {
   type PagedHistoryOrder,
 } from "@/lib/payouts/paged-history";
 import { payoutChangeTouches, subscribePayoutStateChanged, type PayoutKind } from "@/lib/payouts/payout-events";
-import { usePayoutFreshness } from "@/lib/payouts/payout-live-store";
+import { PAYOUT_COALESCE_MS, usePayoutFreshness } from "@/lib/payouts/payout-live-store";
 import { usePeriodicTask } from "@/lib/perf/use-periodic-task";
 import {
   PayoutActivityService,
@@ -27,6 +27,12 @@ import { useVault } from "@/lib/vault/vault-context";
 export const ACTIVITY_CHANGE_KINDS: readonly PayoutKind[] = ["wallet", "earnings", "bank_payouts"];
 /** Fallback read while the live stream is not delivering payout changes. */
 export const ACTIVITY_REFRESH_MS = 45_000;
+/**
+ * A fallback read skips a read started this recently. One return to the page
+ * wakes the idle clock twice (visibilitychange and focus), and both wakes can
+ * run the same due task.
+ */
+export const ACTIVITY_POLL_GAP_MS = 1_000;
 
 export const ACTIVITY_ORDER: PagedHistoryOrder<PayoutActivityItem> = {
   id: (item) => item.id,
@@ -41,13 +47,18 @@ type ActivityState = {
   balanceCoins: number | null;
   /** Every loaded row is known to be current as of this server time. */
   syncedAt: string | null;
+  /** When the first page last read successfully (client clock), for "Updated 3m ago". */
+  lastSuccessAt: number | null;
   failed: boolean;
   error: unknown;
   more: { cursor: string; busy: boolean; failed: boolean } | null;
 };
 
 function initialState(key: string): ActivityState {
-  return { key, history: createPagedHistory(), balanceCoins: null, syncedAt: null, failed: false, error: null, more: null };
+  return {
+    key, history: createPagedHistory(), balanceCoins: null, syncedAt: null, lastSuccessAt: null,
+    failed: false, error: null, more: null,
+  };
 }
 
 function earlier(a: string | null, b: string): string {
@@ -63,8 +74,10 @@ export type PayoutActivityView = {
   initialized: boolean;
   balanceCoins: number | null;
   loading: boolean;
+  /** The latest read failed. With `initialized`, the rows shown are from `lastSuccessAt`. */
   failed: boolean;
   error: unknown;
+  lastSuccessAt: number | null;
   hasMore: boolean;
   loadingMore: boolean;
   moreFailed: boolean;
@@ -80,6 +93,9 @@ export type PayoutActivityView = {
  * already in flight is never cancelled; it is dropped only if the refresh
  * found a gap that must be read first. With `syncTail`, rows below the first
  * page are updated through `since=` so an older row's new state shows too.
+ * Payout events inside the store's coalescing window share one read, and an
+ * inactive instance (e.g. the card under View all) reads nothing until it is
+ * active again.
  */
 export function usePayoutActivity({ kind, mode, pageSize, active = true, syncTail = false }: {
   kind: PayoutActivityQueryKind;
@@ -96,7 +112,7 @@ export function usePayoutActivity({ kind, mode, pageSize, active = true, syncTai
   const liveKey = useRef<string | null>(null);
   const latest = useRef(view);
   const moreInFlight = useRef<string | null>(null);
-  const refreshNow = useRef<(() => void) | null>(null);
+  const pollNow = useRef<(() => void) | null>(null);
   const taskId = `payout-activity:${useId()}`;
   const { stream } = usePayoutFreshness();
 
@@ -114,11 +130,14 @@ export function usePayoutActivity({ kind, mode, pageSize, active = true, syncTai
     let cancelled = false;
     let pending = false;
     let queued = false;
+    let startedAt = Number.NEGATIVE_INFINITY;
+    let coalesce: ReturnType<typeof setTimeout> | null = null;
     const current = () => !cancelled && isVaultSessionEpochCurrent(epoch);
     const refresh = async () => {
       if (!current()) return;
       if (pending) { queued = true; return; }
       pending = true;
+      startedAt = Date.now();
       try {
         const known = latest.current.key === key ? latest.current : initialState(key);
         const since = syncTail && hasTail(known.history) ? known.syncedAt : null;
@@ -136,7 +155,9 @@ export function usePayoutActivity({ kind, mode, pageSize, active = true, syncTai
           if (synced) history = upsertItems(history, changes.items, ACTIVITY_ORDER);
           const syncedAt = synced ? earlier(head.asOf, changes.asOf)
             : hasTail(base.history) ? base.syncedAt : head.asOf;
-          return { ...base, history, balanceCoins: head.balanceCoins, syncedAt, failed: false, error: null };
+          return {
+            ...base, history, balanceCoins: head.balanceCoins, syncedAt, lastSuccessAt: Date.now(), failed: false, error: null,
+          };
         });
       } catch (error) {
         if (current()) {
@@ -147,20 +168,29 @@ export function usePayoutActivity({ kind, mode, pageSize, active = true, syncTai
         if (queued && current()) { queued = false; void refresh(); }
       }
     };
-    refreshNow.current = () => { void refresh(); };
+    // A read in flight or just started is fresh enough for a fallback read.
+    pollNow.current = () => {
+      if (!pending && Date.now() - startedAt >= ACTIVITY_POLL_GAP_MS) void refresh();
+    };
     void refresh();
     const unsubscribe = subscribePayoutStateChanged((detail) => {
-      if (payoutChangeTouches(detail, ACTIVITY_CHANGE_KINDS)) void refresh();
+      if (!payoutChangeTouches(detail, ACTIVITY_CHANGE_KINDS) || coalesce !== null) return;
+      // A burst of payout frames shares one read, like the store's resources.
+      coalesce = setTimeout(() => {
+        coalesce = null;
+        void refresh();
+      }, PAYOUT_COALESCE_MS);
     });
     return () => {
       cancelled = true;
-      refreshNow.current = null;
+      if (coalesce !== null) clearTimeout(coalesce);
+      pollNow.current = null;
       unsubscribe();
     };
   }, [active, token, key, kind, mode, pageSize, syncTail, attempt]);
 
   // The idle clock runs this only while the page is visible, and on return.
-  usePeriodicTask(taskId, ACTIVITY_REFRESH_MS, () => refreshNow.current?.(), {
+  usePeriodicTask(taskId, ACTIVITY_REFRESH_MS, () => pollNow.current?.(), {
     enabled: active && Boolean(token) && stream !== "live",
   });
 
@@ -199,6 +229,7 @@ export function usePayoutActivity({ kind, mode, pageSize, active = true, syncTai
     loading: active && Boolean(token) && !view.history.initialized && !view.failed,
     failed: view.failed,
     error: view.error,
+    lastSuccessAt: view.lastSuccessAt,
     hasMore: view.history.nextCursor !== null,
     loadingMore: Boolean(view.more?.busy),
     moreFailed: Boolean(view.more?.failed && view.more.cursor === view.history.nextCursor),

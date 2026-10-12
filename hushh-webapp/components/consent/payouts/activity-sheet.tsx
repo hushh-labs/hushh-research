@@ -9,11 +9,13 @@ import { ProfileSecondaryReceiptIcon } from "@/components/profile/profile-second
 import { ProfileAccountBankIcon, ProfileAccountWalletIcon } from "@/components/profile/profile-your-account-icons";
 import accountStyles from "@/components/profile/profile-your-account.module.css";
 import { Button } from "@/lib/morphy-ux/button";
+import { useCoarseClock } from "@/lib/perf/use-periodic-task";
 import type { PayoutActivityItem, PayoutActivityKind } from "@/lib/services/payout-activity-service";
 import { useVault } from "@/lib/vault/vault-context";
 
 import type { PayoutActivityFilter } from "./activity-card";
 import { PayoutActivityFilterMenu } from "./activity-filter";
+import { payoutUpdatedLabel } from "./payout-freshness";
 import { activityAmount, activityDescription, activityTitle } from "./receipts/activity-copy";
 import { PayoutReceiptSheet } from "./receipts/payout-receipt-sheet";
 import { useOpenerFocus } from "./receipts/receipt-ui";
@@ -52,6 +54,23 @@ export function PayoutActivityRows({ items, showBalance = false, onOpen }: {
         );
       })}
     </>
+  );
+}
+
+/**
+ * A refresh failed after rows were shown: they stay, with their age and a
+ * Retry, so an old state never reads as current.
+ */
+export function PayoutActivityRefreshFailedRow({ lastSuccessAt, onRetry }: {
+  lastSuccessAt: number | null;
+  onRetry: () => void;
+}) {
+  // The shared 30 s idle clock only re-renders the age; the age is read now.
+  useCoarseClock(30_000);
+  return (
+    <SettingsRow title="Couldn't update" onClick={onRetry}
+      description={lastSuccessAt === null ? undefined : payoutUpdatedLabel(lastSuccessAt, Date.now())}
+      trailing={<span className="profile-account-inline-action">Retry</span>} />
   );
 }
 
@@ -95,6 +114,8 @@ function ActivitySheetBody({ initialFilter, initialTestActivity }: { initialFilt
             <SettingsRow title="Couldn't load activity" onClick={activity.retry}
               trailing={<span className="profile-account-inline-action">Retry</span>} />
           ) : null}
+          {activity.initialized && activity.failed
+            ? <PayoutActivityRefreshFailedRow lastSuccessAt={activity.lastSuccessAt} onRetry={activity.retry} /> : null}
           {activity.initialized && activity.items.length === 0 ? <SettingsRow title="No activity yet" /> : null}
           <PayoutActivityRows items={activity.items} showBalance={filter === "coins"} onOpen={(item) => {
             if (!vaultOwnerToken) return;

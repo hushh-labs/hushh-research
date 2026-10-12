@@ -17,14 +17,20 @@ delivered; the work drain transfers them once payouts are enabled.
 
 from __future__ import annotations
 
+import inspect
 import logging
 import os
 import re
+from collections.abc import Callable, Coroutine
 from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, Response
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from api.middleware import require_vault_owner_token
 from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
@@ -40,13 +46,50 @@ from hushh_mcp.services.stripe_mode import (
     connect_config,
 )
 
-router = APIRouter(prefix="/api/one/payouts", tags=["One Packet Payouts"])
 logger = logging.getLogger(__name__)
 
-_NO_STORE = {"Cache-Control": "private, no-store"}
+_PRIVATE = "private, no-store"
+_NO_STORE = {"Cache-Control": _PRIVATE}
 # "test" history also shows rows recorded before Stripe mode isolation.
 _EARNING_MODES = {"live": ("live",), "test": ("test", "legacy")}
 _SAFE_CODE = re.compile(r"[a-z][a-z0-9_]{0,63}")
+_MAX_CURSOR_CHARS = 256
+
+
+class _PrivateRoute(APIRoute):
+    """Every response, including auth and validation failures, is private and uncached."""
+
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        handler = super().get_route_handler()
+
+        async def private_handler(request: Request) -> Response:
+            try:
+                response = await handler(request)
+            except StarletteHTTPException as exc:
+                headers = {**(exc.headers or {}), "Cache-Control": _PRIVATE}
+                raise HTTPException(exc.status_code, exc.detail, headers=headers) from None
+            except RequestValidationError as exc:
+                # The app's own handler keeps the error body installed builds already read.
+                render = request.app.exception_handlers.get(
+                    RequestValidationError, request_validation_exception_handler
+                )
+                rendered = render(request, exc)
+                response = await rendered if inspect.isawaitable(rendered) else rendered
+            response.headers["Cache-Control"] = _PRIVATE
+            return response
+
+        return private_handler
+
+
+router = APIRouter(
+    prefix="/api/one/payouts", tags=["One Packet Payouts"], route_class=_PrivateRoute
+)
+
+
+def _query_error(code: str, message: str) -> HTTPException:
+    return HTTPException(
+        status_code=422, detail={"code": code, "message": message}, headers=_NO_STORE
+    )
 
 
 class OnboardBody(BaseModel):
@@ -156,10 +199,13 @@ async def onboard_payout_account(
 @router.get("/account/bank-payouts")
 async def get_bank_payouts(
     response: Response,
-    cursor: str | None = Query(default=None, min_length=1, max_length=256),
+    cursor: str | None = None,
     token_data: dict = Depends(require_vault_owner_token),
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "private, no-store"
+    # Checked here, not by Query(), so the error carries a code and stays private.
+    if cursor is not None and not 1 <= len(cursor) <= _MAX_CURSOR_CHARS:
+        raise _query_error("INVALID_CURSOR", "Bank payout page is unavailable.")
     try:
         summary: dict[str, Any] = await _document_bank_service().owner_summary(
             user_id=token_data["user_id"], cursor=cursor
@@ -168,9 +214,7 @@ async def get_bank_payouts(
     except (ConnectBankPayoutError, ConnectorLifecycleError) as exc:
         if isinstance(exc, ConnectBankPayoutError) and exc.code == "invalid_cursor":
             # A cursor this server did not issue for this owner.
-            raise HTTPException(
-                status_code=422, detail="Bank payout page is unavailable.", headers=_NO_STORE
-            ) from None
+            raise _query_error("INVALID_CURSOR", "Bank payout page is unavailable.") from None
         raise HTTPException(
             status_code=503,
             detail="Bank payout status is unavailable.",
@@ -198,12 +242,14 @@ async def manage_payout_account(
 async def document_earnings(
     response: Response,
     cursor: UUID | None = None,
-    mode: Literal["live", "test"] | None = None,
+    mode: str | None = None,
     token_data: dict = Depends(require_vault_owner_token),
 ) -> dict[str, Any]:
     from hushh_mcp.services.drive_request_owner_payout_service import DriveRequestOwnerPayoutService
 
     response.headers["Cache-Control"] = "private, no-store"
+    if mode is not None and mode not in _EARNING_MODES:
+        raise _query_error("INVALID_MODE", "Choose live or test.")
     try:
         # Old builds send no mode and see only the configured mode's earnings.
         selected = mode or configured_stripe_mode()

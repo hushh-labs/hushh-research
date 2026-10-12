@@ -20,7 +20,10 @@ import {
   reasonMidSentence,
 } from "@/lib/consent/consent-owner-copy";
 import { documentShareNotificationSelection } from "@/lib/consent/document-share-consent";
-import { formatPaymentMoney } from "@/lib/consent/document-request-payment-view";
+import {
+  formatPaymentMoney,
+  REQUESTER_PAYMENT_TITLES,
+} from "@/lib/consent/document-request-payment-view";
 import { documentRequestSetupHref } from "@/lib/consent/document-request-setup";
 import {
   documentPayoutNetEarnings,
@@ -332,9 +335,9 @@ function paymentStateLine(metadata: Record<string, unknown>): string | null {
         ? "Document access stopped"
         : "Document request closed";
     case "request_expired":
-      return "Document request expired";
+      return REQUESTER_PAYMENT_TITLES.requestExpired;
     case "link_expired":
-      return "Payment link expired";
+      return REQUESTER_PAYMENT_TITLES.linkExpired;
     case "preparing":
       return "Check document request";
     default:
@@ -392,7 +395,7 @@ function paymentInstructionLine(metadata: Record<string, unknown>): string {
     metadata.current_request_expired === true ||
     (Number.isFinite(requestExpiry) && requestExpiry <= Date.now())
   ) {
-    return "Document request expired";
+    return REQUESTER_PAYMENT_TITLES.requestExpired;
   }
   const checkoutExpiry = Date.parse(
     metadataString(metadata, "current_checkout_expires_at"),
@@ -402,7 +405,7 @@ function paymentInstructionLine(metadata: Record<string, unknown>): string {
     metadata.current_checkout_expired === true ||
     (Number.isFinite(checkoutExpiry) && checkoutExpiry <= Date.now())
   ) {
-    return "Payment link expired";
+    return REQUESTER_PAYMENT_TITLES.linkExpired;
   }
   // The actionable above history owns Checkout. An unavailable status cannot
   // resurrect a Pay instruction from an old immutable Feed event.

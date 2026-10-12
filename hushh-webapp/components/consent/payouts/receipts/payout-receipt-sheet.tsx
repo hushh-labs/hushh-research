@@ -17,7 +17,7 @@ import {
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { useVault } from "@/lib/vault/vault-context";
 
-import { ACTIVITY_CHANGE_KINDS, ACTIVITY_REFRESH_MS } from "../use-payout-activity";
+import { ACTIVITY_CHANGE_KINDS, ACTIVITY_POLL_GAP_MS, ACTIVITY_REFRESH_MS } from "../use-payout-activity";
 import {
   adjustmentTitle,
   depositTitle,
@@ -56,7 +56,7 @@ function usePayoutReceipt(itemId: string | null) {
   const key = itemId && token ? `${token}|${itemId}` : null;
   const [state, setState] = useState<ReceiptState | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const reloadNow = useRef<(() => void) | null>(null);
+  const pollNow = useRef<(() => void) | null>(null);
   const instance = useId();
 
   useEffect(() => {
@@ -65,11 +65,13 @@ function usePayoutReceipt(itemId: string | null) {
     let cancelled = false;
     let pending = false;
     let queued = false;
+    let startedAt = Number.NEGATIVE_INFINITY;
     const current = () => !cancelled && isVaultSessionEpochCurrent(epoch);
     const load = async () => {
       if (!current()) return;
       if (pending) { queued = true; return; }
       pending = true;
+      startedAt = Date.now();
       try {
         const receipt = await PayoutActivityService.item(token, itemId);
         if (current()) setState({ key, receipt, failed: false, missing: false });
@@ -83,19 +85,23 @@ function usePayoutReceipt(itemId: string | null) {
         if (queued && current()) { queued = false; void load(); }
       }
     };
-    reloadNow.current = () => { void load(); };
+    // A read in flight or just started is fresh enough for a fallback read
+    // (one return to the page can run the same due task twice).
+    pollNow.current = () => {
+      if (!pending && Date.now() - startedAt >= ACTIVITY_POLL_GAP_MS) void load();
+    };
     void load();
     const unsubscribe = subscribePayoutStateChanged((detail) => {
       if (payoutChangeTouches(detail, ACTIVITY_CHANGE_KINDS)) void load();
     });
     return () => {
       cancelled = true;
-      reloadNow.current = null;
+      pollNow.current = null;
       unsubscribe();
     };
   }, [key, token, itemId, attempt]);
 
-  usePeriodicTask(`payout-receipt:${instance}`, ACTIVITY_REFRESH_MS, () => reloadNow.current?.(), {
+  usePeriodicTask(`payout-receipt:${instance}`, ACTIVITY_REFRESH_MS, () => pollNow.current?.(), {
     enabled: Boolean(key) && stream !== "live",
   });
   const retry = useCallback(() => setAttempt((value) => value + 1), []);
@@ -175,7 +181,7 @@ function ReceiptSheet({ itemId, onOpenChange, test = false, ancestors }: PayoutR
           {!receipt && failed && !missing ? (
             <div className="space-y-2 px-1 py-3">
               <HelperText role="alert">Couldn't load this receipt.</HelperText>
-              <Button type="button" size="sm" variant="none" effect="fade" onClick={retry}>Retry</Button>
+              <Button type="button" size="compact" variant="none" effect="fade" onClick={retry}>Retry</Button>
             </div>
           ) : null}
           {receipt?.kind === "earning" ? <EarningReceiptSections receipt={receipt} openItem={openItem} /> : null}

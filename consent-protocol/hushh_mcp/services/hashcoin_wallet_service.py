@@ -296,19 +296,18 @@ class HashcoinWalletService(ExternalConnectorLifecycleStore):
         )
 
     @staticmethod
-    def _summary_redeemable(
-        connection, *, wallet_id: str, available: int, next_coins: int
-    ) -> tuple[int, int]:
-        """Coins and sources sequential cash-outs can spend now, as (coins, count).
+    def _summary_live_sources(connection, *, wallet_id: str, available: int) -> list[dict]:
+        """The live sources Redeem can take, oldest first, in one statement.
 
-        Replays _next_live_source's predicate and order without LIMIT 1. Each
-        cash-out spends one whole source, oldest first, while it fits what is
-        still available; a source that no longer fits never fits later.
+        Replays _next_live_source's predicate and order with LIMIT 500 instead
+        of LIMIT 1, so the first row is the source the next cash-out reserves.
         """
-        redeemable = count = 0
-        remaining = available
-        for row in connection.execute(
-            text("""SELECT p.request_id,p.owner_earning_cents
+        if available < 1:
+            return []
+        return [
+            dict(row)
+            for row in connection.execute(
+                text("""SELECT p.request_id,p.owner_earning_cents
           FROM drive_request_owner_payouts p
           WHERE p.wallet_id=:wallet AND p.stripe_mode='live'
             AND p.settlement_method='hashcoins' AND p.status='hashcoins_credited'
@@ -318,14 +317,24 @@ class HashcoinWalletService(ExternalConnectorLifecycleStore):
               WHERE r.source_request_id=p.request_id AND r.stripe_mode='live'
                 AND r.status IN ('reserved','dispatching','unknown','succeeded'))
           ORDER BY p.credited_at,p.request_id LIMIT 500"""),
-            {"wallet": wallet_id, "available": available},
-        ).mappings():
+                {"wallet": wallet_id, "available": available},
+            ).mappings()
+        ]
+
+    @staticmethod
+    def _summary_redeemable(sources: list[dict], *, available: int) -> tuple[int, int]:
+        """Coins and sources sequential cash-outs can spend now, as (coins, count).
+
+        Each cash-out spends one whole source, oldest first, while it fits what
+        is still available; a source that no longer fits never fits later.
+        """
+        redeemable = count = 0
+        remaining = available
+        for row in sources:
             amount = int(row["owner_earning_cents"])
             if amount <= min(remaining, 50000):
                 redeemable, remaining, count = redeemable + amount, remaining - amount, count + 1
-        # Separate statements can straddle a concurrent hold; never report less
-        # than the one cash-out the Redeem button offers.
-        return max(redeemable, next_coins), max(count, 1)
+        return redeemable, count
 
     @staticmethod
     def _summary_holds(connection, *, wallet: dict, live: dict[str, Any]) -> list[dict[str, Any]]:
@@ -412,7 +421,7 @@ class HashcoinWalletService(ExternalConnectorLifecycleStore):
         user_id: str,
         wallet: dict | None,
         live: dict[str, Any],
-        source: dict | None,
+        sources: list[dict],
     ) -> dict[str, Any]:
         """Additive live summary fields (#8 holds, #9 redeemable totals).
 
@@ -420,17 +429,10 @@ class HashcoinWalletService(ExternalConnectorLifecycleStore):
         """
         available, next_coins = live["availableCoins"], live["nextRedeemCoins"]
         redeemable, count = (
-            cls._summary_redeemable(
-                connection,
-                wallet_id=str(wallet["wallet_id"]),
-                available=available,
-                next_coins=next_coins,
-            )
-            if wallet is not None and next_coins > 0
-            else (0, 0)
+            cls._summary_redeemable(sources, available=available) if next_coins > 0 else (0, 0)
         )
         holds = cls._summary_holds(connection, wallet=wallet, live=live) if wallet else []
-        source_id = str(source["request_id"]) if source is not None and next_coins > 0 else None
+        source_id = str(sources[0]["request_id"]) if sources and next_coins > 0 else None
         request_ids = [hold["requestId"] for hold in holds if hold["requestId"]]
         if source_id:
             request_ids.append(source_id)
@@ -478,27 +480,26 @@ class HashcoinWalletService(ExternalConnectorLifecycleStore):
             )
             wallets = {row["stripe_mode"]: dict(row) for row in rows}
             live = self._balance(connection, wallets.get("live"))
-            live_source = (
-                self._next_live_source(
+            # One read of the sources Redeem can take: its first row is the next
+            # cash-out, and the rest give the redeemable totals. Nothing is read
+            # while live cash-out is off, since nothing is offered then.
+            sources = (
+                self._summary_live_sources(
                     connection,
                     wallet_id=str(wallets["live"]["wallet_id"]),
                     available=live["availableCoins"],
                 )
-                if wallets.get("live") and not live["held"]
-                else None
+                if wallets.get("live") and not live["held"] and live_hashcoin_redemption_enabled()
+                else []
             )
-            live["nextRedeemCoins"] = (
-                live_source["owner_earning_cents"]
-                if live_source and live_hashcoin_redemption_enabled()
-                else 0
-            )
+            live["nextRedeemCoins"] = int(sources[0]["owner_earning_cents"]) if sources else 0
             live.update(
                 self._summary_live_review(
                     connection,
                     user_id=user_id,
                     wallet=wallets.get("live"),
                     live=live,
-                    source=live_source,
+                    sources=sources,
                 )
             )
             return {

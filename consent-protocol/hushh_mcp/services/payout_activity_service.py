@@ -142,7 +142,8 @@ _LAST4 = re.compile(r"^[0-9]{4}$")
 # self-join). A credit or debit is posted in the same transaction as its status
 # change, so only uncredited earnings and unsent cash-outs reach the NOT EXISTS
 # guards; plans stay linear even before table statistics exist. Item IDs
-# compare bytewise (COLLATE "C"), alike in ORDER BY and the keyset.
+# compare bytewise (COLLATE "C"), alike in ORDER BY and the keyset. A ledger
+# row's updatedAt comes from its source row in _item, so no join is needed here.
 _PAGE_SQL = """
 WITH ledger AS (
   SELECT e.entry_kind,e.source_ref,e.amount_coins,e.created_at,
@@ -157,15 +158,9 @@ WITH ledger AS (
       WHEN l.entry_kind='redemption' THEN 'redemption:'
       WHEN l.entry_kind IN ('reversal','sandbox_reversal') THEN 'reversal:'
       ELSE 'redemption_reversal:' END || l.source_ref::text AS item_id,
-    l.created_at AS occurred_at,
-    GREATEST(l.created_at,p.updated_at,r.updated_at) AS updated_at,
+    l.created_at AS occurred_at,l.created_at AS updated_at,
     l.amount_coins AS coins_delta,l.balance_after
   FROM ledger l
-  LEFT JOIN drive_request_owner_payouts p
-    ON :with_updates AND l.entry_kind IN ('earning','sandbox_earning')
-      AND p.request_id=l.source_ref
-  LEFT JOIN hashcoin_redemptions r
-    ON :with_updates AND l.entry_kind='redemption' AND r.redemption_id=l.source_ref
   WHERE (:want_earning AND l.entry_kind IN ('earning','sandbox_earning'))
     OR (:want_redemption AND l.entry_kind='redemption')
     OR (:want_adjustment AND l.entry_kind IN
@@ -197,13 +192,108 @@ WITH ledger AS (
 )
 SELECT kind,item_id COLLATE "C" AS item_id,occurred_at,updated_at,coins_delta,balance_after
 FROM items
-WHERE (CAST(:after_at AS timestamptz) IS NULL
-    OR occurred_at<CAST(:after_at AS timestamptz)
-    OR (occurred_at=CAST(:after_at AS timestamptz)
-      AND item_id COLLATE "C"<CAST(:after_id AS text) COLLATE "C"))
-  AND (CAST(:since AS timestamptz) IS NULL OR updated_at>CAST(:since AS timestamptz))
+WHERE CAST(:after_at AS timestamptz) IS NULL
+  OR occurred_at<CAST(:after_at AS timestamptz)
+  OR (occurred_at=CAST(:after_at AS timestamptz)
+    AND item_id COLLATE "C"<CAST(:after_id AS text) COLLATE "C")
 ORDER BY occurred_at DESC,item_id COLLATE "C" DESC
 LIMIT :limit
+"""
+# since= costs what changed, not the owner's whole history. Candidates are
+# ledger rows posted after it plus credited earnings and sent cash-outs whose
+# own row changed after it, each found through a (wallet, updated_at) index
+# (migration 315). Pending earnings and cash-outs use the same indexes; deposits
+# stay per account. Only the rows returned get a balance: the sum before the
+# oldest of them, then one ordered pass from it on. (created_at, entry_id) is
+# commit order, as above.
+_SINCE_SQL = """
+WITH changed AS (
+  SELECT e.entry_id FROM hashcoin_ledger_entries e
+  WHERE (:want_earning OR :want_adjustment OR :want_redemption)
+    AND e.wallet_id=CAST(:wallet AS uuid) AND e.created_at>CAST(:since AS timestamptz)
+  UNION
+  SELECT e.entry_id FROM drive_request_owner_payouts p
+  JOIN hashcoin_ledger_entries e ON e.wallet_id=CAST(:wallet AS uuid)
+    AND e.entry_kind IN ('earning','sandbox_earning') AND e.source_ref=p.request_id
+  WHERE :want_earning AND p.updated_at>CAST(:since AS timestamptz)
+    AND (p.wallet_id=CAST(:wallet AS uuid) OR p.sandbox_wallet_id=CAST(:wallet AS uuid))
+  UNION
+  SELECT e.entry_id FROM hashcoin_redemptions r
+  JOIN hashcoin_ledger_entries e ON e.wallet_id=r.wallet_id
+    AND e.entry_kind='redemption' AND e.source_ref=r.redemption_id
+  WHERE :want_redemption AND r.wallet_id=CAST(:wallet AS uuid)
+    AND r.updated_at>CAST(:since AS timestamptz)
+), items AS (
+  SELECT CASE WHEN l.entry_kind IN ('earning','sandbox_earning') THEN 'earning'
+      WHEN l.entry_kind='redemption' THEN 'redemption'
+      ELSE 'adjustment' END AS kind,
+    CASE WHEN l.entry_kind IN ('earning','sandbox_earning') THEN 'earning:'
+      WHEN l.entry_kind='redemption' THEN 'redemption:'
+      WHEN l.entry_kind IN ('reversal','sandbox_reversal') THEN 'reversal:'
+      ELSE 'redemption_reversal:' END || l.source_ref::text AS item_id,
+    l.created_at AS occurred_at,
+    GREATEST(l.created_at,p.updated_at,r.updated_at) AS updated_at,
+    l.amount_coins AS coins_delta,l.entry_id
+  FROM changed c
+  JOIN hashcoin_ledger_entries l ON l.entry_id=c.entry_id
+  LEFT JOIN drive_request_owner_payouts p
+    ON l.entry_kind IN ('earning','sandbox_earning') AND p.request_id=l.source_ref
+  LEFT JOIN hashcoin_redemptions r
+    ON l.entry_kind='redemption' AND r.redemption_id=l.source_ref
+  WHERE (:want_earning AND l.entry_kind IN ('earning','sandbox_earning'))
+    OR (:want_redemption AND l.entry_kind='redemption')
+    OR (:want_adjustment AND l.entry_kind IN
+      ('reversal','sandbox_reversal','redemption_reversal'))
+  UNION ALL
+  SELECT 'redemption','redemption:' || r.redemption_id::text,r.created_at,r.updated_at,
+    NULL,NULL
+  FROM hashcoin_redemptions r
+  WHERE :want_redemption AND r.wallet_id=CAST(:wallet AS uuid)
+    AND r.updated_at>CAST(:since AS timestamptz) AND r.status<>'succeeded'
+    AND NOT EXISTS (SELECT 1 FROM hashcoin_ledger_entries x
+      WHERE x.wallet_id=r.wallet_id AND x.entry_kind='redemption'
+        AND x.source_ref=r.redemption_id)
+  UNION ALL
+  SELECT 'earning','earning:' || p.request_id::text,
+    COALESCE(o.paid_at,p.created_at),p.updated_at,NULL,NULL
+  FROM drive_request_owner_payouts p
+  LEFT JOIN drive_request_payment_orders o ON o.request_id=p.request_id
+  WHERE :want_earning AND p.wallet_id=CAST(:wallet AS uuid)
+    AND p.updated_at>CAST(:since AS timestamptz)
+    AND p.status NOT IN ('hashcoins_credited','hashcoins_held','hashcoins_reversed')
+    AND COALESCE(o.stripe_payment_intent_id,p.stripe_payment_intent_id) IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM hashcoin_ledger_entries x
+      WHERE x.wallet_id=p.wallet_id AND x.entry_kind='earning' AND x.source_ref=p.request_id)
+  UNION ALL
+  SELECT 'deposit','deposit:' || b.stripe_payout_id,b.created_at,b.updated_at,NULL,NULL
+  FROM stripe_connect_bank_payouts b
+  WHERE :want_deposit AND b.stripe_account_id=CAST(:account AS text)
+    AND b.livemode=:livemode AND b.updated_at>CAST(:since AS timestamptz)
+    AND left(b.stripe_payout_id,3)='po_' AND char_length(b.stripe_payout_id)<=64
+), page AS (
+  SELECT kind,item_id COLLATE "C" AS item_id,occurred_at,updated_at,coins_delta,entry_id
+  FROM items
+  WHERE updated_at>CAST(:since AS timestamptz)
+  ORDER BY occurred_at DESC,item_id COLLATE "C" DESC
+  LIMIT :limit
+), oldest AS (
+  SELECT occurred_at,entry_id FROM page WHERE entry_id IS NOT NULL
+  ORDER BY occurred_at,entry_id
+  LIMIT 1
+), base AS (
+  SELECT COALESCE(SUM(x.amount_coins),0) AS coins
+  FROM oldest o JOIN hashcoin_ledger_entries x ON x.wallet_id=CAST(:wallet AS uuid)
+    AND (x.created_at,x.entry_id)<(o.occurred_at,o.entry_id)
+), running AS (
+  SELECT x.entry_id,
+    b.coins+SUM(x.amount_coins) OVER (ORDER BY x.created_at,x.entry_id) AS balance_after
+  FROM oldest o CROSS JOIN base b
+  JOIN hashcoin_ledger_entries x ON x.wallet_id=CAST(:wallet AS uuid)
+    AND (x.created_at,x.entry_id)>=(o.occurred_at,o.entry_id)
+)
+SELECT g.kind,g.item_id,g.occurred_at,g.updated_at,g.coins_delta,r.balance_after
+FROM page g LEFT JOIN running r ON r.entry_id=g.entry_id
+ORDER BY g.occurred_at DESC,g.item_id COLLATE "C" DESC
 """
 _SCOPE_SQL = """SELECT now() AS as_of,
   (SELECT wallet_id FROM hashcoin_wallets
@@ -258,6 +348,9 @@ _CONTENT_REDEMPTIONS_SQL = """SELECT r.redemption_id,r.stripe_transfer_id,r.sour
   LEFT JOIN drive_request_owner_payouts p ON p.request_id=r.source_request_id
   WHERE r.stripe_transfer_id=ANY(CAST(:transfers AS text[])) AND w.user_id=:owner
     AND r.destination_account_id=:account"""
+_CONTENT_RETURNED_SQL = """SELECT b.stripe_payout_id FROM stripe_connect_bank_payouts b
+  WHERE b.stripe_payout_id=ANY(CAST(:ids AS text[]))
+    AND b.stripe_account_id=:account AND b.livemode=:livemode"""
 _CONTENT_TRANSFERS_SQL = """SELECT p.stripe_transfer_id,p.request_id,p.erased_at
   FROM drive_request_owner_payouts p
   JOIN drive_share_requests q ON q.request_id=p.request_id
@@ -544,25 +637,25 @@ class PayoutActivityService(ExternalConnectorLifecycleStore):
             scope = _row(connection, _SCOPE_SQL, {"owner": user_id, "mode": mode}) or {}
             wallet = str(scope["wallet_id"]) if scope.get("wallet_id") else None
             account = scope.get("account_id")
-            fetch = MAX_SINCE_ITEMS + 1 if since is not None else limit + 1
-            page = _rows(
-                connection,
-                _PAGE_SQL,
-                {
-                    "wallet": wallet,
-                    "account": account,
-                    "livemode": mode == "live",
-                    "want_earning": "earning" in sources,
-                    "want_redemption": "redemption" in sources,
-                    "want_adjustment": "adjustment" in sources,
-                    "want_deposit": "deposit" in sources,
-                    "with_updates": since is not None,
-                    "after_at": after[0] if after else None,
-                    "after_id": after[1] if after else None,
-                    "since": _utc(since) - SINCE_OVERLAP if since is not None else None,
-                    "limit": fetch,
-                },
-            )
+            params = {
+                "wallet": wallet,
+                "account": account,
+                "livemode": mode == "live",
+                "want_earning": "earning" in sources,
+                "want_redemption": "redemption" in sources,
+                "want_adjustment": "adjustment" in sources,
+                "want_deposit": "deposit" in sources,
+            }
+            if since is not None:
+                params.update(since=_utc(since) - SINCE_OVERLAP, limit=MAX_SINCE_ITEMS + 1)
+                page = _rows(connection, _SINCE_SQL, params)
+            else:
+                params.update(
+                    after_at=after[0] if after else None,
+                    after_id=after[1] if after else None,
+                    limit=limit + 1,
+                )
+                page = _rows(connection, _PAGE_SQL, params)
             balance = (
                 int(connection.execute(text(_BALANCE_SQL), {"wallet": wallet}).scalar_one())
                 if wallet
@@ -1092,6 +1185,28 @@ class PayoutActivityService(ExternalConnectorLifecycleStore):
             if transfers
             else {}
         )
+        # A returned deposit links back only to a deposit of this same account and mode.
+        returned_ids = sorted(
+            {
+                entry["returnedPayoutId"]
+                for entry in entries
+                if entry.get("kind") == "returned_deposit"
+                and isinstance(entry.get("returnedPayoutId"), str)
+                and _PAYOUT_ID.fullmatch(entry["returnedPayoutId"])
+            }
+        )
+        returned = (
+            {
+                row["stripe_payout_id"]
+                for row in _rows(
+                    connection,
+                    _CONTENT_RETURNED_SQL,
+                    {"ids": returned_ids, "account": account, "livemode": deposit["livemode"]},
+                )
+            }
+            if returned_ids
+            else set()
+        )
         # Only an unerased request of this owner is ever named.
         request_of: dict[str, Any] = {}
         for transfer, row in cash_outs.items():
@@ -1119,11 +1234,19 @@ class PayoutActivityService(ExternalConnectorLifecycleStore):
             cash_out = cash_outs.get(transfer) if isinstance(transfer, str) else None
             request_id = request_of.get(transfer) if isinstance(transfer, str) else None
             kind = entry.get("kind")
+            returned_id = entry.get("returnedPayoutId")
+            item_id = None
+            if cash_out is not None:
+                item_id = "redemption:" + str(cash_out["redemption_id"])
+            elif (
+                kind == "returned_deposit"
+                and isinstance(returned_id, str)
+                and returned_id in returned
+            ):
+                item_id = "deposit:" + returned_id
             items.append(
                 {
-                    "itemId": "redemption:" + str(cash_out["redemption_id"])
-                    if cash_out is not None
-                    else None,
+                    "itemId": item_id,
                     "type": kind if kind in _CONTENT_TYPES else "other",
                     "requestLabel": labels.get(str(request_id)) if request_id else None,
                     "amountCents": amount,

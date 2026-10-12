@@ -96,7 +96,7 @@ describe("document payout account", () => {
       const linkBank = await screen.findByRole("button", { name: "Link bank" });
       await waitFor(() => expect(linkBank).toBeEnabled());
       fireEvent.click(linkBank);
-      expect(await screen.findByRole("alert")).toHaveTextContent("Bank setup is unavailable. Hushh needs to activate payouts.");
+      expect(await screen.findByRole("alert")).toHaveTextContent("Bank setup is unavailable. Hussh needs to turn on payouts.");
       expect(screen.queryByText(/Private provider details/)).toBeNull();
       expect(assign).not.toHaveBeenCalled();
       fireEvent.click(screen.getByRole("button", { name: "Link bank" }));
@@ -402,7 +402,8 @@ describe("payout bank rows", () => {
     state.account.mockResolvedValue({ stripeMode: "live", account: { ...verified,
       verification: { ...due, state: "none", deadline: null, items: [], eventuallyDue: true } } });
     rows();
-    const manage = await screen.findByRole("button", { name: "Manage bank" });
+    // The routine "Default for deposits" line stays out of the spoken name.
+    const manage = await screen.findByRole("button", { name: "Manage bank, Example Bank •••• 6789" });
     expect(manage).toHaveTextContent("Example Bank •••• 6789");
     expect(manage).toHaveTextContent("Default for deposits");
     expect(manage).toHaveTextContent(/Manage$/);
@@ -434,7 +435,7 @@ describe("payout bank rows", () => {
       verification: { ...due, state: verificationState, deadline: null } } });
     rows();
     expect(await screen.findByText(copy)).toBeVisible();
-    expect(screen.getByRole("button", { name: "Manage bank" })).toHaveTextContent("Default for deposits");
+    expect(screen.getByRole("button", { name: "Manage bank, Example Bank •••• 6789" })).toHaveTextContent("Default for deposits");
     // Nothing to do while Stripe reviews, so that row is not a control.
     expect(screen.queryByRole("button", { name: /Verify details/ }) !== null).toBe(actionable);
   });
@@ -447,30 +448,95 @@ describe("payout bank rows", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't open bank setup. Try again.");
     expect(screen.getByRole("button", { name: /Verify details/ })).toHaveTextContent("Couldn't open bank setup");
     expect(screen.queryByText(/Private provider details/)).toBeNull();
-    expect(screen.getByRole("button", { name: "Manage bank" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Manage bank, Example Bank •••• 6789" })).toBeEnabled();
     expect(assign).not.toHaveBeenCalled();
   });
 
   it("offers a bank re-check, not setup, when the first read fails", async () => {
     state.account.mockRejectedValueOnce(new ApiError("private", 503));
     rows();
-    const retry = await screen.findByRole("button", { name: "Retry bank check" });
+    const retry = await screen.findByRole("button", { name: "Retry bank check, Bank status unavailable" });
     expect(retry).toHaveTextContent("Bank status unavailable");
+    // With nothing to manage, the row is the one re-check control.
+    expect(screen.getAllByRole("button", { name: /^Retry bank check/ })).toHaveLength(1);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't check your bank. Try again.");
     fireEvent.click(retry);
-    expect(await screen.findByRole("button", { name: "Manage bank" })).toHaveTextContent("Example Bank •••• 6789");
+    expect(await screen.findByRole("button", { name: "Manage bank, Example Bank •••• 6789" })).toHaveTextContent("Example Bank •••• 6789");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(state.account).toHaveBeenLastCalledWith("owner-token", { fresh: true });
     expect(state.onboard).not.toHaveBeenCalled();
+  });
+
+  it("keeps verified bank management available during refresh failure and offers a fresh check beside it", async () => {
+    const express = "https://stripe.com/express/acct_owner/login_token";
+    state.account.mockResolvedValueOnce({ stripeMode: "live", account: verified })
+      .mockRejectedValueOnce(new ApiError("private", 503))
+      .mockResolvedValueOnce({ stripeMode: "live", account: verified });
+    state.manage.mockResolvedValueOnce({ url: express });
+    rows();
+    await screen.findByRole("button", { name: "Manage bank, Example Bank •••• 6789" });
+    expect(screen.queryByRole("button", { name: "Retry bank check" })).toBeNull();
+    act(() => window.dispatchEvent(new Event("focus")));
+    // The alert sits outside the row's hidden content, so it is announced.
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't check your bank. Try again.");
+    expect(screen.getByText("Bank status unavailable")).toBeVisible();
+    const manage = screen.getByRole("button", { name: "Manage bank, Example Bank •••• 6789, Bank status unavailable" });
+    const retry = screen.getByRole("button", { name: "Retry bank check" });
+    expect(manage).toBeEnabled();
+    expect(retry).toBeEnabled();
+    fireEvent.click(manage);
+    await waitFor(() => expect(assign).toHaveBeenCalledExactlyOnceWith(express));
+    expect(state.manage).toHaveBeenCalledExactlyOnceWith("owner-token");
+    await waitFor(() => expect(retry).toBeEnabled());
+    fireEvent.click(retry);
+    expect(await screen.findByRole("button", { name: "Manage bank, Example Bank •••• 6789" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Retry bank check" })).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(state.account).toHaveBeenCalledTimes(3);
+    // A retry asks Stripe again; the server's display cache would repeat the old read.
+    expect(state.account).toHaveBeenLastCalledWith("owner-token", { fresh: true });
+    expect(state.manage).toHaveBeenCalledOnce();
+    expect(state.onboard).not.toHaveBeenCalled();
+  });
+
+  it("retries an unavailable bank check without sending verified owners through identity setup", async () => {
+    const account = { ...readyAccount, ready: false, status: "onboarding_required", bankStatus: "unavailable", bank: null };
+    state.account.mockResolvedValueOnce({ stripeMode: "live", account })
+      .mockResolvedValueOnce({ stripeMode: "live", account: verified });
+    rows();
+    expect(await screen.findByText("Bank check unavailable")).toBeVisible();
+    // Stripe may keep cutting the bank list short, so Manage stays reachable.
+    expect(screen.getByRole("button", { name: "Manage bank, Bank check unavailable" })).toBeEnabled();
+    expect(screen.queryByText("Verify details")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry bank check" }));
+    expect(await screen.findByRole("button", { name: "Manage bank, Example Bank •••• 6789" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Retry bank check" })).toBeNull();
+    expect(state.account).toHaveBeenCalledTimes(2);
+    expect(state.account).toHaveBeenLastCalledWith("owner-token", { fresh: true });
+    expect(state.onboard).not.toHaveBeenCalled();
+    expect(state.manage).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["needs_attention", { bankStatus: "needs_attention", bank: { ...verified.bank, status: "errored" } }, "Manage bank, Example Bank •••• 6789, Update your bank"],
+    ["missing", { bankStatus: "missing", bank: null }, "Manage bank, Bank needed"],
+    ["restricted", { ready: false, status: "restricted" }, "Manage bank, Example Bank •••• 6789, Verification needed"],
+  ])("names a %s bank and its state, not only the action", async (_, patch, name) => {
+    state.account.mockResolvedValue({ stripeMode: "live", account: { ...verified, ...patch } });
+    rows();
+    expect(await screen.findByRole("button", { name })).toBeEnabled();
   });
 
   it("rereads the bank for account doorbells only", async () => {
     rows();
-    await screen.findByRole("button", { name: "Manage bank" });
+    await screen.findByRole("button", { name: "Manage bank, Example Bank •••• 6789" });
     await settle();
     expect(state.account).toHaveBeenCalledOnce();
     act(() => { dispatchPayoutStateChanged({ kinds: ["wallet", "earnings"], source: "sse" }); });
     await settle();
     expect(state.account).toHaveBeenCalledOnce();
     // Focus moving inside the page is not a return from Stripe.
-    act(() => { screen.getByRole("button", { name: "Manage bank" }).focus(); });
+    act(() => { screen.getByRole("button", { name: "Manage bank, Example Bank •••• 6789" }).focus(); });
     act(() => { dispatchPayoutStateChanged({ kinds: ["account"], source: "sse" }); });
     await waitFor(() => expect(state.account).toHaveBeenCalledTimes(2));
     // Server doorbells keep the cached read; only the owner's own actions skip it.

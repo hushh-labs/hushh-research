@@ -4,6 +4,9 @@
 --   for the running balance (SUM over created_at, entry_id).
 -- hashcoin_redemptions_wallet_recent: an owner's cash-outs, newest first.
 -- drive_request_owner_payouts_wallet_status: a wallet's earnings by status.
+-- hashcoin_redemptions_wallet_changed, drive_request_owner_payouts_wallet_changed
+--   and drive_request_owner_payouts_sandbox_changed: what changed in one wallet
+--   since a time (activity since=), without reading every owner's rows.
 --
 -- UAT replays every migration on every deploy, and CREATE INDEX IF NOT EXISTS
 -- still takes a SHARE lock on these busy money tables before it finds nothing
@@ -56,6 +59,54 @@ BEGIN
     ) THEN
     CREATE INDEX drive_request_owner_payouts_wallet_status ON drive_request_owner_payouts
       (wallet_id, status) WHERE wallet_id IS NOT NULL;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF to_regclass('hashcoin_redemptions') IS NOT NULL
+    AND to_regclass('hashcoin_redemptions_wallet_changed') IS NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM pg_index i
+      WHERE i.indrelid = to_regclass('hashcoin_redemptions')
+        AND i.indisvalid AND i.indisready
+        AND substring(pg_get_indexdef(i.indexrelid) FROM ' USING .*$') =
+          ' USING btree (wallet_id, updated_at)'
+    ) THEN
+    CREATE INDEX hashcoin_redemptions_wallet_changed ON hashcoin_redemptions
+      (wallet_id, updated_at);
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF to_regclass('drive_request_owner_payouts') IS NOT NULL
+    AND to_regclass('drive_request_owner_payouts_wallet_changed') IS NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM pg_index i
+      WHERE i.indrelid = to_regclass('drive_request_owner_payouts')
+        AND i.indisvalid AND i.indisready
+        AND substring(pg_get_indexdef(i.indexrelid) FROM ' USING .*$') =
+          ' USING btree (wallet_id, updated_at) WHERE (wallet_id IS NOT NULL)'
+    ) THEN
+    CREATE INDEX drive_request_owner_payouts_wallet_changed ON drive_request_owner_payouts
+      (wallet_id, updated_at) WHERE wallet_id IS NOT NULL;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF to_regclass('drive_request_owner_payouts') IS NOT NULL
+    AND to_regclass('drive_request_owner_payouts_sandbox_changed') IS NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM pg_index i
+      WHERE i.indrelid = to_regclass('drive_request_owner_payouts')
+        AND i.indisvalid AND i.indisready
+        AND substring(pg_get_indexdef(i.indexrelid) FROM ' USING .*$') =
+          ' USING btree (sandbox_wallet_id, updated_at) WHERE (sandbox_wallet_id IS NOT NULL)'
+    ) THEN
+    CREATE INDEX drive_request_owner_payouts_sandbox_changed ON drive_request_owner_payouts
+      (sandbox_wallet_id, updated_at) WHERE sandbox_wallet_id IS NOT NULL;
   END IF;
 END $$;
 

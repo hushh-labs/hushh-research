@@ -5,10 +5,16 @@ import {
   parseRequesterPaymentView,
   parseRequesterPriceView,
   presentRequesterPayment,
+  requesterPaymentTickMs,
   requesterPaymentWithdrawable,
   type RequesterPaymentView,
 } from "@/lib/consent/document-request-payment-view";
-import { formatPaymentRemaining } from "@/lib/feed/drive-request-payment";
+import type { ConsentCenterEntry } from "@/lib/services/consent-center-service";
+import {
+  describeFeedDrivePayment,
+  formatPaymentRemaining,
+  projectFeedDrivePayments,
+} from "@/lib/feed/drive-request-payment";
 
 const NOW = Date.parse("2026-10-11T12:00:00Z");
 const at = (offsetMs: number) => new Date(NOW + offsetMs).toISOString();
@@ -30,10 +36,10 @@ function view(overrides: Partial<RequesterPaymentView> = {}): RequesterPaymentVi
 describe("presentRequesterPayment", () => {
   it.each([
     [{}, "Payment due", "Sharing starts after payment.", "29m left", "pay"],
-    [{ state: "awaiting_owner" as const, nextAction: "wait_owner" as const }, "Waiting for the owner", "You can pay once they finish setup.", null, "withdraw"],
+    [{ state: "awaiting_owner" as const, nextAction: "wait_owner" as const }, "Waiting for owner setup", "You can pay once they finish setup.", null, "withdraw"],
     [{ state: "preparing" as const, nextAction: "wait_owner" as const }, "No payment due yet", "You pay only if files are found.", null, "withdraw"],
-    [{ state: "link_expired" as const, nextAction: "new_request" as const }, "Payment window closed", "Send a new request to try again.", null, "new_request"],
-    [{ state: "request_expired" as const, nextAction: "new_request" as const }, "Request expired", "Send a new request to try again.", null, "new_request"],
+    [{ state: "link_expired" as const, nextAction: "new_request" as const }, "Payment link expired", "Ask the owner again from their profile.", null, "new_request"],
+    [{ state: "request_expired" as const, nextAction: "new_request" as const }, "Document request expired", "Ask the owner again from their profile.", null, "new_request"],
     [{ state: "paid" as const, nextAction: "none" as const }, "Paid $25", null, null, null],
     [
       { state: "refund_pending" as const, nextAction: "none" as const, withdrawn: true, refund: { status: "queued" as const, amountCents: 2500 } },
@@ -62,7 +68,7 @@ describe("presentRequesterPayment", () => {
     const payable = view({ checkoutExpiresAt: at(1_000) });
     expect(presentRequesterPayment(payable, NOW + 999).remaining).toBe("1s left");
     expect(effectiveRequesterPaymentState(payable, NOW + 1_000)).toBe("link_expired");
-    expect(presentRequesterPayment(payable, NOW + 1_000).title).toBe("Payment window closed");
+    expect(presentRequesterPayment(payable, NOW + 1_000).title).toBe("Payment link expired");
     // A payable view without a deadline never offers Pay.
     expect(effectiveRequesterPaymentState(view({ checkoutExpiresAt: null }), NOW)).toBe("link_expired");
   });
@@ -83,6 +89,21 @@ describe("presentRequesterPayment", () => {
     expect(requesterPaymentWithdrawable(view({ state: "paid" }), NOW)).toBe(false);
     expect(requesterPaymentWithdrawable(view({ state: "closed", withdrawn: true }), NOW)).toBe(false);
     expect(requesterPaymentWithdrawable(view({ requestExpiresAt: at(-1) }), NOW)).toBe(false);
+  });
+
+  it("names the owner in the next step once a request can't be paid", () => {
+    const expired = view({ state: "link_expired", nextAction: "new_request" });
+    expect(presentRequesterPayment(expired, NOW, { ownerName: "Alex" }).line).toBe("Ask Alex again from their profile.");
+    expect(presentRequesterPayment(expired, NOW, { ownerName: "  " }).line).toBe("Ask the owner again from their profile.");
+  });
+
+  it("ticks per second only for a countdown, and never for a settled view", () => {
+    expect(requesterPaymentTickMs(view())).toBe(1_000);
+    expect(requesterPaymentTickMs(view({ state: "awaiting_owner" }))).toBe(30_000);
+    expect(requesterPaymentTickMs(view({ state: "link_expired" }))).toBe(30_000);
+    expect(requesterPaymentTickMs(view({ state: "preparing", requestExpiresAt: null }))).toBeNull();
+    for (const state of ["paid", "refund_pending", "refunded", "partially_refunded", "closed", "none"] as const)
+      expect(requesterPaymentTickMs(view({ state }))).toBeNull();
   });
 
   it("uses the Feed's one countdown formatter", () => {
@@ -129,5 +150,51 @@ describe("parseRequesterPaymentView", () => {
     expect(parseRequesterPriceView(price)).toEqual(price);
     expect(parseRequesterPriceView({ ...price, currentCents: 2550 })).toBeNull();
     expect(parseRequesterPriceView({ ...price, state: "locked" })).toBeNull();
+  });
+});
+
+describe("Feed and request details", () => {
+  function entry(paymentView: RequesterPaymentView): ConsentCenterEntry {
+    return {
+      id: "document_share_request:11111111-1111-4111-8111-111111111111",
+      kind: "outgoing_request",
+      status: "pending",
+      issued_at: NOW - 60_000,
+      counterpart_label: "Alex",
+      metadata: {
+        direction: "outgoing",
+        paymentStatus: "checkout_open",
+        paymentAmountCents: 2500,
+        paymentCurrency: "usd",
+        paymentView,
+      },
+    } as unknown as ConsentCenterEntry;
+  }
+
+  it("ends Pay in the Feed when the request expires inside an open Checkout window", () => {
+    const shared = view({ checkoutExpiresAt: at(29 * 60_000), requestExpiresAt: at(7 * 60_000) });
+    const [row] = projectFeedDrivePayments([entry(shared)], NOW);
+    expect(row).toMatchObject({ status: "ready", requestExpiresAt: NOW + 7 * 60_000 });
+    const later = NOW + 7 * 60_000;
+    // The Feed's per-second recompute and the details agree on the same tick.
+    expect(effectiveRequesterPaymentState(shared, later)).toBe("request_expired");
+    expect(describeFeedDrivePayment(row!, later)).toMatchObject({
+      status: "expired",
+      title: presentRequesterPayment(shared, later).title,
+    });
+    expect(describeFeedDrivePayment(row!, later - 1).status).toBe("ready");
+  });
+
+  it("uses the same words for the same state", () => {
+    const states = [
+      ["waiting_owner_setup", view({ state: "awaiting_owner", checkoutExpiresAt: null, nextAction: "wait_owner" })],
+      ["link_expired", view({ state: "link_expired", checkoutExpiresAt: null, nextAction: "new_request" })],
+      ["expired", view({ state: "request_expired", checkoutExpiresAt: null, nextAction: "new_request" })],
+    ] as const;
+    for (const [status, shared] of states) {
+      const [row] = projectFeedDrivePayments([entry(shared)], NOW);
+      expect(row?.status).toBe(status);
+      expect(row?.title).toBe(presentRequesterPayment(shared, NOW).title);
+    }
   });
 });

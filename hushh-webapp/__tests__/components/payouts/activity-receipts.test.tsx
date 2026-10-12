@@ -1,13 +1,27 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // vi.hoisted and vi.mock are file-scoped, so each payouts test file repeats this setup.
-const state = vi.hoisted(() => ({ apiJson: vi.fn(), receipts: new Map<string, unknown>() }));
+const state = vi.hoisted(() => ({
+  apiJson: vi.fn(),
+  receipts: new Map<string, unknown>(),
+  stream: "live" as "live" | "polling",
+  // Fallback reads registered on the idle clock, run by hand.
+  tasks: new Map<string, () => void>(),
+}));
 
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: "owner-token" }) }));
 vi.mock("@/lib/vault/session-epoch", () => ({ snapshotVaultSessionEpoch: () => 1, isVaultSessionEpochCurrent: () => true }));
 vi.mock("@/lib/payouts/payout-live-store", () => ({
-  usePayoutFreshness: () => ({ lastSuccessAt: null, refreshing: false, failures: 0, online: true, stream: "live" }),
+  PAYOUT_COALESCE_MS: 150,
+  usePayoutFreshness: () => ({ lastSuccessAt: null, refreshing: false, failures: 0, online: true, stream: state.stream }),
+}));
+vi.mock("@/lib/perf/use-periodic-task", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/perf/use-periodic-task")>(),
+  usePeriodicTask: (id: string, _intervalMs: number, run: () => void, options: { enabled?: boolean } = {}) => {
+    if (options.enabled === false) state.tasks.delete(id);
+    else state.tasks.set(id, run);
+  },
 }));
 vi.mock("@/lib/services/api-client", () => ({ apiJson: state.apiJson }));
 
@@ -46,9 +60,16 @@ const deposit = {
 const PROVIDER_IDS = /(acct|ch|pi|tr|trr|py|po)_[A-Za-z0-9]/;
 const topDialog = () => screen.getAllByRole("dialog").at(-1)!;
 const row = (scope: HTMLElement, title: string) => within(scope).getByText(title).closest("[data-testid='settings-row']") as HTMLElement;
+const settle = (ms = 100) => act(async () => { await new Promise((resolve) => setTimeout(resolve, ms)); });
+const realNow = Date.now.bind(Date);
+let skew = 0;
 
 describe("payout receipts", () => {
   beforeEach(() => {
+    state.stream = "live";
+    state.tasks.clear();
+    skew = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => realNow() + skew);
     state.receipts.clear();
     for (const receipt of [earning, redemption, deposit]) state.receipts.set(receipt.id, receipt);
     state.apiJson.mockReset().mockImplementation(async (path: string) => {
@@ -57,6 +78,7 @@ describe("payout receipts", () => {
       return receipt;
     });
   });
+  afterEach(() => { vi.restoreAllMocks(); });
 
   it("shows an earning's fees, stages and reference, and opens its redemption and deposit over it", async () => {
     render(<PayoutReceiptSheet itemId={`earning:${requestId}`} onOpenChange={vi.fn()} />);
@@ -131,5 +153,30 @@ describe("payout receipts", () => {
     expect(cashOut).not.toHaveTextContent(/refund/i);
     expect(within(cashOut).getByText(holdReasonCopy("payment_disputed"))).toBeVisible();
     expect(row(cashOut, "Next step")).toHaveTextContent(holdNextStepCopy("wait_for_bank"));
+  });
+
+  it("offers a full-size Retry, and a fallback read skips one that just started", async () => {
+    state.stream = "polling";
+    const load = state.apiJson.getMockImplementation()!;
+    state.apiJson.mockRejectedValueOnce(new Error("offline"));
+    render(<PayoutReceiptSheet itemId="deposit:po_1Abc" onOpenChange={vi.fn()} />);
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    expect(retry).toHaveClass("min-h-11");
+    fireEvent.click(retry);
+    expect(await screen.findByRole("dialog", { name: "$15.50" })).toBeVisible();
+    expect(state.apiJson).toHaveBeenCalledTimes(2);
+
+    const poll = [...state.tasks].find(([id]) => id.startsWith("payout-receipt:"))?.[1];
+    expect(poll).toBeDefined();
+    state.apiJson.mockImplementation(load);
+    skew = 60_000;
+    // visibilitychange and focus can both run the same due task.
+    act(() => { poll!(); poll!(); });
+    await settle();
+    expect(state.apiJson).toHaveBeenCalledTimes(3);
+    skew = 120_000;
+    act(() => { poll!(); });
+    await settle();
+    expect(state.apiJson).toHaveBeenCalledTimes(4);
   });
 });

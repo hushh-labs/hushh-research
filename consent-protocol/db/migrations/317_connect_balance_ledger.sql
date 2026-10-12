@@ -72,6 +72,18 @@ CREATE INDEX IF NOT EXISTS stripe_connect_payout_reconciliations_open
   ON stripe_connect_payout_reconciliations (scan_started_at ASC NULLS FIRST,stripe_payout_id)
   WHERE status IN ('pending','in_progress');
 
+-- Each worker tick queues deposits that became ready for itemisation recently,
+-- so its read grows with recent deposit changes, not with every deposit ever.
+-- The predicate matches the discovery query. Built once: a replay finds it and
+-- takes no lock on the deposit table.
+DO $$ BEGIN
+  IF to_regclass('stripe_connect_bank_payouts_reconcile_recent') IS NULL THEN
+    CREATE INDEX IF NOT EXISTS stripe_connect_bank_payouts_reconcile_recent
+      ON stripe_connect_bank_payouts (livemode,updated_at)
+      WHERE automatic IS FALSE OR reconciliation_status IN ('completed','not_applicable');
+  END IF;
+END $$;
+
 -- Replays skip the ACCESS EXCLUSIVE RLS switch once it is on.
 DO $$ DECLARE table_name TEXT; DECLARE role_name TEXT; BEGIN
   FOREACH table_name IN ARRAY ARRAY['stripe_connect_balance_snapshots',

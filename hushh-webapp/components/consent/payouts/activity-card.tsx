@@ -10,7 +10,7 @@ import { reloadWindow } from "@/lib/utils/browser-navigation";
 import { useVault } from "@/lib/vault/vault-context";
 
 import { PayoutActivityFilterMenu } from "./activity-filter";
-import { PayoutActivityRows, PayoutActivitySheet } from "./activity-sheet";
+import { PayoutActivityRefreshFailedRow, PayoutActivityRows, PayoutActivitySheet } from "./activity-sheet";
 import { PayoutReceiptSheet } from "./receipts/payout-receipt-sheet";
 import { useOpenerFocus } from "./receipts/receipt-ui";
 import { usePayoutActivity } from "./use-payout-activity";
@@ -41,9 +41,13 @@ export function PayoutActivityCard({ freshness, limit: requested = 5 }: PayoutAc
   const [testActivity, setTestActivity] = useState(false);
   // The activity API pages 1-50 rows.
   const limit = Math.min(Math.max(Math.trunc(requested) || 5, 1), 50);
-  const activity = usePayoutActivity({ kind: filter, mode: testActivity ? "test" : "live", pageSize: limit });
   const [receipt, setReceipt] = useState<{ scope: string; id: string; test: boolean } | null>(null);
   const [viewAllScope, setViewAllScope] = useState<string | null>(null);
+  const viewAllOpen = Boolean(vaultOwnerToken) && viewAllScope === vaultOwnerToken;
+  // View all reads the same activity; the card under it rests and reads once when it closes.
+  const activity = usePayoutActivity({
+    kind: filter, mode: testActivity ? "test" : "live", pageSize: limit, active: !viewAllOpen,
+  });
   const opener = useOpenerFocus();
   if (!vaultOwnerToken) return null;
   const openReceipt = receipt && receipt.scope === vaultOwnerToken ? receipt : null;
@@ -62,6 +66,8 @@ export function PayoutActivityCard({ freshness, limit: requested = 5 }: PayoutAc
             onClick={native ? undefined : outdated ? reloadWindow : activity.retry}
             trailing={native ? undefined : <span className="profile-account-inline-action">{outdated ? "Reload" : "Retry"}</span>} />
         ) : null}
+        {activity.initialized && activity.failed
+          ? <PayoutActivityRefreshFailedRow lastSuccessAt={activity.lastSuccessAt} onRetry={activity.retry} /> : null}
         {activity.initialized && rows.length === 0 ? <SettingsRow title="No activity yet" /> : null}
         <PayoutActivityRows items={rows} onOpen={(item) => {
           opener.remember();
@@ -74,7 +80,7 @@ export function PayoutActivityCard({ freshness, limit: requested = 5 }: PayoutAc
           }} />
         ) : null}
       </SettingsGroup>
-      <PayoutActivitySheet open={viewAllScope === vaultOwnerToken} initialFilter={filter} initialTestActivity={testActivity}
+      <PayoutActivitySheet open={viewAllOpen} initialFilter={filter} initialTestActivity={testActivity}
         onOpenChange={(open) => { if (!open) { setViewAllScope(null); opener.restore(); } }} />
       <PayoutReceiptSheet itemId={openReceipt?.id ?? null} test={openReceipt?.test}
         onOpenChange={(open) => { if (!open) { setReceipt(null); opener.restore(); } }} />

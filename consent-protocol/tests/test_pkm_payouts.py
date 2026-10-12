@@ -469,8 +469,12 @@ def test_document_money_routes_require_owner_and_sanitize_history_failure(monkey
     app = FastAPI()
     app.include_router(payouts_routes.router)
     client = TestClient(app)
-    assert client.get("/api/one/payouts/account/earnings").status_code == 401
-    assert client.post("/api/one/payouts/account/manage").status_code == 401
+    for unauthenticated in (
+        client.get("/api/one/payouts/account/earnings"),
+        client.post("/api/one/payouts/account/manage"),
+    ):
+        assert unauthenticated.status_code == 401
+        assert unauthenticated.headers["Cache-Control"] == "private, no-store"
     assert calls == []
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner"}
     response = client.get("/api/one/payouts/account/earnings?user_id=other")
@@ -481,8 +485,19 @@ def test_document_money_routes_require_owner_and_sanitize_history_failure(monkey
     assert calls == [("owner", None, ("test", "legacy"))]
     live = client.get("/api/one/payouts/account/earnings?mode=live")
     assert live.json()["mode"] == "live" and calls[-1] == ("owner", None, ("live",))
-    assert client.get("/api/one/payouts/account/earnings?mode=legacy").status_code == 422
-    assert client.get("/api/one/payouts/account/earnings?cursor=invalid").status_code == 422
+    for mode in ("legacy", "bogus", ""):
+        rejected = client.get("/api/one/payouts/account/earnings", params={"mode": mode})
+        assert rejected.status_code == 422
+        assert rejected.json() == {
+            "detail": {"code": "INVALID_MODE", "message": "Choose live or test."}
+        }
+        assert rejected.headers["Cache-Control"] == "private, no-store"
+    # An older parameter keeps FastAPI's error body and is private too.
+    malformed = client.get("/api/one/payouts/account/earnings?cursor=invalid")
+    assert malformed.status_code == 422
+    assert malformed.json()["detail"][0]["loc"] == ["query", "cursor"]
+    assert malformed.headers["Cache-Control"] == "private, no-store"
+    assert len(calls) == 2
     failed = client.get(
         "/api/one/payouts/account/earnings?cursor=00000000-0000-4000-8000-000000000001"
     )
@@ -856,19 +871,25 @@ def test_bank_payout_route_pages_by_cursor_for_the_token_owner_only(monkeypatch)
     )
     app = FastAPI()
     app.include_router(payouts_routes.router)
-    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner"}
     client = TestClient(app)
     deposits = "/api/one/payouts/account/bank-payouts"
+    unauthenticated = client.get(f"{deposits}?cursor=")
+    assert unauthenticated.status_code == 401
+    assert unauthenticated.headers["Cache-Control"] == "private, no-store"
+    assert calls == []
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner"}
     assert client.get(f"{deposits}?user_id=other").json()["nextCursor"] is None
     assert client.get(f"{deposits}?cursor=page_2").status_code == 200
-    assert calls == [("owner", None), ("owner", "page_2")]
-    for cursor in ("", "x" * 257):
-        assert client.get(deposits, params={"cursor": cursor}).status_code == 422
-    stale = client.get(f"{deposits}?cursor=stale")
-    assert stale.status_code == 422
-    assert stale.json() == {"detail": "Bank payout page is unavailable."}
-    assert stale.headers["Cache-Control"] == "private, no-store"
-    assert calls[-1] == ("owner", "stale") and len(calls) == 3
+    assert client.get(deposits, params={"cursor": "x" * 256}).status_code == 200
+    assert calls == [("owner", None), ("owner", "page_2"), ("owner", "x" * 256)]
+    invalid = {"code": "INVALID_CURSOR", "message": "Bank payout page is unavailable."}
+    # Malformed cursors never reach the service; a stale one is refused by it.
+    for cursor in ("", "x" * 257, "stale"):
+        rejected = client.get(deposits, params={"cursor": cursor})
+        assert rejected.status_code == 422
+        assert rejected.json() == {"detail": invalid}
+        assert rejected.headers["Cache-Control"] == "private, no-store"
+    assert calls[-1] == ("owner", "stale") and len(calls) == 4
 
 
 @pytest.mark.parametrize(

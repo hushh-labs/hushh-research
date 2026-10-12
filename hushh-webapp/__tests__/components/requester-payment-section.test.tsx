@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RequesterPaymentView } from "@/lib/consent/document-request-payment-view";
@@ -22,8 +23,30 @@ vi.mock("@/lib/vault/session-epoch", () => ({
   snapshotVaultSessionEpoch: () => state.epoch,
   isVaultSessionEpochCurrent: (epoch: number) => epoch === state.epoch,
 }));
+// Every clock the section subscribes to, by id: the shared periodic task and
+// the shared coarse clock both register here, so a test sees any subscription.
+const clock = vi.hoisted(() => ({ tasks: new Map<string, { intervalMs: number; run: () => void }>() }));
 vi.mock("@/lib/perf/use-periodic-task", () => ({
-  useCoarseClock: () => NOW,
+  usePeriodicTask: (id: string, intervalMs: number, run: () => void, options: { enabled?: boolean } = {}) => {
+    const enabled = options.enabled !== false;
+    useEffect(() => {
+      if (!enabled) return;
+      clock.tasks.set(id, { intervalMs, run });
+      return () => {
+        clock.tasks.delete(id);
+      };
+    });
+  },
+  useCoarseClock: (intervalMs: number) => {
+    useEffect(() => {
+      const id = `coarse-clock:${intervalMs}:${Math.random()}`;
+      clock.tasks.set(id, { intervalMs, run: () => undefined });
+      return () => {
+        clock.tasks.delete(id);
+      };
+    }, [intervalMs]);
+    return Date.now();
+  },
 }));
 vi.mock("@/lib/services/drive-request-payment-service", () => ({
   DriveRequestPaymentService: { checkout: state.checkout },
@@ -53,26 +76,42 @@ function payment(overrides: Partial<RequesterPaymentView> = {}): RequesterPaymen
   };
 }
 
-function show(view: RequesterPaymentView | null, onChanged = vi.fn()) {
+function show(view: RequesterPaymentView | null, onChanged = vi.fn(), ownerName?: string) {
   render(
     <RequesterPaymentSection
       requestId={requestId}
       revision={3}
       payment={view}
       price={null}
+      ownerName={ownerName}
       onChanged={onChanged}
     />,
   );
   return onChanged;
 }
 
+/** The visible payment block (not the screen-reader announcement). */
+const section = () => screen.getByTestId("requester-payment-section");
+
+/** Move the device clock and run every clock task the section holds. */
+function tick(ms: number) {
+  vi.setSystemTime(Date.now() + ms);
+  act(() => {
+    for (const task of [...clock.tasks.values()]) task.run();
+  });
+}
+
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
   state.token = "vault-token";
   vi.stubGlobal("location", { ...window.location, assign: state.assign });
 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
+  clock.tasks.clear();
   state.decide.mockReset();
   state.checkout.mockReset();
   state.assign.mockReset();
@@ -82,18 +121,69 @@ describe("RequesterPaymentSection", () => {
   it("shows the countdown and starts the existing Checkout from Pay", async () => {
     state.checkout.mockResolvedValueOnce("https://checkout.stripe.com/c/pay/cs_test");
     show(payment());
-    expect(screen.getByRole("status")).toHaveTextContent("Payment due");
-    expect(screen.getByRole("status")).toHaveTextContent("Sharing starts after payment. · 29m left");
+    expect(section()).toHaveTextContent("Payment due");
+    expect(section()).toHaveTextContent("Sharing starts after payment. · 29m left");
     fireEvent.click(screen.getByRole("button", { name: "Pay $25" }));
     await waitFor(() => expect(state.assign).toHaveBeenCalledWith("https://checkout.stripe.com/c/pay/cs_test"));
     expect(state.checkout).toHaveBeenCalledWith("firebase-token", requestId);
   });
 
   it("explains a closed payment window without offering Pay", () => {
-    show(payment({ state: "link_expired", checkoutExpiresAt: null, nextAction: "new_request" }));
-    expect(screen.getByRole("status")).toHaveTextContent("Payment window closed");
-    expect(screen.getByRole("status")).toHaveTextContent("Send a new request to try again.");
+    show(payment({ state: "link_expired", checkoutExpiresAt: null, nextAction: "new_request" }), vi.fn(), "Alex");
+    expect(section()).toHaveTextContent("Payment link expired");
+    // Says where to go next instead of promising an action the panel lacks.
+    expect(section()).toHaveTextContent("Ask Alex again from their profile.");
+    expect(section()).not.toHaveTextContent("Send a new request");
     expect(screen.queryByRole("button", { name: /^Pay/ })).toBeNull();
+  });
+
+  it("keeps the countdown and Pay out of the live region and announces only state changes", () => {
+    show(payment({ checkoutExpiresAt: at(45_000) }));
+    const live = screen.getByRole("status");
+    const pay = screen.getByRole("button", { name: "Pay $25" });
+    expect(live).not.toContainElement(pay);
+    expect(section()).toHaveTextContent("45s left");
+    // Opening the panel announces nothing; it is read in place.
+    const heard = new Set([live.textContent]);
+    for (let second = 0; second < 5; second += 1) {
+      tick(1_000);
+      heard.add(screen.getByRole("status").textContent);
+    }
+    expect(section()).toHaveTextContent("40s left");
+    expect([...heard]).toEqual([""]);
+    // The window closing is a state change, and is said once.
+    tick(40_000);
+    expect(screen.getByRole("status").textContent).toBe(
+      "Payment link expired. Ask the owner again from their profile.",
+    );
+    expect(screen.getByRole("status")).not.toHaveTextContent(/left/);
+    expect(screen.queryByRole("button", { name: /^Pay/ })).toBeNull();
+  });
+
+  it("subscribes to a clock only while the view can change on its own", () => {
+    const refunded = payment({
+      state: "refunded", checkoutExpiresAt: null, nextAction: "none",
+      refund: { status: "succeeded", amountCents: 2500 },
+    });
+    for (const settled of [
+      refunded,
+      payment({ state: "paid", checkoutExpiresAt: null, nextAction: "none" }),
+      payment({ state: "closed", checkoutExpiresAt: null, nextAction: "none" }),
+      payment({ state: "none", amountCents: null, checkoutExpiresAt: null, nextAction: "none" }),
+    ]) {
+      show(settled);
+      expect(clock.tasks.size).toBe(0);
+      cleanup();
+    }
+    show(null);
+    expect(clock.tasks.size).toBe(0);
+    cleanup();
+    // An open request can still expire: a slow clock, never per second.
+    show(payment({ state: "awaiting_owner", checkoutExpiresAt: null, nextAction: "wait_owner" }));
+    expect([...clock.tasks.values()].map((task) => task.intervalMs)).toEqual([30_000]);
+    cleanup();
+    show(payment());
+    expect([...clock.tasks.values()].map((task) => task.intervalMs)).toEqual([1_000]);
   });
 
   it("withdraws only on the confirming tap, then says so", async () => {
@@ -149,7 +239,7 @@ describe("RequesterPaymentSection", () => {
 
   it("shows refunds without Withdraw, and nothing when no payment applies", () => {
     show(payment({ state: "refunded", checkoutExpiresAt: null, nextAction: "none", refund: { status: "succeeded", amountCents: 2500 } }));
-    expect(screen.getByRole("status")).toHaveTextContent("Refunded $25");
+    expect(section()).toHaveTextContent("Refunded $25");
     expect(screen.queryByRole("button", { name: /Withdraw/ })).toBeNull();
     cleanup();
     show(null);

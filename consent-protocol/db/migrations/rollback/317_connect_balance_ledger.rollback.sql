@@ -3,6 +3,7 @@
 -- Mirrored balance transactions are settlement evidence: they stay once any exist.
 -- Re-applying 317 afterwards is idempotent.
 BEGIN;
+DROP INDEX IF EXISTS stripe_connect_bank_payouts_reconcile_recent;
 DROP TABLE IF EXISTS stripe_connect_payout_reconciliations;
 DROP TABLE IF EXISTS stripe_connect_balance_snapshots;
 DO $$ BEGIN

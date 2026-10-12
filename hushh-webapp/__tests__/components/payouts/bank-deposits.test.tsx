@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // vi.hoisted and vi.mock are file-scoped, so each payouts test file repeats this setup.
@@ -38,7 +38,7 @@ vi.mock("@/lib/services/document-payout-service", async (importOriginal) => ({
 }));
 
 import { DocumentBankPayoutStatusCard } from "@/components/consent/document-payout-account";
-import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
+import { dispatchPayoutStateChanged } from "@/lib/payouts/payout-events";
 
 describe("document payout account", () => {
   beforeEach(() => {
@@ -96,13 +96,13 @@ describe("document payout account", () => {
       .mockResolvedValueOnce({ currency: "USD", payouts: [{ ...item, status: "paid" }] });
     render(<DocumentBankPayoutStatusCard compact refreshOnFeedChange />);
     expect(await screen.findByText("$9.11 bank payout on its way.")).toBeVisible();
-    window.dispatchEvent(new CustomEvent(CONSENT_STATE_CHANGED_EVENT, {
-      detail: { source: "sse_document_feed", requestId: "document_share_request:1" },
-    }));
+    // A request's earning changing is not a bank deposit: the cue keeps its read.
+    act(() => {
+      dispatchPayoutStateChanged({ kinds: ["earnings"], requestIds: ["11111111-1111-4111-8111-111111111111"], source: "sse" });
+    });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 200)); });
     expect(state.bankPayouts).toHaveBeenCalledTimes(1);
-    window.dispatchEvent(new CustomEvent(CONSENT_STATE_CHANGED_EVENT, {
-      detail: { source: "sse_document_feed", reconcile: true },
-    }));
+    act(() => { dispatchPayoutStateChanged({ kinds: ["bank_payouts"], source: "sse" }); });
     expect(await screen.findByText("$9.11 bank payout paid.")).toBeVisible();
     expect(state.bankPayouts).toHaveBeenCalledTimes(2);
   });

@@ -34,9 +34,10 @@ function walletReadWithin(resource: HashcoinWalletResource, now: number): boolea
 }
 
 /**
- * True while the last wallet read succeeded under a minute ago. Each read sets
- * its own timers, so there is no polling loop; while a redemption is offered
- * the wallet re-reads before then, and on return if the tab slept through it.
+ * True while the last wallet read succeeded under a minute ago and no payout
+ * change is unread. Each read sets its own timers, so there is no polling
+ * loop; while a redemption is offered the wallet re-reads before then. A
+ * return to the page is the store's: it reads the wallet once.
  */
 function useFreshWallet(resource: HashcoinWalletResource, offered: boolean): boolean {
   const { lastSuccessAt, stale } = resource;
@@ -46,17 +47,10 @@ function useFreshWallet(resource: HashcoinWalletResource, offered: boolean): boo
   useEffect(() => {
     if (lastSuccessAt === null) return;
     const age = () => Date.now() - lastSuccessAt;
-    const reread = () => { if (!document.hidden) retry.current(); };
-    const onVisible = () => { if (age() >= WALLET_FRESH_MS) reread(); };
     const timers = [window.setTimeout(() => setAgedOut(lastSuccessAt), Math.max(0, WALLET_FRESH_MS - age()))];
-    if (offered) {
-      timers.push(window.setTimeout(reread, Math.max(0, WALLET_REREAD_MS - age())));
-      document.addEventListener("visibilitychange", onVisible);
-    }
-    return () => {
-      for (const timer of timers) window.clearTimeout(timer);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
+    // A hidden page skips this; the store's read on return replaces it.
+    if (offered) timers.push(window.setTimeout(() => { if (!document.hidden) retry.current(); }, Math.max(0, WALLET_REREAD_MS - age())));
+    return () => { for (const timer of timers) window.clearTimeout(timer); };
   }, [lastSuccessAt, offered]);
   return lastSuccessAt !== null && agedOut !== lastSuccessAt && !stale;
 }
@@ -170,7 +164,7 @@ export function RedeemAction({ wallet, redeem, "data-voice-control-id": voiceCon
   const reason = openTransferUnreadable ? cashOutBlocked
     : shown ? cashOutBlocked ?? (held ? "Balance under review." : null) : null;
   const scopeLine = !reason && newRedemption && redeemAmount >= 1 && ready > redeemAmount
-    ? `${money(redeemAmount)} of ${money(ready)} ready` : null;
+    ? `${money(redeemAmount)} of ${money(ready)} ready · one paid request at a time` : null;
   const receiptId = receipt && receipt.scope === wallet.scope ? receipt.id : null;
   return <>
     {shown || reason || last || redeem.error ? <section aria-label="Redeem Hussh Coins" className="space-y-2">

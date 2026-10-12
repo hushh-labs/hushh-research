@@ -1,6 +1,6 @@
 import { isNative } from "@/lib/capacitor/platform";
 import { apiErrorCode } from "@/lib/services/api-client";
-import type { HashcoinBalance, HashcoinRedemption } from "@/lib/services/document-payout-service";
+import type { DocumentPayoutAccount, HashcoinBalance, HashcoinRedemption } from "@/lib/services/document-payout-service";
 
 import type { PayoutAccountState } from "./payout-bank-row";
 
@@ -46,20 +46,57 @@ export function redemptionCopy(item: HashcoinRedemption): string {
     case "unknown": return "Checking test redemption. Your test balance is reserved.";
   }
 }
+type AccountBlock = "link" | "bank" | "verify" | "review" | "unavailable";
+
+/**
+ * What stops a live payout account taking a new cash-out; null once it's ready.
+ * The bank row asks for a bank first. When Stripe pauses payouts over
+ * verification, the "Verify details" row is the fix, so the reason points there.
+ */
+function accountBlock(account: DocumentPayoutAccount | null): AccountBlock | null {
+  if (!account) return "link";
+  if (account.ready) return null;
+  if (account.bankStatus === "missing" || account.bankStatus === "needs_attention") return "bank";
+  switch (account.verification?.state) {
+    case "due": case "past_due": case "disabled": return "verify";
+    case "in_review": return "review";
+  }
+  return account.bankStatus === "unavailable" ? "unavailable" : "bank";
+}
+
+const BLOCK_REASON: Record<AccountBlock, string> = {
+  link: "Link a bank to redeem",
+  bank: "Fix your bank to redeem",
+  verify: "Verify your details to redeem",
+  review: "Stripe is reviewing your details",
+  unavailable: "Bank check unavailable",
+};
+
 /**
  * Why a new live redemption can't start yet; null once the bank is ready. The
- * bank row names the bank's state, so this only points to it. The server
- * checks again.
+ * bank and Verify details rows name the state, so this only points to the
+ * one to fix. The server checks again.
  */
 export function cashOutBlock(bank: PayoutAccountState | null, openTransferUnreadable: boolean): string | null {
   // This build couldn't read the open transfer; a newer one can.
   if (openTransferUnreadable) return isNative() ? "Checking a transfer. Update the app to see it." : "Checking a transfer. Coins stay reserved.";
   if (!bank || bank.loading) return "Checking your bank…";
   if (bank.failed || bank.stripeMode === "test") return "Bank check unavailable";
-  const { account } = bank;
-  if (!account) return "Link a bank to redeem";
-  if (account.ready) return null;
-  return account.bankStatus === "unavailable" ? "Bank check unavailable" : "Fix your bank to redeem";
+  const block = accountBlock(bank.account);
+  return block ? BLOCK_REASON[block] : null;
+}
+
+/**
+ * What ready coins wait on while the last bank read says payouts can't go out.
+ * Null while the bank is ready, unread or unknown, so "ready to redeem" stands.
+ */
+export function readyCoinsWait(bank: PayoutAccountState | null): string | null {
+  if (!bank || bank.loading || bank.failed || bank.stripeMode === "test") return null;
+  switch (accountBlock(bank.account)) {
+    case "link": case "bank": return "waiting on your bank";
+    case "verify": case "review": return "waiting on Stripe";
+    default: return null;
+  }
 }
 
 /**

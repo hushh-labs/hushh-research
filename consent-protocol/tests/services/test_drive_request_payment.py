@@ -3267,6 +3267,10 @@ async def test_retire_checkout_reports_dead_paid_or_unknown_and_never_raises(mon
     session.expire.side_effect = stripe.InvalidRequestError("already complete", "session")
     session.retrieve.return_value = {"status": "complete", "payment_status": "paid"}
     assert await verdict() == "paid"
+    # A delayed method (ACH debit) completes the session before funds settle:
+    # that is not a payment, so it must never be shown as a refund.
+    session.retrieve.return_value = {"status": "complete", "payment_status": "unpaid"}
+    assert await verdict() == "unknown"
     session.retrieve.side_effect = RuntimeError("network down")
     assert await verdict() == "unknown"
     gate = threading.Event()

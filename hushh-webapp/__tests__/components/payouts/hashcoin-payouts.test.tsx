@@ -54,7 +54,7 @@ vi.mock("@/components/consent/payouts/receipts/payout-receipt-sheet", () => ({
     : null,
 }));
 vi.mock("@/components/consent/payouts/payout-freshness", () => ({
-  PayoutFreshness: () => <p>Payouts freshness</p>,
+  PayoutFreshness: () => <span>Payouts freshness</span>,
 }));
 
 import { DocumentHashcoinPayouts } from "@/components/consent/document-hashcoins";
@@ -69,6 +69,11 @@ const noBalance = {
   stripeMode: "live", currency: "USD", accountLinked: false, inStripeCents: 0, availableCents: 0, pendingCents: 0,
   nextAvailableOn: null, nextAvailableCents: null, asOf: "2026-10-11T10:00:00.000Z", stale: false,
 };
+// Stripe paused payouts over verification; the bank itself is linked and fine.
+const pausedForVerification = { ...readyAccount, payoutsEnabled: false, ready: false, status: "restricted",
+  bank: { name: "Example Bank", last4: "6789", status: "verified" } };
+const verificationNeeded = { state: "past_due", deadline: null, items: ["identity"], eventuallyDue: false, hasErrors: false,
+  disabledReason: "requirements_past_due" };
 const inStripe = {
   ...noBalance, accountLinked: true, inStripeCents: 155, availableCents: 100, pendingCents: 55,
   nextAvailableOn: "2026-10-14T00:00:00.000Z", nextAvailableCents: 55,
@@ -168,7 +173,7 @@ describe("document payout account", () => {
       await waitFor(() => expect(button).toBeEnabled());
       // One paid request at a time: this tap sends the next earning, not the whole balance.
       expect(screen.getByRole("region", { name: "Your money" })).toHaveTextContent("$18.22 ready to redeem");
-      expect(redeem).toHaveTextContent("$9.11 of $18.22 ready");
+      expect(redeem).toHaveTextContent("$9.11 of $18.22 ready · one paid request at a time");
       fireEvent.click(button);
       expect(await within(redeem).findByRole("button", { name: "Sending…" })).toBeDisabled();
       expect(state.redeemLive).toHaveBeenCalledExactlyOnceWith("owner-token", 911, expect.any(String));
@@ -188,21 +193,32 @@ describe("document payout account", () => {
   });
 
   it.each([
-    ["no account", { account: null }, "Link a bank to redeem"],
+    ["no account", { account: null }, "Link a bank to redeem", "$18.22 waiting on your bank"],
     ["unfinished setup", { account: { ...readyAccount, detailsSubmitted: false, transfersEnabled: false,
-      payoutsEnabled: false, ready: false, status: "onboarding_required", bankStatus: "missing" } }, "Fix your bank to redeem"],
+      payoutsEnabled: false, ready: false, status: "onboarding_required", bankStatus: "missing" } }, "Fix your bank to redeem",
+      "$18.22 waiting on your bank"],
     ["a bank that needs attention", { account: { ...readyAccount, ready: false, status: "onboarding_required",
-      bankStatus: "needs_attention" } }, "Fix your bank to redeem"],
+      bankStatus: "needs_attention" } }, "Fix your bank to redeem", "$18.22 waiting on your bank"],
     ["a restricted account", { account: { ...readyAccount, payoutsEnabled: false, ready: false, status: "restricted" } },
-      "Fix your bank to redeem"],
-    ["a failed bank check", null, "Bank check unavailable"],
-  ])("holds a new redemption with %s and says why in its place", async (_, account, reason) => {
+      "Fix your bank to redeem", "$18.22 waiting on your bank"],
+    // Stripe paused payouts over verification: the bank is fine, "Verify details" is the fix.
+    ...(["due", "past_due", "disabled"] as const).map((verificationState) => [`verification ${verificationState}`,
+      { account: { ...pausedForVerification, verification: { ...verificationNeeded, state: verificationState } } },
+      "Verify your details to redeem", "$18.22 waiting on Stripe"] as const),
+    ["verification in review", { account: { ...pausedForVerification, verification: { ...verificationNeeded, state: "in_review" } } },
+      "Stripe is reviewing your details", "$18.22 waiting on Stripe"],
+    // Unknown is not "can't": the coin row keeps its state.
+    ["a failed bank check", null, "Bank check unavailable", "$18.22 ready to redeem"],
+  ])("holds a new redemption with %s and says why in its place", async (_, account, reason, coinState) => {
     state.hashcoins.mockResolvedValue(liveWallet);
     if (account) state.account.mockResolvedValue({ stripeMode: "live", ...account });
     else state.account.mockRejectedValue(new ApiError("private", 503));
     render(<DocumentHashcoinPayouts />);
     const redeem = await screen.findByRole("region", { name: "Redeem Hussh Coins" });
     expect(await within(redeem).findByText(reason)).toBeVisible();
+    expect(screen.getByRole("region", { name: "Your money" })).toHaveTextContent(coinState);
+    if (coinState.includes("waiting")) expect(document.body).not.toHaveTextContent("ready to redeem");
+    if (reason !== "Fix your bank to redeem") expect(redeem).not.toHaveTextContent("Fix your bank");
     // One line: the reason takes the scope line's place.
     expect(redeem).not.toHaveTextContent("of $18.22 ready");
     const button = within(redeem).getByRole("button", { name: "Redeem $9.11" });
@@ -321,6 +337,9 @@ describe("document payout account", () => {
     act(() => { dispatchPayoutStateChanged({ kinds: ["wallet"], source: "sse" }); });
     expect(await screen.findByText("Couldn't refresh.")).toBeVisible();
     expect(screen.queryByText("Couldn't load Hussh Coins.")).toBeNull();
+    // One failure, one line: the wallet's own line stands in for the freshness line.
+    expect(screen.queryByText("Payouts freshness")).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1);
     expect(screen.getByRole("region", { name: "Your money" })).toHaveTextContent("1,822 Hussh Coins");
     expect(within(redeem).getByRole("button", { name: "Redeem $9.11" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
@@ -438,7 +457,9 @@ describe("document payout account", () => {
     const money = await screen.findByRole("region", { name: "Your money" });
     await waitFor(() => expect(money).toHaveTextContent("0 Hussh Coins"));
     expect(money).toHaveTextContent(mode === "live" ? "Nothing ready to redeem" : "100 Hussh Coins = $1");
-    expect(screen.getByRole("region", { name: "Activity" })).toHaveTextContent("Payouts freshness");
+    // The one freshness line ages with the balances, so it sits under "Your money".
+    expect(money).toHaveTextContent("Payouts freshness");
+    expect(screen.getByRole("region", { name: "Activity" })).not.toHaveTextContent("Payouts freshness");
     await waitFor(() => expect(state.balance).toHaveBeenCalled());
     await settle();
     expect(screen.queryByRole("region", { name: "Redeem Hussh Coins" })).toBeNull();
@@ -496,6 +517,101 @@ describe("document payout account", () => {
       await waitFor(() => expect(within(redeem).getByRole("button", { name: "Redeem $9.11" })).toBeEnabled());
       expect(state.redeemLive).not.toHaveBeenCalled();
     } finally { vi.useRealTimers(); }
+  });
+
+  it("never redeems a wallet with an unread payout change; it waits for the reread", async () => {
+    let release!: (value: unknown) => void;
+    state.hashcoins.mockResolvedValueOnce({ ...liveWallet })
+      .mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }))
+      .mockResolvedValue({ ...liveWallet });
+    state.account.mockResolvedValue({ stripeMode: "live", account: readyAccount });
+    state.redeemLive.mockResolvedValue({ id: "11111111-1111-4111-8111-111111111111", amountCoins: 911,
+      status: "succeeded", stripeMode: "live", reversalStatus: "none" });
+    render(<DocumentHashcoinPayouts />);
+    const redeem = await screen.findByRole("region", { name: "Redeem Hussh Coins" });
+    await waitFor(() => expect(within(redeem).getByRole("button", { name: "Redeem $9.11" })).toBeEnabled());
+    // The wallet was read moments ago, but a cash-out elsewhere (or a reversed earning) just changed it.
+    act(() => { dispatchPayoutStateChanged({ kinds: ["wallet"], source: "sse" }); });
+    await waitFor(() => expect(state.hashcoins).toHaveBeenCalledTimes(2));
+    const waiting = within(redeem).getByRole("button", { name: "Updating balance…" });
+    expect(waiting).toBeDisabled();
+    fireEvent.click(waiting);
+    expect(state.redeemLive).not.toHaveBeenCalled();
+    await act(async () => { release({ ...liveWallet }); });
+    const button = await within(redeem).findByRole("button", { name: "Redeem $9.11" });
+    await waitFor(() => expect(button).toBeEnabled());
+    // Once read, the gate opens again.
+    fireEvent.click(button);
+    await waitFor(() => expect(state.redeemLive).toHaveBeenCalledExactlyOnceWith("owner-token", 911, expect.any(String)));
+  });
+
+  it("reads the wallet once when the owner returns after a minute away", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"], shouldAdvanceTime: true });
+    let hidden = false;
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => hidden });
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => (hidden ? "hidden" : "visible") });
+    try {
+      state.hashcoins.mockResolvedValue({ ...liveWallet });
+      state.account.mockResolvedValue({ stripeMode: "live", account: readyAccount });
+      render(<DocumentHashcoinPayouts />);
+      const redeem = await screen.findByRole("region", { name: "Redeem Hussh Coins" });
+      await waitFor(() => expect(within(redeem).getByRole("button", { name: "Redeem $9.11" })).toBeEnabled());
+      await settle();
+      const before = state.hashcoins.mock.calls.length;
+      act(() => {
+        hidden = true;
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
+      expect(state.hashcoins).toHaveBeenCalledTimes(before);
+      act(() => {
+        hidden = false;
+        document.dispatchEvent(new Event("visibilitychange"));
+        window.dispatchEvent(new Event("focus"));
+      });
+      await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+      // The store's return read is the only one; nothing queues a second behind it.
+      expect(state.hashcoins).toHaveBeenCalledTimes(before + 1);
+      await waitFor(() => expect(within(redeem).getByRole("button", { name: "Redeem $9.11" })).toBeEnabled());
+    } finally {
+      vi.useRealTimers();
+      Reflect.deleteProperty(document, "hidden");
+      Reflect.deleteProperty(document, "visibilityState");
+    }
+  });
+
+  it("says why money is under review and what to do, under the balance", async () => {
+    const hold = (fields: Record<string, unknown>) => ({ requestId: null, requestLabel: null, since: null, ...fields });
+    state.hashcoins.mockResolvedValue({ ...liveWallet, live: { balanceCoins: -911, reservedCoins: 0, availableCoins: 0,
+      amountCents: -911, held: true, nextRedeemCoins: 0, holds: [
+        hold({ id: "earning:33333333-3333-4333-8333-333333333333", reason: "payment_disputed", nextStep: "wait_for_bank",
+          coins: 500, requestLabel: "Tax return 2025" }),
+        // A balance below zero has no Activity item, so it is the one explained here.
+        hold({ id: "balance", reason: "negative_balance", nextStep: "contact_support", coins: 911 }),
+      ] } });
+    state.account.mockResolvedValue({ stripeMode: "live", account: readyAccount });
+    render(<DocumentHashcoinPayouts />);
+    const money = await screen.findByRole("region", { name: "Your money" });
+    await waitFor(() => expect(money).toHaveTextContent("Under review · 2 items"));
+    const row = screen.getByTestId("payout-hold-row");
+    expect(row).toHaveTextContent("A refund left your balance below zero.");
+    expect(row).toHaveTextContent("Contact support");
+    expect(row).toHaveTextContent("$9.11");
+    expect(money).not.toHaveTextContent("The buyer's bank");
+    expect(document.body).not.toHaveTextContent("$0.00");
+  });
+
+  it("names a held earning's request, its next step and its amount", async () => {
+    state.hashcoins.mockResolvedValue({ ...liveWallet, live: { ...liveWallet.live, redeemableCoins: 911, redeemableCount: 1,
+      remainingAfterNextCoins: 911, notRedeemableCoins: 911, holds: [{ id: "earning:33333333-3333-4333-8333-333333333333",
+        reason: "payment_disputed", nextStep: "wait_for_bank", coins: 911, requestId: null, requestLabel: "Tax return 2025", since: null }] } });
+    state.account.mockResolvedValue({ stripeMode: "live", account: readyAccount });
+    render(<DocumentHashcoinPayouts />);
+    const row = await screen.findByTestId("payout-hold-row");
+    expect(row).toHaveTextContent("The buyer's bank is reviewing this payment.");
+    expect(row).toHaveTextContent("Tax return 2025 · Wait for the bank");
+    expect(row).toHaveTextContent("$9.11");
+    expect(screen.getByRole("region", { name: "Your money" })).not.toHaveTextContent("items");
   });
 
   it("opens coin activity from the Hussh Coins row and returns focus to it", async () => {

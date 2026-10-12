@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const apiJson = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/services/api-client", () => ({ apiJson }));
 
+import { HOLD_REASONS, holdReasonCopy } from "@/lib/payouts/review-copy";
 import { DocumentPayoutService } from "@/lib/services/document-payout-service";
 
 describe("aggregate bank payout status", () => {
@@ -303,6 +304,11 @@ describe("payouts v2 additive fields", () => {
       requestId: null, requestLabel: null, since: null }]);
     // Nothing is next while held, so no source is named.
     expect(parsed.nextRedeemSource).toBeNull();
+  });
+
+  it("words every hold in Hussh's name and the Redeem action", () => {
+    for (const reason of HOLD_REASONS) expect(holdReasonCopy(reason)).not.toMatch(/Hushh|cash(ed)? out/i);
+    expect(holdReasonCopy("refund_recovery")).toBe("This payment was refunded after you redeemed it.");
   });
 
   it("asks for one earnings mode and refuses another mode's page", async () => {

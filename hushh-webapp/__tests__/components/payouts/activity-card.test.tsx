@@ -8,6 +8,9 @@ const state = vi.hoisted(() => ({
   apiJson: vi.fn(),
   list: vi.fn(),
   item: vi.fn(),
+  stream: "live" as "live" | "polling",
+  // Fallback reads registered on the idle clock, run by hand.
+  tasks: new Map<string, () => void>(),
 }));
 
 vi.mock("@/lib/capacitor/platform", () => ({ isNative: () => false }));
@@ -16,9 +19,17 @@ vi.mock("@/lib/vault/session-epoch", () => ({
   snapshotVaultSessionEpoch: () => state.epoch,
   isVaultSessionEpochCurrent: (epoch: number) => epoch === state.epoch,
 }));
-// Stream "live": refreshes come only from payout events, so every read here is deliberate.
+// Stream "live" by default: refreshes come only from payout events, so every read here is deliberate.
 vi.mock("@/lib/payouts/payout-live-store", () => ({
-  usePayoutFreshness: () => ({ lastSuccessAt: null, refreshing: false, failures: 0, online: true, stream: "live" }),
+  PAYOUT_COALESCE_MS: 150,
+  usePayoutFreshness: () => ({ lastSuccessAt: null, refreshing: false, failures: 0, online: true, stream: state.stream }),
+}));
+vi.mock("@/lib/perf/use-periodic-task", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/perf/use-periodic-task")>(),
+  usePeriodicTask: (id: string, _intervalMs: number, run: () => void, options: { enabled?: boolean } = {}) => {
+    if (options.enabled === false) state.tasks.delete(id);
+    else state.tasks.set(id, run);
+  },
 }));
 vi.mock("@/lib/services/api-client", () => ({ apiJson: state.apiJson }));
 
@@ -55,11 +66,20 @@ const earningReceipt = (n: number, status = "credited") => ({
 const range = (from: number, to: number) => Array.from({ length: from - to + 1 }, (_, index) => from - index);
 const listCalls = () => state.list.mock.calls.map(([query]) => (query as URLSearchParams).toString());
 const receiptNumber = (itemId: string) => Number(itemId.slice("earning:".length, "earning:".length + 8));
+const reads = (limit: number) => listCalls().filter((query) => query === `kind=all&mode=live&limit=${limit}`).length;
+const settle = (ms = 300) => act(async () => { await new Promise((resolve) => setTimeout(resolve, ms)); });
+// The clock moves on without touching timers: "Updated 3m ago" and the poll gap read Date.now().
+const realNow = Date.now.bind(Date);
+let skew = 0;
 
 describe("payout activity card", () => {
   beforeEach(() => {
     state.token = "owner-token";
     state.epoch = 1;
+    state.stream = "live";
+    state.tasks.clear();
+    skew = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => realNow() + skew);
     state.list.mockReset();
     state.item.mockReset();
     state.apiJson.mockReset().mockImplementation(async (path: string) => {
@@ -84,6 +104,10 @@ describe("payout activity card", () => {
     expect(listCalls()).toEqual(["kind=all&mode=live&limit=5"]);
 
     fireEvent.keyDown(within(card).getByRole("button", { name: "Show: All" }), { key: "ArrowDown" });
+    // Real or test is a choice of one, never an "also show"; every row meets the 44 px target.
+    expect(await screen.findByRole("menuitemradio", { name: "Real activity" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("menuitemradio", { name: "Test activity" })).toHaveAttribute("aria-checked", "false");
+    for (const item of screen.getAllByRole("menuitemradio")) expect(item).toHaveClass("min-h-11");
     fireEvent.click(await screen.findByRole("menuitemradio", { name: "Deposits" }));
     expect(await within(card).findByText(`Example Bank •••• 6789 · ${rowDate(day(4))}`)).toBeVisible();
     expect(within(card).getByRole("button", { name: /^On the way/ })).toHaveTextContent("$15.50");
@@ -92,7 +116,7 @@ describe("payout activity card", () => {
     expect(listCalls()).toContain("kind=deposit&mode=live&limit=5");
 
     fireEvent.keyDown(within(card).getByRole("button", { name: "Show: Deposits" }), { key: "ArrowDown" });
-    fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: "Test activity" }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Test activity" }));
     expect(await within(card).findByText(`Test · Example Bank •••• 6789 · ${rowDate(day(4))}`)).toBeVisible();
     expect(within(card).getByRole("button", { name: "Show: Deposits · Test" })).toBeVisible();
     expect(listCalls()).toContain("kind=deposit&mode=test&limit=5");
@@ -135,7 +159,8 @@ describe("payout activity card", () => {
     await waitFor(() => expect(state.item).toHaveBeenCalledTimes(2));
     // The receipt stays open with the new state, and an older row updates in place.
     expect(await within(screen.getByRole("dialog", { name: "$1.03" })).findByText("Under review")).toBeVisible();
-    expect(listCalls().filter((query) => query.includes("since="))).toHaveLength(1);
+    // Activity reads after the store's coalescing window; the receipt reads at once.
+    await waitFor(() => expect(listCalls().filter((query) => query.includes("since="))).toHaveLength(1));
     await waitFor(() => expect(within(sheet).getByText(line(3)).closest("button")).toHaveTextContent(/^Under review/));
     expect(within(sheet).getByText(line(1))).toBeInTheDocument();
     expect(within(sheet).getByText(line(29))).toBeInTheDocument();
@@ -182,5 +207,87 @@ describe("payout activity card", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(await screen.findByText("No activity yet")).toBeVisible();
     expect(screen.queryByText(line(5))).toBeNull();
+  });
+
+  it("keeps rows after a failed refresh, says how old they are, and retries in the card and View all", async () => {
+    state.list.mockImplementation((query: URLSearchParams) => page(query, range(9, 4).map((n) => earning(n))));
+    render(<PayoutActivityCard />);
+    const card = await screen.findByRole("region", { name: "Payout activity" });
+    expect(await within(card).findByText(line(9))).toBeVisible();
+    expect(card).not.toHaveTextContent("Couldn't update");
+
+    skew = 3 * 60_000;
+    state.list.mockRejectedValue(new Error("offline"));
+    act(() => dispatchPayoutStateChanged({ kinds: ["wallet"], source: "sse" }));
+    const notice = await within(card).findByRole("button", { name: /^Couldn't update/ });
+    expect(notice).toHaveTextContent("Updated 3m ago");
+    expect(notice).toHaveTextContent("Retry");
+    expect(within(card).getByText(line(9))).toBeVisible();
+    expect(card).not.toHaveTextContent("Couldn't load activity");
+
+    state.list.mockImplementation((query: URLSearchParams) => page(query, range(9, 4).map((n) => earning(n))));
+    fireEvent.click(notice);
+    await waitFor(() => expect(within(card).queryByText("Couldn't update")).toBeNull());
+    expect(reads(5)).toBe(3);
+
+    fireEvent.click(within(card).getByRole("button", { name: "View all" }));
+    const sheet = await screen.findByRole("dialog", { name: "Activity" });
+    expect(await within(sheet).findByText(line(9))).toBeVisible();
+    state.list.mockRejectedValue(new Error("offline"));
+    act(() => dispatchPayoutStateChanged({ kinds: ["earnings"], source: "sse" }));
+    expect(await within(sheet).findByRole("button", { name: /^Couldn't update/ })).toHaveTextContent("Updated just now");
+    expect(within(sheet).getByText(line(9))).toBeVisible();
+  });
+
+  it("reads once per burst of payout frames, and rests the card while View all is open", async () => {
+    state.list.mockImplementation((query: URLSearchParams) => page(query, range(9, 4).map((n) => earning(n))));
+    render(<PayoutActivityCard />);
+    const card = await screen.findByRole("region", { name: "Payout activity" });
+    expect(await within(card).findByText(line(9))).toBeVisible();
+    expect(reads(5)).toBe(1);
+
+    act(() => {
+      dispatchPayoutStateChanged({ kinds: ["wallet"], source: "local_redeem" });
+      dispatchPayoutStateChanged({ kinds: ["wallet"], source: "sse" });
+      dispatchPayoutStateChanged({ kinds: ["wallet", "earnings"], source: "sse" });
+    });
+    await settle();
+    expect(reads(5)).toBe(2);
+    // A deposit-only account change is not activity.
+    act(() => dispatchPayoutStateChanged({ kinds: ["account"], source: "sse" }));
+    await settle();
+    expect(reads(5)).toBe(2);
+
+    fireEvent.click(within(card).getByRole("button", { name: "View all" }));
+    const sheet = await screen.findByRole("dialog", { name: "Activity" });
+    expect(await within(sheet).findByText(line(9))).toBeVisible();
+    act(() => dispatchPayoutStateChanged({ kinds: ["wallet"], source: "sse" }));
+    await settle();
+    expect(reads(20)).toBe(2);
+    expect(reads(5)).toBe(2);
+
+    fireEvent.keyDown(sheet, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(reads(5)).toBe(3));
+  });
+
+  it("skips a fallback read when one just started, as on a return to the page", async () => {
+    state.stream = "polling";
+    state.list.mockImplementation((query: URLSearchParams) => page(query, range(9, 4).map((n) => earning(n))));
+    render(<PayoutActivityCard />);
+    expect(await screen.findByText(line(9))).toBeVisible();
+    const poll = [...state.tasks].find(([id]) => id.startsWith("payout-activity:"))?.[1];
+    expect(poll).toBeDefined();
+
+    skew = 60_000;
+    // visibilitychange and focus can both run the same due task.
+    act(() => { poll!(); poll!(); });
+    await settle();
+    expect(reads(5)).toBe(2);
+
+    skew = 120_000;
+    act(() => { poll!(); });
+    await settle();
+    expect(reads(5)).toBe(3);
   });
 });

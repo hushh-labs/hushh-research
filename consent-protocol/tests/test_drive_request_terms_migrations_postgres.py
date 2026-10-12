@@ -1,7 +1,7 @@
 """Migrations 320 (requester estimate) and 321 (review asks) on real PostgreSQL.
 
 UAT replays every migration on every deploy with a short lock timeout, so a
-replay must change nothing and never wait behind live writers. 312 widens the
+replay must change nothing and never wait behind live writers. 321 widens the
 Drive event vocabulary and the Feed allowlist without dropping a type that a
 later migration added. Rollbacks keep evidence: estimates and delivered asks.
 """
@@ -16,7 +16,6 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from psycopg2 import errors as pg_errors
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
@@ -216,16 +215,10 @@ async def test_a_review_ask_reaches_the_owner_feed(feed, sharing):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    strict=True,
-    raises=pg_errors.CheckViolation,
-    reason=(
-        "288 compares the event check to an exact list and rebuilds it without "
-        "document_share_review_requested on replay; the integrator must make "
-        "288's replay superset-preserving (see the L10 report)."
-    ),
-)
-async def test_replaying_288_after_312_keeps_review_asks(feed, sharing):
+async def test_replaying_288_after_321_keeps_review_asks(feed, sharing):
+    # 288 compares the event CHECK to an exact list; its checksum-pinned replay
+    # adapter must keep installed vocabulary, or every deploy after the first
+    # review ask fails at 288 with a CheckViolation.
     _execute(sharing, _sql(REVIEW))
     _insert_event(sharing, (await request(sharing))["requestId"])
     [entry] = build_manifest_entries(MIGRATIONS, ["288_drive_request_feed_stream.sql"])

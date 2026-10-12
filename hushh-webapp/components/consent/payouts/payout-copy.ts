@@ -5,7 +5,7 @@ import { money } from "./payout-format";
 
 export function payoutErrorCopy(error: unknown, fallback: string): string {
   switch (apiErrorCode(error)) {
-    case "PAYOUT_PLATFORM_SETUP_REQUIRED": return "Bank setup is unavailable. Hushh needs to activate payouts.";
+    case "PAYOUT_PLATFORM_SETUP_REQUIRED": return "Bank setup is unavailable. Hussh needs to turn on payouts.";
     case "PAYOUT_ACCOUNT_DISABLED": return "Your payout account needs support.";
     default: return fallback;
   }

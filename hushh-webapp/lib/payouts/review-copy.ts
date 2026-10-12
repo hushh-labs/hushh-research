@@ -36,7 +36,7 @@ const REASON_COPY: Record<HoldReason, string> = {
   refund_check: "Hussh is checking a refund on this payment.",
   transfer_reversed: "Stripe reversed this transfer.",
   transfer_check: "Hussh is checking this transfer.",
-  refund_recovery: "This payment was refunded after you cashed out.",
+  refund_recovery: "This payment was refunded after you redeemed it.",
   recovery_review: "Recovering this refund needs a manual check.",
   negative_balance: "A refund left your balance below zero.",
   under_review: "Hussh is checking this.",

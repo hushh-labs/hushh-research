@@ -14,6 +14,7 @@ import { YourMoneyCard } from "./payouts/your-money-card";
 /**
  * Payouts: "Your money", the one Redeem action, then Activity. Each card reads
  * its own source, so a wallet failure never hides the bank or the history.
+ * The one freshness line sits under "Your money", the balances it ages with.
  * Real earnings and simulated withdrawals never share a balance: the sandbox
  * shows only in test mode.
  */
@@ -24,10 +25,10 @@ export function DocumentHashcoinPayouts() {
 
   if (!wallet.token) return null;
   return <div className="space-y-4">
-    <YourMoneyCard wallet={wallet} liveRedeemEnabled={redeem.liveRedeemEnabled}
-      bankRows={<PayoutBankRows handleReturn onAccountChange={setBank} />} />
+    <YourMoneyCard wallet={wallet} bank={bank} liveRedeemEnabled={redeem.liveRedeemEnabled}
+      freshness={<PayoutFreshness />} bankRows={<PayoutBankRows handleReturn onAccountChange={setBank} />} />
     {redeem.liveRedeemEnabled ? <RedeemAction wallet={wallet} redeem={redeem} data-voice-control-id="profile_payouts_redeem" /> : null}
-    <PayoutActivityCard freshness={<PayoutFreshness />} />
+    <PayoutActivityCard />
     {redeem.sandboxEnabled ? <PayoutSandbox wallet={wallet} redeem={redeem} data-voice-control-id="profile_payouts_test_redeem" /> : null}
   </div>;
 }

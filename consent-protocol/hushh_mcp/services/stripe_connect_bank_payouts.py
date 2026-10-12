@@ -57,11 +57,6 @@ _EVENT_TYPES = _ACCOUNT_EVENT_TYPES | {
 }
 # Stripe can itemise an automatic payout once its reconciliation completes.
 _RECONCILE_ON_EVENT_TYPES = frozenset({"payout.paid", _RECONCILIATION_EVENT_TYPE})
-# Release replay re-runs migrations 298 and 304, which re-add event CHECKs
-# without these two types. One stored row of either type would fail that replay
-# and every later deploy. Their effects are idempotent (a due flag, a queue
-# entry, a monotonic snapshot), so they run without an event-ledger row.
-_UNLEDGERED_EVENT_TYPES = frozenset({_BALANCE_EVENT_TYPE, _RECONCILIATION_EVENT_TYPE})
 _PAYOUT_RANK = {"pending": 0, "in_transit": 1, "paid": 2, "canceled": 3, "failed": 4}
 _PROVIDER_ID = re.compile(r"^[A-Za-z0-9_]{4,255}$")
 _SAFE_FAILURE_CODE = re.compile(r"^[a-z0-9_]{1,64}$")
@@ -569,22 +564,24 @@ class StripeConnectBankPayouts(ExternalConnectorLifecycleStore):
         )
         if mapped is None:
             return "ignored_account"
-        if event_type not in _UNLEDGERED_EVENT_TYPES:
-            inserted = connection.execute(
-                text("""INSERT INTO stripe_connect_bank_payout_events
-                  (stripe_event_id,stripe_account_id,event_type,stripe_object_id,livemode)
-                  VALUES (:event,:account,:type,:object,:livemode)
-                  ON CONFLICT (stripe_event_id) DO NOTHING"""),
-                {
-                    "event": event_id,
-                    "account": account_id,
-                    "type": event_type,
-                    "object": object_id,
-                    "livemode": livemode,
-                },
-            )
-            if inserted.rowcount == 0:
-                return "duplicate"
+        # Every handled event, balance and reconciliation included, is recorded
+        # once. Release replay of 298/304 widens the event CHECK and never
+        # narrows it (db/migration_authority.py), so these rows stay valid.
+        inserted = connection.execute(
+            text("""INSERT INTO stripe_connect_bank_payout_events
+              (stripe_event_id,stripe_account_id,event_type,stripe_object_id,livemode)
+              VALUES (:event,:account,:type,:object,:livemode)
+              ON CONFLICT (stripe_event_id) DO NOTHING"""),
+            {
+                "event": event_id,
+                "account": account_id,
+                "type": event_type,
+                "object": object_id,
+                "livemode": livemode,
+            },
+        )
+        if inserted.rowcount == 0:
+            return "duplicate"
         owner = mapped["user_id"]
         if event_type in _ACCOUNT_EVENT_TYPES:
             connection.execute(

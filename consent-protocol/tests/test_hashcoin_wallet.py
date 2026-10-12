@@ -1109,6 +1109,48 @@ async def test_redeemable_total_matches_sequential_cash_outs(ledger, monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_summary_reads_redeemable_sources_once_and_not_while_cash_out_is_off(
+    ledger, monkeypatch
+):
+    from sqlalchemy import event
+
+    _labels(monkeypatch)
+    first = _claim_live_source(ledger, monkeypatch)
+    second = _prepare(ledger)
+    _settle(ledger, second)
+    source_reads = []
+
+    def record(_connection, _cursor, statement, *_args):
+        if "NOT EXISTS (SELECT 1 FROM hashcoin_redemptions r" in statement:
+            source_reads.append(statement)
+
+    event.listen(ledger.db.engine, "before_cursor_execute", record)
+    try:
+        live = (await ledger.summary(user_id="owner"))["live"]
+        assert (live["nextRedeemCoins"], live["redeemableCoins"], live["redeemableCount"]) == (
+            911,
+            1822,
+            2,
+        )
+        assert live["nextRedeemSource"] == {"requestId": first, "label": "October statements"}
+        # The next cash-out and the totals come from one scan of the owner's sources.
+        assert len(source_reads) == 1
+        source_reads.clear()
+        monkeypatch.setenv("DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED", "false")
+        off = (await ledger.summary(user_id="owner"))["live"]
+        assert (off["nextRedeemCoins"], off["redeemableCoins"], off["redeemableCount"]) == (
+            0,
+            0,
+            0,
+        )
+        assert off["nextRedeemSource"] is None and off["availableCoins"] == 1822
+        # Nothing is offered while live cash-out is off, so nothing is scanned.
+        assert source_reads == []
+    finally:
+        event.remove(ledger.db.engine, "before_cursor_execute", record)
+
+
+@pytest.mark.asyncio
 async def test_held_earnings_name_their_reason_and_start(ledger, monkeypatch):
     _labels(monkeypatch)
     disputed, mismatched = _prepare(ledger), _prepare(ledger)

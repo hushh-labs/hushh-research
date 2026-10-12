@@ -38,7 +38,7 @@ vi.mock("@/lib/services/document-payout-service", async (importOriginal) => ({
 }));
 
 import { DocumentPayoutAccountCard } from "@/components/consent/document-payout-account";
-import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
+import { dispatchPayoutStateChanged } from "@/lib/payouts/payout-events";
 
 describe("document payout account", () => {
   beforeEach(() => {
@@ -82,9 +82,9 @@ describe("document payout account", () => {
     expect(within(details).getByText("Hushh (3%)")).toBeInTheDocument();
     expect(within(details).getByText("$0.15")).toBeInTheDocument();
     expect(within(details).getByText("$5.00")).toBeInTheDocument();
-    act(() => window.dispatchEvent(new CustomEvent(CONSENT_STATE_CHANGED_EVENT, {
-      detail: { source: "sse_document_feed", requestId: transaction.requestId },
-    })));
+    act(() => {
+      dispatchPayoutStateChanged({ kinds: ["earnings", "wallet"], requestIds: [transaction.requestId], source: "sse" });
+    });
     expect(await screen.findByText(/Transferred to Stripe/)).toBeVisible();
     expect(state.account).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Stripe transfers and bank deposits update separately.")).toBeVisible();

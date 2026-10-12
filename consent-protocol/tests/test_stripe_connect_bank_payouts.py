@@ -390,7 +390,7 @@ def test_signed_bank_flow_keeps_terminal_state_and_owner_mode_boundaries(world, 
         rejected = client.post(webhook, content=body, headers={"Stripe-Signature": header})
         assert rejected.status_code == 400
         assert rejected.json() == {"detail": "Connect event could not be processed."}
-        assert rejected.headers["Cache-Control"] == "no-store"
+        assert "no-store" in rejected.headers["Cache-Control"]
 
     wrong_mode = event(event_id="evt_wrong_mode", live=not fake.livemode)
     assert client.post(
@@ -508,7 +508,7 @@ def test_signed_provider_timeout_retries_same_event_without_duplicate_payout(wor
     failed = client.post("/api/one/payouts/connect/webhook", content=payload, headers=headers)
     assert failed.status_code == 503
     assert failed.json() == {"detail": "Connect event could not be processed."}
-    assert failed.headers["Cache-Control"] == "no-store"
+    assert "no-store" in failed.headers["Cache-Control"]
     assert len(provider_reads) == 1
     assert service.notices == []
     with engine.begin() as connection:
@@ -1149,11 +1149,11 @@ async def test_balance_and_reconciliation_events_reach_the_connect_ledger(world)
     assert service.ledger_calls == [due]
     assert service.notices == [doorbell("balance")]
     assert fake.retrieve_calls == []  # the worker reads the balance, not the webhook
-    # Redelivery repeats only idempotent effects; unknown accounts never reach the ledger.
-    assert await service.process_webhook(**balance) == "updated"
+    # A redelivery is recorded once and repeats nothing; unknown accounts never reach the ledger.
+    assert await service.process_webhook(**balance) == "duplicate"
     unknown = signed_event(event_id="evt_unknown", kind="balance.available", account="acct_x1")
     assert await service.process_webhook(**unknown) == "ignored_account"
-    assert service.ledger_calls == [due, due]
+    assert service.ledger_calls == [due]
     malformed = json.loads(event(event_id="evt_malformed", kind="balance.available"))
     malformed["data"]["object"]["object"] = "payout"
     raw = json.dumps(malformed).encode()
@@ -1173,6 +1173,9 @@ async def test_balance_and_reconciliation_events_reach_the_connect_ledger(world)
     queued = ("reconcile", {"stripe_payout_id": "po_one", "stripe_account_id": "acct_owner"})
     assert service.ledger_calls == [queued]
     assert fake.retrieve_calls[-1][1]["expand"] == ["destination"]
+    reads = len(fake.retrieve_calls)
+    assert await service.process_webhook(**reconciled) == "duplicate"
+    assert (service.ledger_calls, len(fake.retrieve_calls)) == ([queued], reads)
     paid_again = signed_event(event_id="evt_paid_again", kind="payout.paid")
     assert await service.process_webhook(**paid_again) == "updated"
     updated = signed_event(event_id="evt_updated", kind="payout.updated")
@@ -1183,5 +1186,11 @@ async def test_balance_and_reconciliation_events_reach_the_connect_ledger(world)
         ledgered = connection.execute(
             text("SELECT event_type FROM stripe_connect_bank_payout_events")
         ).scalars()
-        # Release replay of migrations 298/304 would reject rows of the new types.
-        assert sorted(ledgered) == ["payout.paid", "payout.paid", "payout.updated"]
+        # Release replay of migrations 298/304 only widens the CHECK, so both new types are kept.
+        assert sorted(ledgered) == [
+            "balance.available",
+            "payout.paid",
+            "payout.paid",
+            "payout.reconciliation_completed",
+            "payout.updated",
+        ]

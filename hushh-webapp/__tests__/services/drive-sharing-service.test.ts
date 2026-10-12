@@ -484,6 +484,18 @@ describe("private sharing transport", () => {
         .rejects.toMatchObject({ code: "invalid_response" });
     }
   });
+  it("carries the estimate the requester saw to the owner's review; a malformed one never blocks it", async () => {
+    const decision = { ...notStartedReview(), allowAvailable: true, paymentRequired: true,
+      ownerAllowed: false, priceCents: null };
+    fetcher.mockResolvedValueOnce(reply({ ...decision, estimateCents: 1000 }));
+    expect((await DriveSharingService.review("vault", requestId, guard)).estimateCents).toBe(1000);
+    for (const estimateCents of [null, 1050, 0, 50_100, "1000"]) {
+      fetcher.mockResolvedValueOnce(reply({ ...decision, estimateCents }));
+      const review = await DriveSharingService.review("vault", requestId, guard);
+      expect(review.allowAvailable).toBe(true);
+      expect(review).not.toHaveProperty("estimateCents");
+    }
+  });
   it("accepts only the owner's request-bound payout projection and keeps unsettled earnings hidden", async () => {
     const payout = {
       requestId, currency: "usd", grossAmountCents: 1000,

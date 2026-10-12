@@ -141,6 +141,8 @@ export type SharingReview = DocumentRequestSetup & {
   paymentRequired?: boolean;
   /** The owner's price in cents once allowed; null when there is none. */
   priceCents?: number | null;
+  /** The estimate the requester saw when sending; absent when unknown or on older servers. */
+  estimateCents?: number;
   /** Owner-only, current ledger projection for a paid document request. */
   ownerPayout?: OwnerDocumentPayout | null;
 };
@@ -1375,6 +1377,10 @@ export class DriveSharingService {
       }),
       ...(paymentRequired === undefined ? {} : { paymentRequired }),
       ...(priceCents === undefined ? {} : { priceCents }),
+      // Display only: a missing or malformed estimate never blocks the review.
+      ...(isValidDocumentRequestPriceCents(result.estimateCents)
+        ? { estimateCents: result.estimateCents }
+        : {}),
       ...(result.ownerPayout === undefined ? {} : { ownerPayout }),
       ...parseRequestSetup(result),
     };

@@ -165,6 +165,26 @@ export function parseRequesterPriceView(value: unknown): RequesterPriceView | nu
   return { estimateCents, currentCents, finalCents, state: raw.state as RequesterPriceState };
 }
 
+/**
+ * One vocabulary for the states the Feed and the request details both show.
+ * The Feed's titles came first and are what people already see, so the
+ * details use the same words.
+ */
+export const REQUESTER_PAYMENT_TITLES = {
+  awaitingOwner: "Waiting for owner setup",
+  linkExpired: "Payment link expired",
+  requestExpired: "Document request expired",
+} as const;
+
+/**
+ * Where to go once this request can no longer be paid. Checkout gives one
+ * window per request, so the only way forward is a new request.
+ */
+export function requesterNewRequestLine(ownerName?: string | null): string {
+  const owner = ownerName?.trim();
+  return owner ? `Ask ${owner} again from their profile.` : "Ask the owner again from their profile.";
+}
+
 /** Compact deadline copy that stays readable in a narrow row. One formatter for every surface. */
 export function formatPaymentRemaining(remainingMs: number): string {
   const seconds = Math.max(0, Math.ceil(remainingMs / 1000));
@@ -204,7 +224,21 @@ export function requesterPaymentWithdrawable(view: RequesterPaymentView, now: nu
   return OPEN_STATES.has(state) && view.withdrawn !== true;
 }
 
-export function presentRequesterPayment(view: RequesterPaymentView, now: number): RequesterPaymentPresentation {
+/**
+ * How often a view's presentation can change on its own: every second while a
+ * countdown shows, every 30 s while an open request can still expire, and
+ * never (null) once nothing depends on the clock.
+ */
+export function requesterPaymentTickMs(view: RequesterPaymentView): number | null {
+  if (view.state === "payable") return 1_000;
+  return OPEN_STATES.has(view.state) && instant(view.requestExpiresAt) !== null ? 30_000 : null;
+}
+
+export function presentRequesterPayment(
+  view: RequesterPaymentView,
+  now: number,
+  options: { ownerName?: string | null } = {},
+): RequesterPaymentPresentation {
   const state = effectiveRequesterPaymentState(view, now);
   const price = view.amountCents === null ? null : formatPaymentMoney(view.amountCents);
   const refund = view.refund ? formatPaymentMoney(view.refund.amountCents) : null;
@@ -218,7 +252,7 @@ export function presentRequesterPayment(view: RequesterPaymentView, now: number)
     case "none":
       return present("");
     case "awaiting_owner":
-      return present("Waiting for the owner", "You can pay once they finish setup.", "withdraw");
+      return present(REQUESTER_PAYMENT_TITLES.awaitingOwner, "You can pay once they finish setup.", "withdraw");
     case "preparing":
       return present("No payment due yet", "You pay only if files are found.", "withdraw");
     case "payable": {
@@ -231,9 +265,9 @@ export function presentRequesterPayment(view: RequesterPaymentView, now: number)
       );
     }
     case "link_expired":
-      return present("Payment window closed", "Send a new request to try again.", "new_request");
+      return present(REQUESTER_PAYMENT_TITLES.linkExpired, requesterNewRequestLine(options.ownerName), "new_request");
     case "request_expired":
-      return present("Request expired", "Send a new request to try again.", "new_request");
+      return present(REQUESTER_PAYMENT_TITLES.requestExpired, requesterNewRequestLine(options.ownerName), "new_request");
     case "paid":
       return present(price ? `Paid ${price}` : "Paid");
     case "refund_pending": {

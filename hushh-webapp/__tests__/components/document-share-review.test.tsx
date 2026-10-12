@@ -1000,6 +1000,27 @@ describe("exact-file document review", () => {
       search: null, bulkShare: null, allowAvailable: true, paymentRequired: true,
       ownerAllowed: false, priceCents: null, ...overrides });
 
+    it("gives the owner's price sheet the estimate the requester saw, parsed from the real /review reply", async () => {
+      const actual = await vi.importActual<typeof import("@/lib/services/drive-sharing-service")>(
+        "@/lib/services/drive-sharing-service");
+      const { ApiService } = await import("@/lib/services/api-service");
+      const fetchReview = vi.spyOn(ApiService, "apiFetch").mockImplementation(async () =>
+        new Response(JSON.stringify({ ...decision({ estimateCents: 1000 }), requestId })));
+      try {
+        state.status.mockResolvedValue(pending());
+        state.review.mockImplementation((token: string, id: string, guard: () => void) =>
+          actual.DriveSharingService.review(token, id, guard));
+        render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+        fireEvent.click(await screen.findByRole("button", { name: "Allow" }));
+        await screen.findByRole("dialog", { name: "Set a price" });
+        expect(fetchReview).toHaveBeenCalledWith(
+          `/api/connectors/google_drive/sharing/requests/${requestId}/review`, expect.anything());
+        expect(priceSheet.props?.estimateCents).toBe(1000);
+      } finally {
+        fetchReview.mockRestore();
+      }
+    });
+
     it("blocks preparation for bank setup and resumes the price decision on a state event", async () => {
       state.status.mockResolvedValue(pending());
       state.review.mockResolvedValue(decision({

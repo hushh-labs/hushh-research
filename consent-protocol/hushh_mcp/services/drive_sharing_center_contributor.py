@@ -66,7 +66,9 @@ WITH participants AS (
     {payment_reconciliation_reason} AS payment_reconciliation_reason,
     {refund_status} AS refund_status,
     {refund_amount_cents} AS refund_amount_cents,
-    {payment_owner_payout_ready} AS payment_owner_payout_ready
+    {payment_owner_payout_ready} AS payment_owner_payout_ready,
+    {estimate_known} AS estimate_known,
+    {estimate_cents} AS estimate_cents
   FROM drive_share_requests
   {identity_joins}
   WHERE drive_share_requests.user_id=:user
@@ -75,7 +77,7 @@ WITH participants AS (
   SELECT request_id,revocation_revision,created_at,'share','incoming',NULL::text,'management_only',
     NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE,
     FALSE,FALSE,FALSE,NULL::integer,NULL::integer,NULL::boolean,FALSE,NULL::boolean,
-    NULL::timestamptz,NULL::text,NULL::text,NULL::integer,NULL::boolean
+    NULL::timestamptz,NULL::text,NULL::text,NULL::integer,NULL::boolean,FALSE,NULL::integer
   FROM drive_share_management_contexts
   WHERE user_id=:user AND private_request_erased_at IS NOT NULL{queries}
 ), classified AS (
@@ -142,7 +144,7 @@ _QUERIES = """
       ELSE status END,
     NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean,FALSE,NULL::timestamptz,FALSE,
     FALSE,FALSE,FALSE,NULL::integer,NULL::integer,NULL::boolean,FALSE,NULL::boolean,
-    NULL::timestamptz,NULL::text,NULL::text,NULL::integer,NULL::boolean
+    NULL::timestamptz,NULL::text,NULL::text,NULL::integer,NULL::boolean,FALSE,NULL::integer
   FROM drive_live_query_requests WHERE user_id=:user OR requester_user_id=:user"""
 
 _OWNER_SEARCH_STATE = """(
@@ -341,6 +343,7 @@ def _projection(
     owner_allowed: bool,
     pricing: bool = False,
     payout_projection: bool = False,
+    estimate: bool = False,
 ) -> str:
     projection = _PROJECTION.replace("{queries}", _QUERIES if queries else "")
     projection = projection.replace("{identity_joins}", _IDENTITY_JOINS if identity_cache else "")
@@ -457,6 +460,12 @@ def _projection(
         "payment_owner_payout_ready": _PAYMENT_OWNER_PAYOUT_READY
         if payments and pricing and payout_projection
         else "NULL::boolean",
+        # The estimate the requester saw (migration 320). NULL there means the
+        # estimate is unknown; estimate_known says the column exists at all.
+        "estimate_known": "TRUE" if pricing and estimate else "FALSE",
+        "estimate_cents": "drive_share_requests.initial_quote_cents"
+        if pricing and estimate
+        else "NULL::integer",
     }.items():
         projection = projection.replace("{" + name + "}", expression)
     return projection
@@ -635,6 +644,13 @@ def entry(row: Any) -> dict[str, Any]:
                     "quotedAmountCents": row["quoted_amount_cents"],
                     "quoteVersion": row["quote_version"],
                     "paymentRequired": True,
+                    # Same meaning as RequesterPriceView.estimateCents: null is
+                    # an unknown estimate. Omitted while migration 320 is absent.
+                    **(
+                        {"estimateCents": row.get("estimate_cents")}
+                        if row.get("estimate_known") is True
+                        else {}
+                    ),
                 }
                 if row["direction"] == "outgoing" and row.get("quoted_amount_cents") is not None
                 else {}
@@ -808,6 +824,16 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
         )
 
     @staticmethod
+    def _estimate_installed(connection) -> bool:
+        return bool(
+            connection.execute(
+                text("""SELECT EXISTS (SELECT 1 FROM pg_attribute
+                  WHERE attrelid=to_regclass('drive_share_requests')
+                    AND attname='initial_quote_cents' AND NOT attisdropped)""")
+            ).scalar_one()
+        )
+
+    @staticmethod
     def _payout_projection_installed(connection) -> bool:
         return bool(
             connection.execute(
@@ -913,6 +939,7 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                             self._owner_allowed_installed(connection),
                             self._pricing_installed(connection),
                             self._payout_projection_installed(connection),
+                            self._estimate_installed(connection),
                         )  # nosec B608
                         + """
                         SELECT totals.total,page.* FROM (SELECT count(*) AS total FROM filtered) totals
@@ -966,6 +993,7 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                         self._owner_allowed_installed(connection),
                         self._pricing_installed(connection),
                         self._payout_projection_installed(connection),
+                        self._estimate_installed(connection),
                     )  # nosec B608
                     + """
                     , ranked AS (

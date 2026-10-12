@@ -3,7 +3,6 @@
 import { ChevronDown } from "@/components/icons";
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -15,12 +14,17 @@ import type { PayoutActivityFilter } from "./activity-card";
 import { ACTIVITY_FILTER_LABELS } from "./receipts/activity-copy";
 
 const CARD_FILTERS: readonly PayoutActivityFilter[] = ["all", "earning", "redemption", "deposit", "adjustment"];
+// Menu rows meet the 44 px touch target.
+const ITEM_CLASS = "min-h-11";
 
 function isFilter(value: string): value is PayoutActivityFilter {
   return value in ACTIVITY_FILTER_LABELS;
 }
 
-/** "All ▾": which activity to show, and whether to show test activity instead of real. */
+/**
+ * "All ▾": which activity to show, and real or test activity. They are never
+ * mixed, so the choice is a pair, not an "also show" checkbox.
+ */
 export function PayoutActivityFilterMenu({ value, onValueChange, testActivity, onTestActivityChange, includeCoins = false }: {
   value: PayoutActivityFilter;
   onValueChange: (value: PayoutActivityFilter) => void;
@@ -41,15 +45,18 @@ export function PayoutActivityFilterMenu({ value, onValueChange, testActivity, o
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuRadioGroup value={value} onValueChange={(next) => { if (isFilter(next)) onValueChange(next); }}>
+        <DropdownMenuRadioGroup aria-label="Activity" value={value}
+          onValueChange={(next) => { if (isFilter(next)) onValueChange(next); }}>
           {filters.map((filter) => (
-            <DropdownMenuRadioItem key={filter} value={filter}>{ACTIVITY_FILTER_LABELS[filter]}</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem key={filter} value={filter} className={ITEM_CLASS}>{ACTIVITY_FILTER_LABELS[filter]}</DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuCheckboxItem checked={testActivity} onCheckedChange={(checked) => onTestActivityChange(checked === true)}>
-          Test activity
-        </DropdownMenuCheckboxItem>
+        <DropdownMenuRadioGroup aria-label="Real or test" value={testActivity ? "test" : "live"}
+          onValueChange={(next) => onTestActivityChange(next === "test")}>
+          <DropdownMenuRadioItem value="live" className={ITEM_CLASS}>Real activity</DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="test" className={ITEM_CLASS}>Test activity</DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   );

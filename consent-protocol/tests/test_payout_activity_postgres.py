@@ -18,7 +18,7 @@ from uuid import uuid4
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 
 from api.middleware import require_vault_owner_token
 from api.routes.one import payout_activity as activity_routes
@@ -562,6 +562,9 @@ async def test_since_returns_only_changed_rows_and_resets_past_one_hundred(world
         user_id="owner", mode="live", kind="deposit", since=as_of
     )
     assert [item["id"] for item in deposits_only["items"]] == ["deposit:" + new_deposit]
+    # The test wallet's sandbox mirror of the held earning changed too.
+    sandbox = await world.activity.activity(user_id="owner", mode="test", since=as_of)
+    assert [item["id"] for item in sandbox["items"]] == ["earning:" + held]
 
     second = await world.activity.activity(user_id="owner", mode="live")
     for _ in range(101):
@@ -574,6 +577,176 @@ async def test_since_returns_only_changed_rows_and_resets_past_one_hundred(world
         await world.activity.activity(
             user_id="owner", mode="live", since=as_of, cursor=first["nextCursor"] or "x"
         )
+
+
+@pytest.mark.asyncio
+async def test_running_balance_breaks_created_at_ties_by_entry_id(world, monkeypatch):
+    # Backfilled or imported ledger rows can share created_at; entry_id is the tie-breaker.
+    monkeypatch.setattr(activity_module, "SINCE_OVERLAP", timedelta(0))
+    real = _earning(world)  # 911 coins
+    with world.engine.begin() as c:
+        tie = c.execute(
+            text("""SELECT created_at FROM hashcoin_ledger_entries
+              WHERE source_ref=:id AND entry_kind='earning'"""),
+            {"id": real},
+        ).scalar_one()
+        wallet = HashcoinWalletService.ensure_wallet(c, user_id="owner", stripe_mode="live")
+        raw = {}
+        for entry_id, at, coins in (
+            ("00000000-0000-4000-8000-000000000001", tie - timedelta(hours=1), 100),
+            ("00000000-0000-0000-0000-000000000000", tie, 200),  # sorts before the real entry
+            ("ffffffff-ffff-4fff-bfff-ffffffffffff", tie, 300),  # sorts after it
+        ):
+            raw[entry_id] = str(uuid4())
+            c.execute(
+                text("""INSERT INTO hashcoin_ledger_entries
+                  (entry_id,wallet_id,entry_kind,source_ref,amount_coins,created_at)
+                  VALUES (:entry,:wallet,'earning',:source,:coins,:at)"""),
+                {
+                    "entry": entry_id,
+                    "wallet": wallet,
+                    "source": raw[entry_id],
+                    "coins": coins,
+                    "at": at,
+                },
+            )
+    early, before, after = ("earning:" + raw[key] for key in raw)
+    expected = {early: 100, before: 300, "earning:" + real: 1211, after: 1511}
+
+    items, page = await _everything(world, limit=1)
+    assert {item["id"]: item["balanceAfterCoins"] for item in items} == expected
+    assert page["balanceCoins"] == 1511
+    # since= rows tied with each other, and a changed row tied with older ones.
+    delta = await world.activity.activity(
+        user_id="owner", mode="live", since=tie - timedelta(minutes=1)
+    )
+    assert {item["id"]: item["balanceAfterCoins"] for item in delta["items"]} == {
+        key: expected[key] for key in (before, "earning:" + real, after)
+    }
+    mark = datetime.fromisoformat(page["asOf"])
+    with world.engine.begin() as c:
+        world.payouts._finish_coin_source_check(c, real, "clear")  # touches updated_at only
+    touched = await world.activity.activity(user_id="owner", mode="live", since=mark)
+    assert [(item["id"], item["balanceAfterCoins"]) for item in touched["items"]] == [
+        ("earning:" + real, 1211)
+    ]
+
+
+# Tables every owner shares. The ledger is always read by wallet; in this seed the
+# owner holds half of it, so a sequential read of it can be the right plan here.
+_SHARED_TABLES = {"drive_request_owner_payouts", "hashcoin_redemptions"}
+_SEED_EARNINGS = """
+INSERT INTO drive_request_payment_obligations(request_id,status,stripe_mode,stripe_payment_intent_id)
+SELECT md5(:wallet || g)::uuid,'paid','live','pi_' || md5(:wallet || g)
+FROM generate_series(1,:count) g;
+INSERT INTO drive_request_owner_payouts(request_id,gross_amount_cents,status,settlement_method,
+  wallet_id,expected_files,confirmed_files,retained_amount_cents,refund_amount_cents,
+  platform_fee_cents,actual_processing_fee_cents,allocated_processing_fee_cents,
+  owner_earning_cents,finalized_at,stripe_payment_intent_id,stripe_charge_id,credited_at,
+  stripe_mode,created_at,updated_at)
+SELECT md5(:wallet || g)::uuid,1000,'hashcoins_credited','hashcoins',CAST(:wallet AS uuid),
+  1,1,1000,0,30,59,59,911,CAST(:start AS timestamptz)+g*interval '1 minute',
+  'pi_' || md5(:wallet || g),'ch_' || md5(:wallet || g),
+  CAST(:start AS timestamptz)+g*interval '1 minute','live',
+  CAST(:start AS timestamptz)+g*interval '1 minute',CAST(:start AS timestamptz)+g*interval '1 minute'
+FROM generate_series(1,:count) g;
+INSERT INTO hashcoin_ledger_entries(entry_id,wallet_id,entry_kind,source_ref,amount_coins,created_at)
+SELECT gen_random_uuid(),CAST(:wallet AS uuid),'earning',md5(:wallet || g)::uuid,911,
+  CAST(:start AS timestamptz)+g*interval '1 minute'
+FROM generate_series(1,:count) g;
+INSERT INTO hashcoin_redemptions(redemption_id,wallet_id,request_key,amount_coins,stripe_mode,
+  destination_account_id,status,stripe_transfer_id,first_dispatch_at,source_request_id,
+  source_charge_id,source_payment_intent_id,source_gross_cents,source_refund_cents,
+  created_at,updated_at)
+SELECT md5('r' || :wallet || g)::uuid,CAST(:wallet AS uuid),gen_random_uuid(),911,'live',
+  :account,'succeeded','tr_' || md5('r' || :wallet || g),
+  CAST(:start AS timestamptz)+g*interval '1 minute'+interval '30 seconds',
+  md5(:wallet || g)::uuid,'ch_' || md5(:wallet || g),'pi_' || md5(:wallet || g),1000,0,
+  CAST(:start AS timestamptz)+g*interval '1 minute'+interval '30 seconds',
+  CAST(:start AS timestamptz)+g*interval '1 minute'+interval '30 seconds'
+FROM generate_series(1,:count/2) g;
+INSERT INTO hashcoin_ledger_entries(entry_id,wallet_id,entry_kind,source_ref,amount_coins,created_at)
+SELECT gen_random_uuid(),CAST(:wallet AS uuid),'redemption',md5('r' || :wallet || g)::uuid,-911,
+  CAST(:start AS timestamptz)+g*interval '1 minute'+interval '30 seconds'
+FROM generate_series(1,:count/2) g;
+"""
+
+
+def _seq_scans(node):
+    """Relations a JSON plan node, or any node under it, reads with a sequential scan."""
+    found = {node["Relation Name"]} if node.get("Node Type") == "Seq Scan" else set()
+    for child in node.get("Plans", []):
+        found |= _seq_scans(child)
+    return found
+
+
+@pytest.mark.asyncio
+async def test_since_reads_what_changed_through_indexes_not_whole_tables(world):
+    """since= costs what changed, never every owner's payouts and cash-outs."""
+    _map_account(world, "owner", "live", LIVE_ACCOUNT)
+    start = datetime.now(UTC) - timedelta(days=30)
+    with world.engine.begin() as c:
+        wallets = [
+            HashcoinWalletService.ensure_wallet(c, user_id=owner, stripe_mode="live")
+            for owner in ["owner", *(f"other-{n}" for n in range(5))]
+        ]
+        for wallet, count in zip(wallets, [5000, *([1000] * 5)], strict=True):
+            for statement in _SEED_EARNINGS.split(";")[:-1]:
+                c.execute(
+                    text(statement),
+                    {"wallet": wallet, "count": count, "start": start, "account": LIVE_ACCOUNT},
+                )
+        # Hourly source checks touch two old earnings; a provider check, one old cash-out.
+        touched = [
+            "earning:" + str(row[0])
+            for row in c.execute(
+                text("""UPDATE drive_request_owner_payouts SET updated_at=clock_timestamp()
+                  WHERE request_id IN (md5(:wallet || 10)::uuid,md5(:wallet || 4990)::uuid)
+                  RETURNING request_id"""),
+                {"wallet": wallets[0]},
+            )
+        ]
+        touched += [
+            "redemption:" + str(row[0])
+            for row in c.execute(
+                text("""UPDATE hashcoin_redemptions SET updated_at=clock_timestamp()
+                  WHERE redemption_id=md5('r' || :wallet || 7)::uuid RETURNING redemption_id"""),
+                {"wallet": wallets[0]},
+            )
+        ]
+        reference = dict(
+            c.execute(
+                text("""SELECT entry_kind || ':' || source_ref::text,
+                    SUM(amount_coins) OVER (ORDER BY created_at,entry_id)
+                  FROM hashcoin_ledger_entries WHERE wallet_id=:wallet"""),
+                {"wallet": wallets[0]},
+            ).all()
+        )
+        c.exec_driver_sql("ANALYZE")
+    statements = []
+
+    def capture(_conn, _cursor, statement, parameters, _context, _many):
+        statements.append((statement, parameters))
+
+    event.listen(world.engine, "before_cursor_execute", capture)
+    try:
+        delta = await world.activity.activity(
+            user_id="owner", mode="live", limit=50, since=datetime.now(UTC) - timedelta(minutes=5)
+        )
+    finally:
+        event.remove(world.engine, "before_cursor_execute", capture)
+    assert len(touched) == 3
+    assert {item["id"]: item["balanceAfterCoins"] for item in delta["items"]} == {
+        item_id: reference[item_id] for item_id in touched
+    }
+    assert delta["balanceCoins"] == 911 * 2500
+
+    reads = [(sql, params) for sql, params in statements if sql.lstrip()[:4] in {"SELE", "WITH"}]
+    assert len(reads) >= 3
+    with world.engine.connect() as c:
+        for sql, params in reads:
+            plan = c.exec_driver_sql("EXPLAIN (FORMAT JSON) " + sql, params).scalar_one()
+            assert not _seq_scans(plan[0]["Plan"]) & _SHARED_TABLES, sql
 
 
 @pytest.mark.asyncio
@@ -601,6 +774,8 @@ async def test_receipts_join_stripe_facts_without_provider_ids_and_stay_owner_sc
         trace_value="TRACE12345",
     )
     failed = _deposit(world, LIVE_ACCOUNT, status="failed", failure_code="account_closed")
+    # Another owner's failed deposit can never be opened from this owner's receipt.
+    foreign = _deposit(world, OTHER_ACCOUNT, status="failed", failure_code="account_closed")
     with world.engine.begin() as c:
         transfers = dict(
             c.execute(
@@ -629,6 +804,9 @@ async def test_receipts_join_stripe_facts_without_provider_ids_and_stay_owner_sc
                 # Another owner's transfer can never be linked or labelled here.
                 {"transferId": transfers[other_sent["id"]], "kind": "cash_out", "amountCents": 911},
                 {"transferId": None, "kind": "refund", "amountCents": -100},
+                {"kind": "returned_deposit", "amountCents": 300, "returnedPayoutId": failed},
+                {"kind": "returned_deposit", "amountCents": 200, "returnedPayoutId": foreign},
+                {"kind": "returned_deposit", "amountCents": 100, "returnedPayoutId": "po_gone"},
             ],
             "otherCents": 25,
         }
@@ -713,6 +891,14 @@ async def test_receipts_join_stripe_facts_without_provider_ids_and_stay_owner_sc
             },
             {"itemId": None, "type": "cash_out", "requestLabel": None, "amountCents": 911},
             {"itemId": None, "type": "refund", "requestLabel": None, "amountCents": -100},
+            {
+                "itemId": "deposit:" + failed,
+                "type": "returned_deposit",
+                "requestLabel": None,
+                "amountCents": 300,
+            },
+            {"itemId": None, "type": "returned_deposit", "requestLabel": None, "amountCents": 200},
+            {"itemId": None, "type": "returned_deposit", "requestLabel": None, "amountCents": 100},
         ],
         "otherCents": 25,
     }
@@ -783,6 +969,36 @@ async def test_hold_and_release_ring_the_typed_payout_doorbell(world):
 
 
 @pytest.mark.asyncio
+async def test_hold_and_release_commit_when_the_doorbell_refuses_the_owner(world, caplog):
+    # Firebase UIDs fit the doorbell's 128 characters; hashcoin_wallets.user_id is unbounded.
+    owner = "o" * 129
+    request = _earning(world, owner)
+
+    def state():
+        with world.engine.begin() as c:
+            payout = c.execute(
+                text("""SELECT status,safe_error_code FROM drive_request_owner_payouts
+                  WHERE request_id=:id"""),
+                {"id": request},
+            ).one()
+            held = c.execute(
+                text("""SELECT array_agg(held ORDER BY stripe_mode) FROM hashcoin_wallets
+                  WHERE user_id=:owner"""),
+                {"owner": owner},
+            ).scalar_one()
+        return (*payout, held)
+
+    with world.engine.begin() as c:
+        world.payouts._finish_coin_source_check(c, request, "dispute_pending")
+    # The dispute fence holds the coins although no doorbell could ring.
+    assert state() == ("hashcoins_held", "charge_unavailable", [True, True])
+    assert "doorbell_skipped" in caplog.text
+    with world.engine.begin() as c:
+        world.payouts._finish_coin_source_check(c, request, "clear")
+    assert state() == ("hashcoins_credited", None, [False, False])
+
+
+@pytest.mark.asyncio
 async def test_activity_routes_serve_real_reads_privately(world, monkeypatch):
     _map_account(world, "owner", "live", LIVE_ACCOUNT)
     _earning(world)
@@ -834,6 +1050,11 @@ def test_migration_306_replays_without_table_locks_skips_equivalents_and_rolls_b
         "redemption_id DESC)",
         "drive_request_owner_payouts_wallet_status": " USING btree (wallet_id, status) "
         "WHERE (wallet_id IS NOT NULL)",
+        "hashcoin_redemptions_wallet_changed": " USING btree (wallet_id, updated_at)",
+        "drive_request_owner_payouts_wallet_changed": " USING btree (wallet_id, updated_at) "
+        "WHERE (wallet_id IS NOT NULL)",
+        "drive_request_owner_payouts_sandbox_changed": " USING btree (sandbox_wallet_id, "
+        "updated_at) WHERE (sandbox_wallet_id IS NOT NULL)",
     }
     schema = "activity_migration_" + uuid4().hex
     admin = create_engine(connector_postgres_url, isolation_level="AUTOCOMMIT")
@@ -850,9 +1071,11 @@ def test_migration_306_replays_without_table_locks_skips_equivalents_and_rolls_b
               wallet_id UUID,entry_kind TEXT,source_ref UUID,amount_coins BIGINT,
               created_at TIMESTAMPTZ DEFAULT clock_timestamp())""")
             c.exec_driver_sql("""CREATE TABLE hashcoin_redemptions(redemption_id UUID PRIMARY KEY,
-              wallet_id UUID,created_at TIMESTAMPTZ DEFAULT clock_timestamp())""")
+              wallet_id UUID,created_at TIMESTAMPTZ DEFAULT clock_timestamp(),
+              updated_at TIMESTAMPTZ DEFAULT clock_timestamp())""")
             c.exec_driver_sql("""CREATE TABLE drive_request_owner_payouts(
-              request_id UUID PRIMARY KEY,wallet_id UUID,status TEXT)""")
+              request_id UUID PRIMARY KEY,wallet_id UUID,sandbox_wallet_id UUID,status TEXT,
+              updated_at TIMESTAMPTZ DEFAULT clock_timestamp())""")
             c.exec_driver_sql(
                 "INSERT INTO hashcoin_ledger_entries VALUES (gen_random_uuid(),gen_random_uuid(),"
                 "'earning',gen_random_uuid(),911,clock_timestamp())"
@@ -886,18 +1109,9 @@ def test_migration_306_replays_without_table_locks_skips_equivalents_and_rolls_b
             definitions = _index_definitions(c)
             assert "hashcoin_ledger_wallet_seq" not in definitions
             assert definitions["legacy_ledger_sequence"] == created["hashcoin_ledger_wallet_seq"]
-            assert {
-                name: definitions[name]
-                for name in (
-                    "hashcoin_redemptions_wallet_recent",
-                    "drive_request_owner_payouts_wallet_status",
-                )
-            } == {
-                name: created[name]
-                for name in (
-                    "hashcoin_redemptions_wallet_recent",
-                    "drive_request_owner_payouts_wallet_status",
-                )
+            others = set(created) - {"hashcoin_ledger_wallet_seq"}
+            assert {name: definitions[name] for name in others} == {
+                name: created[name] for name in others
             }
             c.exec_driver_sql(rollback, execution_options={"no_parameters": True})
             assert "legacy_ledger_sequence" in _index_definitions(c)

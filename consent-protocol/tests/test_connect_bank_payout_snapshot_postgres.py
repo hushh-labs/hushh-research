@@ -2,8 +2,9 @@
 
 Release replay runs every migration on every deploy. Migration 316 must apply
 twice, wait behind no live writer once applied, and roll back without touching
-deposit rows or signed event history. The service SQL that orders Stripe reads,
-keeps the bank snapshot write-once and pages deposits runs here as in UAT.
+deposit rows, signed event history or a stored bank snapshot. The service SQL
+that orders Stripe reads, keeps the bank snapshot write-once and pages deposits
+runs here as in UAT.
 Skips without ONE_COMMAND_TEST_DATABASE_URL; CI supplies PostgreSQL.
 """
 
@@ -223,8 +224,30 @@ def test_snapshot_migration_replays_without_waiting_and_rolls_back_without_losin
         connection.execute(
             text(INSERT_EVENT), {"id": "evt_kept", "type": "payout.reconciliation_completed"}
         )
+    # Negative control: a deposit holds its bank and bank trace, which Stripe
+    # cannot return once the bank is removed, so the rollback keeps them.
+    _script(engine, ROLLBACK, lock_timeout_ms=5_000)
+    assert _snapshot_columns(engine) == SNAPSHOT_COLUMNS
+    with engine.begin() as connection:
+        kept = connection.execute(
+            text("""SELECT stripe_payout_id,status,amount_cents,destination_bank_name,
+              destination_last4,trace_value FROM stripe_connect_bank_payouts""")
+        ).all()
+    assert [tuple(row) for row in kept] == [
+        ("po_kept", "paid", 100, "Example Bank", "6789", "TRACE 0042")
+    ]
+
+    # An unused snapshot is dropped; deposits and the signed event history stay.
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE stripe_connect_bank_payouts SET "
+                + ",".join(column + "=NULL" for column in sorted(SNAPSHOT_COLUMNS))
+            )
+        )
     _script(engine, ROLLBACK, lock_timeout_ms=5_000)
     assert _snapshot_columns(engine) == set()
+    _script(engine, ROLLBACK, lock_timeout_ms=5_000)
     with engine.begin() as connection:
         kept = connection.execute(
             text("SELECT stripe_payout_id,status,amount_cents FROM stripe_connect_bank_payouts")
@@ -328,8 +351,29 @@ async def test_provider_reads_snapshot_and_cursor_pages_on_postgres(bank_db, mon
     assert (len(first["payouts"]), ids) == (20, [*newest_first, "po_one"])
 
 
+def _event_check(engine):
+    with engine.connect() as connection:
+        return tuple(
+            connection.execute(
+                text("""SELECT oid::bigint,pg_get_constraintdef(oid) FROM pg_constraint
+                  WHERE conname='stripe_connect_bank_payout_events_event_type_check'""")
+            ).one()
+        )
+
+
+def _recorded_events(engine):
+    with engine.connect() as connection:
+        rows = connection.execute(
+            text("""SELECT stripe_event_id,event_type FROM stripe_connect_bank_payout_events
+              ORDER BY stripe_event_id""")
+        ).all()
+    return [tuple(row) for row in rows]
+
+
 @pytest.mark.asyncio
-async def test_new_connect_events_keep_the_release_replay_green(bank_db, monkeypatch):
+async def test_new_connect_events_are_recorded_once_and_keep_the_release_replay_green(
+    bank_db, monkeypatch
+):
     engine = bank_db
     await asyncio.to_thread(_replay, engine, SNAPSHOT)
     service, fake, ledger_calls = _service(engine, monkeypatch)
@@ -339,15 +383,28 @@ async def test_new_connect_events_keep_the_release_replay_green(bank_db, monkeyp
     fake.payout_details = {"reconciliation_status": "completed"}
     reconciled = signed_event(event_id="evt_reconciled", kind="payout.reconciliation_completed")
     assert await service.process_webhook(**reconciled) == "updated"
+    # Stripe redelivers: each event is recorded once and its effects run once.
+    assert await service.process_webhook(**balance) == "duplicate"
+    assert await service.process_webhook(**reconciled) == "duplicate"
     assert [call for call, _ in ledger_calls] == ["refresh_due", "reconcile"]
+    recorded = [
+        ("evt_balance", "balance.available"),
+        ("evt_reconciled", "payout.reconciliation_completed"),
+    ]
+    assert _recorded_events(engine) == recorded
 
-    # Every deploy replays 294 and 304 before 316; they must still pass.
+    # Negative control: migration 304 run as published re-adds its narrower
+    # event CHECK, so the recorded rows would fail that deploy.
+    published_304 = (MIGRATIONS / EARLIER[1]).read_text(encoding="utf-8")
+    with pytest.raises(pg_errors.CheckViolation):
+        _script(engine, published_304, lock_timeout_ms=5_000)
+
+    # Every deploy replays 294 and 304 before 316. Release replay only widens the
+    # event CHECK: it passes, leaves the installed CHECK alone and keeps the rows.
+    installed = _event_check(engine)
+    assert "'balance.available'" in installed[1]
+    assert "'payout.reconciliation_completed'" in installed[1]
     await asyncio.to_thread(_replay, engine, *EARLIER, SNAPSHOT)
-
-    # Negative control: migration 304's replay re-adds its narrower event CHECK,
-    # so one recorded row of a new type fails the deploy. If this replay ever
-    # passes, release replay keeps wider CHECKs and these events can be recorded.
-    with engine.begin() as connection:
-        connection.execute(text(INSERT_EVENT), {"id": "evt_recorded", "type": "balance.available"})
-    with pytest.raises(asyncpg.CheckViolationError):
-        await asyncio.to_thread(_replay, engine, *EARLIER)
+    await asyncio.to_thread(_replay, engine, *EARLIER)
+    assert _event_check(engine) == installed
+    assert _recorded_events(engine) == recorded

@@ -8,6 +8,7 @@ unique transfer group plus a stable idempotency key fences uncertain writes.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
@@ -23,6 +24,7 @@ from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnec
 from hushh_mcp.services.hashcoin_wallet_service import HashcoinWalletService, hashcoins_enabled
 from hushh_mcp.services.stripe_mode import configured_stripe_mode, stripe_environment
 
+logger = logging.getLogger(__name__)
 _SAFE_RETRY_WINDOW = timedelta(hours=20)
 _TERMINAL_REQUESTS = {"completed", "partial", "no_match"}
 # Closed before any delivery: withdrawn, declined, or past its deadline while
@@ -1019,9 +1021,13 @@ class DriveRequestOwnerPayoutService(ExternalConnectorLifecycleStore):
                 {"wallet": row["wallet_id"], "sandbox": row["sandbox_wallet_id"]},
             ).mappings():
                 # A hold or release changes both the coin wallet and this earning.
-                payout_doorbell.notify_payout_changed(
-                    connection, wallet["user_id"], ["wallet", "earnings"], request_id
-                )
+                try:
+                    payout_doorbell.notify_payout_changed(
+                        connection, wallet["user_id"], ["wallet", "earnings"], request_id
+                    )
+                except payout_doorbell.PayoutDoorbellError:
+                    # A doorbell is advisory and readers also poll; it never undoes a fence.
+                    logger.warning("owner_payout.doorbell_skipped reason=invalid_owner")
 
     async def _adopt_production_transfer_accounts(self, request_ids: list[str]) -> None:
         """Existing live earnings must not wait for the owner to reopen Profile.

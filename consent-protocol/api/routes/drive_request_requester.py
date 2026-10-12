@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -49,7 +49,7 @@ _REQUESTER_ERRORS = {
 def _requester_error(error: Exception) -> HTTPException:
     code = str(error) if isinstance(error, DriveReadError) else ""
     if code not in _REQUESTER_ERRORS:
-        return _error(error)
+        return cast(HTTPException, _error(error))
     status, message = _REQUESTER_ERRORS[code]
     return HTTPException(status, {"code": code, "message": message}, headers=NO_STORE)
 
@@ -67,7 +67,7 @@ async def _verified_recipient(
     try:
         return await _recipient(owner=owner, firebase_uid=firebase_uid, authorization=authorization)
     except HTTPException as error:
-        detail = error.detail if isinstance(error.detail, dict) else {}
+        detail: dict[str, Any] = error.detail if isinstance(error.detail, dict) else {}
         if error.status_code == 503 and detail.get("code") == "sharing_unavailable":
             raise _requester_error(DriveReadError("identity_verification_unavailable")) from None
         raise

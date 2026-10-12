@@ -133,7 +133,10 @@ class DriveRequestPaymentService(DriveRequestPaymentStore):
                 return None
             if data.get("status") == "expired":
                 return "dead"
-            if data.get("status") == "complete" or data.get("payment_status") == "paid":
+            # Only settled funds count. A complete session paid by a delayed
+            # method (e.g. ACH debit) is still "unpaid" and may yet fail, so it
+            # stays unknown and the signed webhook remains the authority.
+            if data.get("payment_status") == "paid":
                 return "paid"
             return None
 

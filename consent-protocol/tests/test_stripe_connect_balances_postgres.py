@@ -18,7 +18,7 @@ from uuid import uuid4
 
 import pytest
 import stripe
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError
@@ -297,9 +297,33 @@ def _payout(engine, payout_id, account, amount, *, status="paid", automatic=None
         )
 
 
+def _indexes(engine) -> set[str]:
+    return {
+        row["indexname"]
+        for row in _rows(
+            engine,
+            """SELECT indexname FROM pg_indexes
+            WHERE schemaname=current_schema() AND tablename='stripe_connect_bank_payouts'""",
+        )
+    }
+
+
 def test_migration_308_replays_and_rollback_keeps_balance_evidence(ledger):
     engine = ledger.engine
     _execute_file(engine, MIGRATION)
+    assert "stripe_connect_bank_payouts_reconcile_recent" in _indexes(engine)
+    # Every deploy replays 317 under a lock timeout: with a deposit write in
+    # flight, the replay must not wait on the deposit table.
+    with engine.connect() as writer:
+        writer.execute(text("UPDATE stripe_connect_bank_payouts SET updated_at=updated_at"))
+        with engine.connect() as deploy:
+            deploy = deploy.execution_options(isolation_level="AUTOCOMMIT")
+            deploy.exec_driver_sql("SET lock_timeout='1s'")
+            deploy.exec_driver_sql(
+                (MIGRATIONS / MIGRATION).read_text(), execution_options={"no_parameters": True}
+            )
+            deploy.exec_driver_sql("RESET lock_timeout")
+        writer.rollback()
     columns = {
         table: [
             row["column_name"]
@@ -364,6 +388,7 @@ def test_migration_308_replays_and_rollback_keeps_balance_evidence(ledger):
 
     _execute_file(engine, ROLLBACK)
     assert "stripe_connect_balance_transactions" in tables()  # settlement evidence stays
+    assert "stripe_connect_bank_payouts_reconcile_recent" not in _indexes(engine)
     assert {"stripe_connect_balance_snapshots", "stripe_connect_payout_reconciliations"}.isdisjoint(
         tables()
     )
@@ -379,6 +404,7 @@ def test_migration_308_replays_and_rollback_keeps_balance_evidence(ledger):
     }.isdisjoint(tables())
     _execute_file(engine, MIGRATION)
     assert "stripe_connect_balance_snapshots" in tables()
+    assert "stripe_connect_bank_payouts_reconcile_recent" in _indexes(engine)
 
 
 async def test_refresh_computes_available_pending_and_next_available(ledger):
@@ -734,6 +760,49 @@ async def test_worker_tick_is_bounded_and_discovers_completed_payouts(ledger):
         await service.run_due(max_refreshes=3)
 
 
+def _index_conditions(plan: dict) -> list[tuple[str, str]]:
+    found = [(plan["Index Name"], plan.get("Index Cond", ""))] if "Index Name" in plan else []
+    for child in plan.get("Plans", []):
+        found += _index_conditions(child)
+    return found
+
+
+def test_discovery_reads_only_recent_deposit_changes_on_its_index(ledger):
+    """The per-tick backstop must not re-read every deposit ever made."""
+    engine, service = ledger.engine, ledger.service
+    _payout(engine, "po_settled_long_ago", "acct_owner", 5, automatic=True, recon="completed")
+    _payout(engine, "po_manual_long_ago", "acct_other", 6, automatic=False)
+    _payout(engine, "po_read_late", "acct_owner", 7, automatic=True, recon="completed")
+    with engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE stripe_connect_bank_payouts
+              SET created_at=now()-interval '400 days',updated_at=now()-interval '8 days'
+              WHERE stripe_payout_id IN ('po_settled_long_ago','po_manual_long_ago')""")
+        )
+        # An old deposit whose completion was only just stored is still found.
+        connection.execute(
+            text("""UPDATE stripe_connect_bank_payouts SET created_at=now()-interval '400 days'
+              WHERE stripe_payout_id='po_read_late'""")
+        )
+    with engine.begin() as connection:
+        assert service._discover(connection) == 1
+    jobs = _rows(
+        engine, "SELECT stripe_payout_id,status FROM stripe_connect_payout_reconciliations"
+    )
+    assert jobs == [{"stripe_payout_id": "po_read_late", "status": "pending"}]
+
+    # The read is a bounded range on the partial index, never a full pass.
+    with engine.connect() as connection:
+        connection.exec_driver_sql("SET enable_seqscan=off")
+        plan = connection.execute(
+            text("EXPLAIN (FORMAT JSON) " + balances._DISCOVER_RECONCILIATIONS),
+            {"mode": "test", "livemode": False},
+        ).scalar_one()[0]["Plan"]
+        connection.rollback()
+    conditions = dict(_index_conditions(plan))
+    assert "updated_at >=" in conditions.get("stripe_connect_bank_payouts_reconcile_recent", "")
+
+
 def test_balance_route_is_owner_scoped_cached_and_refreshes_when_stale(ledger, monkeypatch):
     engine, fake, service = ledger.engine, ledger.fake, ledger.service
     monkeypatch.setattr(balance_routes, "_balances", lambda: service)
@@ -744,7 +813,22 @@ def test_balance_route_is_owner_scoped_cached_and_refreshes_when_stale(ledger, m
     app.include_router(balance_routes.router)
     client = TestClient(app)
     path = "/api/one/payouts/account/balance"
-    assert client.get(path).status_code == 401
+    # Auth failures are private too: no shared cache may keep a 401 or 403.
+    unauthenticated = client.get(path)
+    assert unauthenticated.status_code == 401
+    assert unauthenticated.headers["Cache-Control"] == "private, no-store"
+    assert unauthenticated.headers["WWW-Authenticate"] == "Bearer"
+
+    def forbidden():
+        raise HTTPException(status_code=403, detail="Insufficient scope")
+
+    app.dependency_overrides[require_vault_owner_token] = forbidden
+    refused = client.get(path)
+    assert (refused.status_code, refused.headers.get("Cache-Control")) == (
+        403,
+        "private, no-store",
+    )
+    assert fake.calls == []
 
     def get(owner, query=""):
         app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": owner}
