@@ -15,6 +15,9 @@ from hushh_mcp.services.drive_prod_registry_provisioning import (
     LEGACY_REGISTERED_REDIRECT_URIS as PROD_LEGACY_REDIRECT_URIS,
 )
 from hushh_mcp.services.drive_prod_registry_provisioning import (
+    PRE_SI_REGISTERED_REDIRECT_URIS as PROD_PRE_SI_REDIRECT_URIS,
+)
+from hushh_mcp.services.drive_prod_registry_provisioning import (
     PROD_PROJECT_ID,
     DriveProdRegistryProvisioner,
     DriveProdRegistryProvisioningError,
@@ -28,6 +31,7 @@ from hushh_mcp.services.drive_prod_registry_provisioning import (
 )
 from hushh_mcp.services.drive_uat_registry_provisioning import (
     LEGACY_REGISTERED_REDIRECT_URIS,
+    PRE_SI_REGISTERED_REDIRECT_URIS,
     PREVIOUS_REGISTERED_REDIRECT_URIS,
     PROVISIONED_BY,
     REGISTERED_REDIRECT_URIS,
@@ -244,7 +248,7 @@ def test_activation_inserts_only_the_fixed_drive_rest_policy():
         "status": "activated",
         "transportKind": "google_drive_rest",
         "policyHash": LIVE_POLICY_HASH,
-        "redirectCount": 6,
+        "redirectCount": 9,
     }
     assert connection.row == _canonical_active_row()
     insert_values = next(
@@ -277,7 +281,7 @@ def test_activation_migrates_only_exact_legacy_redirect_row(active):
     result = _service(connection).activate()
 
     assert result["status"] == "migrated"
-    assert result["redirectCount"] == 6
+    assert result["redirectCount"] == 9
     assert connection.row == _canonical_active_row()
     assert connection.mutation_count == 1
     assert "FROM pg_control_system()" in connection.sql[0]
@@ -449,23 +453,44 @@ def test_prod_activation_uses_only_fixed_production_policy(monkeypatch):
     assert connection.mutation_count == 1
 
 
-@pytest.mark.parametrize("environment", ["uat", "production"])
+@pytest.mark.parametrize(
+    ("environment", "prior_redirects"),
+    [
+        ("uat", PREVIOUS_REGISTERED_REDIRECT_URIS),
+        ("uat", PRE_SI_REGISTERED_REDIRECT_URIS),
+        ("production", PROD_LEGACY_REDIRECT_URIS),
+        ("production", PROD_PRE_SI_REDIRECT_URIS),
+    ],
+)
 def test_exact_prior_registry_policy_adds_aliases_without_changing_authority(
-    monkeypatch, environment
+    monkeypatch, environment, prior_redirects
 ):
     if environment == "production":
         _set_prod_target(monkeypatch)
         row = {**_prod_canonical_row(), "is_active": True}
-        row["registered_redirect_uris"] = list(PROD_LEGACY_REDIRECT_URIS)
+        row["registered_redirect_uris"] = list(prior_redirects)
         connection = _RegistryConnection(row=row, identity=_prod_identity())
         service = _prod_service(connection)
         redirects = PROD_REDIRECT_URIS
+        assert {
+            "https://one.hussh.si/one/profile/connectors/oauth/return",
+            "https://api.hussh.si/api/connectors/oauth/native/callback",
+            "https://api.hussh.si/api/connectors/google_drive/picker/native/callback",
+        }.issubset(redirects)
+        assert not any("uat." in uri for uri in redirects)
     else:
         row = _canonical_active_row()
-        row["registered_redirect_uris"] = list(PREVIOUS_REGISTERED_REDIRECT_URIS)
+        row["registered_redirect_uris"] = list(prior_redirects)
         connection = _RegistryConnection(row=row)
         service = _service(connection)
         redirects = REGISTERED_REDIRECT_URIS
+        assert {
+            "https://uat.one.hussh.si/one/profile/connectors/oauth/return",
+            "https://api.uat.hussh.si/api/connectors/oauth/native/callback",
+            "https://api.uat.hussh.si/api/connectors/google_drive/picker/native/callback",
+        }.issubset(redirects)
+        assert not any("https://one.hussh.si/" in uri for uri in redirects)
+    assert set(prior_redirects).issubset(redirects)
     assert service.activate()["status"] == "migrated"
     assert connection.row["registered_redirect_uris"] == list(redirects)
     assert service.activate()["status"] == "verified"
