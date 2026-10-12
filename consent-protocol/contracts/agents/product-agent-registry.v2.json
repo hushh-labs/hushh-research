@@ -4409,7 +4409,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "f703bffcba535730d83abac7e3182ad6489f9cd411f948745a909101e8fd60ec",
+      "system_instruction_sha256": "6778f67dd27a88a0988964cea389721d231adfd7083a3bf6cca85a17154547d8",
       "telemetry_namespace": "agent.one",
       "tools": [
         {

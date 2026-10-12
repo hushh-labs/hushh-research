@@ -50,13 +50,18 @@ verified below; they do not prove a consumer purchase or payout.
   Monitoring observations were fresh, settled backing was $5, and liabilities,
   reconciliation backlog, unbalanced journals and receipt failures were zero.
   The dedicated Google OIDC reconciliation schedule was healthy.
-- At `03:47:59Z`, there were no reviewer funding, purchase, withdrawal or seller
-  account records. The primary's authorized test-phone transfer is verified; its
-  private Azure placement remained pending. Owner Microsoft sign-in reached the
-  actual Dev callback, but the interrupted attempt exceeded its ten-minute
-  authorization deadline. A fresh, normal owner-bound attempt is being verified;
-  neither a callback arrival nor an admin Azure session proves provisioning. The completed phone
-  fixture is disabled. The counterpart's existing Azure placement is preserved.
+- At `03:59:19Z`, reviewer funding, purchases and withdrawals remained zero. A
+  normal authenticated counterpart US onboarding request returned HTTP 200 and
+  reached Stripe's hosted Sandbox form; one seller account and two completed
+  provider operations were recorded. This does not prove seller eligibility or
+  a bank payout. The primary's authorized test-phone transfer is verified and
+  its completed phone fixture is disabled. Fresh owner Microsoft authorization
+  returned successfully through both normal legs. Azure provisioning then
+  failed at `creating_environment` with `AZURE_ENVIRONMENT_LIMIT`. Admin readback
+  confirms Azure subscription 1 is a free trial with environment usage 1/1 and
+  its spending limit enabled. The founder must select an eligible capacity or
+  subscription path for the primary's separate private deployment. The
+  counterpart's existing Azure placement and working environment are preserved.
 - Headless inspection reached Memory's Saved/Add tabs, earnings and Saved sharing,
   then Account's Payments and earnings and three history filters. The earlier journey
   failed the unchanged read-only gate on an unsolicited private-agent wake.
@@ -77,7 +82,12 @@ verified below; they do not prove a consumer purchase or payout.
   consent decisions and the human action boundary. Source `e3454d4e1643` passes
   all 85 nearest manifest/registry tests, the unchanged composed prompt budget,
   generated registry/capability/topology parity and the architecture growth ratchet.
-  The full core and exact-source hosted CI remain required. An installed private
+  The full core at `e8e447990359` passed web-core and 18,058 backend cases, then
+  failed one existing agent-tree assertion about mandatory discovery wording.
+  That wording is restored without changing the test or prompt budget; all 86
+  nearest manifest, registry and discovery cases and generated/architecture
+  parity pass on the corrected source. Repeat the complete core and exact-source
+  hosted CI before release. An installed private
   pod does not acquire these changed instructions through a shared-service release.
 - The installed counterpart image contains the canonical nested Memory proposal
   route and Stripe verification route. Static source parity does not prove an
