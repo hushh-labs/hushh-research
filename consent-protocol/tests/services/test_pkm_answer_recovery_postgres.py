@@ -203,6 +203,44 @@ async def test_old_reserved_checkout_cannot_mint_payable_session_without_prepare
     assert row(answer_engine, "pkm_answer_payment_orders", request) == before
 
 
+@pytest.mark.parametrize("blocker", ["receiptless", "composer_paused", "payments_paused"])
+async def test_payment_status_hides_payable_url_without_prepared_answer_and_open_gates(
+    answer_engine, monkeypatch, blocker
+):
+    _, request, _ = await _approved(answer_engine, prepared=True)
+    api = Mock()
+    api.checkout.Session.create.side_effect = lambda **kw: {
+        "id": "cs_status_guard",
+        "url": "https://checkout.stripe.com/c/pay/cs_status_guard",
+        "expires_at": kw["expires_at"],
+    }
+    service = PkmAnswerPaymentService(_db(answer_engine), stripe_api=api)
+    opened = await service.checkout(requester_user_id=REQUESTER, request_id=request)
+    visible = await service.get_payment(requester_user_id=REQUESTER, request_id=request)
+    assert visible["checkoutUrl"] == opened["checkoutUrl"]
+    if blocker == "receiptless":
+        with answer_engine.begin() as c:
+            c.execute(
+                text(
+                    "UPDATE pkm_answer_deliveries SET source_revisions='{}'::jsonb WHERE request_id=:r"
+                ),
+                {"r": request},
+            )
+    else:
+        name = (
+            "PKM_ANSWER_COMPOSER_ENABLED"
+            if blocker == "composer_paused"
+            else "PKM_ANSWER_PAYMENTS_ENABLED"
+        )
+        monkeypatch.setenv(name, "false")
+    before = row(answer_engine, "pkm_answer_payment_orders", request)
+    hidden = await service.get_payment(requester_user_id=REQUESTER, request_id=request)
+    assert hidden["checkoutUrl"] is None
+    assert hidden["preparationStatus"] == ("preparing" if blocker == "receiptless" else "ready")
+    assert row(answer_engine, "pkm_answer_payment_orders", request) == before
+    assert api.checkout.Session.create.call_count == 1
+
+
 async def test_webhook_and_cancel_overlap_without_deadlock_or_lost_refund(answer_engine):
     service, request, digest = await _approved(answer_engine)
     attempt = "55555555-8888-9999-aaaa-bbbbbbbbbbbb"

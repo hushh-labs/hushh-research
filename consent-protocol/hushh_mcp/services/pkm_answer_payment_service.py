@@ -148,6 +148,10 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             return row
 
         row = await self._transaction(read)
+        prepared = bool(
+            row["staged_has_content"]
+            and self._has_composed_answer({"source_revisions": row["staged_revisions"]}, row)
+        )
         return {
             "requestStatus": row["request_status"],
             "orderStatus": row["order_status"],
@@ -155,6 +159,9 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             "currency": row["currency"],
             "checkoutUrl": row["stripe_checkout_url"]
             if row["request_status"] == "approved"
+            and prepared
+            and answer_payments_enabled()
+            and answer_composer_enabled()
             else None,
             "paidAt": row["paid_at"].isoformat() if row["paid_at"] else None,
             "refundedAt": row["refunded_at"].isoformat() if row["refunded_at"] else None,
@@ -164,8 +171,7 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                 "preparing"
                 if row["staged_has_content"] is None
                 else "ready"
-                if row["staged_has_content"]
-                and self._has_composed_answer({"source_revisions": row["staged_revisions"]}, row)
+                if prepared
                 else "preparing"
                 if row["staged_has_content"]
                 else "empty"
