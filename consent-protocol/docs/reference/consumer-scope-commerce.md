@@ -31,7 +31,7 @@ are separately verified below; they do not prove a consumer purchase or payout.
 The existing `claude/hushh-infrastructure-analysis-7o991c` branch is the integration
 owner; PR #7555 and issue #7587 remain active. The remote pod-release and Android
 corrections are preserved. Main `337c4759e1b2` was merged normally at `9e5e58982b1c`;
-the continuation incorporates main through `bf6ec5d728` and the concurrent branch's
+the continuation incorporates main through `a05166ee86` and the concurrent branch's
 `e04b76c614` through normal merges. Shared
 history, unrelated workspace edits and the frozen migration preservation receipt
 remain intact. Main's 315–325 registrations retain their existing numbers. This lane's six
