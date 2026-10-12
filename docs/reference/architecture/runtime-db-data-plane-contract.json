@@ -862,7 +862,7 @@
       "exact_tables": [
         "trusted_connections"
       ],
-      "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimer→inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table; its forward-only removal is pending live row-count, retention, and backup preflight.",
+      "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimer\u2192inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table; its forward-only removal is pending live row-count, retention, and backup preflight.",
       "retention_policy": "Active directed edges persist as the owner's relationship graph; revoked edges are retained only for bounded operational review before compaction.",
       "deletion_behavior": "Delete rows where the deleting account is the owner or the trusted user; revoke active edges before deletion where possible.",
       "trust_boundary": "Backend stores only connection metadata (owner and trusted-user references, status, source, resolution method, optional label, timestamps). It stores no raw contact identifiers, coordinates, or PKM values, and a connection grants no data access on its own.",
@@ -1841,14 +1841,16 @@
         "wallet_card_registrations",
         "wallet_card_share_requests",
         "wallet_card_access_grants",
-        "wallet_card_access_audit"
+        "wallet_card_access_audit",
+        "wallet_profile_share_requests",
+        "wallet_profile_access_grants"
       ],
-      "primary_access_path": "Owner-confirmed canonical Wallet commits register saved payment cards automatically, including older cards refreshed by the owner's Share action. Owner grants bind individual active connections; authenticated recipients read only their current grant.",
+      "primary_access_path": "Owner-confirmed canonical Wallet commits register saved payment cards automatically, including older cards refreshed by the owner's Share action. Owner grants bind individual active connections; authenticated recipients read only their current grant. The same policy orchestrates selected Profile fields through a separate source adapter; outgoing and received participant history is paginated independently of live card eligibility.",
       "retention_policy": "Reservations have a 24-hour original Add window; a later confirmed owner Wallet write can register them as saved cards. Removed registrations remain terminal. Grants authorize reads for exactly 5, 10 or 15 minutes. Expiry ends access, not storage. Registration, idempotency and audit history remain until account erasure; no scheduled history purge is claimed.",
       "deletion_behavior": "Card or Wallet-domain removal marks provenance removed and revokes grants. Account erasure removes owner and recipient grants and dependent request/audit records through the account deletion table map and foreign keys. Historical message references contain no card credentials.",
-      "trust_boundary": "Server-only provenance and recipient binding. Approved masked fields are encrypted with owner/card or owner/recipient/grant purpose binding. PAN, cardholder name, CVV, PIN and vault keys never enter these tables. Postgres enforces expiry/revocation; ordinary connections require fresh same-user verification. Explicit owner-added Trusted Circle membership alone exempts additional verification.",
+      "trust_boundary": "Server-only provenance and recipient binding. Approved masked fields are encrypted with owner/card or owner/recipient/grant purpose binding. PAN, cardholder name, CVV, PIN and vault keys never enter these tables. Postgres enforces expiry/revocation; ordinary connections require fresh same-user verification. Explicit owner-added Trusted Circle membership alone exempts additional verification. Profile values use the existing canonical public projection live, intersected with fields permitted when shared; no additional profile values are stored in grants or history. Profile pause gates reads; source revocation and deletion permanently revoke its grants.",
       "plaintext_posture": "encrypted_masked_projection_with_opaque_authorization_and_audit_metadata",
-      "expected_row_growth": "one_registration_per_manual_card_and_one_grant_per_selected_recipient"
+      "expected_row_growth": "one_registration_per_manual_card_and_one_grant_per_selected_recipient_with_bounded_lifecycle_audit"
     },
     {
       "id": "pkm_answer_requests",

@@ -767,35 +767,27 @@ def _merged_workflow_predecessor_refs(base_ref: str | None = None) -> tuple[str,
     base_commit = _resolve_base_commit(_resolve_base_ref(base_ref))
     if not base_commit:
         return ()
-    merges = subprocess.run(  # noqa: S603 - fixed git executable/arguments
-        ["git", "rev-list", "--merges", "--ancestry-path", f"{base_commit}..HEAD"],  # noqa: S607
+    history = subprocess.run(  # noqa: S603 - fixed git executable/arguments
+        ["git", "rev-list", "--ancestry-path", "--parents", f"{base_commit}..HEAD"],  # noqa: S607
         cwd=REPO_ROOT,
         check=True,
         capture_output=True,
         text=True,
     ).stdout.splitlines()
+    # Every listed commit descends from the base. Include ordinary commits so
+    # first-parent membership proves ancestry without a subprocess per merge.
+    lineages = [line.split() for line in history]
+    descendants = {base_commit, *(lineage[0] for lineage in lineages)}
     predecessors: list[str] = []
     integrated_base = False
-    for merge in merges:
-        lineage = subprocess.run(  # noqa: S603 - fixed git executable/arguments
-            ["git", "rev-list", "--parents", "-n", "1", merge],  # noqa: S607
-            cwd=REPO_ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.split()
+    for lineage in lineages:
+        if len(lineage) < 3:
+            continue
         if base_commit in lineage[1:]:
             integrated_base = True
             predecessors.extend(parent for parent in lineage[1:] if parent != base_commit)
             continue
-        integrated = subprocess.run(  # noqa: S603 - validated git lineage
-            ["git", "merge-base", "--is-ancestor", base_commit, lineage[1]],  # noqa: S607
-            cwd=REPO_ROOT,
-            capture_output=True,
-        )
-        if integrated.returncode not in (0, 1):
-            raise RuntimeError("Workflow merge ancestry could not be verified.")
-        if integrated.returncode == 0:
+        if lineage[1] in descendants:
             predecessors.extend(lineage[2:])
     return tuple(dict.fromkeys(predecessors)) if integrated_base else ()
 

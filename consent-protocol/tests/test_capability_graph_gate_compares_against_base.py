@@ -181,10 +181,8 @@ def test_head_comparison_reproduces_the_historical_bypass(
 ) -> None:
     """Historical behaviour, kept only as the local fallback.
 
-    With no base ref configured and no CI marker, ``origin/main`` does not
-    exist in this repo, so the generator warns and reads ``HEAD:``. That is
-    the author's own v2 graph, the revisions match, and the gate returns the
-    recorded ``breaking: []`` without ever comparing to main.
+    Without a configured base or CI marker, an absent ``origin/main`` warns
+    and falls back to ``HEAD:``; this does not prove comparison against main.
     """
 
     previous = generator._read_previous()
@@ -228,6 +226,39 @@ def test_merged_branch_history_is_selected_from_the_base_merge(repo: Repo) -> No
     repo.git("merge", "--no-ff", "--no-edit", "feature")
 
     assert set(generator._merged_workflow_predecessor_refs("main")) == expected
+
+
+@pytest.mark.parametrize(
+    ("history", "expected"),
+    [
+        (
+            "verification pre-base newer\nnewer matching parallel\n"
+            "matching base feature-a feature-b\nparallel base parallel-tip\n",
+            ("parallel", "feature-a", "feature-b", "parallel-tip"),
+        ),
+        ("newer parent-a parent-b\nolder parent-c parent-d\n", ()),
+    ],
+)
+def test_merge_parent_history_uses_one_full_git_query(
+    repo: Repo,
+    monkeypatch: pytest.MonkeyPatch,
+    history: str,
+    expected: tuple[str, ...],
+) -> None:
+    monkeypatch.setattr(generator, "_resolve_base_ref", lambda _: "main")
+    monkeypatch.setattr(generator, "_resolve_base_commit", lambda _: "base")
+    commands: list[list[str]] = []
+
+    def run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        assert kwargs["cwd"] == repo.root
+        assert kwargs["check"] is True
+        return subprocess.CompletedProcess(command, 0, stdout=history)
+
+    monkeypatch.setattr(generator.subprocess, "run", run)
+
+    assert generator._merged_workflow_predecessor_refs("main") == expected
+    assert commands == [["git", "rev-list", "--ancestry-path", "--parents", "base..HEAD"]]
 
 
 def test_base_ref_comparison_names_the_changed_action_and_fails(

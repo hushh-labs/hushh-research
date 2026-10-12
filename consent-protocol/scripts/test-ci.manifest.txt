@@ -1127,6 +1127,7 @@ tests/test_direct_message_feed_projection_postgres.py
 tests/services/test_wallet_card_access_service.py
 tests/routes/test_wallet_card_access_route.py
 tests/test_wallet_card_access_postgres.py
+tests/test_wallet_universal_sharing_postgres.py
 
 # Scheduled mail by voice: migration 275 shape and rollback guard, the owner-local
 # send-time rules, and the schedule/list/cancel tools against the sealed ledger.
@@ -1180,6 +1181,7 @@ tests/test_one_career_routes.py
 # Historical public seed replay preserves refreshed SEC records and explicit curation.
 tests/services/test_marketplace_investor_discovery.py
 tests/services/test_pkm_answer_recovery_postgres.py
+tests/services/test_pkm_answer_signed_settlement_postgres.py
 tests/test_pkm_answer_config.py
 tests/test_pkm_answer_routes.py
 tests/test_sse_routes.py

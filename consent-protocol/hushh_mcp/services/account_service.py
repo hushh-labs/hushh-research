@@ -324,6 +324,12 @@ class AccountService:
             "wallet_card_access_grants": text(
                 "DELETE FROM wallet_card_access_grants WHERE owner_user_id = :user_id OR recipient_user_id = :user_id"
             ),
+            "wallet_profile_access_grants": text(
+                "DELETE FROM wallet_profile_access_grants WHERE owner_user_id = :user_id OR recipient_user_id = :user_id"
+            ),
+            "wallet_profile_share_requests": text(
+                "DELETE FROM wallet_profile_share_requests WHERE owner_user_id = :user_id"
+            ),
             "wallet_card_share_requests": text(
                 "DELETE FROM wallet_card_share_requests WHERE owner_user_id = :user_id"
             ),
@@ -1561,6 +1567,12 @@ class AccountService:
                 "one_mcp_pending_calls",
                 "agent_chat_messages",
                 "agent_chat_conversations",
+                "wallet_card_access_audit",
+                "wallet_profile_access_grants",
+                "wallet_card_access_grants",
+                "wallet_profile_share_requests",
+                "wallet_card_share_requests",
+                "wallet_card_registrations",
                 "messages",
                 "conversations",
                 "direct_message_blocks",
@@ -2164,6 +2176,12 @@ class AccountService:
                         "one_mcp_pending_calls",
                         "agent_chat_messages",
                         "agent_chat_conversations",
+                        "wallet_card_access_audit",
+                        "wallet_profile_access_grants",
+                        "wallet_card_access_grants",
+                        "wallet_profile_share_requests",
+                        "wallet_card_share_requests",
+                        "wallet_card_registrations",
                         "messages",
                         "conversations",
                         "direct_message_blocks",

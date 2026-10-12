@@ -46,8 +46,8 @@ def test_connection_and_read_only_chat_available_without_rollout_flags():
     assert not connector_feature_enabled("google_drive_downloads", "owner")
 
 
-@pytest.mark.parametrize("environment", ["production", "uat", "test", "development", ""])
-def test_curated_connectors_are_available_to_every_owner_in_every_environment(
+@pytest.mark.parametrize("environment", ["uat", "test", "development", ""])
+def test_curated_connectors_are_available_to_every_owner_outside_production(
     monkeypatch, environment
 ):
     """No flag and no owner cohort: what is offered is decided by the provider's
@@ -56,6 +56,27 @@ def test_curated_connectors_are_available_to_every_owner_in_every_environment(
     assert connector_feature_enabled("curated_mcp_connectors", "any-firebase-uid")
     assert connector_feature_enabled("curated_mcp_connectors", "another-firebase-uid")
     assert connector_features("any-firebase-uid")["curated_mcp_connectors"] is True
+
+
+def test_production_curated_connectors_require_explicit_rollout(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("CONNECTOR_UAT_ALL_USERS", "true")
+    assert not connector_feature_enabled("curated_mcp_connectors", "owner")
+    monkeypatch.setenv("CURATED_MCP_CONNECTORS", "true")
+    assert connector_feature_enabled("curated_mcp_connectors", "owner")
+    assert connector_feature_enabled("curated_mcp_connectors", "another-owner")
+    assert not connector_feature_enabled("curated_mcp_connectors", " padded ")
+
+
+def test_production_runtime_config_hydrates_curated_rollout():
+    config = {
+        "BACKEND_RUNTIME_CONFIG_JSON": json.dumps(
+            {"environment": "production", "curated_mcp_connectors": True}
+        )
+    }
+    with patch.dict(os.environ, config, clear=True):
+        runtime_settings.hydrate_runtime_environment()
+        assert connector_feature_enabled("curated_mcp_connectors", "owner")
 
 
 @pytest.mark.parametrize("user_id", ["", "   ", " padded "])

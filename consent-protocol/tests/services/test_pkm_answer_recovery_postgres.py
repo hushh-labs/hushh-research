@@ -124,7 +124,7 @@ async def test_answer_erasure_removes_unfunded_content_for_either_participant(
 
 
 async def test_overlapping_checkout_reuses_durable_attempt_and_parameters(answer_engine):
-    _, request, _ = await _approved(answer_engine)
+    _, request, _ = await _approved(answer_engine, prepared=True)
     entered = threading.Event()
     release = threading.Event()
     calls = []
@@ -168,7 +168,7 @@ async def test_overlapping_checkout_reuses_durable_attempt_and_parameters(answer
 
 
 async def test_lost_checkout_response_recovers_same_provider_session(answer_engine):
-    _, request, _ = await _approved(answer_engine)
+    _, request, _ = await _approved(answer_engine, prepared=True)
     api = Mock()
     seen = []
 
@@ -434,7 +434,7 @@ async def test_expand_only_rollback_preserves_financial_recovery_bindings(answer
 async def test_checkout_creation_does_not_advertise_session_after_authority_ends(
     answer_engine, end_authority
 ):
-    requests, request, _ = await _approved(answer_engine)
+    requests, request, _ = await _approved(answer_engine, prepared=True)
     entered = threading.Event()
     release = threading.Event()
     api = Mock()
@@ -468,7 +468,7 @@ async def test_checkout_creation_does_not_advertise_session_after_authority_ends
 async def test_direct_checkout_refuses_unapproved_composer_before_provider(
     answer_engine, monkeypatch
 ):
-    _, request, _ = await _approved(answer_engine)
+    _, request, _ = await _approved(answer_engine, prepared=True)
     monkeypatch.setenv("PKM_ANSWER_COMPOSER_ENABLED", "false")
     api = Mock()
     with pytest.raises(AnswerPaymentError, match="composer_not_enabled"):
@@ -547,7 +547,7 @@ async def test_existing_feed_status_projection_and_rollback(answer_engine):
 
 
 async def test_recovered_expired_checkout_never_advertises_stale_url(answer_engine):
-    _, request, _ = await _approved(answer_engine)
+    _, request, _ = await _approved(answer_engine, prepared=True)
     api = Mock()
     api.checkout.Session.create.return_value = {
         "id": "cs_expired",

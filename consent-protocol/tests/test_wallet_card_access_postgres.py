@@ -18,8 +18,9 @@ from hushh_mcp.services.wallet_card_access_service import (
 
 
 @pytest.fixture
-def cards_db(projection_db, monkeypatch):  # noqa: F811 - imported pytest fixture
+def legacy_cards_db(projection_db, monkeypatch):  # noqa: F811 - imported pytest fixture
     monkeypatch.setenv("WALLET_CARD_ACCESS_ENABLED", "true")
+    monkeypatch.setenv("ONE_WALLET_CARD_ENABLED", "true")
     monkeypatch.setenv(
         "DIRECT_MESSAGE_ENCRYPTION_KEY_V1", base64.urlsafe_b64encode(b"t" * 32).decode()
     )
@@ -41,6 +42,22 @@ INSERT INTO one_location_circle_memberships VALUES('aaaaaaaa-aaaa-4aaa-8aaa-aaaa
     projection_db.apply_migrations(["302_wallet_temporary_card_access.sql"])
     projection_db.apply_migrations(["302_wallet_temporary_card_access.sql"])
     return projection_db, WalletCardAccessService(db=projection_db)
+
+
+@pytest.fixture
+def cards_db(legacy_cards_db):
+    db, service = legacy_cards_db
+    db.apply_migrations(
+        [
+            "132_one_wallet_card.sql",
+            "322_wallet_universal_sharing.sql",
+            "323_wallet_sharing_owner_index.sql",
+            "324_wallet_sharing_recipient_index.sql",
+            "325_wallet_sharing_audit_index.sql",
+        ]
+    )
+    db.apply_migrations(["322_wallet_universal_sharing.sql"])
+    return db, service
 
 
 def save(db, card_id, revision=1):
@@ -289,10 +306,10 @@ def test_expiry_is_server_enforced_and_removal_is_terminal(cards_db, monkeypatch
     assert not service.card_access("alice", card)["eligible"]
 
 
-def test_rollback_refuses_history_and_empty_schema_can_be_reinstalled(cards_db):
+def test_rollback_refuses_history_and_empty_schema_can_be_reinstalled(legacy_cards_db):
     from sqlalchemy.exc import DBAPIError
 
-    db, service = cards_db
+    db, service = legacy_cards_db
     rollback = (
         Path(__file__).resolve().parents[1]
         / "db/migrations/rollback/302_wallet_temporary_card_access.rollback.sql"

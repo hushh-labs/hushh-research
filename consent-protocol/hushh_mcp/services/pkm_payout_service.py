@@ -28,6 +28,7 @@ from hushh_mcp.services.payout_account_status_cache import (
 from hushh_mcp.services.pkm_consumer_payout_profile import (
     create_consumer_account,
     create_hosted_link,
+    hosted_return_urls,
 )
 from hushh_mcp.services.pkm_packet_order_service import (
     TABLE as ORDERS,
@@ -539,16 +540,8 @@ class PkmPayoutService:
                 "PAYOUT_ACCOUNT_DISABLED",
                 "This payout account needs support before setup can continue.",
             )
-        query_key = {"documents": "documentPayouts", "answers": "answerPayouts"}.get(
-            surface, "payouts"
-        )
-        return_url = f"{origin}{return_path}?{query_key}=done"
-        refresh_url = f"{origin}{return_path}?{query_key}=refresh"
-        if attempt_id:
-            from hushh_mcp.services.scope_commerce.provider_onboarding_links import onboarding_urls
-
-            urls = onboarding_urls(origin, "/one/profile/payouts", attempt_id, source="documents")
-            return_url, refresh_url = urls["return_url"], urls["refresh_url"]
+        urls = hosted_return_urls(origin, return_path, surface, attempt_id)
+        return_url, refresh_url = urls["return_url"], urls["refresh_url"]
         try:
             link = await create_hosted_link(
                 stripe_api=self.stripe_api,

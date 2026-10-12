@@ -16,8 +16,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 import stripe
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
 import api.routes.one.payouts as payouts_routes
 from api.middleware import require_vault_owner_token
@@ -25,21 +23,18 @@ from hushh_mcp.services import payout_account_status_cache, pkm_payout_service
 from hushh_mcp.services.payout_account_status_cache import PayoutAccountStatusCache
 from hushh_mcp.services.pkm_packet_order_service import PacketOrderError, PkmPacketOrderService
 from hushh_mcp.services.pkm_payout_service import PkmPayoutService
-from tests.fixtures.payout_provider import _Stripe
+from tests.fixtures.payout_provider import _provider_response, _Stripe, payout_tables
 from tests.test_pkm_credits import _DB
 
 
-def _provider_response(monkeypatch, *, payload, status=200):
-    """Keep Stripe's real SDK parsing; replace only the outbound HTTP transport."""
+@pytest.fixture
+def payout_client():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
 
-    class RecordedStripeHTTP(stripe.HTTPClient):
-        name = "recorded_stripe_response"
-
-        def request(self, method, url, headers, post_data=None):
-            return json.dumps(payload), status, {"request-id": "req_synthetic"}
-
-    monkeypatch.setattr(stripe, "default_http_client", RecordedStripeHTTP())
-    monkeypatch.setattr(stripe, "max_network_retries", 0)
+    app = FastAPI()
+    app.include_router(payouts_routes.router)
+    return TestClient(app)
 
 
 @pytest.fixture(autouse=True)
@@ -58,38 +53,7 @@ def stripe_env(monkeypatch):
 @pytest.fixture
 def world():
     db, fake = _DB(), _Stripe()
-    db.tables["marketplace_access_requests"] = [
-        {"id": "r1", "status": "approved", "latest_envelope_id": "env1"},
-        {"id": "r2", "status": "pending", "latest_envelope_id": None},
-    ]
-    db.tables["pkm_packet_orders"] = [
-        {
-            "id": "o1",
-            "owner_user_id": "owner",
-            "buyer_user_id": "b",
-            "status": "paid",
-            "stripe_mode": "test",
-            "access_request_id": "r1",
-            "amount_cents": 500,
-            "platform_fee_cents": 50,
-            "payment_method": "card",
-            "stripe_payment_intent_id": "pi_1",
-            "owner_earning_status": "none",
-        },
-        {
-            "id": "o2",
-            "owner_user_id": "owner",
-            "buyer_user_id": "b",
-            "status": "paid",
-            "stripe_mode": "test",
-            "access_request_id": "r2",
-            "amount_cents": 300,
-            "platform_fee_cents": 0,
-            "payment_method": "card",
-            "stripe_payment_intent_id": "pi_2",
-            "owner_earning_status": "none",
-        },
-    ]
+    db.tables.update(payout_tables())
     svc = PkmPayoutService(stripe_api=fake)
     svc._db = db
     return svc, db, fake
@@ -338,13 +302,14 @@ async def test_stripe_failure_is_sanitized_and_does_not_create_second_account(wo
     assert len(db.tables["stripe_owner_payout_accounts"]) == 1
 
 
-def test_document_account_routes_are_owner_scoped_and_exclude_packet_sales(world, monkeypatch):
+def test_document_account_routes_are_owner_scoped_and_exclude_packet_sales(
+    world, monkeypatch, payout_client
+):
     svc, _db, fake = world
     monkeypatch.setattr(payouts_routes, "_service", lambda: svc)
-    app = FastAPI()
-    app.include_router(payouts_routes.router)
+    client = payout_client
+    app = client.app
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner"}
-    client = TestClient(app)
 
     setup = client.post("/api/one/payouts/account/onboard")
     assert setup.status_code == 200
@@ -476,7 +441,9 @@ async def test_authoritative_refresh_persists_transfer_and_unrestricted_us_readi
     assert db.tables["stripe_owner_payout_accounts"][0]["account_ready"] is False
 
 
-def test_document_money_routes_require_owner_and_sanitize_history_failure(monkeypatch):
+def test_document_money_routes_require_owner_and_sanitize_history_failure(
+    monkeypatch, payout_client
+):
     from hushh_mcp.services.drive_request_owner_payout_service import DriveRequestOwnerPayoutService
 
     calls = []
@@ -488,9 +455,8 @@ def test_document_money_routes_require_owner_and_sanitize_history_failure(monkey
         return {"currency": "USD", "transactions": [], "nextCursor": None}
 
     monkeypatch.setattr(DriveRequestOwnerPayoutService, "owner_history", history)
-    app = FastAPI()
-    app.include_router(payouts_routes.router)
-    client = TestClient(app)
+    client = payout_client
+    app = client.app
     for unauthenticated in (
         client.get("/api/one/payouts/account/earnings"),
         client.post("/api/one/payouts/account/manage"),
@@ -853,13 +819,12 @@ async def test_verify_link_collects_upcoming_requirements_for_existing_accounts_
     assert len(fake.accounts) == 1
 
 
-def test_onboard_route_accepts_only_an_optional_verify_purpose(world, monkeypatch):
+def test_onboard_route_accepts_only_an_optional_verify_purpose(world, monkeypatch, payout_client):
     svc, _db, fake = world
     monkeypatch.setattr(payouts_routes, "_service", lambda: svc)
-    app = FastAPI()
-    app.include_router(payouts_routes.router)
+    client = payout_client
+    app = client.app
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "owner"}
-    client = TestClient(app)
     onboard = "/api/one/payouts/account/onboard"
     missing = client.post(onboard, json={"purpose": "verify"})
     assert missing.status_code == 503
@@ -880,7 +845,7 @@ def test_onboard_route_accepts_only_an_optional_verify_purpose(world, monkeypatc
     assert len(fake.links) == 3 and len(fake.accounts) == 1
 
 
-def test_bank_payout_route_pages_by_cursor_for_the_token_owner_only(monkeypatch):
+def test_bank_payout_route_pages_by_cursor_for_the_token_owner_only(monkeypatch, payout_client):
     from hushh_mcp.services.stripe_connect_bank_payouts import ConnectBankPayoutError
 
     calls = []
@@ -896,9 +861,8 @@ def test_bank_payout_route_pages_by_cursor_for_the_token_owner_only(monkeypatch)
         "StripeConnectBankPayouts",
         lambda **_: SimpleNamespace(owner_summary=owner_summary),
     )
-    app = FastAPI()
-    app.include_router(payouts_routes.router)
-    client = TestClient(app)
+    client = payout_client
+    app = client.app
     deposits = "/api/one/payouts/account/bank-payouts"
     unauthenticated = client.get(f"{deposits}?cursor=")
     assert unauthenticated.status_code == 401
@@ -922,7 +886,9 @@ def test_bank_payout_route_pages_by_cursor_for_the_token_owner_only(monkeypatch)
 @pytest.mark.parametrize(
     ("route", "path"), [("live", "/connect/webhook"), ("sandbox", "/connect/sandbox-webhook")]
 )
-def test_connect_webhook_rejections_log_closed_codes_only(monkeypatch, caplog, route, path):
+def test_connect_webhook_rejections_log_closed_codes_only(
+    monkeypatch, caplog, route, path, payout_client
+):
     from hushh_mcp.services.external_connector_lifecycle_store import ConnectorLifecycleError
     from hushh_mcp.services.stripe_connect_bank_payouts import ConnectBankPayoutError
 
@@ -942,9 +908,7 @@ def test_connect_webhook_rejections_log_closed_codes_only(monkeypatch, caplog, r
         "StripeConnectBankPayouts",
         lambda **_: SimpleNamespace(process_webhook=process_webhook),
     )
-    app = FastAPI()
-    app.include_router(payouts_routes.router)
-    client = TestClient(app)
+    client = payout_client
     caplog.set_level("WARNING", logger=payouts_routes.logger.name)
     statuses = [
         client.post(

@@ -211,6 +211,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   const sharedIntent = searchParams?.get("section") === "shared";
   const availableSectionRef = useRef<HTMLElement | null>(null);
   const sharedSectionRef = useRef<HTMLElement | null>(null);
+  const requestScopeReturnFocusRef = useRef<HTMLButtonElement | null>(null);
   const [showUnlockDialog, setShowUnlockDialog] = useState(false);
   const request = usePersonInformationRequest(resolvedPersonRef);
   const requesting = request.pending;
@@ -807,6 +808,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               variant="none"
               effect="fade"
               className={styles.share}
+              ref={requestScopeReturnFocusRef}
               aria-label="Share profile"
               onClick={() => {
                 void navigator.clipboard.writeText(window.location.href);
@@ -852,17 +854,18 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                   </Button>
                 ) : null}
                 {viewerProfile.relationship.status === "connected" ? <DocumentRequestButton personRef={resolvedPersonRef} personName={profile.displayName || "this person"} /> : null}
-                {/* An active connection is the whole gate: no connector setup
-                    and no Trusted-circle membership, unlike the Drive file
-                    actions above, which also wait on a staged connector flag. */}
-                {viewerProfile.relationship.status === "connected" ? (
-                  <RequestScopeButton
-                    personRef={resolvedPersonRef}
-                    personName={profile.displayName || "this person"}
-                    className={styles.requestScope}
-                  />
-                ) : null}
               </>
+            ) : null}
+            {/* Preserve accepted confirmation while profile authority refreshes. */}
+            {user ? (
+              <RequestScopeButton
+                key={`${user.uid}:${resolvedPersonRef}`}
+                personRef={resolvedPersonRef}
+                personName={profile.displayName || "this person"}
+                className={styles.requestScope}
+                canRequest={viewerProfile?.relationship.status === "connected"}
+                returnFocusRef={requestScopeReturnFocusRef}
+              />
             ) : null}
 
           </div>

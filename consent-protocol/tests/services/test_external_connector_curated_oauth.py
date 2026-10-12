@@ -26,6 +26,11 @@ CLIENT_SECRET_ENV = "HUBSPOT_OAUTH_CLIENT_SECRET"
 DEFAULT_REFRESH_TOKEN = "r1"
 
 
+@pytest.fixture(autouse=True)
+def uat_environment(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+
+
 @pytest.fixture
 def connector() -> ExternalMcpConnectorDefinition:
     return ExternalMcpConnectorDefinition(
@@ -157,6 +162,55 @@ async def test_configuration_rejects_unpinned_endpoint_scope_or_secret_binding(
     service, connector, monkeypatch, overrides
 ):
     service.registry.get_connector = AsyncMock(return_value=replace(connector, **overrides))
+    monkeypatch.setattr(oauth, "getenv", lambda name, default="": "synthetic")
+
+    with pytest.raises(oauth.CuratedConnectorOAuthError, match="connector_configuration_invalid"):
+        await service._configuration("hubspot")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "environment,row_environment", [("uat", "production"), ("production", "uat")]
+)
+async def test_configuration_rejects_the_other_environment_callback(
+    service, connector, monkeypatch, environment, row_environment
+):
+    from hushh_mcp.services.curated_connector_manifest import get_manifest
+
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    redirects = get_manifest("hubspot").redirect_uris[row_environment]
+    service.registry.get_connector = AsyncMock(
+        return_value=replace(connector, registered_redirect_uris=redirects)
+    )
+    monkeypatch.setattr(oauth, "getenv", lambda name, default="": "synthetic")
+
+    with pytest.raises(oauth.CuratedConnectorOAuthError, match="connector_configuration_invalid"):
+        await service._configuration("hubspot")
+
+
+@pytest.mark.asyncio
+async def test_configuration_accepts_the_current_production_callback(
+    service, connector, monkeypatch
+):
+    from hushh_mcp.services.curated_connector_manifest import get_manifest
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    redirects = get_manifest("hubspot").redirect_uris["production"]
+    service.registry.get_connector = AsyncMock(
+        return_value=replace(connector, registered_redirect_uris=redirects)
+    )
+    monkeypatch.setattr(oauth, "getenv", lambda name, default="": "synthetic")
+
+    _, client_id, client_secret = await service._configuration("hubspot")
+    assert (client_id, client_secret) == ("synthetic", "synthetic")
+
+
+@pytest.mark.asyncio
+async def test_configuration_rejects_an_unknown_runtime_environment(
+    service, connector, monkeypatch
+):
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    service.registry.get_connector = AsyncMock(return_value=connector)
     monkeypatch.setattr(oauth, "getenv", lambda name, default="": "synthetic")
 
     with pytest.raises(oauth.CuratedConnectorOAuthError, match="connector_configuration_invalid"):

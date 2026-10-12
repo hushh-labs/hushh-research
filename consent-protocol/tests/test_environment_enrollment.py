@@ -58,7 +58,7 @@ def test_vault_owner_issuance_stamps_the_owner(monkeypatch, agent_id, stamped):
 
 
 def test_migration_backfills_only_from_this_environments_recent_unlocks():
-    sql = (ROOT / "db/migrations/322_vault_environment_enrollment.sql").read_text()
+    sql = (ROOT / "db/migrations/326_vault_environment_enrollment.sql").read_text()
     assert "ADD COLUMN IF NOT EXISTS environment_enrolled_at" in sql
     # Inside a window that starts after the dev copy and the production restore.
     assert "'60 days'" in sql and "vault.owner" in sql and "CONSENT_GRANTED" in sql

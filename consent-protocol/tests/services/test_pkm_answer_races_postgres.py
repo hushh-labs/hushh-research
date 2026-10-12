@@ -46,7 +46,7 @@ def payments_enabled(monkeypatch):
     clear_runtime_settings_caches()
 
 
-async def _approved(engine, amount=1000):
+async def _approved(engine, amount=1000, *, prepared=False):
     service, request_id = await _ask(engine, StubResolver(["attr.travel.trips"]))
     approved = await service.approve(
         owner_user_id=OWNER,
@@ -55,6 +55,8 @@ async def _approved(engine, amount=1000):
         amount_cents=amount,
         model_processing_consent=True,
     )
+    if prepared:
+        await service.deliver(owner_user_id=OWNER, request_id=request_id, envelope=ENVELOPE)
     return service, request_id, approved["termsDigest"]
 
 
@@ -214,7 +216,7 @@ class TestRepeatedCheckoutThroughTheService:
         exact failure the dispatcher's own comment warns about. Observed in UAT
         as webhooks returning 200 with zero SQL.
         """
-        service, request_id, digest = await _approved(answer_engine)
+        service, request_id, digest = await _approved(answer_engine, prepared=True)
         from hushh_mcp.services.pkm_answer_payment_service import (
             PAYMENT_KIND,
             PkmAnswerPaymentService,
@@ -233,7 +235,7 @@ class TestRepeatedCheckoutThroughTheService:
         assert intent["transfer_group"] == f"pkm-answer:{request_id}"
 
     async def test_an_unchanged_live_session_is_reused_not_reminted(self, answer_engine):  # noqa: F811
-        service, request_id, digest = await _approved(answer_engine)
+        service, request_id, digest = await _approved(answer_engine, prepared=True)
         from hushh_mcp.services.pkm_answer_payment_service import PkmAnswerPaymentService
 
         api = self._stripe()
@@ -251,7 +253,7 @@ class TestRepeatedCheckoutThroughTheService:
         self,
         answer_engine,  # noqa: F811
     ):
-        service, request_id, digest = await _approved(answer_engine)
+        service, request_id, digest = await _approved(answer_engine, prepared=True)
         from hushh_mcp.services.pkm_answer_payment_service import PkmAnswerPaymentService
 
         api = self._stripe()
@@ -285,7 +287,7 @@ class TestRepeatedCheckoutThroughTheService:
         that payment -- it carries a superseded attempt id -- so the money is
         taken with no order to settle, no answer owed and no refund filed.
         """
-        service, request_id, digest = await _approved(answer_engine)
+        service, request_id, digest = await _approved(answer_engine, prepared=True)
         from hushh_mcp.services.pkm_answer_payment_service import (
             AnswerPaymentError,
             PkmAnswerPaymentService,
@@ -325,7 +327,7 @@ class TestRepeatedCheckoutThroughTheService:
         answer_engine,  # noqa: F811
     ):
         """A failed expire is not a verdict: the session's own state is."""
-        service, request_id, digest = await _approved(answer_engine)
+        service, request_id, digest = await _approved(answer_engine, prepared=True)
         from hushh_mcp.services.pkm_answer_payment_service import PkmAnswerPaymentService
 
         api = self._stripe()
@@ -352,7 +354,7 @@ class TestRepeatedCheckoutThroughTheService:
         payment they already made. Neither: refuse, and let the webhook settle
         the order that is still bound to that session.
         """
-        service, request_id, digest = await _approved(answer_engine)
+        service, request_id, digest = await _approved(answer_engine, prepared=True)
         from hushh_mcp.services.pkm_answer_payment_service import (
             AnswerPaymentError,
             PkmAnswerPaymentService,
@@ -386,7 +388,7 @@ class TestRepeatedCheckoutThroughTheService:
     async def test_an_already_paid_order_refuses_another_checkout(self, answer_engine):  # noqa: F811
         # Two guards stand in front of a second charge. This one is the inner
         # order check: the request is still 'approved' but the order is paid.
-        service, request_id, digest = await _approved(answer_engine)
+        service, request_id, digest = await _approved(answer_engine, prepared=True)
         _mark_paid(answer_engine, request_id, digest)
         with answer_engine.begin() as connection:
             connection.execute(
@@ -408,7 +410,7 @@ class TestRepeatedCheckoutThroughTheService:
     async def test_a_request_already_being_answered_refuses_a_checkout(self, answer_engine):  # noqa: F811
         # And the outer guard: once paid, the request leaves 'approved', so a
         # late checkout attempt is refused before the order is even read.
-        service, request_id, digest = await _approved(answer_engine)
+        service, request_id, digest = await _approved(answer_engine, prepared=True)
         _mark_paid(answer_engine, request_id, digest)
         from hushh_mcp.services.pkm_answer_payment_service import (
             AnswerPaymentError,

@@ -610,6 +610,21 @@ export function WalletWorkspace() {
     return () => { cancelled = true; readRevision += 1; document.removeEventListener("visibilitychange", visibility); };
   }, [numberScopeRevision, numberReadRevision, activeTab, view.kind, focusedCardId, focusedCard?.cardId]);
   const displayedNumber = ownerNumber?.revision === cardActionScopeRef.current.revision ? ownerNumber.pan : undefined;
+  const getHistoryContext = useCallback((_cardId: string) => {
+    const context = vaultContextRef.current();
+    const revision = cardActionScopeRef.current.revision;
+    const isCurrent = () => {
+      const current = vaultContextRef.current();
+      return Boolean(context && current?.userId === context.userId && current.vaultKey === context.vaultKey &&
+        current.vaultOwnerToken === context.vaultOwnerToken && cardActionScopeRef.current.revision === revision &&
+        cardActionScopeRef.current.tab === "sharing" && document.visibilityState !== "hidden");
+    };
+    if (!context || !isCurrent()) return null;
+    return { ...context, isCurrent, getIdToken: async () => {
+      if (!isCurrent() || sharingUserRef.current?.uid !== context.userId) throw new Error("Wallet changed.");
+      return sharingUserRef.current.getIdToken();
+    } };
+  }, []);
   const getCardShareContext = useCallback((cardId: string) => {
     const context = vaultContextRef.current();
     const revision = cardActionScopeRef.current.revision;
@@ -1055,7 +1070,7 @@ export function WalletWorkspace() {
           ) : null}
           </div>
           <div className="space-y-3.5 px-[var(--page-inline-gutter-standard)]" data-testid="one-wallet-sharing">
-            {ready ? <WalletSharing key={renderedOwnerId} profile={walletIdentity} active={activeTab === "sharing"} /> : null}
+            {ready ? <WalletSharing key={renderedOwnerId} profile={walletIdentity} active={activeTab === "sharing"} getHistoryContext={getHistoryContext} /> : null}
           </div>
           </SwipeViews>
           </div>

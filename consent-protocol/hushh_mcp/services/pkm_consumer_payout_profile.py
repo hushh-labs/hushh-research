@@ -150,3 +150,18 @@ async def prepare_consumer_profile(
     ):
         raise ValueError("Consumer payout preparation could not be verified")
     return current
+
+
+def hosted_return_urls(
+    origin: str, path: str, surface: str, attempt_id: str | None
+) -> dict[str, str]:
+    """Preserve legacy destinations and bind correlated document returns exactly."""
+    if attempt_id:
+        from .scope_commerce.provider_onboarding_links import onboarding_urls
+
+        return onboarding_urls(origin, "/one/profile/payouts", attempt_id, source="documents")
+    query = {"documents": "documentPayouts", "answers": "answerPayouts"}.get(surface, "payouts")
+    return {
+        "return_url": f"{origin}{path}?{query}=done",
+        "refresh_url": f"{origin}{path}?{query}=refresh",
+    }

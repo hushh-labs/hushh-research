@@ -1951,12 +1951,14 @@
         "wallet_card_registrations",
         "wallet_card_share_requests",
         "wallet_card_access_grants",
-        "wallet_card_access_audit"
+        "wallet_card_access_audit",
+        "wallet_profile_share_requests",
+        "wallet_profile_access_grants"
       ],
       "id": "wallet_temporary_card_access",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Owner-confirmed canonical Wallet commits register saved payment cards automatically, including older cards refreshed by the owner's Share action. Owner grants bind individual active connections; authenticated recipients read only their current grant."
+      "primary_access_path": "Owner-confirmed canonical Wallet commits register saved payment cards automatically, including older cards refreshed by the owner's Share action. Owner grants bind individual active connections; authenticated recipients read only their current grant. The same policy orchestrates selected Profile fields through a separate source adapter; outgoing and received participant history is paginated independently of live card eligibility."
     },
     {
       "data_class": "personal_metadata",
@@ -6697,7 +6699,7 @@
     "action_gateway": "f47b187ba26530961b6d8894011192c2c55c6fd2bcba5ccd2f52c1c6a49b6efe",
     "agent_registry": "5656882b221ed3ac8ab6870b5266b7d72151a247fd94162dd873e9c88a042575",
     "cache_manifest": "c7262af5c5aef35ab22518245c58d001a7637304a61f2416b702877b0b6b3102",
-    "data_plane": "233c78ed06fa34b9ae9fdacb970762fda3991a41582aedd4f694a5bc078bcd3d",
+    "data_plane": "4ccbc6b4e4e8365a1f586e0b7ebf5a51eecb61988ff9638725a4d8ba75484ff8",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "cb76edf8be0ad6bbef975a9a9db27c9564dd768e7edd3da999ec5d3a5877b283",
     "route_index": "3fb964163d6a4920bced0717e3bd2b91b840a55341b92a4916329e7fbab02c87",

@@ -30,10 +30,12 @@ are separately verified below; they do not prove a consumer purchase or payout.
 
 The existing `claude/hushh-infrastructure-analysis-7o991c` branch is the integration
 owner; PR #7555 and issue #7587 remain active. The remote pod-release and Android
-corrections are preserved. Main `56547cebd07f` is being merged normally; shared
+corrections are preserved. Main `337c4759e1b2` is being merged normally; shared
 history, unrelated workspace edits and the frozen migration preservation receipt
-remain intact. Main's 315–321 registrations and this lane's 322–327 registrations
-retain their exact SQL and rollback mappings. No environment receipt may be
+remain intact. Main's 315–325 registrations retain their existing numbers. This lane's six
+registrations move to 326–331 with byte-identical forward and rollback SQL;
+the original preservation receipt remains unchanged and a separate relocation
+receipt records the new mapping. No environment receipt may be
 fabricated: private-lane 900–958 records do not prove release-schema absence.
 
 | Surface | Current source contract | Acceptance boundary |
@@ -43,10 +45,13 @@ fabricated: private-lane 900–958 records do not prove release-schema absence.
 | Payments and earnings | Separate Purchase balance, Information-access earnings and Document/answer earnings; concise disclosures and full receipts | Existing balances remain owned by their original ledgers |
 | Hosted returns | Exact Account/Payouts compatibility; source/attempt-bound opaque hints; warm initiating document retained; cold auth/unlock retained | Browser/native Sandbox return acceptance remains pending |
 | Connect | Scope uses individual consumer defaults; document/answer creation preserves historical intent and prepares unconfigured individual profiles before hosted links | Historical accounts retained; cross-source compatibility cannot be inferred from owner identity |
-| Private processing | Cached research and final release recheck current owner placement | Primary's owner-bound Azure continuation still incomplete |
+| Private processing | Cached research and final release recheck current owner placement | Primary owner callback verified; private provisioning awaits provider registration |
 | One Stripe MCP | Separate owner OAuth, current-binding account proof and constrained balance read | Authenticated Dev reads remain pending; host ChatGPT connector is not a prerequisite |
 
-Focused checks pass 106 backend/Postgres cases and 96 client/callback cases;
+Latest merge checks pass 83 graph/payout cases and 53 profile/Wallet cases;
+the preceding selection passed 187 backend/Postgres cases apart from two graph
+performance fixtures, now repaired without losing merged-history coverage.
+Earlier checks pass 106 backend/Postgres cases and 96 client/callback cases;
 the earlier hosted-return selection passes 114 cases. The account-binding race
 regression fails on all three conflicting actual-predecessor cases while its
 matching replay passes. Both cached private-placement cases fail on the actual
@@ -54,7 +59,7 @@ incoming predecessor. The 447 Back cases pass; generated contract parity,
 complete core, exact-source hosted CI and Dev promotion must still complete.
 Source receipts never establish completed consumer purchases or bank payouts.
 
-The last qualified Dev observation at `13:32:37Z` retained two funding records,
+The last qualified Dev observation at `22:17:38Z` served source `0d00ceaf1e1b` and retained two funding records,
 three journals, zero purchases and zero withdrawals. Counterpart funding totals
 $10.50 ($0.50 plus $10), and the tagged $5 operating Topup was already settled;
 never repeat either. Reconcile fresh provider/application receipts before any
@@ -65,8 +70,11 @@ Microsoft consent does not establish Azure setup. The latest headless continuati
 preserves shared Chrome and the original memory-only owner session, with narrowly
 admitted provider navigation. The exact Azure callback shell owns its signed-out
 refusal instead of forwarding OAuth parameters through login; completion retains
-server Firebase identity, original owner/state and PKCE checks. Real owner callback,
-private provisioning and vault initialization are still acceptance requirements.
+server Firebase identity, original owner/state and PKCE checks. The primary owner callback completed with authenticated HTTP 200 and the
+approved subscription. Provisioning then stopped at
+`PROVIDER_REGISTRATION_PENDING`; the canonical six Azure provider registrations
+were requested in that subscription. Private provisioning and vault initialization
+remain acceptance requirements.
 
 The remaining lifecycle is both reviewer roles, one-cent reservation/preparation/
 activation, early-revocation refund, real one-hour maturity, explicit and automatic
@@ -111,7 +119,7 @@ remain available in this file's version history.
   starts, unused-time refunds retain actual nonreturned processing costs against
   consumer earnings.
 
-The [migration](../../db/migrations/323_consumer_scope_commerce.sql) owns tariff,
+The [migration](../../db/migrations/327_consumer_scope_commerce.sql) owns tariff,
 quote, purchase, wallet, funding-lot, reservation, immutable journal/posting,
 provider-operation and financial-obligation tables. These are financial/workflow
 metadata, not another PKM store. SQLite/offline behavior is not accounting proof.
@@ -456,7 +464,7 @@ Pause new admission with `SCOPE_COMMERCE_ENABLED=false` and
 `SCOPE_COMMERCE_PROVIDER_ENABLED=false`, while retaining account/country/cost,
 OIDC drain policy and provider secrets so refunds/payouts/recovery can finish. Account
 returns `managed_balances` and retains existing funds controls during rollback.
-[Schema rollback](../../db/migrations/rollback/323_consumer_scope_commerce.rollback.sql)
+[Schema rollback](../../db/migrations/rollback/327_consumer_scope_commerce.rollback.sql)
 refuses to discard posted journals, obligations or provider operations; after
 financial use, preserve the schema and roll back compatible application behavior.
 

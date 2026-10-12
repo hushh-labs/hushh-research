@@ -1,6 +1,9 @@
 """Synthetic payout provider with explicit current facts and recorded intents."""
 
+import json
 import time
+
+import stripe
 
 
 class _FakePayoutAccount:
@@ -115,3 +118,54 @@ class _Stripe:
             _PaymentIntent,
         )
         self.Transfer, self.Refund = _Transfer, _Refund
+
+
+def _provider_response(monkeypatch, *, payload, status=200):
+    """Keep Stripe's real SDK parsing; replace only the outbound HTTP transport."""
+
+    class RecordedStripeHTTP(stripe.HTTPClient):
+        name = "recorded_stripe_response"
+
+        def request(self, method, url, headers, post_data=None):
+            return json.dumps(payload), status, {"request-id": "req_synthetic"}
+
+    monkeypatch.setattr(stripe, "default_http_client", RecordedStripeHTTP())
+    monkeypatch.setattr(stripe, "max_network_retries", 0)
+
+
+def payout_tables():
+    """Fresh document-order fixtures; no records shared between test worlds."""
+    return {
+        "marketplace_access_requests": [
+            {"id": "r1", "status": "approved", "latest_envelope_id": "env1"},
+            {"id": "r2", "status": "pending", "latest_envelope_id": None},
+        ],
+        "pkm_packet_orders": [
+            {
+                "id": "o1",
+                "owner_user_id": "owner",
+                "buyer_user_id": "b",
+                "status": "paid",
+                "stripe_mode": "test",
+                "access_request_id": "r1",
+                "amount_cents": 500,
+                "platform_fee_cents": 50,
+                "payment_method": "card",
+                "stripe_payment_intent_id": "pi_1",
+                "owner_earning_status": "none",
+            },
+            {
+                "id": "o2",
+                "owner_user_id": "owner",
+                "buyer_user_id": "b",
+                "status": "paid",
+                "stripe_mode": "test",
+                "access_request_id": "r2",
+                "amount_cents": 300,
+                "platform_fee_cents": 0,
+                "payment_method": "card",
+                "stripe_payment_intent_id": "pi_2",
+                "owner_earning_status": "none",
+            },
+        ],
+    }
