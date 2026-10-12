@@ -25,21 +25,21 @@ describe.sequential("native passkey domain association routes", () => {
     ["dev", "dev.one"],
     ["uat", "uat.one"],
     ["production", "one"],
-  ])("publishes only the %s related origins over both RP hosts", async (environment, prefix) => {
+  ])("publishes only the %s related origins over all registered RP hosts", async (environment, prefix) => {
     process.env.HUSHH_DEPLOY_ENV = environment;
-    for (const spelling of ["hushh", "hussh"]) {
-      const response = await getRelatedOrigins(new NextRequest(`https://${prefix}.${spelling}.ai/.well-known/webauthn`));
+    for (const domain of ["hushh.ai", "hussh.ai", "hussh.si"]) {
+      const response = await getRelatedOrigins(new NextRequest(`https://${prefix}.${domain}/.well-known/webauthn`));
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("application/json");
       expect(await response.json()).toEqual({
-        origins: [`https://${prefix}.hushh.ai`, `https://${prefix}.hussh.ai`],
+        origins: [`https://${prefix}.hushh.ai`, `https://${prefix}.hussh.ai`, `https://${prefix}.hussh.si`],
       });
     }
   });
 
   it("refuses unknown, cross-environment and forwarded-host claims", async () => {
     process.env.HUSHH_DEPLOY_ENV = "dev";
-    for (const hostname of ["one.hushh.ai", "uat.one.hussh.ai", "evil.dev.one.hussh.ai"]) {
+    for (const hostname of ["one.hushh.ai", "uat.one.hussh.si", "evil.dev.one.hussh.si"]) {
       const response = await getRelatedOrigins(new NextRequest(`https://${hostname}/.well-known/webauthn`, {
         headers: { "x-forwarded-host": "dev.one.hussh.ai" },
       }));
