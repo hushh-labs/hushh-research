@@ -333,6 +333,13 @@ steps:
 
         env_var_string="$(IFS='|'; echo "${env_vars[*]}")"
         deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID},account-deletion-contract=v201"
+        if [[ -n "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" ]]; then
+          deploy_labels="${deploy_labels},one-voice-vertex-project=${_HUSHH_ONE_VOICE_VERTEX_PROJECT}"
+          if [[ -n "${_VERTEX_LIVE_MODEL_ID}" ]]; then
+            live_model_label="$(printf '%s' "${_VERTEX_LIVE_MODEL_ID}" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_-' '-' | cut -c1-63)"
+            deploy_labels="${deploy_labels},one-voice-live-model=${live_model_label}"
+          fi
+        fi
 
         image_reference="${_IMAGE_REFERENCE}"
         if [[ -z "${image_reference}" ]]; then

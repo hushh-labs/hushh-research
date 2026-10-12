@@ -12,6 +12,8 @@ from fastapi.testclient import TestClient
 
 from api.middleware import require_firebase_auth
 from api.routes.one import voice
+from hushh_mcp.hushh_adk.manifest import ManifestLoader
+from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent
 from hushh_mcp.one_voice.config import OneVoiceLiveConfig
 from hushh_mcp.runtime_providers.factory import ManagedGeminiRuntimeBinding
 
@@ -214,14 +216,41 @@ def test_socket_rejects_a_bad_ticket_without_a_provider(monkeypatch):
         assert frame["type"] == "error" and frame["code"] == "ticket_signature"
 
 
-def test_voice_session_scopes_child_model_calls_and_restores_ambient_project(monkeypatch):
+@pytest.mark.parametrize(
+    ("deploy_env", "expected_labels"),
+    [
+        ("uat", {"environment": "uat", "component": "one_voice"}),
+        ("production", None),
+    ],
+)
+def test_voice_session_scopes_child_model_calls_and_restores_ambient_project(
+    monkeypatch, deploy_env, expected_labels
+):
     monkeypatch.setenv("ONE_VOICE_LIVE_ENABLED", "true")
     monkeypatch.setenv("VERTEX_LIVE_MODEL_ID", LIVE_MODEL)
     monkeypatch.setenv("VERTEX_LIVE_LOCATION", "us-central1")
     monkeypatch.setenv("HUSHH_ONE_VOICE_VERTEX_PROJECT", "hussh-511311")
     monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "us-central1")
     monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "hushh-vertex-personal54")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", deploy_env)
     seen = []
+    manifest = ManifestLoader.load_from_dict(
+        {
+            "manifest_version": 2,
+            "id": "voice_label_test",
+            "name": "Voice Label Test",
+            "description": "Synthetic single-turn test.",
+            "system_instruction": "Return JSON.",
+            "model": "gemini-3.7-flash",
+        }
+    )
+
+    def request_labels():
+        return build_single_turn_agent(
+            manifest, output_schema=dict, model="gemini-3.7-flash"
+        ).generate_content_config.labels
 
     async def consume(_ticket):
         return SimpleNamespace(user_id="owner-1")
@@ -232,7 +261,9 @@ def test_voice_session_scopes_child_model_calls_and_restores_ambient_project(mon
 
         async def run(self):
             async def child():
-                seen.append(ManagedGeminiRuntimeBinding.from_environment().project)
+                seen.append(
+                    (ManagedGeminiRuntimeBinding.from_environment().project, request_labels())
+                )
 
             await asyncio.create_task(child())
 
@@ -240,8 +271,9 @@ def test_voice_session_scopes_child_model_calls_and_restores_ambient_project(mon
     monkeypatch.setattr(voice, "VoiceSession", FakeSession)
     with TestClient(_owner_app()).websocket_connect("/api/one/voice/live?ticket=test"):
         pass
-    assert seen == ["hussh-511311"]
+    assert seen == [("hussh-511311", expected_labels)]
     assert ManagedGeminiRuntimeBinding.from_environment().project == "hushh-vertex-personal54"
+    assert request_labels() is None
 
 
 def test_retired_paths_stay_retired_while_live_is_enabled(monkeypatch):

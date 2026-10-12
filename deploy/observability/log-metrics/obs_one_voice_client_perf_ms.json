@@ -1,0 +1,28 @@
+{
+  "name": "obs_one_voice_client_perf_ms",
+  "description": "One Voice content-free client timing by bounded metric and resolved Vertex provider binding",
+  "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"__BACKEND_SERVICE__\" AND textPayload=~\"one_voice[.]client_perf .* metric=(endpointing_client|audio_receive_to_audible|capture_callback_to_socket_enqueue) ms=[0-9]+ provider=vertex_ai vertex_project=[a-z0-9-]+ live_model=[A-Za-z0-9._:/-]+ live_location=[a-z0-9-]+\"",
+  "valueExtractor": "REGEXP_EXTRACT(textPayload, \" ms=([0-9]+)\")",
+  "labelExtractors": {
+    "metric": "REGEXP_EXTRACT(textPayload, \" metric=([a-z_]+)\")",
+    "vertex_project": "REGEXP_EXTRACT(textPayload, \" vertex_project=([a-z0-9-]+)\")",
+    "live_model": "REGEXP_EXTRACT(textPayload, \" live_model=([A-Za-z0-9._:/-]+)\")",
+    "live_location": "REGEXP_EXTRACT(textPayload, \" live_location=([a-z0-9-]+)\")"
+  },
+  "bucketOptions": {
+    "explicitBuckets": {
+      "bounds": [0, 50, 100, 200, 300, 500, 700, 900, 1200, 1600, 2000, 2500, 3000, 4000, 5000, 6500, 8000, 10000, 15000, 20000, 30000, 45000, 60000, 90000, 120000]
+    }
+  },
+  "metricDescriptor": {
+    "metricKind": "DELTA",
+    "valueType": "DISTRIBUTION",
+    "unit": "ms",
+    "labels": [
+      {"key": "metric", "valueType": "STRING", "description": "Bounded client timing metric"},
+      {"key": "vertex_project", "valueType": "STRING", "description": "Resolved Vertex inference project"},
+      {"key": "live_model", "valueType": "STRING", "description": "Configured Gemini Live model ID"},
+      {"key": "live_location", "valueType": "STRING", "description": "Configured Gemini Live region"}
+    ]
+  }
+}
