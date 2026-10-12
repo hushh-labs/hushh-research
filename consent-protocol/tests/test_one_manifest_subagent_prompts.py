@@ -225,18 +225,17 @@ def test_one_states_its_operating_principles_in_priority_order():
     assert order == sorted(order)
 
 
-def test_one_keeps_device_memory_capture_silent():
+def test_one_separates_silent_capture_from_requested_save_receipts():
     authored = str(agent_tree._ONE_MANIFEST.system_instruction)
     memory = authored[authored.index("# Memory") : authored.index("# Model choice")]
     assert "whole_message=true" in memory
-    assert (
-        "Never mention memory capture, saving progress, a card, confirmation, or a receipt"
-        in memory
-    )
-    assert "Do not report capture receipts or persistence outcomes in chat" in memory
-    assert "do not announce it, ask for confirmation, or repeat the details" in memory
+    assert "Never announce background capture, progress or its receipts" in memory
+    assert "or repeat protected details" in memory
+    assert "Silent assessment does not bypass restricted writers, owner review or consent" in memory
+    assert "LATEST MEMORY SAVE RECEIPT only for an explicit owner-requested save" in memory
+    assert "Without a receipt, no result is confirmed" in memory
     assert "never stored twice" in memory
-    assert "If the vault is locked" in memory
+    assert "A locked vault needs unlock before saving" in memory
     assert "the card will confirm it" not in memory
     assert "wait for their OK" not in memory
     # The old rule sent every explicit save through "the exact passage", which
