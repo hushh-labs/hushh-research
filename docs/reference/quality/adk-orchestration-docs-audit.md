@@ -123,6 +123,14 @@ before/after values and qualifications are retained in the baseline's
 future-growth enforcement remain unchanged; full core and hosted CI are still
 release gates.
 
+The subsequent fake-provider recovery test isolates configuration explicitly,
+adding two lines to its existing module span (530 to 532). Independent backend
+review qualifies only that finding; the baseline records its source hash and
+focused verification under `scope_commerce_recovery_test_isolation_20261012`.
+Invalid ambient provider configuration cannot affect this fake-adapter test.
+Production configuration validation, immutable provider requests and all other
+finding slots remain unchanged.
+
 ## GCP-only pod deployment correction — 2026-09-25
 
 Historical pointer: Anypoint pod deployment was removed; the CRM connector remains.

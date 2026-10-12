@@ -453,6 +453,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Saved" }));
     expect(screen.getAllByRole("tab").map(tab => tab.textContent)).toEqual(["Saved", "Add"]);
     expect(screen.getByRole("tab", { name: "Saved" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Sharing settings" }));
     const price = await screen.findByRole("button", { name: "Set sharing price for Financial · Profile" });
     await waitFor(() => expect(price).toHaveTextContent("1 Hussh coin ($0.01) / 1h"));
     expect(ScopeCommerceService.tariff).toHaveBeenCalledWith("id-token", "financial.profile", "attr.financial.profile.*");

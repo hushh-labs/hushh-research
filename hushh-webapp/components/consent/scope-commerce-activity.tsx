@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScopeCommerceService, formatCommerceMoney as money, formatCommerceMicroUsd, commerceActivityStatusCopy, type CommerceActivityItem, type CommerceActivityPage, type CommerceActivityView } from "@/lib/services/scope-commerce-service";
-import { useCommerceRead } from "@/components/consent/use-commerce-session";
+import { useCommerceAccountBackLayer, useCommerceRead } from "@/components/consent/use-commerce-session";
 import { CommerceTime } from "@/components/consent/scope-commerce-timeline";
 
 const VIEWS: Array<{ value: CommerceActivityView; label: string }> = [
@@ -14,6 +14,8 @@ const VIEWS: Array<{ value: CommerceActivityView; label: string }> = [
 const PENDING = new Set(["awaiting_payment", "reserved", "preparing", "staged", "armed", "active", "queued", "dispatching", "refund_pending", "manual_review", "pending", "processing", "unknown", "transferred"]);
 
 function ActivityEntry({ item }: { item: CommerceActivityItem }) {
+  const [expanded, setExpanded] = useState(false);
+  useCommerceAccountBackLayer(expanded ? 2 : 0, () => { setExpanded(false); return true; });
   return <li className="space-y-3 border-b py-4 last:border-b-0">
     <div className="flex flex-wrap items-start justify-between gap-2">
       <div><p className="font-medium">{item.scope_label || item.kind.replaceAll("_", " ")}</p>
@@ -21,7 +23,9 @@ function ActivityEntry({ item }: { item: CommerceActivityItem }) {
       <p className="text-sm font-medium">{item.direction === "incoming" ? "Incoming" : item.direction === "outgoing" ? "Outgoing" : "Amount"}: {money(item.amount_cents)}</p>
     </div>
     <p role="status" className="text-sm">{commerceActivityStatusCopy(item.kind, item.status)}</p>
-    <dl className="grid gap-3 text-sm sm:grid-cols-2">
+    {item.next_action ? <Link className="inline-flex min-h-11 items-center text-sm underline" href={item.next_action.href}>{item.next_action.label}</Link> : null}
+    <Button variant="ghost" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? "Hide receipt" : "View receipt"}</Button>
+    {expanded ? <dl className="grid gap-3 text-sm sm:grid-cols-2">
       {item.purchase_id ? <div><dt className="text-muted-foreground">Gross agreed price</dt><dd>{money(item.gross_cents)}</dd></div> : null}
       {item.processing_fee_micro_usd !== null ? <div><dt className="text-muted-foreground">Attributed processing costs</dt><dd>{formatCommerceMicroUsd(item.processing_fee_micro_usd)}</dd></div> : null}
       {item.net_earnings_micro_usd !== null ? <div><dt className="text-muted-foreground">Net earnings</dt><dd>{formatCommerceMicroUsd(item.net_earnings_micro_usd)}</dd></div> : null}
@@ -31,8 +35,7 @@ function ActivityEntry({ item }: { item: CommerceActivityItem }) {
       <CommerceTime label="Access starts" value={item.activation_at} />
       <CommerceTime label="Access ends" value={item.expires_at} />
       <CommerceTime label="Earnings mature" value={item.matures_at} />
-    </dl>
-    {item.next_action ? <Link className="inline-flex min-h-11 items-center text-sm underline" href={item.next_action.href}>{item.next_action.label}</Link> : null}
+    </dl> : null}
   </li>;
 }
 

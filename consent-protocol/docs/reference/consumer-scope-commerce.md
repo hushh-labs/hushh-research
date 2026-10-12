@@ -28,6 +28,30 @@ are separately verified below; they do not prove a consumer purchase or payout.
 
 ### Shared Dev checkpoint — 2026-10-12 UTC
 
+- Continuation source simplifies Account into balance/earnings followed by Add
+  funds, Payouts, Refund unused balance and History disclosures. Saved/Add stay
+  unchanged; Saved contains its sharing settings and prices. Consent keeps exact
+  quote, balance and human confirmation on one flat review surface. Activity
+  next actions remain visible; full costs, refunds and timestamps are available
+  in receipts. Account/receipt Back is active-presentation-bound, with pane-local
+  anchors excluding inactive Phone/root screens and underlying Memory. Warm
+  expired-link returns reopen Payouts without starting provider authorization.
+  All 114 focused frontend cases pass, including pane Back ordering and warm
+  expired-link recovery. These changes are not yet served on Dev.
+- Complete core at `306c2cf702` failed with 18,092 passing protocol cases and
+  seven failures. Independent review identifies real prompt-budget overruns,
+  stale reserved-writer authority, outdated blanket memory-receipt assertions
+  and environment-dependent fake-provider construction. Repairs compact authored
+  instructions without changing caps, remove the unused writer from all three
+  contracts, preserve ambient silence and confirmed explicit-save feedback, and
+  inject fake configuration only in the existing retry test. All 113 nearest
+  registry/manifest/writer/One cases and 66 provider cases pass; the retry case
+  also passes with deliberately invalid ambient provider configuration.
+  Generated Back/Search
+  receipts were stale on the exact clean candidate; earlier UI-validation claims
+  did not prove that candidate. Final generation, complete core and hosted CI
+  are still required.
+
 - Provider and application readback at `10:03:28Z` verify the counterpart's
   completed US Sandbox payout eligibility. Its existing encrypted vault and
   private Azure pod are intact and normal re-unlock succeeds. The primary has

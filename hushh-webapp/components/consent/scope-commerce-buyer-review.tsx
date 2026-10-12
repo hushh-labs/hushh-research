@@ -10,8 +10,8 @@ export function ScopeCommerceBuyerReview({ quote, balance, expired, busy, enable
   return <div className="space-y-3">
     {!enabled ? <p role="status" className="text-sm">New paid purchases are unavailable. Review payment availability and existing funds in Account.</p> : null}
     {balance !== undefined ? <p className="text-sm">Available funded balance: {money(balance)}.</p> : <p role="status" className="text-sm">Refresh to check your balance before confirming.</p>}
-    <Button disabled={busy || !enabled || expired} variant="outline" onClick={() => void reviewPrice()}>Review exact price</Button>
-    {quote ? <div className="space-y-3 rounded-[var(--app-card-radius-feature)] border p-3">
+    {!quote ? <Button disabled={busy || !enabled} variant="outline" onClick={() => void reviewPrice()}>Review exact price</Button> : null}
+    {quote ? <div className="space-y-3">
       <p className="text-sm font-semibold">Total buyer price: {money(quote.amount_cents)}</p>
       <p className="text-sm">Approved access: {quote.duration_seconds / 3600} hours. Quote valid until <time dateTime={quote.expires_at}>{new Date(quote.expires_at).toLocaleString()}</time>.</p>
       {expired ? <p role="status" className="text-sm">Quote expired. Request access again so the owner can approve new terms.</p> : null}

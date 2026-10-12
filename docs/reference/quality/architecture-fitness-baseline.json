@@ -21750,7 +21750,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_scope_commerce_sandbox.py",
       "symbol": null,
-      "value": 530
+      "value": 532
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -29759,6 +29759,16 @@
           "source_sha256": "e99620823ad1c3ef990d70851e60e3b14e67d198f3562bdbc7fc9a18b4f90cfa"
         }
       ]
+    },
+    "scope_commerce_recovery_test_isolation_20261012": {
+      "parent_revision": "306c2cf702bee5924ca1e26f55fd287697db039f",
+      "path": "consent-protocol/tests/test_scope_commerce_sandbox.py",
+      "key": "module_size|consent-protocol/tests/test_scope_commerce_sandbox.py||module exceeds the advisory operon budget",
+      "before": 530,
+      "after": 532,
+      "source_sha256": "70cd78846c50d56519f25f60fac6b3bc435a77380650080e381f2c5338895cf7",
+      "review": "Independent backend review qualifies explicit fake adapter configuration in the existing recovery test. Full-core failed before the tested operation because ambient provider policy was parsed; production validation is unchanged. Only this one finding value changes; budgets, scanner, exclusions, duplicate occurrences and every other finding are preserved.",
+      "verification": "66 nearest provider/Sandbox cases pass. Full core remains required."
     }
   },
   "review": {

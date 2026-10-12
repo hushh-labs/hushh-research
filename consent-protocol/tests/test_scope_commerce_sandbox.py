@@ -429,7 +429,9 @@ async def test_onboarding_refresh_requires_authenticated_fresh_attempt_and_never
 @pytest.mark.asyncio
 async def test_individual_payout_defaults_preserve_unbound_historical_creation_and_recovery():
     store, adapter = _OperationStore(), _OperationAdapter()
-    service = ScopeCommerceProviderService(store, adapter=adapter)
+    service = ScopeCommerceProviderService(
+        store, adapter=adapter, config=ScopeCommerceProviderConfig()
+    )
     operation_id = _derived_id("owner", "seller_account")
     requested = await service._seller_creation_request("owner", "US", operation_id)
     assert requested["business_type"] == "individual"

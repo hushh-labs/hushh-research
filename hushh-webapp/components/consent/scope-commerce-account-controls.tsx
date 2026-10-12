@@ -13,7 +13,7 @@ export function CommerceBalanceSummary({ account }: { account: CommerceAccount }
       {account.earnings.withdrawing_cents ? <><dt>Withdrawal in progress</dt><dd>{money(account.earnings.withdrawing_cents)}</dd></> : null}
       {account.earnings.debt_cents ? <><dt>Unrecovered costs</dt><dd>{money(account.earnings.debt_cents)}</dd></> : null}
     </dl>
-    <p className="text-xs text-muted-foreground">100 Hussh coins = $1.00. Earnings become available when the access term ends. Ending paid access early refunds unused calendar time. You bear processing fees that are not returned.</p>
+    <p className="text-xs text-muted-foreground">100 Hussh coins = $1.00. Pending earnings mature when access ends. Early revocation refunds unused time; nonreturned costs may create debt.</p>
   </>;
 }
 
@@ -25,7 +25,7 @@ export function CommerceFundingControls({ enabled, busy, amount, changeAmount, c
     <label className="block space-y-[var(--app-form-field-gap)] text-sm">Add to balance (USD)
       <Input inputMode="decimal" value={amount} onChange={event => changeAmount(event.target.value)} disabled={busy} />
     </label>
-    <p className="text-xs text-muted-foreground">Add 50–100,000 Hussh coins ($0.50–$1,000.00). Suggested amount: 1,000 coins ($10.00). Enter the USD amount above. Funding does not approve or purchase information.</p>
+    <p className="text-xs text-muted-foreground">$0.50–$1,000 per funding payment. Suggested: $10. Funding does not approve or buy access.</p>
     <Button disabled={busy} onClick={checkout}>Continue to secure checkout</Button>
   </div>;
 }
@@ -37,11 +37,11 @@ export function CommercePayoutControls({ account, busy, country, changeCountry, 
   const ready = account.seller.onboarded && account.seller.eligible;
   const canOnboard = account.readiness?.capabilities.start_onboarding === true;
   const savedCountry = account.seller.country || country;
-  return <div className="space-y-[var(--app-form-related-gap)] border-t pt-4">
+  return <div className="space-y-[var(--app-form-related-gap)]">
     <p className="text-sm">{ready ? "Your payout account is ready." : "Complete payout setup before charging for information."}</p>
     {!ready ? <>
-      <p className="text-xs text-muted-foreground">Set up payouts as an individual. Stripe verifies your identity, payout method and the information-access activity you earn from. Buying access only requires Checkout; linking Stripe tools is separate.</p>
-      <p className="text-xs text-muted-foreground">{expiredLink ? "Your payout setup link expired. Get a new authenticated link to continue." : "Payout setup links expire. You can get a new link here without changing your payout account."}</p>
+      <p className="text-xs text-muted-foreground">Stripe verifies your individual identity, payout method and earning activity. No company is required. Stripe tool access is separate.</p>
+      <p className="text-xs text-muted-foreground">{expiredLink ? "Your payout setup link expired. Get a new authenticated link to continue." : "Continue here if your setup link expires."}</p>
       <label className="block space-y-[var(--app-form-field-gap)] text-sm">Payout country (two-letter code)
         <Input value={savedCountry} maxLength={2} onChange={event => changeCountry(event.target.value.toUpperCase())} disabled={busy || Boolean(account.seller.country)} />
       </label>

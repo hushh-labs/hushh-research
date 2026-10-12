@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   search: "", vaultKey: "memory-key", openWindow: vi.fn(),
 }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user }) }));
-vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(mocks.search) }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/one/profile/account", useSearchParams: () => new URLSearchParams(mocks.search) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: mocks.vaultKey, getVaultOwnerToken: () => "vault-owner-token" }) }));
 vi.mock("@/lib/consent/scope-commerce-export", () => ({ prepareAndStagePaidScopeExport: mocks.exporter }));
 vi.mock("@/lib/services/scope-commerce-service", async importOriginal => ({
@@ -37,6 +37,7 @@ import { ScopeCommerceAccountPanel } from "@/components/consent/scope-commerce-a
 import { MemoryCommerceSummary } from "@/components/profile/memory-commerce-summary";
 import { ScopeTariffEditor } from "@/components/consent/scope-tariff-editor";
 import { ScopeCommerceRequestPanel } from "@/components/consent/scope-commerce-request-panel";
+import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { commerceMoneyButtonName } from "../../../.codex/skills/reviewer-app-testing/scripts/scope-commerce-rehearsal-contract.mjs";
 
@@ -184,6 +185,12 @@ describe("existing Account payment history", () => {
       .mockResolvedValueOnce({ items: [entry("second")], next_cursor: "page_three" });
     render(<ScopeCommerceActivity />);
     await screen.findByRole("button", { name: "Load more purchases" });
+    expect(screen.getByRole("link", { name: "Prepare information" })).toBeVisible();
+    expect(screen.queryByText("Attributed processing costs")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "View receipt" }));
+    expect(screen.getByText("Attributed processing costs")).toBeVisible();
+    act(() => { expect(unwindBackLayer("/one/profile/account")).toBe(true); });
+    expect(screen.queryByText("Attributed processing costs")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Load more purchases" }));
     await waitFor(() => expect(screen.getAllByText("Food preferences")).toHaveLength(2));
     expect(mocks.activity).toHaveBeenNthCalledWith(2, "owner-token", "purchases", "page_two");
@@ -204,12 +211,15 @@ describe("existing Account payment history", () => {
     const first = render(<ScopeCommerceAccountPanel />);
     await screen.findByText(/New purchases and funding are currently unavailable/);
     expect(screen.queryByRole("button", { name: "Continue to secure checkout" })).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "History" }));
     await screen.findByText("No purchases yet."); first.unmount();
     mocks.account.mockResolvedValueOnce({ ...balanceAccount(), enabled: false, readiness: unavailable(), managed_balances: true,
       earnings: { pending_cents: 0, available_cents: -25, debt_cents: 25 }, funding_lots: [{ id: "existing_lot", refundable_cents: 50 }] });
     render(<ScopeCommerceAccountPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: "Refund unused balance" }));
     await screen.findByRole("button", { name: commerceMoneyButtonName("refund", 50) });
     expect(screen.getByText("Unrecovered costs")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Payouts" }));
     expect(screen.getByRole("button", { name: "Review withdrawal" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Continue to secure checkout" })).not.toBeInTheDocument();
   });
@@ -217,6 +227,12 @@ describe("existing Account payment history", () => {
   it("blocks refused windows and retires a prepared payout link when the vault session changes", async () => {
     mocks.openWindow.mockReturnValue(null);
     const view = render(<ScopeCommerceAccountPanel />);
+    const payouts = await screen.findByRole("button", { name: "Payouts" });
+    expect(screen.queryByRole("button", { name: "Set up payouts with Stripe" })).toBeNull();
+    fireEvent.click(payouts);
+    act(() => { expect(unwindBackLayer("/one/profile/account")).toBe(true); });
+    expect(payouts).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(payouts);
     const button = await screen.findByRole("button", { name: "Set up payouts with Stripe" });
     fireEvent.click(button);
     expect(mocks.onboarding).not.toHaveBeenCalled();
@@ -235,13 +251,16 @@ describe("existing Account payment history", () => {
     view.unmount();
   });
 
-  it("treats an expired onboarding return as presentation and requests a fresh authenticated link only on click", async () => {
-    mocks.search = "commerceReturn=1&commerceAttemptId=opaque_attempt_12345&commerceAction=onboarding_refresh";
+  it("presents a warm expired onboarding return and creates a fresh authenticated link only on click", async () => {
     const popup = { close: vi.fn() };
     const session = { url: "https://connect.stripe.com/setup/new", returnUrl: "https://example.test/one/profile/account", attemptId: "opaque_attempt_12345" };
     mocks.openWindow.mockReturnValue(popup);
     mocks.onboarding.mockResolvedValue(session);
-    render(<ScopeCommerceAccountPanel />);
+    const view = render(<ScopeCommerceAccountPanel />);
+    await screen.findByRole("button", { name: "Payouts" });
+    expect(screen.queryByRole("button", { name: "Get a new payout setup link" })).toBeNull();
+    mocks.search = "commerceReturn=1&commerceAttemptId=opaque_attempt_12345&commerceAction=onboarding_refresh";
+    view.rerender(<ScopeCommerceAccountPanel />);
     await screen.findByRole("button", { name: "Get a new payout setup link" });
     expect(mocks.onboarding).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Get a new payout setup link" }));
@@ -324,8 +343,10 @@ describe("unconfigured platform funds", () => {
     mocks.account.mockResolvedValue({ ...balanceAccount(), readiness: availability, funding_lots: [{ id: "existing_lot", refundable_cents: 50 }] });
     render(<ScopeCommerceAccountPanel />);
     await screen.findByText(/Payments are not set up for this app yet/);
+    fireEvent.click(await screen.findByRole("button", { name: "Refund unused balance" }));
     expect(screen.getByRole("button", { name: "Review refund of 50 Hussh coins ($0.50)" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Continue to secure checkout" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Payouts" }));
     expect(screen.getByRole("button", { name: "Set up payouts with Stripe" })).toBeDisabled();
     expect(mocks.onboarding).not.toHaveBeenCalled();
   });

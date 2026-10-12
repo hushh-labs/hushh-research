@@ -51,7 +51,7 @@ export function ScopeTariffEditor({ scopeHandle, machineScope, label, showSavedP
       <label className="block space-y-2 text-sm">Base access term
         <Select value={hours} onValueChange={setHours} disabled={busy}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{REQUEST_DURATION_OPTIONS.map(option => <SelectItem key={option.hours} value={String(option.hours)}>{option.label}</SelectItem>)}</SelectContent></Select>
       </label>
-      <p className="text-xs text-muted-foreground">100 Hussh coins = $1.00. Enter your base price in USD above. Unset pricing is free and still requires your approval. Paid purchases start at 1 coin ($0.01). The server prorates your base price to the approved access term, up to 100,000 coins ($1,000). Processing costs reduce your earnings.</p>
+      <p className="text-xs text-muted-foreground">100 coins = $1. Free still requires approval. Paid terms are prorated, from $0.01 up to $1,000. Processing costs reduce earnings.</p>
       <p className="text-xs text-muted-foreground">{commerceReadinessCopy(readiness)}</p>
       {!readiness?.capabilities.set_paid_tariff ? <ProfileAccountLink className="inline-flex min-h-11 items-center text-sm underline">{readiness?.capabilities.start_onboarding ? "Set up payouts with Stripe in Account" : "Check payment availability in Account"}</ProfileAccountLink> : null}
       {message ? <p role="status" className="text-sm">{message}</p> : null}

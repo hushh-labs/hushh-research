@@ -29,7 +29,7 @@ export function ScopeCommerceRequestPanel({ requestId }: { requestId: string }) 
   ));
   const quoteExpired = Boolean(quote && Date.parse(quote.expires_at) <= now);
   if (!user) return null;
-  return <SectionCard title={free ? "Free sharing review" : "Sharing request review"} description="Review who receives the approved information, the access term and any payment terms.">
+  return <SectionCard title={free ? "Free sharing review" : "Sharing request review"}>
     <div className="space-y-4">
       {message ? <p role="status" className="text-sm">{message}</p> : null}
       {request ? <>
