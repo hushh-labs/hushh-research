@@ -3,17 +3,19 @@ import { createRoot } from "react-dom/client";
 
 import { WalletWorkspace } from "../../components/wallet/wallet-workspace";
 import { WalletEncryptedCardViewer } from "../../components/wallet/wallet-encrypted-card-viewer";
-import { AppPageShell, AppPageContentRegion } from "../../components/app-ui/app-page-shell";
+import { AppPageShell, AppPageContentRegion, type AppPageHeaderContentSpacing } from "../../components/app-ui/app-page-shell";
 import { PageHeader } from "../../components/app-ui/page-sections";
 import { TopShellTabs } from "../../components/app-ui/top-shell-tabs";
 import { TOP_SHELL_TAB_REGISTRY } from "../../lib/navigation/top-shell-tabs";
 import { Switch } from "../../components/ui/switch";
+import { CalendarConnectHero } from "../../components/calendar/calendar-connect-hero";
 import { WalletCardFace } from "../../components/wallet/wallet-card-face";
 import { PAYMENT_CARD_ARTWORK, paymentCardArtwork } from "../../lib/wallet/wallet-payment-card-artwork";
 
 const reference = (window as unknown as {
-  __locationReference?: { hubClass: string; headerClass: string };
+  __locationReference?: { hubClass: string; headerClass: string; headerContentSpacing: AppPageHeaderContentSpacing };
 }).__locationReference;
+const calendarHeading = (window as unknown as { __calendarHeading?: boolean }).__calendarHeading;
 
 function ArtworkGallery() {
   const ids = new Map<string, string>();
@@ -35,8 +37,14 @@ function ArtworkGallery() {
 const root = createRoot(document.getElementById("root")!);
 let revision = 0;
 window.__walletRemount = () => root.render(<WalletWorkspace key={++revision} />);
-root.render((window as unknown as { __encryptedCardReader?: boolean }).__encryptedCardReader ? <WalletEncryptedCardViewer /> : window.__walletScenario?.artworkGallery ? <ArtworkGallery /> : reference ? (
-  <AppPageShell width="agent" fitContent className="relative isolate [--app-page-content-bottom-gap:0px]">
+root.render(calendarHeading ? (
+  <AppPageShell width="reading" headerContentSpacing="compact">
+    <AppPageContentRegion>
+      <CalendarConnectHero journeyVariant="workspace" busy={false} needsReauth={false} onConnect={() => {}} />
+    </AppPageContentRegion>
+  </AppPageShell>
+) : (window as unknown as { __encryptedCardReader?: boolean }).__encryptedCardReader ? <WalletEncryptedCardViewer /> : window.__walletScenario?.artworkGallery ? <ArtworkGallery /> : reference ? (
+  <AppPageShell width="agent" headerContentSpacing={reference.headerContentSpacing} fitContent className="relative isolate [--app-page-content-bottom-gap:0px]">
     <AppPageContentRegion className="min-w-0 space-y-4 overflow-x-hidden">
       <div data-location-hub className={reference.hubClass}>
         <PageHeader title="Location" titleRole="agent" actionsInlineMobile className={reference.headerClass}
