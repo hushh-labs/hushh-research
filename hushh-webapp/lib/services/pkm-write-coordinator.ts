@@ -81,6 +81,7 @@ type PreparedWritePlan = MergedWritePlan & {
 export type PkmWriteCoordinatorResult = {
   saveState: PkmWriteCoordinatorSaveState;
   success: boolean;
+  idempotentReplay?: boolean;
   conflict?: boolean;
   message?: string;
   dataVersion?: number;
@@ -748,6 +749,7 @@ export class PkmWriteCoordinator {
 
         if (result.success) {
           return {
+            idempotentReplay: result.idempotentReplay,
             saveState: upgradedInSession
               ? "upgraded_and_saved"
               : retryingAfterConflict

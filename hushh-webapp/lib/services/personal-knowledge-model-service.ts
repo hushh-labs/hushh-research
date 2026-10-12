@@ -157,6 +157,7 @@ export interface DomainSnapshotV1 {
 }
 
 export interface StoreDomainDataResult {
+  idempotentReplay?: boolean;
   success: boolean;
   conflict?: boolean;
   message?: string;
@@ -2208,7 +2209,7 @@ export class PersonalKnowledgeModelService {
         typeof result.message === "string" ? result.message : undefined;
 
       // Invalidate caches after successful native store
-      if (result.success && (params.mayPublish?.() ?? true)) {
+      if (result.success && !result.idempotentReplay && (params.mayPublish?.() ?? true)) {
         const enrichedEncryptedBlob: EncryptedUserBlob = {
           ...params.encryptedBlob,
           dataVersion: resolvedDataVersion,
@@ -2225,6 +2226,7 @@ export class PersonalKnowledgeModelService {
 
       return {
         success: result.success,
+        idempotentReplay: result.idempotentReplay,
         conflict: result.conflict === true,
         message: resolvedMessage,
         dataVersion: resolvedDataVersion,
@@ -2430,7 +2432,7 @@ export class PersonalKnowledgeModelService {
     };
 
     // Invalidate caches after successful store
-    if (data.success !== false && (params.mayPublish?.() ?? true)) CacheSyncService.onPkmDomainStored(params.userId, params.domain, {
+    if (data.success !== false && data.idempotent_replay !== true && (params.mayPublish?.() ?? true)) CacheSyncService.onPkmDomainStored(params.userId, params.domain, {
       portfolioData: params.portfolioData,
       domainData: params.domainData,
       encryptedBlob: enrichedEncryptedBlob,
@@ -2440,6 +2442,7 @@ export class PersonalKnowledgeModelService {
 
     return {
       success: data.success !== false,
+      idempotentReplay: data.idempotent_replay === true,
       conflict: data.conflict === true,
       message: resolvedMessage,
       dataVersion: resolvedDataVersion,
@@ -2578,6 +2581,9 @@ export class PersonalKnowledgeModelService {
     }
     const payload = (await response.json()) as { commits?: Array<{ exists?: unknown; data_version?: unknown }> };
     const rows = Array.isArray(payload.commits) ? payload.commits : [];
+    if (rows.length !== params.commits.length || rows.some(row => typeof row?.exists !== "boolean")) {
+      throw new Error("Saved details could not be confirmed. Try again.");
+    }
     return params.commits.map((_, index) => {
       const row = rows[index];
       const version = row?.data_version;
@@ -3555,6 +3561,7 @@ export class PersonalKnowledgeModelService {
     mayPublish?: () => boolean;
   }): Promise<{
     success: boolean;
+    idempotentReplay?: boolean;
     conflict?: boolean;
     message?: string;
     dataVersion?: number;
@@ -3628,7 +3635,7 @@ export class PersonalKnowledgeModelService {
 
     // A confirmed write remains successful after a lock/account change.
     // Do not republish decrypted state into the replacement session.
-    const mayPublish = params.mayPublish?.() ?? true;
+    const mayPublish = !result.idempotentReplay && (params.mayPublish?.() ?? true);
 
     if (result.success && mayPublish && params.domain === "financial") {
       void this.maybeSyncTickersFromFinancialBlob({
@@ -3654,6 +3661,7 @@ export class PersonalKnowledgeModelService {
 
     return {
       success: result.success,
+      idempotentReplay: result.idempotentReplay,
       conflict: result.conflict,
       message: result.message,
       dataVersion: result.dataVersion,

@@ -9,7 +9,7 @@ description: Use when changing One Voice capability authoring, Kai compatibility
 
 - Primary scope: `one-voice-governance`
 - Trigger on One Voice capability authoring, Kai compatibility runtime changes, generated gateway changes, typed-search and voice parity, action workflow chaining, persona/workspace gating, or durable voice memory boundary changes.
-- Avoid overlap with `frontend`, `backend-api-contracts`, and `vault-pkm-governance`.
+- Avoid overlap with `frontend`, `backend-api-contracts`, and `security-audit`.
 
 ## Coverage and Ownership
 
@@ -36,7 +36,7 @@ Non-owned surfaces:
 
 1. `frontend`
 2. `backend-api-contracts`
-3. `vault-pkm-governance`
+3. `security-audit`
 4. `docs-governance`
 5. `quality-contracts`
 
@@ -80,7 +80,7 @@ Non-owned surfaces:
 
 1. Generic UI structure routes to `frontend`.
 2. Route/request/response contracts route to `backend-api-contracts`.
-3. Vault and encrypted-storage boundaries route to `vault-pkm-governance`.
+3. Vault and encrypted-storage boundaries route to `security-audit`.
 4. Documentation-home decisions route to `docs-governance`.
 5. Verification-policy changes route to `quality-contracts`.
 

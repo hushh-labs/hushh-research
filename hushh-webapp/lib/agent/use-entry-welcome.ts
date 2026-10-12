@@ -31,7 +31,7 @@ export function useEntryWelcome({ userId, vaultKey, vaultOwnerToken, isVaultUnlo
 
     let active = true;
     setWelcome({ userId, status: "loading", domains: [], totalAttributes: 0 });
-    void loadAgentPkmContext({ userId, vaultKey, vaultOwnerToken, metadataOnly: true })
+    void loadAgentPkmContext({ userId, vaultKey, vaultOwnerToken, requireDecrypted: true })
       .then((context) => {
         if (!active) return;
         setWelcome({

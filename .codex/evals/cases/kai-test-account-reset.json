@@ -18,7 +18,7 @@
     "negative": [
       {
         "prompt": "the vault-owner account deletion service is dropping encrypted PKM rows, fix the storage boundary",
-        "owner": "vault-pkm-governance"
+        "owner": "security-audit"
       },
       {
         "prompt": "the One Voice search action for account deletion needs a new capability id and execution policy",

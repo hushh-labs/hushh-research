@@ -17,7 +17,7 @@ vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
 }));
 vi.mock("@/lib/services/kyc-identity-profile-pkm-service", () => ({
   hasCompletedKycIdentityIntake: mocks.hasCompletedKycIdentityIntake,
-  KycIdentityProfilePkmService: { saveProfile: mocks.saveProfile },
+  KycIdentityProfilePkmService: { saveProfile: mocks.saveProfile, hasCompletedIntake: mocks.getStaleFirst },
 }));
 vi.mock("sonner", () => ({
   toast: {
@@ -30,13 +30,13 @@ vi.mock("sonner", () => ({
 describe("GmailVerificationOnboarding", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.getStaleFirst.mockResolvedValue({ data: {} });
+    mocks.getStaleFirst.mockResolvedValue(false);
     mocks.hasCompletedKycIdentityIntake.mockReturnValue(false);
     mocks.saveProfile.mockResolvedValue({ success: true, message: "KYC details saved privately." });
   });
 
   it("keeps the setup check accessible with a visible KYC workspace placeholder", async () => {
-    let finishCheck!: (snapshot: { data: Record<string, unknown> }) => void;
+    let finishCheck!: (completed: boolean) => void;
     mocks.getStaleFirst.mockReturnValueOnce(new Promise((resolve) => { finishCheck = resolve; }));
     const { container } = render(
       <GmailVerificationOnboarding userId="user_1" vaultKey="vault-key" vaultOwnerToken="owner-token"
@@ -50,7 +50,7 @@ describe("GmailVerificationOnboarding", () => {
     expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
     expect(screen.queryByText("Build your KYC profile")).not.toBeInTheDocument();
     expect(screen.queryByText("KYC workspace")).not.toBeInTheDocument();
-    finishCheck({ data: {} });
+    finishCheck(false);
     expect(await screen.findByText("Build your KYC profile")).toBeInTheDocument();
   });
 
@@ -96,13 +96,7 @@ describe("GmailVerificationOnboarding", () => {
   });
 
   it("does not ask again after the durable KYC intake marker is saved", async () => {
-    mocks.getStaleFirst.mockResolvedValue({
-      data: {
-        identity_profile: {
-          identity_intake_completed_at: "2026-09-04T12:00:00.000Z",
-        },
-      },
-    });
+    mocks.getStaleFirst.mockResolvedValue(true);
     mocks.hasCompletedKycIdentityIntake.mockReturnValue(true);
 
     render(
@@ -123,8 +117,7 @@ describe("GmailVerificationOnboarding", () => {
     expect(await screen.findByText("KYC workspace")).toBeInTheDocument();
     expect(screen.queryByText("Build your KYC profile")).not.toBeInTheDocument();
     expect(mocks.getStaleFirst).toHaveBeenCalledWith(expect.objectContaining({
-      forceRefresh: true,
-      backgroundRefresh: false,
+      userId: "user_1", vaultKey: "vault-key", vaultOwnerToken: "owner-token",
     }));
   });
 
