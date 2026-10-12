@@ -49,6 +49,13 @@ export interface DocumentRequestPriceSheetProps {
   priceOnly?: boolean;
   /** A caller with a different settlement lane supplies its existing account control. */
   settlement?: ReactNode;
+  /**
+   * What the price buys, for a lane that does not deliver files. Request scope
+   * prices an answer written from the owner's memory, and the Drive sentence
+   * below told that owner their files were about to be found and shared.
+   * Omitted, the Drive wording is unchanged.
+   */
+  description?: string;
   busy: boolean;
   error: string | null;
   onSubmit: (amountCents: number | null) => void;
@@ -128,6 +135,7 @@ function PriceSheet({
   open,
   requesterLabel,
   purpose,
+  description,
   recipientEmail,
   periodStart,
   periodEnd,
@@ -188,9 +196,10 @@ function PriceSheet({
       }}
       title={priceOnly ? "Set price" : "Allow request"}
       description={
-        paymentRequired
+        description ??
+        (paymentRequired
           ? `${payerLabel(requesterLabel)} pays this once matching files are found. Nothing is shared before payment.`
-          : "Your private agent finds the matching files and shares them."
+          : "Your private agent finds the matching files and shares them.")
       }
       headerTextOverflow="wrap"
       mobilePresentation="sheet"
