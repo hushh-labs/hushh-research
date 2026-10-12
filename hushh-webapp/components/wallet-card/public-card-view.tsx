@@ -29,6 +29,7 @@ import {
   type LucideIcon,
 } from "@/components/icons";
 
+import { ProfileAccountMailIcon, ProfileAccountPhoneIcon } from "@/components/profile/profile-your-account-icons";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -456,7 +457,7 @@ function initialsFor(fullName: string | null): string {
 }
 
 function ActionLink({ action }: { action: CardAction }) {
-  const Icon = action.icon;
+  const Icon = action.icon === Mail ? ProfileAccountMailIcon : action.icon === Phone ? ProfileAccountPhoneIcon : action.icon;
   return (
     <a
       href={action.href}
@@ -465,7 +466,7 @@ function ActionLink({ action }: { action: CardAction }) {
         ? { target: "_blank", rel: "noopener noreferrer" }
         : {})}
     >
-      <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <Icon className="size-3.5 shrink-0 text-foreground [&_.profile-account-icon-accent]:stroke-[var(--app-accent)]" aria-hidden="true" />
       <span className="min-w-0 [overflow-wrap:anywhere]">{action.label}</span>
       {action.external ? (
         <span className="sr-only">(opens in a new tab)</span>

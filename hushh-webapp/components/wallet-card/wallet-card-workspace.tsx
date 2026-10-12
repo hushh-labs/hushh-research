@@ -89,11 +89,11 @@ type VisitorPreviewState =
  * page, and the management surface afterwards. Every network call goes through
  * `WalletCardService` — nothing here talks to the API directly.
  */
-function WalletProfileShell({ embedded, title, description, children }: {
-  embedded: boolean; title: string; description: string; children: ReactNode;
+function WalletProfileShell({ embedded, title, description, children, preview }: {
+  embedded: boolean; title: string; description: string; children: ReactNode; preview?: boolean;
 }) {
   return <SettingsPresentationProvider separatorInset density="compact">{embedded ? <section aria-label={title} className="space-y-4">
-    <div className="space-y-1"><SectionTitle as="h3">{title}</SectionTitle><RowDescription compact>{description}</RowDescription></div>
+    <div className={preview ? "px-[var(--settings-row-px)]" : undefined}><div className={preview ? "mx-auto max-w-[36rem] space-y-1" : "space-y-1"}><SectionTitle as="h3">{title}</SectionTitle>{description ? <RowDescription compact>{description}</RowDescription> : null}</div></div>
     {children}
   </section> : <PkmSettingsShell title={title} description={description} innerClassName="mx-auto max-w-[580px]">{children}</PkmSettingsShell>}</SettingsPresentationProvider>;
 }
@@ -589,6 +589,7 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
   return (
     <WalletProfileShell
       embedded={embedded}
+      preview={stage === "preview"}
       title={header.title}
       description={header.description}
     >
@@ -693,7 +694,8 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
             </div>
           </SettingsGroup>
 
-          <details className="rounded-[var(--app-card-radius-standard)] border border-border">
+          <div className="px-[var(--settings-row-px)]">
+          <details className="mx-auto w-full max-w-[36rem] rounded-[var(--app-card-radius-standard)] border border-border">
             <summary className="cursor-pointer px-[var(--settings-row-px)] py-3 text-sm font-medium">Profile card preview</summary>
             <div className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
               <WalletCardPassPreview
@@ -705,6 +707,7 @@ function WalletCardOwnerWorkspace({ embedded = false, passVariant = "profile", a
               />
             </div>
           </details>
+          </div>
 
           {previewOrigin === "setup" ? (
             <div className="flex flex-wrap items-center gap-2">
