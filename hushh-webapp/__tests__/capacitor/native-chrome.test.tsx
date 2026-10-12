@@ -25,6 +25,8 @@ import { AgentDockProvider, useAgentDockState } from "@/components/agent/agent-d
 import { useNativeDockPort, useNativeDockPorts, type NativeDockPort } from "@/components/agent/native-dock-port";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
 import { setNativeBaseAperture } from "@/lib/capacitor/native-base-apertures";
+import { projectNativeProfileMenu } from "@/components/profile/native-profile-menu";
+import { profileMenuGroups, type ProfileMenuActions } from "@/components/profile/profile-menu-model";
 
 // Keep qualification-only lifecycle coverage without enabling it in the app.
 vi.mock("@/lib/capacitor/native-presentation-policy", () => ({
@@ -96,6 +98,30 @@ describe("private native drawer action boundary", () => {
     sections: [{ id: "today", title: "Today", rows: [{ id: "row-handle", label: "Weekend ideas", enabled: true }] }] });
   const choice = (): NativeDrawerChoice => ({ documentId: "public-document", ownerEpoch: "opaque-owner", ownerGeneration: 1, revision: 1,
     family: "history", updateSequence: 1, privacyGeneration: 0, sequence: 1, interactionGeneration: 1, action: "row", rowId: "row-handle" });
+
+  it("keeps native Profile groups and available actions identical to the shared roster", () => {
+    const actions = Object.fromEntries(profileMenuGroups(true).flatMap(group => group.entries.map(entry => [entry.id, vi.fn()]))) as ProfileMenuActions;
+    for (const local of [false, true]) {
+      const groups = profileMenuGroups(local);
+      const projected = projectNativeProfileMenu("Public sample", "sample@example.test", true, groups, actions, vi.fn());
+      expect(projected.sections.slice(1).map(section => [section.id, section.title, section.rows.map(row => row.id)]))
+        .toEqual(groups.map(group => [group.id, group.title, group.entries.map(entry => entry.id)]));
+      expect(projected.sections.slice(1).map(section => section.title)).toEqual(["Your settings", "Legal", "Account access"]);
+      expect(projected.actions.rows.has("developer-tools")).toBe(local);
+      expect(projected.actions.rows.get("identity")).toBe(actions.account);
+      for (const group of groups) for (const entry of group.entries) {
+        expect(projected.actions.rows.get(entry.id)).toBe(actions[entry.id]);
+        expect(actions[entry.id]).not.toHaveBeenCalled();
+      }
+      const projection = { ...state(), family: "profile" as const, sections: projected.sections };
+      expect(validNativeDrawerProjection(projection)).toBe(true);
+      for (const field of [{ iconHex: "url(https://example.test)" }, { chevron: "true" }, { trailing: "a".repeat(33) }]) {
+        expect(validNativeDrawerProjection({ ...projection, sections: [{ id: "invalid", rows: [
+          { ...projected.sections[1].rows[0], ...field } as NativeDrawerProjection["sections"][number]["rows"][number],
+        ] }] })).toBe(false);
+      }
+    }
+  });
 
   it("shares one opaque auth/vault boundary across families and never resets revisions on remount", () => {
     publishValidatedAuthSessionOwner("synthetic-first-owner");

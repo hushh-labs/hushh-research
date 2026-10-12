@@ -29,7 +29,7 @@ their named builds, not this candidate.
 | Chat History opener and One/Puppy | Retained NativeChrome v2; authored Chat callbacks | Foreground content-backed composition, coverage disables interaction rather than hiding hosts; qualification only |
 | Agent Dock | NativeDock v1; existing One and Puppy draft/submission ports | One editor/glass container; private final-draft reconciliation on native coverage; qualification only |
 | History | NativeDrawers v1 owns the complete panel/scrim/gesture; existing search/rename/delete callbacks | Anchored UIKit More menu, glass search, aligned Close; Drive activity/detail handoff wired, rich-path qualification pending |
-| Profile menu | Same native drawer family; existing authored Profile destinations | Account/preferences/security/devices/connectors/invite/support/legal/sign-out callbacks connected; root photo and developer-tools parity incomplete |
+| Profile menu | Same native drawer family; shared authored Profile roster and existing callbacks | Your settings / Legal / Account access grouping, conditional Developer tools, palette, chevrons and row tracks now share the web/Android authoring. Root photo/provider branding and physical visual acceptance remain incomplete |
 | Profile details | Bounded full-page React content in the existing WebView; existing query/Back owner | Destination Back acknowledges layout before menu dismissal; scroll restoration targets the owning feature body; viewing does not change vault authority |
 | App haptics | Existing Settings preference/plugin; accepted React interaction owners | iOS/Android capability-negotiated feedback; no new generator/store on web; native/system accessibility behavior retained |
 | Other rich Chat overlays | Existing feature owners | Attachment editors/viewers and Drive activity/detail now use the shared bounded feature page in the qualification candidate; remaining rich paths are not qualified |
@@ -46,6 +46,32 @@ composition readiness and coherent whole-shell failure fallback remain gaps.
 A bounded Profile error page is not whole-shell fallback. Rich overlay parity,
 transition-frame inspection, accessibility and three physical Release performance
 passes remain required before product admission or shared-family expansion.
+
+#### Shared Profile follow-up — 2026-10-12
+
+`components/profile/profile-menu-model.ts` now authors the roster, labels and
+availability for both renderers. Callbacks remain in the Profile workspace;
+the projection carries no executable action, URL or credential. Existing Legal
+readers reuse the same entries. Capability icon colors are shared with the React
+registry; native glyphs remain SF Symbol counterparts, not identical Phosphor art.
+NativeDrawers v1 negotiates `profileMenuRows` before sending its bounded color,
+chevron and trailing-label extensions. No authority or renderer-admission default
+is changed. Independently reverting this follow-up restores the prior roster.
+
+The native menu matches the existing 16-point row inset, 32-point leading well,
+28-point glyph, 12-point gap, 18-point group radius and 56-point row minimum.
+Dynamic Type may grow rows. Legal rows previously bypassed the web height rule
+because their test IDs differ; row-semantic CSS now applies the rule and aligns
+separators to the text column. Production-CSS browser regression fails at all
+four widths with the old selector (49px minimum), rather than merely inspecting
+source strings. The prior S24 mounted-root measurements were offscreen intrinsic
+geometry, not visible-root acceptance; its warm owner/document/draft and Chat
+position were restored without install, unlock or mutation.
+
+The first intermediate export was terminated after source refinements and is not
+installation evidence. Physical receipts must identify the rebuilt follow-up,
+not reuse the earlier `6e77827fe6` Profile/Chat acceptance below. Native photo and
+provider identity still use a generic fallback; no photo parity is claimed.
 
 The first diagnostic Debug/UAT candidate was `com.hushh.app` 1.4.0 (69),
 executable SHA-256 `80de429b8469eba4ddc2e0f3c6290d226a14a0329192938ca2a4fe61c27574bf`.
@@ -268,8 +294,56 @@ Installed signer/hash, production backend/Firebase and unchanged signed-in owner
 are verified; Settings reports `interactionFeedback: true`. Android preparation
 cannot copy iPhone UAT assets. Its current owner differs from the canonical
 reviewer; the user separately authorized normal passphrase unlock of that existing
-device account. The new candidate's protected warm comparison is not yet complete;
-no reviewer fixture, identity or stored credential is changed to make it pass.
+device account. One normal passphrase submission reaches protected Chat with full
+input delivery, the same owner and app process preserved. The canonical reviewer
+match remains false. The subsequent warm comparison stops at a Profile harness
+locator; correcting that split-row assumption completes 18 functional checks
+without another install or unlock. Profile Preferences/Voice/Back/Close, restored
+theme and switch values, disabled-toggle blocking, response shapes and warm
+owner/document/process continuity pass. Feedback parity does not: four no-feedback
+checks match, eight expected feedback checks do not, and no UI feedback request
+reaches the bridge. Tactile and duplicate-system acceptance remain unqualified.
+Preferences and Chat are restored; observers and owned ADB forwards are removed.
+No reviewer fixture, identity or stored credential is changed to make it pass.
+
+Source `a81acbc7f6` fixes a shared observation gap: a checked native privacy-release
+result previously returned without updating the feedback admission cache. Neither
+native host requires a release listener event. The bridge now observes the confirmed
+result only in its unchanged lifecycle epoch and advances that epoch to reject
+earlier reads. It neither validates an account nor releases a native cover itself.
+The old code fails both platform regressions; 52 focused privacy/auth/control/
+navigation cases pass with the correction, including a late completion that must
+not overwrite a newer inactive event. Typecheck, focused lint and native plugin/
+static contracts pass. The isolated production Android export and APK build pass;
+the exact replacement APK SHA-256 is
+`1fa9dd2467ef6a6425252e93c7535bf597d6537fa1db28b4d8722bee8d342e92`.
+Parent readback independently matches the installed device `base.apk`. Preparation
+uses one preserving install, one launch and one normal passphrase unlock; the
+existing account matches in memory and the canonical reviewer match remains false.
+The separate warm comparison uses no install, launch or unlock: 36 assertions and
+21 feedback-count checks pass. Fifteen authored UI requests produce thirteen
+native acceptances and two expected haptics-off refusals. Changed choices cue once;
+unchanged/disabled choices do not, and native duplicate/stale/document/privacy
+negatives pass. Settings and Chat are restored, helpers exit and owned observers/
+forwards are removed. Other sessions' Chrome forwards remain untouched. This
+proves functional feedback admission, not tactile feel or duplicate system cues.
+
+Local core at `9e9eea6385` is not green: its backend manifest ends with 9,805
+passed, 98 skipped and three failures. Two Drive rollback cases exceed the existing
+20-second subprocess bound; the unchanged focused Drive/lifecycle batch passes
+25 cases in 84.31 seconds. This does not waive the full-core failure. The third
+failure is a lifecycle fixture reading a card after a fixed 300ms sleep. Source
+`013cab65b3` waits for actual frame delivery with a bounded event and adds delayed
+authentication to the existing reset case. The original synchronization fails
+that negative control; the corrected eight lifecycle cases pass twice. Production
+reset/deletion authority, scheduler retries, rollback assertions and timeouts are
+unchanged. No exact-head core/CI or release qualification is established.
+
+Native release also requires resolving the pinned Capacitor 8.3.1 dependency's
+critical [navigation advisory](https://github.com/ionic-team/capacitor/security/advisories/GHSA-rvm3-566m-v7fv).
+The affected internal proxy can load remote content with the app origin's trust;
+disabling CapacitorHttp alone is not a mitigation. A patched dependency requires
+new builds and qualification. Functional UI receipts are not security approval.
 
 The existing parity-report validator still fails: the committed iOS report has
 13 result rows for 102 native-required inventory entries, a failed route and

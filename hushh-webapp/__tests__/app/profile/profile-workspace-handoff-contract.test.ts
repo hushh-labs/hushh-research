@@ -46,9 +46,9 @@ describe("profile workspace duplication contract", () => {
     expect(profilePageSource).not.toContain('className="min-w-[148px]"');
     expect(profilePageSource).not.toContain('voiceControlId="profile_vault"');
     expect(profilePageSource).not.toContain("const openVaultSettingsRow");
-    expect(profilePageSource).toContain('voiceControlId="profile_security"');
+    expect(profilePageSource).toContain('voiceControlId={entry.id === "security" ? "profile_security"');
     expect(profilePageSource).toContain(
-      'voiceActionId="route.profile_security_panel"',
+      'voiceActionId={entry.id === "security" ? "route.profile_security_panel"',
     );
     expect(profilePageSource).not.toContain(
       'voiceActionId="route.profile_security"',

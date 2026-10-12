@@ -11,6 +11,7 @@ import { getNativeSessionPrivacyState, subscribeNativeSessionPrivacy, type Nativ
 export type NativeDrawerPort = {
   family: NativeDrawerFamily; owner: string | null; vaultEpoch: number; ready: boolean;
   open: boolean; title: string; searchable?: boolean; loading?: boolean;
+  profileMenuRows?: boolean;
   onPresented?: () => void;
   project: (handles: Map<string, string>) => { sections: NativeDrawerSection[]; actions: NativeDrawerActions };
 };
@@ -65,10 +66,11 @@ export function useNativeDrawerPresentation(port: NativeDrawerPort): "web" | "pr
     }).catch(() => { if (active) setPhase("blocked"); });
     void nativeDrawerAcknowledged(nativeDrawers.getCapabilities()).then(capability => {
       if (active) setSupported(capability.contractVersion === 1 && capability.supported && capability.wholePresentation &&
-        (port.family !== "history" || capability.historyActions === true));
+        (port.family !== "history" || capability.historyActions === true) &&
+        (!port.profileMenuRows || capability.profileMenuRows === true));
     }).catch(() => { if (active) setSupported(false); });
     return () => { active = false; void observer?.remove(); };
-  }, [port.family]);
+  }, [port.family, port.profileMenuRows]);
   useEffect(() => {
     if (!supported || !port.ready || !port.owner || snapshotValidatedAuthSessionOwner()?.userId !== port.owner ||
       privacy?.generation === undefined || privacy.shielded || !privacy.appIsActive) return;

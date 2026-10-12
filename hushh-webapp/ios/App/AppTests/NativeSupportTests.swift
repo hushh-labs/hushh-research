@@ -83,6 +83,26 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertNil(model.detailRow, "An explicit success completes even a same-title rename")
     }
 
+    func testProfileRowPresentationIsBoundedAndDoesNotAlterChoiceAuthority() throws {
+        let state = privateDrawerState()
+        let original = try JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as! [String: Any]
+        func projected(_ fields: [String: Any]) throws -> NativeDrawerProjection {
+            var options = original
+            var sections = options["sections"] as! [[String: Any]]
+            var rows = sections[0]["rows"] as! [[String: Any]]
+            fields.forEach { rows[0][$0.key] = $0.value }
+            sections[0]["rows"] = rows; options["sections"] = sections
+            XCTAssertTrue(NativeDrawerProjection.hasClosedShape(options))
+            return try JSONDecoder().decode(NativeDrawerProjection.self, from: JSONSerialization.data(withJSONObject: options))
+        }
+        let presentation = try projected(["iconHex": "#8B5CF6", "chevron": true, "trailing": "Local"])
+        XCTAssertTrue(presentation.valid)
+        XCTAssertTrue(presentation.allows(action: "row", row: "row-handle"))
+        XCTAssertFalse(presentation.allows(action: "row", row: "not-authored"))
+        XCTAssertFalse(try projected(["iconHex": "https://example.test"]).valid)
+        XCTAssertFalse(try projected(["trailing": String(repeating: "x", count: 33)]).valid)
+    }
+
     func testPrivateNativeDrawerRejectsStaleOwnersAndConsumesOnlyEmittedChoices() {
         var lease = NativeDrawerLease()
         let state = privateDrawerState()

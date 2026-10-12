@@ -20,10 +20,7 @@ import {
 import {
   AccountProfileIcon,
   ConsentAgentIcon,
-  ConnectedSystemsAgentIcon,
   DeleteRowIcon,
-  DeveloperToolsProfileIcon,
-  DevicesProfileIcon,
   DiscoverableRowIcon,
   FingerprintProfileIcon,
   GmailAgentIcon,
@@ -31,12 +28,8 @@ import {
   LocationAgentIcon,
   MarketplaceAgentIcon,
   PhoneRowIcon,
-  PreferencesProfileIcon,
-  InviteFriendsProfileIcon,
   ResetRowIcon,
-  SecurityProfileIcon,
   SignOutProfileIcon,
-  SupportProfileIcon,
   SyncRowIcon,
   VaultRowIcon,
   VoiceRowIcon,
@@ -44,6 +37,7 @@ import {
 } from "@/components/icons/agents";
 import { toast } from "sonner";
 import { NativeProfileMenu } from "./native-profile-menu";
+import { PROFILE_LABELS, profileMenuGroups, type ProfileMenuActions } from "./profile-menu-model";
 import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
 import { VaultMethodsPanel } from "@/components/profile/vault-methods-panel";
 import { VaultBootstrapService } from "@/lib/services/vault-bootstrap-service";
@@ -81,7 +75,6 @@ import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-pa
 import { buildProfileConnectorsStackEntry } from "@/components/profile/profile-connectors-section";
 import {
   buildProfileLegalStackEntries,
-  ProfileLegalRows,
 } from "@/components/profile/profile-legal-section";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import { ProfileAppearanceControls } from "@/components/profile/profile-appearance-controls";
@@ -246,17 +239,6 @@ import { useAccent } from "@/lib/theme/accent";
 
 type FinancialContextCategory =
   "general" | "portfolio" | "risk" | "kyc" | "tax" | "documents";
-
-const PROFILE_LABELS = {
-  account: "Your account",
-  preferences: "Appearance & preferences",
-  security: "Security & privacy",
-  referrals: "Invite friends",
-  support: "Help & feedback",
-  developerTools: "Developer tools",
-  accountAccess: "Account access",
-  setup: "Set up One",
-} as const;
 
 /**
  * Read once at module scope: `NEXT_PUBLIC_*` is inlined at build time, so this
@@ -4215,6 +4197,20 @@ function ProfilePageContent({
     });
   }
 
+  const menuGroups = profileMenuGroups(canShowPkmAgentLab);
+  const menuActions: ProfileMenuActions = {
+    account: openAccountPanel,
+    preferences: openPreferencesPanel,
+    security: openSecurityPanel,
+    devices: () => openVaultBackedPanel("security", "trusted-devices"),
+    connectors: () => openVaultBackedPanel("connectors"),
+    invite: () => updateProfileView({ panel: "referrals", detail: null }, "push"),
+    support: () => updateProfileView({ panel: "support", detail: null }, "push"),
+    "developer-tools": () => router.push("/one/profile/pkm-agent-lab"),
+    privacy: () => updateProfileView({ panel: "legal", detail: "privacy" }, "push"),
+    terms: () => updateProfileView({ panel: "legal", detail: "terms" }, "push"),
+    "sign-out": handleSignOut,
+  };
   const profileRootContent = (
     <div
       className={cn(
@@ -4249,107 +4245,18 @@ function ProfilePageContent({
       <AppPageContentRegion>
         <SurfaceStack compact>
           <div className="profile-home-content">
-            <SettingsGroup title="Your settings" separatorInset rowSizing="uniform">
-              <SettingsRow
-                icon={AccountProfileIcon}
-                iconTone="capability"
-                title={PROFILE_LABELS.account}
-                chevron
-                onClick={openAccountPanel}
-              />
-              <SettingsRow
-                icon={PreferencesProfileIcon}
-                iconTone="capability"
-                title={PROFILE_LABELS.preferences}
-                chevron
-                onClick={openPreferencesPanel}
-              />
-              <SettingsRow
-                icon={SecurityProfileIcon}
-                iconTone="capability"
-                title={PROFILE_LABELS.security}
-                chevron
-                voiceControlId="profile_security"
-                voiceActionId="route.profile_security_panel"
-                voiceLabel={PROFILE_LABELS.security}
-                voicePurpose="Opens vault, account access, and account deletion controls."
-                onClick={openSecurityPanel}
-              />
-              <SettingsRow
-                icon={DevicesProfileIcon}
-                iconTone="capability"
-                title="Trusted devices"
-                chevron
-                onClick={() =>
-                  openVaultBackedPanel("security", "trusted-devices")
-                }
-              />
-              <SettingsRow
-                icon={ConnectedSystemsAgentIcon}
-                iconTone="capability"
-                title="Connectors"
-                chevron
-                onClick={() => openVaultBackedPanel("connectors")}
-              />
-              <SettingsRow
-                icon={InviteFriendsProfileIcon}
-                iconTone="capability"
-                title={PROFILE_LABELS.referrals}
-                chevron
-                voiceControlId="profile_referrals"
-                voiceActionId="route.profile_referrals_panel"
-                voiceLabel={PROFILE_LABELS.referrals}
-                voicePurpose="Opens your referral link and referral status."
-                onClick={() =>
-                  updateProfileView(
-                    { panel: "referrals", detail: null },
-                    "push",
-                  )
-                }
-              />
-              <SettingsRow
-                icon={SupportProfileIcon}
-                iconTone="capability"
-                title={PROFILE_LABELS.support}
-                chevron
-                onClick={() =>
-                  updateProfileView({ panel: "support", detail: null }, "push")
-                }
-              />
-              {canShowPkmAgentLab ? (
-                <SettingsRow
-                  icon={DeveloperToolsProfileIcon}
-                  iconTone="capability"
-                  title={PROFILE_LABELS.developerTools}
-                  trailing={<Badge variant="secondary">Local</Badge>}
-                  chevron
-                  onClick={() => router.push("/one/profile/pkm-agent-lab")}
-                />
-              ) : null}
-            </SettingsGroup>
-
-            <SettingsGroup title="Legal" separatorInset rowSizing="uniform">
-              {/* Read in place: Profile never leaves the pane for /terms. */}
-              <ProfileLegalRows
-                onOpen={(document) =>
-                  updateProfileView(
-                    { panel: "legal", detail: document },
-                    "push",
-                  )
-                }
-              />
-            </SettingsGroup>
-
-            <SettingsGroup title={PROFILE_LABELS.accountAccess} separatorInset>
-              <SettingsRow
-                icon={SignOutProfileIcon}
-                iconTone="capability"
-                title="Sign out"
-                tone="destructive"
-                chevron
-                onClick={() => void handleSignOut()}
-              />
-            </SettingsGroup>
+            {menuGroups.map(group => <SettingsGroup key={group.id} title={group.title} separatorInset rowSizing="uniform">
+              {group.entries.map(entry => <SettingsRow key={entry.id}
+                icon={entry.icon} iconTone="capability" title={entry.label} chevron
+                tone={"destructive" in entry && entry.destructive ? "destructive" : "default"}
+                trailing={"localOnly" in entry ? <Badge variant="secondary">Local</Badge> : undefined}
+                testId={entry.id === "privacy" || entry.id === "terms" ? `profile-legal-${entry.id}-row` : undefined}
+                voiceControlId={entry.id === "security" ? "profile_security" : entry.id === "invite" ? "profile_referrals" : undefined}
+                voiceActionId={entry.id === "security" ? "route.profile_security_panel" : entry.id === "invite" ? "route.profile_referrals_panel" : undefined}
+                voiceLabel={entry.id === "security" || entry.id === "invite" ? entry.label : undefined}
+                voicePurpose={entry.id === "security" ? "Opens vault, account access, and account deletion controls." : entry.id === "invite" ? "Opens your referral link and referral status." : undefined}
+                onClick={() => { void menuActions[entry.id](); }} />)}
+            </SettingsGroup>)}
           </div>
         </SurfaceStack>
       </AppPageContentRegion>
@@ -4626,18 +4533,7 @@ function ProfilePageContent({
   return <>
     <NativeProfileMenu owner={user.uid} ready={isVaultUnlocked} open={nativeMenuOpen && (!activePanel || nativeDetailReady !== nativeDetailOwner)}
       name={user.displayName || "Your account"} email={user.email} onClose={() => onNativeMenuClose?.()}
-      entries={[
-        { id: "account", label: PROFILE_LABELS.account, symbol: "person.crop.circle", activate: openAccountPanel },
-        { id: "preferences", label: PROFILE_LABELS.preferences, symbol: "slider.horizontal.3", activate: openPreferencesPanel },
-        { id: "security", label: PROFILE_LABELS.security, symbol: "lock.shield", activate: openSecurityPanel },
-        { id: "devices", label: "Trusted devices", symbol: "laptopcomputer.and.iphone", activate: () => openVaultBackedPanel("security", "trusted-devices") },
-        { id: "connectors", label: "Connectors", symbol: "puzzlepiece.extension", activate: () => openVaultBackedPanel("connectors") },
-        { id: "invite", label: PROFILE_LABELS.referrals, symbol: "person.badge.plus", activate: () => updateProfileView({ panel: "referrals", detail: null }, "push") },
-        { id: "support", label: PROFILE_LABELS.support, symbol: "questionmark.circle", activate: () => updateProfileView({ panel: "support", detail: null }, "push") },
-        { id: "privacy", label: "Privacy Policy", symbol: "hand.raised", activate: () => updateProfileView({ panel: "legal", detail: "privacy" }, "push") },
-        { id: "terms", label: "Terms of Use", symbol: "doc.text", activate: () => updateProfileView({ panel: "legal", detail: "terms" }, "push") },
-        { id: "sign-out", label: "Sign out", symbol: "rectangle.portrait.and.arrow.right", destructive: true, activate: handleSignOut },
-      ]} />
+      groups={menuGroups} actions={menuActions} />
     <NativeFeaturePage open={nativeMenuOpen && !!activePanel} title={typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile"}
       owner={user.uid} context={JSON.stringify([user.uid, snapshotVaultSessionEpoch(), activePanel, activeDetail])}
       onReady={() => setNativeDetailReady(nativeDetailOwner)}

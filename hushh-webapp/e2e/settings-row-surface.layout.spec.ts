@@ -346,6 +346,16 @@ for (const width of [393, 1440]) {
 }
 
 for (const width of [320, 393, 834, 1440]) {
+  test(`Profile menu legal rows share semantic sizing at ${width}px`, async ({ page }) => {
+    await openFixture(page, width);
+    const group = page.getByTestId("profile-menu-sizing");
+    const rows = group.locator("[data-row-layout]");
+    const heights = await rows.evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().height));
+    expect(heights).toHaveLength(3);
+    expect(Math.min(...heights)).toBeGreaterThanOrEqual(56);
+    expect(Math.max(...heights) - Math.min(...heights)).toBeLessThanOrEqual(1);
+    for (const row of await rows.all()) expect(await contract(row)).toEqual([]);
+  });
   test(`navigation siblings preserve uniform readable full-row surfaces at ${width}px`, async ({ page }) => {
     await openFixture(page, width);
     const group = page.getByTestId("uniform-navigation");

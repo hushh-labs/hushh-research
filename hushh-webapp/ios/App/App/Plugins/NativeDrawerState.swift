@@ -27,6 +27,9 @@ struct NativeDrawerRow: Codable, Identifiable {
     let pending: Bool?
     var renameActionId: String? = nil
     var deleteActionId: String? = nil
+    var iconHex: String? = nil
+    var chevron: Bool? = nil
+    var trailing: String? = nil
 }
 
 struct NativeDrawerSection: Codable, Identifiable {
@@ -63,7 +66,7 @@ struct NativeDrawerProjection: Codable {
         for section in sections {
             guard Set(section.keys).isSubset(of: ["id", "title", "rows"]), let rows = section["rows"] as? [[String: Any]] else { return false }
             for row in rows {
-                guard Set(row.keys).isSubset(of: ["id", "label", "detail", "symbol", "enabled", "destructive", "selected", "pending", "renameActionId", "deleteActionId"]) else { return false }
+                guard Set(row.keys).isSubset(of: ["id", "label", "detail", "symbol", "iconHex", "chevron", "trailing", "enabled", "destructive", "selected", "pending", "renameActionId", "deleteActionId"]) else { return false }
             }
         }
         return true
@@ -83,7 +86,9 @@ struct NativeDrawerProjection: Codable {
                 count += 1
                 guard count <= 500, NativeDrawerIdentity.identifier(row.id), ids.insert(row.id).inserted,
                       Self.text(row.label, 4096), row.detail == nil || Self.text(row.detail!, 4096),
-                      row.symbol == nil || NativeDrawerIdentity.identifier(row.symbol!) else { return false }
+                      row.symbol == nil || NativeDrawerIdentity.identifier(row.symbol!),
+                      row.iconHex == nil || row.iconHex!.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil,
+                      row.trailing == nil || Self.text(row.trailing!, 32) else { return false }
                 for action in [row.renameActionId, row.deleteActionId].compactMap({ $0 }) {
                     guard NativeDrawerIdentity.identifier(action), ids.insert(action).inserted else { return false }
                 }

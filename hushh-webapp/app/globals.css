@@ -2007,15 +2007,15 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   box-shadow: none;
 }
 
-.profile-home-content [data-testid="settings-row"] {
+.profile-home-content [data-row-layout] {
   background: var(--ios-account-card-background);
   min-height: 56px;
 }
 
-.profile-home-content [data-testid="settings-row"]::after {
+.profile-home-content [data-row-layout]::after {
   background: var(--ios-account-separator);
   height: var(--ios-account-separator-thickness);
-  left: var(--ios-account-separator-leading);
+  left: calc(var(--settings-row-px) + 32px + var(--settings-row-gap));
 }
 
 .profile-home-content

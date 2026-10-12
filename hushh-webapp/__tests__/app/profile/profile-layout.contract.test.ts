@@ -7,6 +7,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { vi } from "vitest";
 import { VaultMethodsPanel } from "@/components/profile/vault-methods-panel";
 import type { VaultWrapper } from "@/lib/services/vault-service";
+import { profileMenuGroups } from "@/components/profile/profile-menu-model";
 
 describe("Profile canonical page layout", () => {
   it("uses the shared signed-in shell without route-local header spacing", () => {
@@ -131,8 +132,8 @@ describe("Profile canonical page layout", () => {
     );
     const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
     const homeMenu = workspace.slice(
-      workspace.indexOf('<SettingsGroup title="Your settings"'),
-      workspace.indexOf("</AppPageContentRegion>"),
+      workspace.indexOf("const profileRootContent"),
+      workspace.indexOf("if (legacyProfileRedirectHref)", workspace.indexOf("const profileRootContent")),
     );
 
     // Founder direction, 2026-09-27: the authored duotone glyph in its own
@@ -141,7 +142,9 @@ describe("Profile canonical page layout", () => {
     const tones = [...homeMenu.matchAll(/iconTone="([a-z]+)"/g)].map(
       (match) => match[1],
     );
-    expect(tones.length).toBeGreaterThanOrEqual(8);
+    expect(tones).toHaveLength(1); // One renderer, not a copied row per destination.
+    expect(homeMenu).toContain("menuGroups.map(group");
+    expect(profileMenuGroups(true).flatMap(group => group.entries)).toHaveLength(11);
     expect(new Set(tones)).toEqual(new Set(["capability"]));
     expect(homeMenu).not.toContain('density="compact"');
     expect(css).toMatch(

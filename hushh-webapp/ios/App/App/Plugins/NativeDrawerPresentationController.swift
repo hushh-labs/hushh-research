@@ -348,6 +348,9 @@ private final class NativeDrawerHitSurface: UIView {
 
 struct NativeDrawerContent: View {
     @ObservedObject var model: NativeDrawerModel
+    @ScaledMetric(relativeTo: .body) private var profileRowFont: CGFloat = 16
+    @ScaledMetric(relativeTo: .subheadline) private var profileGroupFont: CGFloat = 14
+    @ScaledMetric(relativeTo: .title3) private var profileNameFont: CGFloat = 22
     private var detailedRow: NativeDrawerRow? {
         model.projection.sections.flatMap(\.rows).first { $0.id == model.detailRow }
     }
@@ -370,6 +373,8 @@ struct NativeDrawerContent: View {
                 EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
             if let row = detailedRow {
                 details(row)
+            } else if model.projection.family == "profile" {
+                profileContent
             } else {
                 if model.projection.searchable == true {
                     searchField.padding(.horizontal, 16).padding(.bottom, 4)
@@ -412,7 +417,85 @@ struct NativeDrawerContent: View {
                 }
                 }.listStyle(.insetGrouped)
             }
-        }.background(Color(uiColor: .systemBackground))
+        }.background(Color(uiColor: model.projection.family == "profile" ? .systemGroupedBackground : .systemBackground))
+    }
+    /// Mirrors the shared Profile roster, not List's platform-specific default
+    /// paddings. React owns grouping, availability and actions; native owns its
+    /// scroll/presentation. Dynamic Type may grow rows beyond the 56pt minimum.
+    private var profileContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                ForEach(model.projection.sections) { section in
+                    if section.id == "identity-section" {
+                        ForEach(section.rows) { row in
+                            Button { model.choice("row", row: row.id) } label: {
+                                HStack(spacing: 12) {
+                                    Text(profileInitials(row.label)).font(.title3.weight(.medium))
+                                        .frame(width: 56, height: 56)
+                                        .background(Color(uiColor: .tertiarySystemFill), in: Circle())
+                                        .accessibilityHidden(true)
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(row.label).font(.system(size: profileNameFont, weight: .bold))
+                                            .foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true)
+                                        if let detail = row.detail {
+                                            Text(detail).font(.footnote).foregroundStyle(.secondary)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
+                                    }
+                                    Spacer(minLength: 0)
+                                }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                            }.buttonStyle(.plain).disabled(!row.enabled || !model.interactionEnabled || model.choicePending)
+                                .accessibilityIdentifier("native-profile-row-\(row.id)")
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: 6) {
+                            if let title = section.title {
+                                Text(title).font(.system(size: profileGroupFont, weight: .medium)).foregroundStyle(.secondary)
+                                    .padding(.horizontal, 6).accessibilityAddTraits(.isHeader)
+                                    .accessibilityIdentifier("native-profile-group-\(section.id)")
+                            }
+                            VStack(spacing: 0) {
+                                ForEach(Array(section.rows.enumerated()), id: \.element.id) { index, row in
+                                    profileRow(row)
+                                    if index < section.rows.count - 1 {
+                                        Divider().padding(.leading, 60).padding(.trailing, 16)
+                                    }
+                                }
+                            }.background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
+                        }
+                    }
+                }
+            }.padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 24)
+        }.accessibilityIdentifier("native-profile-menu-scroll")
+    }
+    private func profileInitials(_ name: String) -> String {
+        name.split(whereSeparator: { $0.isWhitespace }).prefix(2).compactMap { $0.first }.map(String.init).joined().uppercased()
+    }
+    private func profileRow(_ row: NativeDrawerRow) -> some View {
+        Button { model.choice("row", row: row.id) } label: {
+            HStack(spacing: 12) {
+                if let symbol = row.symbol {
+                    Image(systemName: symbol).symbolRenderingMode(.hierarchical).font(.system(size: 28))
+                        .foregroundStyle(Color(uiColor: HushhNativeControlAppearance.color(row.iconHex) ?? .label))
+                        .frame(width: 32, height: 28).accessibilityHidden(true)
+                }
+                Text(row.label).font(.system(size: profileRowFont, weight: .medium))
+                    .foregroundStyle(row.destructive == true ? Color(uiColor: .systemRed) : .primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                if let trailing = row.trailing {
+                    Text(trailing).font(.caption).foregroundStyle(.secondary)
+                }
+                if row.pending == true { ProgressView() }
+                else if row.selected == true { Image(systemName: "checkmark").accessibilityHidden(true) }
+                else if row.chevron == true {
+                    Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold))
+                        .frame(width: 16).foregroundStyle(.secondary).accessibilityHidden(true)
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 56)
+                .padding(.horizontal, 16).contentShape(Rectangle())
+        }.buttonStyle(.plain).disabled(!row.enabled || row.pending == true || !model.interactionEnabled || model.choicePending)
+            .accessibilityIdentifier("native-profile-row-\(row.id)")
     }
     private var searchContent: some View {
         HStack(spacing: 8) {

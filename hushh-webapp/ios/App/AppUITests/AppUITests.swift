@@ -3370,6 +3370,20 @@ final class AppUITests: XCTestCase {
             guard waitForAdmittedControl(opener) else { XCTFail("PROFILE_BATCH_OPENER_UNAVAILABLE"); return }
             opener.tap()
         }
+        let menu = app.scrollViews["native-profile-menu-scroll"].firstMatch
+        guard menu.waitForExistence(timeout: 10) else { XCTFail("PROFILE_SHARED_MENU_UNAVAILABLE"); return }
+        for group in ["settings", "legal", "account-access"] {
+            XCTAssertTrue(app.staticTexts["native-profile-group-\(group)"].firstMatch.exists,
+                "PROFILE_SHARED_GROUP_MISSING")
+        }
+        for _ in 0..<5 {
+            if root("account").isHittable { break }
+            menu.swipeDown()
+        }
+        guard waitForAdmittedControl(root("account")) else { XCTFail("PROFILE_SHARED_ROW_UNAVAILABLE"); return }
+        XCTAssertGreaterThanOrEqual(root("account").frame.height, 56)
+        XCTAssertEqual(root("account").frame.minX - menu.frame.minX, 16, accuracy: 1)
+        XCTAssertEqual(menu.frame.maxX - root("account").frame.maxX, 16, accuracy: 1)
         for id in destinations {
             let destination = root(id)
             for _ in 0..<5 {

@@ -9,6 +9,9 @@ export type NativeDrawerRow = {
   label: string;
   detail?: string;
   symbol?: string;
+  iconHex?: string;
+  chevron?: boolean;
+  trailing?: string;
   enabled: boolean;
   destructive?: boolean;
   selected?: boolean;
@@ -51,7 +54,7 @@ export type NativeDrawerChoice = NativeDrawerIdentity & {
 };
 export type NativeDrawerIsolation = { generation: number; isolated: boolean };
 export interface HushhNativeDrawersPlugin {
-  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean }>;
+  getCapabilities(): Promise<NativeDrawerIsolation & { contractVersion: number; supported: boolean; wholePresentation: boolean; historyActions?: boolean; terminalRefreshes?: boolean; profileMenuRows?: boolean }>;
   apply(options: NativeDrawerProjection): Promise<NativeDrawerReceipt>;
   confirmChoice(options: NativeDrawerChoice): Promise<{ valid: boolean }>;
   settleChoice?(options: NativeDrawerIdentity & { sequence: number; privacyGeneration: number; success: boolean }): Promise<{ valid: boolean }>;
@@ -161,11 +164,13 @@ export function validNativeDrawerProjection(value: NativeDrawerProjection): bool
         !Array.isArray(section.rows)) return false;
     ids.add(section.id);
     for (const row of section.rows) {
-      if (++rows > 500 || !row || !closedShape(row, ["id", "label", "detail", "symbol", "enabled", "destructive", "selected", "pending", "renameActionId", "deleteActionId"]) ||
+      if (++rows > 500 || !row || !closedShape(row, ["id", "label", "detail", "symbol", "iconHex", "chevron", "trailing", "enabled", "destructive", "selected", "pending", "renameActionId", "deleteActionId"]) ||
           !validIdentifier(row.id) || ids.has(row.id) ||
           !validText(row.label, 4096) || (row.detail !== undefined && !validText(row.detail, 4096)) ||
           (row.symbol !== undefined && !validIdentifier(row.symbol)) || typeof row.enabled !== "boolean" ||
-          [row.destructive, row.selected, row.pending].some(item => item !== undefined && typeof item !== "boolean")) return false;
+          [row.destructive, row.selected, row.pending, row.chevron].some(item => item !== undefined && typeof item !== "boolean") ||
+          (row.iconHex !== undefined && !/^#[\da-f]{6}$/i.test(row.iconHex)) ||
+          (row.trailing !== undefined && !validText(row.trailing, 32))) return false;
       ids.add(row.id);
       for (const action of [row.renameActionId, row.deleteActionId]) {
         if (action === undefined) continue;
