@@ -264,7 +264,6 @@ for (const { width, native } of [...[390, 768, 1440].map(width => ({ width, nati
     });
     // Exercise the production opener and injected Close, not fixture buttons.
     const opener = page.getByRole("button", { name: "Open chat history", exact: true });
-    const openBox = (await opener.boundingBox())!;
     await opener.click();
     const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
     const search = chats.getByRole("searchbox", { name: "Search chats" });

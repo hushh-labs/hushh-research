@@ -934,7 +934,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     const onFocus = () => void markRead();
     window.addEventListener("focus", onFocus); document.addEventListener("visibilitychange", onFocus);
     return () => { removeLifecycle(); removeLayers(); window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onFocus); };
-  }, [activeConversationId, loadingThread, messages, readRevision, thread.conversation?.unreadCount, user, blockingLayer, messageSearchQuery, bottomIsUncovered, lane, isCurrentRead, resolvingSelection]);
+  }, [activeConversationId, loadingThread, messages, readRevision, thread.conversation?.unreadCount, user, blockingLayer, messageSearchQuery, bottomIsUncovered, lane, isCurrentRead, resolvingSelection, selectionGeneration]);
 
   const selectedLabel =
     thread.peerDisplayName || thread.conversation?.peerDisplayName || "Conversation";
@@ -1240,20 +1240,20 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     void (async () => {
       try {
         const idToken = await user.getIdToken();
-        if (generation !== selectionGeneration.current) return;
+        if (!isCurrentOperation()) return;
         const updated = await DirectMessagesService[removing ? "removeReaction" : "reactToMessage"]({
           idToken,
           conversationId: message.conversationId,
           messageId: message.id,
           emoji,
         });
-        if (generation !== selectionGeneration.current) return;
+        if (!isCurrentOperation()) return;
         loadGeneration.current += 1;
         replaceMessage(updated);
         setMessageActionError(null);
         setActiveMessageActions(null);
       } catch {
-        if (generation !== selectionGeneration.current) return;
+        if (!isCurrentOperation()) return;
         replaceMessage(message);
         setMessageActionError({
           messageId: message.id,
@@ -1602,13 +1602,6 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                   const opening = messageMenuOpening.current?.messageId === message.id &&
                     messageMenuOpening.current.conversationId === message.conversationId
                       ? messageMenuOpening.current : null;
-                  const nextMessage = visibleMessages[index + 1];
-                  const showPeerAvatar =
-                    !message.senderIsViewer &&
-                    (!nextMessage ||
-                      nextMessage.senderIsViewer ||
-                      isNewMessageDay(nextMessage, message));
-
                   return (
                     <div key={message.id} className={styles.messageFeedItem} data-group-start={index === 0 || visibleMessages[index - 1]?.senderIsViewer !== message.senderIsViewer || isNewMessageDay(message, visibleMessages[index - 1])}>
                       {isNewMessageDay(message, visibleMessages[index - 1]) ? (

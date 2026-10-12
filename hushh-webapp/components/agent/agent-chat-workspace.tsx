@@ -135,7 +135,6 @@ import {
 } from "@/components/agent/email-delivery-history-card";
 import { bucketEmailDeliveryTimelineItems } from "@/lib/agent/agent-chat-email-delivery-timeline";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
 import { SecureCardAddForm } from "@/components/wallet/secure-card-add-form";
 import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
 import { SecretCaptureCard, type KeptSecretRef } from "@/components/secrets/secret-capture-card";

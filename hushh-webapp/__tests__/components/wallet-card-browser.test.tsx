@@ -75,6 +75,7 @@ describe("Wallet card browser", () => {
     expect(screen.queryByText("Live profile controls")).toBeNull();
     fireEvent.click(dock.getByRole("button", { name: "Add a card" }));
     expect(props.onAdd).toHaveBeenCalledOnce();
+    unmount(); host.remove();
   });
 
   it("keeps Agent One cards when a payment card is added and keeps payment details protected", () => {

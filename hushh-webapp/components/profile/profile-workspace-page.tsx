@@ -39,33 +39,20 @@ import {
   WalletAgentIcon,
 } from "@/components/icons/agents";
 import {
-  ProfilePaneAccountIcon,
-  ProfilePaneAppearanceIcon,
-  ProfilePaneConnectorsIcon,
-  ProfilePaneDevicesIcon,
-  ProfilePaneHelpIcon,
-  ProfilePaneInviteIcon,
   ProfilePaneSecurityIcon,
   ProfilePaneSignOutIcon,
-  ProfilePaneWalletIcon,
 } from "@/components/profile/profile-pane-icons";
 import {
   ProfileInnerPeopleIcon,
   ProfileInnerReviewIcon,
 } from "@/components/profile/profile-inner-icons";
 import {
-  ProfileSecondaryFingerprintIcon,
   ProfileSecondaryInboxIcon,
   ProfileSecondaryLocationIcon,
-  ProfileSecondaryPassphraseIcon,
-  ProfileSecondaryReceiptIcon,
   ProfileSecondaryRefreshIcon,
-  ProfileSecondaryUnlinkIcon,
   ProfileSecondaryVisibilityIcon,
 } from "@/components/profile/profile-secondary-icons";
 import {
-  ProfileAccountBankIcon,
-  ProfileAccountPriceIcon,
   ProfileAccountDeleteIcon,
   ProfileAccountMailIcon,
   ProfileAccountNameIcon,
@@ -77,7 +64,6 @@ import {
 import accountStyles from "@/components/profile/profile-your-account.module.css";
 import auxiliaryTabStyles from "@/components/profile/profile-auxiliary-tabs.module.css";
 import secondaryTypographyStyles from "@/components/profile/profile-secondary-typography.module.css";
-import { ProfileAppearancePreferences } from "@/components/profile/profile-appearance-preferences";
 import { toast } from "sonner";
 import { NativeProfileMenu } from "./native-profile-menu";
 import { PROFILE_LABELS, profileMenuGroups, type ProfileMenuActions } from "./profile-menu-model";
