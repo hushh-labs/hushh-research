@@ -17,7 +17,7 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
-import { agentPkmCaptureJobKey, aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, describeAgentPkmCapture, isAgentPkmCaptureRunning, isAgentPkmProcessingReady, resumedAgentPkmCaptureMessageId, shouldPresentAgentPkmCapture, shouldPublishAgentPkmCapture, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
+import { agentPkmCaptureJobKey, aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, isAgentPkmCaptureRunning, isAgentPkmProcessingReady, resumedAgentPkmCaptureMessageId, shouldPresentAgentPkmCapture, shouldPublishAgentPkmCapture, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
 import {
   applyOwnerConfirmedSave,
   describeOwnerMemoryReview,
@@ -150,7 +150,6 @@ import { bucketEmailDeliveryTimelineItems } from "@/lib/agent/agent-chat-email-d
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { loadPkmAgentLabContext } from "@/lib/profile/pkm-agent-lab-capture";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
-import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
 import { SecureCardAddForm } from "@/components/wallet/secure-card-add-form";
 import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
 import { SecretCaptureCard, type KeptSecretRef } from "@/components/secrets/secret-capture-card";

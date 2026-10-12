@@ -229,6 +229,7 @@ def test_one_keeps_device_memory_capture_silent():
     authored = str(agent_tree._ONE_MANIFEST.system_instruction)
     memory = authored[authored.index("# Memory") : authored.index("# Model choice")]
     assert "whole_message=true" in memory
+    assert "Silent assessment does not bypass restricted writers, owner review or consent" in memory
     assert (
         "Never announce background capture, progress or its receipts, or repeat protected details"
         in memory

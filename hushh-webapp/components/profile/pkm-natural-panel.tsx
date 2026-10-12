@@ -28,7 +28,6 @@ import { SettingsGroup, SettingsRow, SegmentedTabs } from "@/components/app-ui/s
 import { PkmExportService } from "@/lib/services/pkm-export-service";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
