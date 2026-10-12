@@ -40,6 +40,23 @@ if ! [[ "${SCHEDULER_SERVICE_ACCOUNT_NAME}" =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ]]
 fi
 SCHEDULER_SERVICE_ACCOUNT_EMAIL="${SCHEDULER_SERVICE_ACCOUNT_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
+# A production invocation must never inherit the UAT defaults above. Check the
+# entire target before creating an identity or Scheduler job.
+if [[ "${PROJECT_ID}" == "hushh-pda" \
+  || "${BACKEND_URL%/}" == "https://api.hushh.ai" \
+  || "${JOB_NAME}" == *-production \
+  || "${SCHEDULER_SERVICE_ACCOUNT_EMAIL}" == *@hushh-pda.iam.gserviceaccount.com ]] && {
+  [[ "${PROJECT_ID}" != "hushh-pda" ]] ||
+    [[ "${SCHEDULER_LOCATION}" != "us-central1" ]] ||
+    [[ "${BACKEND_URL%/}" != "https://api.hushh.ai" ]] ||
+    [[ "${JOB_NAME}" != "gmail-personal-information-request-monitor-production" ]] ||
+    [[ "${SCHEDULER_SERVICE_ACCOUNT_NAME}" != "gmail-personal-monitor-sched" ]] ||
+    [[ "${MAX_USERS}" != "8" ]];
+}; then
+  echo "Production personal Gmail monitor requires the canonical production project, region, API, job, service account and MAX_USERS=8" >&2
+  exit 1
+fi
+
 if ! command -v gcloud >/dev/null 2>&1; then
   echo "gcloud is required" >&2
   exit 1
@@ -47,6 +64,10 @@ fi
 
 if ! gcloud iam service-accounts describe "${SCHEDULER_SERVICE_ACCOUNT_EMAIL}" \
   --project="${PROJECT_ID}" >/dev/null 2>&1; then
+  if [[ "${PROJECT_ID}" == "hushh-pda" ]]; then
+    echo "Production personal Gmail monitor service account must be provisioned before Scheduler activation" >&2
+    exit 1
+  fi
   gcloud iam service-accounts create "${SCHEDULER_SERVICE_ACCOUNT_NAME}" \
     --project="${PROJECT_ID}" \
     --display-name="Personal Gmail monitor scheduler" >/dev/null
@@ -79,6 +100,18 @@ if gcloud scheduler jobs describe "${JOB_NAME}" \
   --location="${SCHEDULER_LOCATION}" >/dev/null 2>&1; then
   gcloud scheduler jobs update http "${JOB_NAME}" "${COMMON_ARGS[@]}" \
     --update-headers="Content-Type=application/json" >/dev/null
+  if [[ "${PROJECT_ID}" == "hushh-pda" ]]; then
+    JOB_STATE="$(gcloud scheduler jobs describe "${JOB_NAME}" \
+      --project="${PROJECT_ID}" --location="${SCHEDULER_LOCATION}" \
+      --format='value(state)')"
+    if [[ "${JOB_STATE}" == "PAUSED" ]]; then
+      gcloud scheduler jobs resume "${JOB_NAME}" \
+        --project="${PROJECT_ID}" --location="${SCHEDULER_LOCATION}" >/dev/null
+    elif [[ "${JOB_STATE}" != "ENABLED" ]]; then
+      echo "Production personal Gmail monitor job has an unknown state" >&2
+      exit 1
+    fi
+  fi
 else
   gcloud scheduler jobs create http "${JOB_NAME}" "${COMMON_ARGS[@]}" \
     --headers="Content-Type=application/json" >/dev/null

@@ -2912,8 +2912,7 @@ class PKMAgentLabService:
                     "status": "active",
                 }
             return {
-                key: cls._constrain_profile_review_entity(child)
-                for key, child in value.items()
+                key: cls._constrain_profile_review_entity(child) for key, child in value.items()
             }
         if isinstance(value, list):
             return [cls._constrain_profile_review_entity(item) for item in value]
