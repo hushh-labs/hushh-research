@@ -62,6 +62,9 @@ describe("SegmentedControl accessibility", () => {
     view.rerender(<Switch aria-label="Preference" checked disabled />);
     fireEvent.click(screen.getByRole("switch"));
     expect(feedback).toHaveBeenCalledTimes(1);
+    view.rerender(<Switch aria-label="Preference" checked={false} />);
+    fireEvent.click(screen.getByRole("switch"));
+    expect(feedback).toHaveBeenCalledTimes(1);
   });
   it("names the group and each agent inside it", () => {
     render(<Harness />);

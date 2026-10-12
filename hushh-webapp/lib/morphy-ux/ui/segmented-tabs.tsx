@@ -110,7 +110,7 @@ export function SegmentedTabs({
               select(option.value);
             }}
             onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
-              if (disabled || options.length < 2) return;
+              if (disabled || options.length < 2 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
               let nextIndex: number | null = null;
               if (event.key === "ArrowRight") {
                 nextIndex = (index + 1) % options.length;

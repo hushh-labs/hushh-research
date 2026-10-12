@@ -3363,8 +3363,10 @@ final class AppUITests: XCTestCase {
             }
             if close.exists && close.isHittable { close.tap() }
         }
-        guard waitForAdmittedControl(opener) else { XCTFail("PROFILE_BATCH_OPENER_UNAVAILABLE"); return }
-        opener.tap()
+        if !root("account").exists {
+            guard waitForAdmittedControl(opener) else { XCTFail("PROFILE_BATCH_OPENER_UNAVAILABLE"); return }
+            opener.tap()
+        }
         for id in destinations {
             let destination = root(id)
             for _ in 0..<5 {
@@ -3374,6 +3376,10 @@ final class AppUITests: XCTestCase {
             guard waitForAdmittedControl(destination) else { XCTFail("PROFILE_BATCH_DESTINATION_UNAVAILABLE"); return }
             destination.tap()
             guard admittedBack() else { XCTFail("PROFILE_BATCH_BACK_UNAVAILABLE"); return }
+            // Native menu isolation deliberately removes the covered WebView
+            // from AX. Count it while its authored content layer is active,
+            // not while the menu owns accessibility.
+            XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
             // A complex detail is the only active layer. The native root must
             // be withdrawn, not left hit-testable through its content.
             XCTAssertFalse(close.exists && close.isHittable, "PROFILE_BATCH_ROOT_OVERLAPS_DETAIL")
@@ -3389,12 +3395,13 @@ final class AppUITests: XCTestCase {
             }
             back.tap()
             XCTAssertTrue(waitForAdmittedControl(root("account")), "PROFILE_BATCH_MENU_NOT_RESTORED")
-            XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
             XCTAssertFalse(web.buttons["Unlock"].exists)
             print("PROFILE_NATIVE_DESTINATION family=\(id) warm=true single_host=true")
         }
+        XCTAssertTrue(waitForAdmittedControl(close))
         close.tap()
         XCTAssertTrue(waitForAdmittedControl(editor))
+        XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
         XCTAssertTrue((editor.value as? String) == initialDraft, "PROFILE_BATCH_DRAFT_CHANGED")
         print("PROFILE_STACK_CONTINUITY screens=9 warm=true single_host=true")
     }

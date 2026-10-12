@@ -32,7 +32,7 @@ function Switch({
       checked={checked}
       defaultChecked={defaultChecked}
       onCheckedChange={(next) => {
-        if (props.disabled || next === value) return
+        if (props.disabled || next === value || (checked !== undefined && !onCheckedChange)) return
         if (checked === undefined) setUncontrolled(next)
         onCheckedChange?.(next)
         if (hapticFeedback) appHaptic("selection")
