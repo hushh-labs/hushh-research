@@ -169,6 +169,9 @@ The `/api/one/wallet/card-access` endpoints are:
 | POST | `/registrations` | Matching Firebase identity and vault-owner consent reserve a server card ID. Only a subsequent canonical Wallet PKM mutation activates manual origin. |
 | GET | `/cards/{card_id}` | Owner-only sharing readiness and grant status, newest first in pages of 20. Optional `cursor` is the last grant ID; `nextCursor` and `hasMore` describe the next page, and each grant includes ISO `createdAt`. Cursors resolve only within the authenticated owner and card. No card-verification prompt is required. Older saved cards register through an owner-confirmed Wallet metadata refresh when shared. |
 | GET | `/connections` | Owner-only searchable active connections with explicit Trusted Circle membership. |
+| GET | `/profile` | Matching identity and vault-owner consent; current canonical Profile Card eligibility and server-issued card ID, without profile contents. |
+| GET | `/history` | Participant-only unified ledger. `direction=outgoing\|received`, optional `cardType=payment\|profile`, `limit=1..100` (default 20), and participant/filter-bound `cursor`. Returns `items`, `hasMore`, `nextCursor`, `serverNow`. |
+| GET | `/history/{grant_id}` | Matching identity and vault-owner consent; outgoing or received grant detail only for that participant, with lifecycle activity. |
 | POST | `/cards/{card_id}/grants` | Owner-only, idempotent, per-recipient 5/10/15-minute grants and transactional messages. |
 | DELETE | `/grants/{grant_id}` | Owner-only revocation. |
 | GET | `/grants/{grant_id}` | Authenticated recipient-only view; checks expiry, revocation, origin and relationship. |
@@ -215,7 +218,22 @@ The native viewer stays unavailable until active capture protection is supported
 The browser viewer clears on hide/expiry and offers no copy, export or print,
 but cannot prevent device screenshots or external cameras. Old encrypted-copy
 readers and owner receipts remain compatible; previously sent copies cannot be
-recalled. Profile, Referral and NWS sharing are unchanged.
+recalled. The canonical Wallet Profile Card also supports private recipient grants
+after migrations 322–325. Its current selected public-field projection is intersected
+with the fields permitted at creation; removing a field immediately removes it from
+the next read, and adding a field cannot widen an existing grant. Pause makes reads
+unavailable; revocation, source replacement and deletion terminate existing grants.
+System Agent One Profile, Referral, NWS and received-card resharing gain no permissions.
+Public QR links retain their separate, anonymous aggregate-visit behavior.
+History contains masked card descriptors, public participant references and names,
+creation/expiry/duration, immutable creation trust, verification posture/time,
+revocation/last-view times and bounded lifecycle events. Unknown historical creation
+trust is `null`/`legacy_unspecified`, never inferred from today's membership.
+`SHARE_DELIVERED` means the Messages/Feed transaction accepted delivery, not a push
+provider receipt. Expiry is enforced by the database clock on every access;
+`SHARE_EXPIRED` is recorded lazily once when the grant is read or listed.
+See [universal sharing operations](../one/wallet-sharing.md) for migration,
+compatibility, verification and rollback details.
 See [Wallet](../one/wallet.md) and the
 [Wallet Profile contract](../../superpowers/specs/2026-08-03-wallet-card-contract.md).
 
