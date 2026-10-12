@@ -1458,7 +1458,7 @@
     {
       "action_id": "route.getting_started",
       "surface_id": "onboarding",
-      "label": "Open Welcome",
+      "label": "Open One entry",
       "aliases": [
         "open welcome",
         "show the welcome screen",
@@ -1472,7 +1472,7 @@
         "onboarding",
         "intro"
       ],
-      "meaning": "Navigates to the Hussh welcome carousel for new visitors.",
+      "meaning": "Opens the compatibility entry: signed-out visitors continue to sign-in, and signed-in people continue to One.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -1486,7 +1486,7 @@
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
-          "None; the welcome carousel is public."
+          "No sign-in is required to enter; the current session determines the destination."
         ],
         "active_personas": [
           "investor",
@@ -1538,7 +1538,7 @@
           {
             "type": "action",
             "action_id": "route.getting_started",
-            "label": "Open Welcome",
+            "label": "Open One entry",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/getting-started",
@@ -1582,7 +1582,7 @@
         "next",
         "get started"
       ],
-      "meaning": "Moves from the welcome carousel to sign in and account setup.",
+      "meaning": "Navigates to sign-in from the compatibility entry; the entry itself has no Continue button.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -1612,9 +1612,7 @@
         "path": "route",
         "target": "/login"
       },
-      "control_ids": [
-        "onboarding_continue"
-      ],
+      "control_ids": [],
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
