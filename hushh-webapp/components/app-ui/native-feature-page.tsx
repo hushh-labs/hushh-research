@@ -60,7 +60,7 @@ export function NativeFeaturePage({ open, title, owner, context, onBack, onReady
           onBack={onBack} onReady={onReady} />
         <DialogTitle ref={heading} tabIndex={-1} className="ui-text-navigation-title truncate">{title}</DialogTitle>
       </header>}
-      <div className={bodyClassName ? `native-feature-page-body ${bodyClassName}` : "native-feature-page-body"}>{children}</div>
+      <div data-native-feature-scroll-root="true" className={bodyClassName ? `native-feature-page-body ${bodyClassName}` : "native-feature-page-body"}>{children}</div>
     </DialogContent>
   </Dialog>;
 }

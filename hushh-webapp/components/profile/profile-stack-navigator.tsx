@@ -61,6 +61,7 @@ export function ProfileStackNavigator({
   const requestedEntriesRef = useRef(entries);
   const previousActiveKeyRef = useRef("root");
   const scrollPositionsRef = useRef<Record<string, number>>({});
+  const presentationRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     return () => {
@@ -138,7 +139,7 @@ export function ProfileStackNavigator({
     // A closing pane can remain in the DOM while a route-level Profile page
     // mounts. Select the root owned by this presentation instead of taking the
     // first Profile pane left by that exit transition.
-    const scrollRoot = document.querySelector<HTMLElement>(
+    const scrollRoot = presentationRef.current?.closest<HTMLElement>('[data-native-feature-scroll-root="true"]') ?? document.querySelector<HTMLElement>(
       resetScroll
         ? '[data-app-scroll-root="true"]'
         : '[data-profile-pane-scroll-root="true"]',
@@ -194,6 +195,7 @@ export function ProfileStackNavigator({
    * so they cost no height and still slide. */
   return (
     <div
+      ref={presentationRef}
       className="relative w-full overflow-x-clip"
       data-profile-stack="true"
     >
