@@ -457,6 +457,7 @@ tests/services/test_location_nearby_visit_command_postgres.py
 # Agent Chat measurement instruments: AG-UI turn timing, the first-tool harness
 # and latency driver (offline math only), ADK EvalSet shape, conformance replay.
 tests/test_agui_turn_timing.py
+tests/test_pod_agui_lifetime.py
 # Startup warmup: a worker's first chat turn imports nothing before its model call.
 tests/test_one_turn_warmup.py
 # Smart follow-ups end the turn in the answer's own model call, never a second.

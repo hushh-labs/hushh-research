@@ -59,14 +59,17 @@ class _TransportFrames:
             self.wake.set()
 
     def fail(self, exc: Exception) -> None:
-        # A stalled reader cannot extend authority waiting to publish an error.
-        self.frames.clear()
-        self.bytes = 0
-        if self.attached:
-            frame = self.encoder.encode(safe_exception_event(exc)).encode("utf-8")
-            self.frames.append(frame)
-            self.bytes = len(frame)
-            self.wake.set()
+        if not self.attached:
+            return
+        frame = self.encoder.encode(safe_exception_event(exc)).encode("utf-8")
+        # Preserve normally buffered stages. A full/stalled backlog cannot
+        # extend authority waiting for room to publish its terminal error.
+        if len(self.frames) >= _MAX_FRAMES or self.bytes + len(frame) > _MAX_BYTES:
+            self.frames.clear()
+            self.bytes = 0
+        self.frames.append(frame)
+        self.bytes += len(frame)
+        self.wake.set()
 
     async def read(self) -> AsyncGenerator[bytes, None]:
         try:
