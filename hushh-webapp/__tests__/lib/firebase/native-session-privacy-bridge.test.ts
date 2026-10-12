@@ -93,4 +93,45 @@ describe("native privacy bridge state validation", () => {
       documentId: expect.any(String), privacyGeneration: 3, intentId: "accepted-choice", kind: "selection",
     }));
   });
+
+  it.each(["ios", "android"])("admits a new %s interaction after confirmed release without a native event, fencing earlier reads", async platform => {
+    mocks.platform = platform;
+    mocks.getState.mockResolvedValue(active);
+    await getNativeSessionPrivacyState();
+    let resolveRead!: (value: typeof active) => void;
+    mocks.getState.mockReturnValueOnce(new Promise(resolve => { resolveRead = resolve; }));
+    const earlierRead = getNativeSessionPrivacyState();
+    const released = { ...active, shielded: false, released: true };
+    mocks.completeSessionValidation.mockResolvedValue(released);
+    await completeNativeSessionPrivacyValidation(active.generation);
+    resolveRead(active);
+    await earlierRead;
+    expect(nativePrivacyObservation().state).toEqual(released);
+
+    mocks.getState.mockResolvedValue(released);
+    mocks.interactionFeedback.mockResolvedValue({ accepted: true });
+    appHaptic("selection", "post-release-choice");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(mocks.interactionFeedback).toHaveBeenCalledTimes(1);
+    expect(mocks.interactionFeedback).toHaveBeenCalledWith(expect.objectContaining({
+      privacyGeneration: active.generation, intentId: "post-release-choice",
+    }));
+  });
+
+  it("does not let a delayed release replace a newer inactive lifecycle observation", async () => {
+    mocks.getState.mockResolvedValue(active);
+    await getNativeSessionPrivacyState();
+    await subscribeNativeSessionPrivacy(vi.fn());
+    let resolveCompletion!: (value: typeof active & { released: boolean }) => void;
+    mocks.completeSessionValidation.mockReturnValueOnce(new Promise(resolve => { resolveCompletion = resolve; }));
+    const pendingRelease = completeNativeSessionPrivacyValidation(active.generation);
+    const interrupted = { ...active, generation: 4, appIsActive: false, action: "state" };
+    mocks.addListener.mock.calls.at(-1)![1](interrupted);
+    resolveCompletion({ ...active, shielded: false, released: true });
+    await pendingRelease;
+    expect(nativePrivacyObservation().state).toEqual(interrupted);
+    appHaptic("selection", "covered-choice");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(mocks.interactionFeedback).not.toHaveBeenCalled();
+  });
 });

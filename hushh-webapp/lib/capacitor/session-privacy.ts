@@ -109,11 +109,19 @@ export async function completeNativeSessionPrivacyValidation(
   if (!Number.isSafeInteger(generation) || generation <= 0) {
     return { ...WEB_STATE, released: false };
   }
+  const epoch = lifecycleEpoch;
   const result = checkedState(await HushhSessionPrivacy.completeSessionValidation({
     generation, documentId: privacyDocumentId(),
   }));
   if (typeof result.released !== "boolean") {
     throw new Error("Native session privacy completion is unavailable.");
+  }
+  // Both native hosts return the release state without requiring a listener
+  // event. Observe that authoritative result, but never replace a newer cycle.
+  // Advancing the epoch also fences reads started before this completion.
+  if (epoch === lifecycleEpoch) {
+    lifecycleEpoch += 1;
+    observedPrivacy = result;
   }
   return result;
 }
