@@ -5198,14 +5198,16 @@
         "device_cache": false,
         "secure_cache": false,
         "cache_sync": false,
-        "resource_wrapper": true,
+        "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
         "hushh_loader": false,
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": []
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
     },
     {
       "route": "/one/setup/finance",
@@ -6736,5 +6738,5 @@
       ]
     }
   ],
-  "content_sha256": "ef7111322e161203ccac50ac0df9e426ab6d26a1ed30106c5e1616bc8471c105"
+  "content_sha256": "484c8031ca1e00b54ecca0cc037689bac2e10113155aa26445eacedc21449886"
 }
