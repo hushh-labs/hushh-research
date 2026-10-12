@@ -34,7 +34,7 @@ it("failed resolution requires explicit scope and model consent choices", () => 
   fireEvent.click(screen.getByRole("checkbox", { name: "Food preferences" }));
   expect(screen.getByRole("button", { name: "Set a price" })).toBeDisabled();
   fireEvent.click(
-    screen.getByRole("checkbox", { name: /I agree to model processing/ }),
+    screen.getByRole("checkbox", { name: /I agree to this question/ }),
   );
   expect(screen.getByRole("button", { name: "Set a price" })).toBeEnabled();
 });
