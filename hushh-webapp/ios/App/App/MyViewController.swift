@@ -236,6 +236,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         bridge?.registerPluginInstance(HushhNotificationsPlugin())
         bridge?.registerPluginInstance(HushhLocationPlugin())
         bridge?.registerPluginInstance(HushhContactsPlugin())
+        bridge?.registerPluginInstance(HushhCardScannerPlugin())
         bridge?.registerPluginInstance(HushhInvitationsPlugin())
         bridge?.registerPluginInstance(HushhVoiceInvocationPlugin())
         bridge?.registerPluginInstance(HushhSessionPrivacyPlugin())

@@ -6,7 +6,7 @@ import { ProfilePaneScanIcon } from "@/components/profile/profile-pane-icons";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { isNative } from "@/lib/capacitor/platform";
-import { pickNativeWalletCard, scanWalletCard } from "@/lib/services/wallet-card-scan";
+import { CardScanError, pickNativeWalletCard, scanWalletCard } from "@/lib/services/wallet-card-scan";
 import type { ScannedCardFields } from "@/lib/wallet/card-scan-fields";
 import styles from "./secure-card-add-form.module.css";
 
@@ -69,8 +69,8 @@ export function WalletCardScanner({ active, disabled, onRead, onBusyChange }: {
       if (controller.signal.aborted) return;
       onRead(fields);
       setNotice("Details filled in. Check every field before saving.");
-    } catch {
-      if (!controller.signal.aborted) setNotice("We couldn't read the card. Use a clear JPG, PNG or WebP photo under 15 MB, or enter the details below.");
+    } catch (error) {
+      if (!controller.signal.aborted) setNotice(error instanceof CardScanError ? error.message : "Card scanning is unavailable right now. Try again, or enter the details below.");
     } finally {
       if (request.current === controller) {
         request.current = null; setBusy(false); onBusyChange(false);
