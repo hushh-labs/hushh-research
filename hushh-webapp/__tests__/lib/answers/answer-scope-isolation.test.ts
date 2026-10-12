@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const buildConsentExportForScope = vi.fn();
 vi.mock("@/lib/consent/export-builder", () => ({
+  createConsentExportReadSession: () => undefined,
   buildConsentExportForScope: (...args: unknown[]) =>
     buildConsentExportForScope(...args),
 }));
@@ -23,6 +24,10 @@ vi.mock("@/lib/services/answer-request-service", () => ({
     compose: (...a: unknown[]) => compose(...a),
     deliver: (...a: unknown[]) => deliver(...a),
   },
+}));
+const loadMarkdownMemory = vi.fn();
+vi.mock("@/lib/pkm/markdown-memory", () => ({
+  loadMarkdownMemory: (...a: unknown[]) => loadMarkdownMemory(...a),
 }));
 const encrypt = vi.fn();
 vi.mock("@/lib/one-marketplace/encryption", () => ({
@@ -58,6 +63,8 @@ beforeEach(() => {
   answerable.mockReset();
   compose.mockReset();
   deliver.mockReset();
+  loadMarkdownMemory.mockReset();
+  loadMarkdownMemory.mockResolvedValue(null);
   encrypt.mockReset().mockResolvedValue({ sealed: "ciphertext" });
   compose.mockResolvedValue({ answerMode: "projection", answer: null });
   deliver.mockResolvedValue(undefined);
@@ -251,6 +258,57 @@ describe("a failed answer is retried and refunded, never counted as delivered", 
     expect(result).toMatchObject({ empty: 1, retry: 0, delivered: 0 });
   });
 
+  it("never calls an unreadable scope an absent answer", async () => {
+    // The vault was locked, the manifest was stale, the network blipped --
+    // whatever it was, nothing was read. Delivering empty here would tell the
+    // requester the answer does not exist, refuse their payment for good, and
+    // do it on evidence that was never gathered. It stays queued instead.
+    buildConsentExportForScope.mockRejectedValue(new Error("vault locked"));
+    answerable.mockResolvedValue([work()]);
+
+    const result = await runAnswerDeliverySweep({
+      userId: "owner-A",
+      vaultKey: "key",
+      vaultOwnerToken: "token",
+      firebaseIdToken: "id-token",
+    });
+
+    expect(deliver).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ retry: 1, delivered: 0, empty: 0 });
+  });
+
+  it("carries the owner's own name and photo into the answer document", async () => {
+    // The requester already sees these on the profile they asked from, and
+    // without them a question like "what is your name" had no name to answer
+    // from even with Identity information approved.
+    buildConsentExportForScope.mockResolvedValue({
+      payload: { trips: [{ city: "Tokyo", amount: 1200 }] },
+      sourceContentRevision: 7,
+    });
+    answerable.mockResolvedValue([work()]);
+    compose.mockResolvedValue({
+      answerMode: "agent",
+      answer: "Tokyo.",
+      covers: [],
+      gaps: [],
+    });
+
+    await runAnswerDeliverySweep({
+      userId: "owner-A",
+      vaultKey: "key",
+      vaultOwnerToken: "token",
+      firebaseIdToken: "id-token",
+      ownerIdentity: {
+        displayName: "Smirthika Dharmalingam",
+        email: "smirthika@example.com",
+        photoUrl: "https://example.com/photo.jpg",
+      },
+    });
+
+    const memory = String(compose.mock.calls[0]![2].memory);
+    expect(memory).toContain("Smirthika Dharmalingam");
+  });
+
   it("delivers a written answer", async () => {
     buildConsentExportForScope.mockResolvedValue({
       payload: { trips: [{ city: "Tokyo", amount: 1200 }] },
@@ -315,4 +373,236 @@ describe("lock fences asynchronous answer work", () => {
       if (stage !== "encrypt") expect(encrypt).not.toHaveBeenCalled();
     },
   );
+});
+
+// The identity intake writes what the person states as labelled Soul bullets,
+// so these are the paths a real "what is your name" / "what is your age"
+// request actually has to read.
+describe("identity facts recorded in Soul.md answer the question they were approved for", () => {
+  const SOUL = [
+    "## Facts",
+    "",
+    "- Legal name: Smirthika Dharmalingam",
+    "- Date of birth: 1998-03-14",
+    "- Sex: female",
+    "- Saving for a trip to Kyoto",
+    "",
+  ].join("\n");
+
+  const identityWork = (scope: string) =>
+    work({ approvedScopes: [scope], question: "What is your age?" });
+
+  beforeEach(() => {
+    loadMarkdownMemory.mockResolvedValue({ markdown: SOUL, dataVersion: 12 });
+    // No structured leaf exists for these; Soul.md is the only source.
+    buildConsentExportForScope.mockRejectedValue(new Error("no structured leaf"));
+  });
+
+  it("puts the age, not the birth date, into what the writer is given", async () => {
+    const { payload, hasContent } = await buildAnswerPayload(
+      identityWork("attr.identity.identity_profile.declared_age"),
+      params,
+    );
+
+    expect(hasContent).toBe(true);
+    const rendered = JSON.stringify(payload);
+    expect(rendered).toContain("declared_age");
+    // The birth date is its own approval and was not given here.
+    expect(rendered).not.toContain("1998-03-14");
+    expect(payload.sourceRevisions["attr.identity.identity_profile.declared_age"]).toBe(12);
+  });
+
+  it("answers a name request from the recorded legal name", async () => {
+    const { payload, hasContent } = await buildAnswerPayload(
+      identityWork("attr.identity.identity_profile.full_name"),
+      params,
+    );
+    expect(hasContent).toBe(true);
+    expect(JSON.stringify(payload)).toContain("Smirthika Dharmalingam");
+  });
+
+  it("carries no unapproved fact and none of the surrounding prose", async () => {
+    const { payload } = await buildAnswerPayload(
+      identityWork("attr.identity.identity_profile.declared_age"),
+      params,
+    );
+    const rendered = JSON.stringify(payload);
+    expect(rendered).not.toContain("female");
+    expect(rendered).not.toContain("Kyoto");
+    expect(rendered).not.toContain("Smirthika Dharmalingam");
+  });
+
+  it("stays pending when the Soul document cannot be read", async () => {
+    // Locked or failed: not an absent fact, so it must not deliver "not found".
+    loadMarkdownMemory.mockRejectedValue(new Error("vault locked"));
+    const { payload } = await buildAnswerPayload(
+      identityWork("attr.identity.identity_profile.declared_age"),
+      params,
+    );
+    expect(payload.unavailableScopes).toContain(
+      "attr.identity.identity_profile.declared_age",
+    );
+  });
+
+  it("says nothing rather than guessing a sex that was never recorded", async () => {
+    loadMarkdownMemory.mockResolvedValue({
+      markdown: "## Facts\n\n- Legal name: Smirthika Dharmalingam\n- She prefers window seats\n",
+      dataVersion: 3,
+    });
+    const { hasContent } = await buildAnswerPayload(
+      identityWork("attr.identity.identity_profile.sex"),
+      params,
+    );
+    expect(hasContent).toBe(false);
+  });
+});
+
+describe("the three outcomes of preparing an answer, at staging level", () => {
+  const AGE = "attr.identity.identity_profile.declared_age";
+
+  const sweep = () =>
+    runAnswerDeliverySweep({
+      userId: "owner-A",
+      vaultKey: "key",
+      vaultOwnerToken: "token",
+      firebaseIdToken: "id-token",
+      ownerIdentity: {
+        displayName: "Smirthika Dharmalingam",
+        photoUrl: "https://example.test/photo.png",
+      },
+    });
+
+  const askAge = () =>
+    answerable.mockResolvedValue([
+      work({ approvedScopes: [AGE], question: "What is your age?" }),
+    ]);
+
+  it("stages nothing and stays retryable when the document cannot be read", async () => {
+    // Locked, stale or denied: not an answer in either direction.
+    loadMarkdownMemory.mockRejectedValue(new Error("vault locked"));
+    buildConsentExportForScope.mockRejectedValue(new Error("no structured leaf"));
+    askAge();
+
+    const result = await sweep();
+
+    expect(deliver).not.toHaveBeenCalled();
+    expect(compose).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ retry: 1, delivered: 0, empty: 0 });
+  });
+
+  it("settles a fact nobody recorded as absent, so it is answered not retried", async () => {
+    // The document read SUCCEEDED and the fact is simply not in it. That is a
+    // verified absence -- an answer -- and it used to sit unreadable for ever.
+    loadMarkdownMemory.mockResolvedValue({
+      markdown: "## Facts\n\n- Legal name: Smirthika Dharmalingam\n",
+      dataVersion: 12,
+    });
+    buildConsentExportForScope.mockRejectedValue(new Error("no structured leaf"));
+    askAge();
+
+    const result = await sweep();
+
+    expect(deliver).toHaveBeenCalledTimes(1);
+    // "Answer not found", and checkout refuses an empty staged answer.
+    expect(deliver.mock.calls[0]![2]).toMatchObject({ hasContent: false });
+    expect(result).toMatchObject({ empty: 1, retry: 0, delivered: 0 });
+  });
+
+  it("does not let the account name or photo make a missing age chargeable", async () => {
+    // Both are carried into the document's Account section for every answer.
+    // If they counted as content, an age nobody recorded would be sold.
+    loadMarkdownMemory.mockResolvedValue({ markdown: "## Facts\n", dataVersion: 12 });
+    buildConsentExportForScope.mockRejectedValue(new Error("no structured leaf"));
+    askAge();
+
+    await sweep();
+
+    expect(deliver.mock.calls[0]![2]).toMatchObject({ hasContent: false });
+  });
+});
+
+describe("a Soul-backed fact is finished work, not a failed read", () => {
+  const SOUL = "## Facts\n\n- Legal name: Smirthika Dharmalingam\n- Date of birth: 1998-03-14\n";
+
+  it("composes and stages when the structured leaf is simply absent", async () => {
+    // Identity facts have no structured leaf at all, so the per-scope export
+    // always fails for them. If that counts as an unreadable scope the request
+    // retries for ever and the answer is never staged, even though the fact
+    // was read successfully from the document.
+    loadMarkdownMemory.mockResolvedValue({ markdown: SOUL, dataVersion: 12 });
+    buildConsentExportForScope.mockRejectedValue(new Error("no structured leaf"));
+    compose.mockResolvedValue({
+      answerMode: "agent",
+      answer: "She is 27.",
+      covers: ["attr.identity.identity_profile.declared_age"],
+      gaps: [],
+    });
+    encrypt.mockResolvedValue({ ciphertext: "sealed" });
+    answerable.mockResolvedValue([
+      work({
+        approvedScopes: ["attr.identity.identity_profile.declared_age"],
+        question: "What is your age?",
+      }),
+    ]);
+
+    const result = await runAnswerDeliverySweep({
+      userId: "owner-A",
+      vaultKey: "key",
+      vaultOwnerToken: "token",
+      firebaseIdToken: "id-token",
+    });
+
+    expect(compose).toHaveBeenCalledTimes(1);
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(deliver.mock.calls[0]![2]).toMatchObject({ hasContent: true });
+    expect(result).toMatchObject({ delivered: 1, retry: 0, empty: 0 });
+  });
+});
+
+describe("which name answers a name request", () => {
+  const NAME = "attr.identity.identity_profile.full_name";
+
+  const ask = () =>
+    answerable.mockResolvedValue([
+      work({ approvedScopes: [NAME], question: "What is your name?" }),
+    ]);
+
+  beforeEach(() => {
+    buildConsentExportForScope.mockRejectedValue(new Error("no structured leaf"));
+    compose.mockResolvedValue({ answerMode: "agent", answer: "Smirthika.", covers: [], gaps: [] });
+    encrypt.mockResolvedValue({ ciphertext: "sealed" });
+  });
+
+  it("prefers the legal name the person stated over their account name", async () => {
+    loadMarkdownMemory.mockResolvedValue({
+      markdown: "## Facts\n\n- Legal name: Smirthika Dharmalingam\n",
+      dataVersion: 9,
+    });
+    ask();
+
+    await runAnswerDeliverySweep({
+      userId: "owner-A", vaultKey: "key", vaultOwnerToken: "token",
+      firebaseIdToken: "id-token",
+      ownerIdentity: { displayName: "smiri" },
+    });
+
+    const values = JSON.stringify(compose.mock.calls[0]![2].values);
+    expect(values).toContain("Smirthika Dharmalingam");
+    expect(values).not.toContain("smiri");
+  });
+
+  it("falls back to the account name when no legal name was ever stated", async () => {
+    // An owner who never completed the identity intake can still answer this.
+    loadMarkdownMemory.mockResolvedValue({ markdown: "## Facts\n", dataVersion: 9 });
+    ask();
+
+    const result = await runAnswerDeliverySweep({
+      userId: "owner-A", vaultKey: "key", vaultOwnerToken: "token",
+      firebaseIdToken: "id-token",
+      ownerIdentity: { displayName: "Smirthika D" },
+    });
+
+    expect(JSON.stringify(compose.mock.calls[0]![2].values)).toContain("Smirthika D");
+    expect(result).toMatchObject({ delivered: 1, retry: 0, empty: 0 });
+  });
 });

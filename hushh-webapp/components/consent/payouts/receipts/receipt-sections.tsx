@@ -32,6 +32,7 @@ import {
   ReceiptReviewSection,
   ReceiptStageRow,
   ReceiptValueRow,
+  type PayoutReceiptAction,
   type StageTone,
 } from "./receipt-ui";
 
@@ -64,7 +65,9 @@ const EARNING_STAGES: Record<ReceiptStage["stage"], { title: string; tone: Stage
   reversed: { title: "Reversed", tone: "problem" },
 };
 
-export function EarningReceiptSections({ receipt, openItem }: { receipt: EarningReceipt; openItem: OpenLinkedItem }) {
+export function EarningReceiptSections({ receipt, openItem, onAction }: {
+  receipt: EarningReceipt; openItem: OpenLinkedItem; onAction?: (action: PayoutReceiptAction) => void;
+}) {
   const breakdown = receipt.breakdown;
   // Before credit the server's figure is the expected earning, not coins yet.
   const coins = ["credited", "held", "reversed"].includes(receipt.status) ? receipt.coins : null;
@@ -99,7 +102,7 @@ export function EarningReceiptSections({ receipt, openItem }: { receipt: Earning
             : receipt.cashOut.status === "failed" ? "problem" : "waiting"} onOpen={openItem(receipt.cashOut.itemId)} />
         </SettingsGroup>
       ) : null}
-      {receipt.review ? <ReceiptReviewSection review={receipt.review} /> : null}
+      {receipt.review ? <ReceiptReviewSection review={receipt.review} onAction={onAction} /> : null}
       <ReferenceGroup reference={receipt.reference} />
     </>
   );
@@ -152,7 +155,9 @@ function arrival(status: DepositActivityStatus, at: string | null): string | nul
   return status === "pending" || status === "in_transit" ? `Expected ${receiptDay(at)}` : null;
 }
 
-export function RedemptionReceiptSections({ receipt, openItem }: { receipt: RedemptionReceipt; openItem: OpenLinkedItem }) {
+export function RedemptionReceiptSections({ receipt, openItem, onAction }: {
+  receipt: RedemptionReceipt; openItem: OpenLinkedItem; onAction?: (action: PayoutReceiptAction) => void;
+}) {
   const { transfer, bankDeposit } = receipt;
   return (
     <>
@@ -173,7 +178,7 @@ export function RedemptionReceiptSections({ receipt, openItem }: { receipt: Rede
             onOpen={openItem(bankDeposit.id)} />
         ) : null}
       </SettingsGroup>
-      {receipt.review ? <ReceiptReviewSection review={receipt.review} /> : null}
+      {receipt.review ? <ReceiptReviewSection review={receipt.review} onAction={onAction} /> : null}
       <ReferenceGroup reference={receipt.reference} />
     </>
   );
@@ -197,7 +202,9 @@ function IncludesGroup({ contents, openItem }: { contents: DepositReceipt["conte
   );
 }
 
-export function DepositReceiptSections({ receipt, openItem }: { receipt: DepositReceipt; openItem: OpenLinkedItem }) {
+export function DepositReceiptSections({ receipt, openItem, onAction }: {
+  receipt: DepositReceipt; openItem: OpenLinkedItem; onAction?: (action: PayoutReceiptAction) => void;
+}) {
   const { status } = receipt;
   const ended = status === "failed" || status === "canceled";
   return (
@@ -213,7 +220,12 @@ export function DepositReceiptSections({ receipt, openItem }: { receipt: Deposit
         {status === "unrecognized" ? <ReceiptStageRow title="Status updating" tone="waiting" /> : null}
       </SettingsGroup>
       {receipt.actionRequired === "update_bank" ? (
-        <SettingsGroup><ReceiptStageRow title="Update your bank" description="Use Manage bank on Payouts." tone="problem" /></SettingsGroup>
+        <SettingsGroup>
+          {onAction ? (
+            <ReceiptStageRow title="Update your bank" description="Opens your bank settings in Stripe." tone="problem"
+              onOpen={() => onAction("manage_bank")} />
+          ) : <ReceiptStageRow title="Update your bank" description="Use Manage bank on Payouts." tone="problem" />}
+        </SettingsGroup>
       ) : null}
       <SettingsGroup title="Bank">
         {/* The bank this deposit went to, never today's default bank. */}

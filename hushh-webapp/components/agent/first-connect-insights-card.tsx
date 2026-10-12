@@ -6,7 +6,7 @@
 // Forget simply drops the item from the screen. The items live only in this
 // component's state (never browser storage); leaving the chat discards them.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { Check, Lightbulb, X } from "@/components/icons";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,7 @@ export function FirstConnectInsightsCard({
   vaultOwnerToken,
   enabled,
 }: FirstConnectInsightsCardProps) {
+  const descriptionId = useId();
   const [offer, setOffer] = useState<FirstConnectInsightsOffer | null>(null);
   const [states, setStates] = useState<Record<string, ItemState>>({});
   const [forgotten, setForgotten] = useState<ReadonlySet<string>>(new Set());
@@ -170,7 +171,7 @@ export function FirstConnectInsightsCard({
             Here&apos;s what I picked up from {offer.sourceLabel}
           </p>
           <p className="mt-1 text-sm text-foreground/70">
-            Nothing is saved unless you tap Keep.
+            Tap ✓ to keep a detail or × to dismiss it.
           </p>
         </div>
       </div>
@@ -181,66 +182,69 @@ export function FirstConnectInsightsCard({
           return (
             <li
               key={item.id}
-              className="rounded-xl border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-white/[0.04]"
+              className="flex items-start gap-2 rounded-xl border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-white/[0.04]"
               data-testid="first-connect-insight"
             >
-              <p className="text-sm text-foreground/90">{item.label}</p>
-              {item.evidence ? (
-                <p className="mt-1 text-xs text-foreground/55">{item.evidence}</p>
+              <div className="min-w-0 flex-1 break-words">
+                <p id={`${descriptionId}-${item.id}`} className="text-sm text-foreground/90">{item.label}</p>
+                {item.evidence ? (
+                  <p className="mt-1 text-xs text-foreground/55">{item.evidence}</p>
+                ) : null}
+                {isSaved(item) ? (
+                  <p className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary">
+                    <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                    {state === "already_saved" ? "Already in Memory" : "Kept privately"}
+                  </p>
+                ) : (
+                  <>
+                    {state === "confirm_sharing" ? (
+                      <p className="mt-2 text-xs text-foreground/70">
+                        This would also update what you share with {recipients[item.id] ?? 1}{" "}
+                        {(recipients[item.id] ?? 1) === 1 ? "person" : "people"}. Keep it anyway?
+                      </p>
+                    ) : null}
+                    {state === "nothing_to_save" ? (
+                      <p className="mt-2 text-xs text-foreground/70" role="status">
+                        No new detail to save. Nothing was changed.
+                      </p>
+                    ) : null}
+                    {state === "error" ? (
+                      <p className="mt-2 text-xs text-destructive" role="alert">
+                        Saving couldn&apos;t finish. Check Memory before trying again.
+                      </p>
+                    ) : null}
+                  </>
+                )}
+              </div>
+              {!isSaved(item) ? (
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    size="compact"
+                    variant="ghost"
+                    className="h-11 w-11 shrink-0 p-0 text-primary"
+                    aria-label={state === "confirm_sharing" ? "Keep and share" : "Keep"}
+                    aria-describedby={`${descriptionId}-${item.id}`}
+                    disabled={saving}
+                    isLoading={busy}
+                    onClick={() => void keep(item, state === "confirm_sharing")}
+                    data-testid="first-connect-insight-keep"
+                  >
+                    <Check className="size-4 shrink-0" aria-hidden="true" />
+                  </Button>
+                  <Button
+                    size="compact"
+                    className="h-11 w-11 shrink-0 p-0"
+                    variant="ghost"
+                    aria-label="Forget"
+                    aria-describedby={`${descriptionId}-${item.id}`}
+                    disabled={busy}
+                    onClick={() => forget(item)}
+                    data-testid="first-connect-insight-forget"
+                  >
+                    <X className="size-4 shrink-0" aria-hidden="true" />
+                  </Button>
+                </div>
               ) : null}
-              {isSaved(item) ? (
-                <p className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary">
-                  <Check className="h-3.5 w-3.5" aria-hidden="true" />
-                  {state === "already_saved" ? "Already in Memory" : "Kept privately"}
-                </p>
-              ) : (
-                <>
-                  {state === "confirm_sharing" ? (
-                    <p className="mt-2 text-xs text-foreground/70">
-                      This would also update what you share with {recipients[item.id] ?? 1}{" "}
-                      {(recipients[item.id] ?? 1) === 1 ? "person" : "people"}. Keep it anyway?
-                    </p>
-                  ) : null}
-                  {state === "nothing_to_save" ? (
-                    <p className="mt-2 text-xs text-foreground/70" role="status">
-                      No new detail to save. Nothing was changed.
-                    </p>
-                  ) : null}
-                  {state === "error" ? (
-                    <p className="mt-2 text-xs text-destructive" role="alert">
-                      Saving couldn&apos;t finish. Check Memory before trying again.
-                    </p>
-                  ) : null}
-                  <div className="mt-3 grid grid-cols-2 items-stretch gap-2">
-                    <Button
-                      size="compact"
-                      className="h-auto min-h-11 w-full min-w-0 whitespace-normal"
-                      disabled={saving}
-                      isLoading={busy}
-                      onClick={() => void keep(item, state === "confirm_sharing")}
-                      data-testid="first-connect-insight-keep"
-                    >
-                      <span className="inline-flex min-w-0 max-w-full items-center justify-center gap-1.5">
-                        <Check className="size-4 shrink-0" aria-hidden="true" />
-                        <span className="min-w-0 whitespace-normal">{state === "confirm_sharing" ? "Keep and share" : "Keep"}</span>
-                      </span>
-                    </Button>
-                    <Button
-                      size="compact"
-                      className="h-auto min-h-11 w-full min-w-0 whitespace-normal"
-                      variant="secondary"
-                      disabled={busy}
-                      onClick={() => forget(item)}
-                      data-testid="first-connect-insight-forget"
-                    >
-                      <span className="inline-flex min-w-0 max-w-full items-center justify-center gap-1.5">
-                        <X className="size-4 shrink-0" aria-hidden="true" />
-                        <span className="min-w-0 whitespace-normal">Forget</span>
-                      </span>
-                    </Button>
-                  </div>
-                </>
-              )}
             </li>
           );
         })}

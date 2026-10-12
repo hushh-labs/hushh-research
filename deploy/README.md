@@ -222,7 +222,11 @@ packaging the apps. The existing fleet model configuration supplies command
 reasoning. No Live API key, ASR pack, intent-ranker pack, or model-pack registry is
 required by the command path. One Live Voice (Gemini Live on Vertex ADC) is a separate,
 flag-gated adapter: `_ONE_VOICE_LIVE_ENABLED`, `_VERTEX_LIVE_MODEL_ID` and
-`_VERTEX_LIVE_LOCATION` are the only knobs and there is still no API key.
+`_VERTEX_LIVE_LOCATION` pin the model and region, and there is still no API key.
+UAT alone sets `_HUSHH_ONE_VOICE_VERTEX_PROJECT=hussh-511311` so voice sessions,
+their child model calls, and the pre-traffic Live probe use Parth's Vertex
+project. When unset, voice uses `GENAI_GOOGLE_CLOUD_PROJECT` as before;
+production and dev do not set this override.
 
 The model-pack publication workflow is retired. Preserve historical release
 records without treating them as current prerequisites. Follow the

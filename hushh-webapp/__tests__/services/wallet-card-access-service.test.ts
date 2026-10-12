@@ -53,3 +53,22 @@ it("forwards the history cursor without losing cancellation or owner consent", a
   expect(options.signal).toBe(controller.signal);
   expect(options.headers["X-Hushh-Consent"]).toBe(context.vaultOwnerToken);
 });
+
+it("refreshes only the initiating owner's ledger after a confirmed mutation", async () => {
+  const owner = vi.fn(), other = vi.fn();
+  const stop = WalletCardAccessService.subscribe("owner", owner);
+  const stopOther = WalletCardAccessService.subscribe("other", other);
+  await WalletCardAccessService.share(context, "profile_1", ["person_1"], 5, "request_1");
+  expect(owner).toHaveBeenCalledOnce(); expect(other).not.toHaveBeenCalled();
+  mocks.fetch.mockResolvedValueOnce(new Response("offline", { status: 503 }));
+  await expect(WalletCardAccessService.revoke(context, "grant")).rejects.toThrow();
+  expect(owner).toHaveBeenCalledOnce(); stop(); stopOther();
+});
+
+it("passes the final effect fence through the platform transport and never sends vault keys", async () => {
+  await WalletCardAccessService.history(context, { direction: "received", cardType: "profile", cursor: "profile:opaque" });
+  const [path, options] = mocks.fetch.mock.calls[0];
+  expect(path).toContain("direction=received"); expect(path).toContain("cardType=profile");
+  expect(options.isEffectCurrent).toBe(context.isCurrent);
+  expect(JSON.stringify(options)).not.toContain(context.vaultKey);
+});

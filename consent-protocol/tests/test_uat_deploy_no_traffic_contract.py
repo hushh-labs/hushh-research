@@ -416,18 +416,46 @@ def test_one_chat_vertex_override_is_uat_only_and_keeps_fleet_project() -> None:
     assert "##_HUSHH_ONE_CHAT_VERTEX_PROJECT=hussh-511311" in uat_workflow
     assert "_HUSHH_ONE_CHAT_VERTEX_PROJECT=hussh-511311" not in production_workflow
     assert "##_GENAI_PROJECT_ID=hushh-vertex-personal54" in uat_workflow
-    assert 'if [[ -z "${_HUSHH_ONE_CHAT_VERTEX_PROJECT}" ]]; then' in backend_build
+    assert (
+        'if [[ -z "${_HUSHH_ONE_CHAT_VERTEX_PROJECT}" && -z "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" ]]; then'
+        in backend_build
+    )
     assert "|HUSHH_ONE_CHAT_VERTEX_PROJECT=${_HUSHH_ONE_CHAT_VERTEX_PROJECT}|" in backend_build
     assert "HUSHH_MANAGED_VERTEX_PROBE_MODE=${probe_mode}" in backend_build
-    assert "probe_mode=one_chat" in backend_build
+    assert "probe_mode=scoped" in backend_build
     assert 'verdict.get("one_chat_probe_ok") is not True' in backend_build
     assert 'job_name="genai-ready-${BUILD_ID}"' in backend_build
     assert "binding.build_regional_adk_model(model)" in readiness
-    assert '"one_chat_probe_ok": False' in readiness
+    assert '"one_chat_probe_ok": chat_ok' in readiness
     assert (
         "root_agent=build_one_intro_text_agent(vertex_project=_ONE_CHAT_VERTEX_PROJECT),"
         in agent_chat
     )
+
+
+def test_one_voice_vertex_override_is_uat_only_and_probed_before_traffic() -> None:
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    uat_workflow = _read(".github/workflows/deploy-uat.yml")
+    dev_workflow = _read(".github/workflows/deploy-dev.yml")
+    production_workflow = _read(".github/workflows/deploy-production.yml")
+    readiness = _read("consent-protocol/scripts/verify_managed_vertex_runtime.py")
+
+    assert 'case "${_DEPLOY_ENV}:${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" in' in backend_build
+    assert "One voice Vertex target is not allowlisted." in backend_build
+    assert '_HUSHH_ONE_VOICE_VERTEX_PROJECT: ""' in backend_build
+    assert (
+        'add_env "HUSHH_ONE_VOICE_VERTEX_PROJECT" "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}"'
+        in backend_build
+    )
+    assert "one-voice-vertex-project=${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" in backend_build
+    assert "tr -c 'a-z0-9_-' '-' | cut -c1-63" in backend_build
+    assert "one-voice-live-model=${live_model_label}" in backend_build
+    assert "##_HUSHH_ONE_VOICE_VERTEX_PROJECT=hussh-511311" in uat_workflow
+    assert "HUSHH_ONE_VOICE_VERTEX_PROJECT" not in dev_workflow
+    assert "HUSHH_ONE_VOICE_VERTEX_PROJECT" not in production_workflow
+    assert "|HUSHH_ONE_VOICE_VERTEX_PROJECT=${_HUSHH_ONE_VOICE_VERTEX_PROJECT}|" in backend_build
+    assert 'verdict.get("one_voice_probe_ok") is not True' in backend_build
+    assert '"one_voice_project": voice_project or None' in readiness
 
 
 def test_command_deploys_do_not_restore_live_or_model_pack_dependencies() -> None:

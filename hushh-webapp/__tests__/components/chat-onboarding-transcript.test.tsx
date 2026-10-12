@@ -162,6 +162,15 @@ describe("first onboarding message", () => {
 });
 
 describe("onboarding conversation", () => {
+  it("recovers a failed progress read on reconnect without assuming onboarding is complete", async () => {
+    vi.mocked(PreVaultUserStateService.bootstrapState).mockRejectedValueOnce(new Error("Temporary bootstrap failure"));
+    render(<Harness startSignal={false} />);
+    await waitFor(() => expect(PreVaultUserStateService.bootstrapState).toHaveBeenCalledOnce());
+    expect(screen.getByTestId("onboarding-resolved")).toHaveTextContent("false");
+    await act(async () => { window.dispatchEvent(new Event("online")); });
+    await waitFor(() => expect(screen.getByTestId("onboarding-resolved")).toHaveTextContent("true"));
+    expect(PkmWriteCoordinator.saveMergedDomain).not.toHaveBeenCalled();
+  });
   it("holds profile discovery through questions, confirmation, saving and failure, then releases after success", async () => {
     setReducedMotion(true);
     let finishSave!: (value: { saveState: string; success: boolean; fullBlob: object }) => void;

@@ -1,3 +1,4 @@
+import { createRef } from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -39,7 +40,7 @@ vi.mock("@/lib/services/document-payout-service", async (importOriginal) => ({
 
 import { SettingsGroup } from "@/components/app-ui/settings-ui";
 import { DocumentPayoutAccountCard } from "@/components/consent/document-payout-account";
-import { PayoutBankRows } from "@/components/consent/payouts/payout-bank-row";
+import { PayoutBankRows, type PayoutBankActions } from "@/components/consent/payouts/payout-bank-row";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { dispatchPayoutStateChanged } from "@/lib/payouts/payout-events";
 import { ApiError } from "@/lib/services/api-client";
@@ -438,6 +439,29 @@ describe("payout bank rows", () => {
     expect(screen.getByRole("button", { name: "Manage bank, Example Bank •••• 6789" })).toHaveTextContent("Default for deposits");
     // Nothing to do while Stripe reviews, so that row is not a control.
     expect(screen.queryByRole("button", { name: /Verify details/ }) !== null).toBe(actionable);
+  });
+
+  it("lends its own Manage and Verify details to a receipt's next step, with the rows' guards", async () => {
+    const actions = createRef<PayoutBankActions>();
+    state.account.mockResolvedValue({ stripeMode: "live", account: { ...verified, verification: { ...due, state: "in_review" } } });
+    render(<SettingsGroup title="Your money"><PayoutBankRows handleReturn actionsRef={actions} /></SettingsGroup>);
+    expect(await screen.findByText("In review")).toBeVisible();
+    // Nothing to verify while Stripe reviews, so the step opens the bank row's Manage.
+    act(() => { actions.current!.verifyDetails(); });
+    expect(screen.getByRole("button", { name: /^Manage bank/ })).toHaveTextContent("Opening…");
+    // A second tap while it opens does nothing, as on the row.
+    act(() => { actions.current!.manageBank(); });
+    await waitFor(() => expect(assign).toHaveBeenCalledExactlyOnceWith("https://stripe.com/express/acct_owner/login_token"));
+    expect(state.manage).toHaveBeenCalledExactlyOnceWith("owner-token");
+    expect(state.onboard).not.toHaveBeenCalled();
+
+    state.account.mockResolvedValue({ stripeMode: "live", account: { ...verified, verification: due } });
+    act(() => dispatchPayoutStateChanged({ kinds: ["account"], source: "sse" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Verify details/ })).toBeEnabled());
+    act(() => { actions.current!.verifyDetails(); });
+    await waitFor(() => expect(state.onboard).toHaveBeenCalledExactlyOnceWith("owner-token", "verify"));
+    await waitFor(() => expect(assign).toHaveBeenLastCalledWith("https://connect.stripe.com/setup/safe_link"));
+    expect(state.manage).toHaveBeenCalledOnce();
   });
 
   it("shows a failed verify link on its own row and keeps bank management working", async () => {

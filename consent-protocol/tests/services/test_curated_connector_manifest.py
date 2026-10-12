@@ -45,6 +45,13 @@ from hushh_mcp.services.external_mcp_connector_descriptor import (
 
 MANIFESTS = all_manifests()
 REGISTRATION_SPECS = all_registration_specs()
+
+
+@pytest.fixture(autouse=True)
+def uat_environment(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+
+
 # A name that changes data must never be listed as a free read. This is a
 # tripwire on top of the exact-name list and the server's own read-only
 # annotation, not a substitute for reading the tool list.
@@ -243,6 +250,13 @@ class TestEveryManifest:
         else:
             assert manifest.client_secret_env == f"{connector_id.upper()}_OAUTH_CLIENT_SECRET"
             assert manifest.registration_url is None
+
+    def test_production_callback_is_canonical_and_distinct_from_uat(self, connector_id):
+        manifest = MANIFESTS[connector_id]
+        assert manifest.redirect_uris["production"] == (
+            "https://one.hushh.ai/one/profile/connectors/oauth/return",
+        )
+        assert manifest.redirect_uris["production"] != manifest.redirect_uris["uat"]
 
     def test_free_reads_are_a_subset_of_the_allowlist(self, connector_id):
         manifest = MANIFESTS[connector_id]
@@ -445,7 +459,24 @@ def test_an_empty_scope_list_is_valid(raw):
 
 def test_to_descriptor_rejects_an_environment_without_redirects(raw):
     with pytest.raises(CuratedConnectorManifestError, match="redirect addresses"):
-        parse_manifest(raw).to_descriptor("production")
+        parse_manifest(raw).to_descriptor("development")
+
+
+@pytest.mark.parametrize(
+    "uris",
+    [
+        ["https://uat.one.hushh.ai/one/profile/connectors/oauth/return"],
+        ["https://one.hushh.ai/wrong-return"],
+        [
+            "https://one.hushh.ai/one/profile/connectors/oauth/return",
+            "https://unreviewed.example/return",
+        ],
+    ],
+)
+def test_production_rejects_a_noncanonical_redirect(raw, uris):
+    raw["environments"]["production"]["registeredRedirectUris"] = uris
+    with pytest.raises(CuratedConnectorManifestError, match="canonical production web return"):
+        parse_manifest(raw)
 
 
 def test_an_unknown_provider_has_no_manifest_and_no_free_reads():

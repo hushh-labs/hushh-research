@@ -83,3 +83,46 @@ button. Keep that delivery proof separate from reconciliation so routine runs
 cannot create test incidents.
 
 Agent stream failures use the existing redacted terminal-turn telemetry. HTTP-success streams with sustained model, connector, database or execution failures trigger one actionable ERROR policy (0.01 turns/s for five minutes). Refusals, client disconnects and planned restarts do not count. No owner, thread or run identifier becomes a metric label. Both reconcilers preserve existing opening/recovery recipients.
+
+## One Voice provider and latency tracking
+
+The reconciler also owns two distribution log metrics in the **backend deployment
+project** (`hushh-pda-uat` for UAT): `obs_one_voice_latency_ms` for server phases,
+and `obs_one_voice_client_perf_ms` for content-free client samples relayed by the
+backend. Their metric labels are limited to phase or client metric, resolved
+Vertex project, Live model, and Live region. Cloud Run's resource identifies the
+serving revision. Session IDs, turn IDs, prompts, user data, and tool names are
+not metric labels. `vertex_project=hussh-511311` means inference is routed to
+Parth's project; it does **not** mean the logs or dashboard live there.
+
+The managed dashboard plots five-minute, per-revision percentiles for server
+`first_audio` p50/p95 and `tool` p95, plus client `endpointing_client` p95 and
+`audio_receive_to_audible` p95. Server `first_audio` starts at the final input
+transcript; client endpointing happens before that, and client audio-to-audible
+happens after audio reaches the browser. These are different spans. Do not add
+their p95 values and call the sum end-to-end p95. Compare the same phase,
+revision, Vertex project, model, and region before and after a release. Record
+sample counts alongside percentiles; p95 is directional below roughly 100
+observations in a slice. Log-based metrics only count entries ingested after
+their creation, so historical logs remain the baseline source for earlier
+releases. No per-request Live billing labels are emitted, so these metrics
+cannot calculate an exact voice-versus-chat credit split.
+
+After UAT voice tests, run this in Logs Explorer for project `hushh-pda-uat` to
+verify the serving binding and inspect timing rows. Add a
+`resource.labels.revision_name` clause for an exact release slice:
+
+```text
+resource.type="cloud_run_revision"
+resource.labels.service_name="consent-protocol"
+textPayload=~"one_voice[.](provider_binding|latency|client_perf)"
+textPayload=~"provider=vertex_ai vertex_project=hussh-511311 "
+```
+
+For a voice-only rollout, add `--voice-only` to the `reconcile_capacity.py`
+command above. This reconciles the two voice metrics and managed dashboard
+without reading or changing notification channels or alert policies. Run it
+first in plan mode, then with `--apply`, then again in plan mode to require
+`metric unchanged` and `dashboard unchanged`. The dashboard and metrics are
+managed in the backend deployment project; the provider project is only a
+bounded dimension of those observations.

@@ -89,7 +89,7 @@ describe("profile workspace duplication contract", () => {
     expect(payoutsPanel).toContain("<DocumentHashcoinPayouts />");
     expect(payoutsPanel).not.toContain("AnswerPayoutAccount");
     expect(payoutsSource.match(/<(?:PayoutBankRows|DocumentPayoutAccountCard)\b/g)).toEqual(["<PayoutBankRows"]);
-    expect(payoutsSource).toContain("<PayoutBankRows handleReturn onAccountChange={setBank} />");
+    expect(payoutsSource).toContain("<PayoutBankRows handleReturn onAccountChange={setBank} actionsRef={bankActions} />");
     expect(returnHandlingBankControls()).toEqual(["components/consent/document-hashcoins.tsx"]);
     // Search reads the redeem controls' literal ids where Payouts mounts them.
     expect(payoutsSource).toContain('data-voice-control-id="profile_payouts_redeem"');

@@ -123,6 +123,15 @@ steps:
               ;;
           esac
         fi
+        if [[ -n "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" ]]; then
+          case "${_DEPLOY_ENV}:${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" in
+            uat:hussh-511311) ;;
+            *)
+              echo "One voice Vertex target is not allowlisted." >&2
+              exit 1
+              ;;
+          esac
+        fi
         gcloud iam service-accounts describe "${_RUNTIME_SERVICE_ACCOUNT}" \
           --project="$PROJECT_ID" >/dev/null
         vertex_api_name="$(gcloud services list --enabled \
@@ -318,11 +327,19 @@ steps:
         add_env "ANSWER_WORK_DRAIN_AUDIENCE" "${_ANSWER_WORK_DRAIN_AUDIENCE}"
         add_env "KAI_ANALYZE_DURABLE_RUN_STORE" "${_KAI_ANALYZE_DURABLE_RUN_STORE}"
         add_env "HUSHH_ONE_CHAT_VERTEX_PROJECT" "${_HUSHH_ONE_CHAT_VERTEX_PROJECT}"
+        add_env "HUSHH_ONE_VOICE_VERTEX_PROJECT" "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}"
         add_env "CONSENT_WEB_FALLBACK_ENABLED" "${_CONSENT_WEB_FALLBACK_ENABLED}"
         add_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"
 
         env_var_string="$(IFS='|'; echo "${env_vars[*]}")"
         deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID},account-deletion-contract=v201"
+        if [[ -n "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" ]]; then
+          deploy_labels="${deploy_labels},one-voice-vertex-project=${_HUSHH_ONE_VOICE_VERTEX_PROJECT}"
+          if [[ -n "${_VERTEX_LIVE_MODEL_ID}" ]]; then
+            live_model_label="$(printf '%s' "${_VERTEX_LIVE_MODEL_ID}" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_-' '-' | cut -c1-63)"
+            deploy_labels="${deploy_labels},one-voice-live-model=${live_model_label}"
+          fi
+        fi
 
         image_reference="${_IMAGE_REFERENCE}"
         if [[ -z "${image_reference}" ]]; then
@@ -476,11 +493,11 @@ steps:
         case "${_VERIFY_MANAGED_VERTEX_RUNTIME}" in
           true) probe_mode=full ;;
           false)
-            if [[ -z "${_HUSHH_ONE_CHAT_VERTEX_PROJECT}" ]]; then
+            if [[ -z "${_HUSHH_ONE_CHAT_VERTEX_PROJECT}" && -z "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" ]]; then
               echo "Skipping managed Vertex candidate probe: live model checks were not requested."
               exit 0
             fi
-            probe_mode=one_chat
+            probe_mode=scoped
             ;;
           *)
             echo "_VERIFY_MANAGED_VERTEX_RUNTIME must be true or false." >&2
@@ -513,7 +530,7 @@ steps:
           --clear-secrets \
           --command="python3" \
           --args="scripts/verify_managed_vertex_runtime.py" \
-          --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}|HUSHH_ONE_CHAT_VERTEX_PROJECT=${_HUSHH_ONE_CHAT_VERTEX_PROJECT}|HUSHH_MANAGED_VERTEX_PROBE_MODE=${probe_mode}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}|ONE_VOICE_LIVE_ENABLED=${_ONE_VOICE_LIVE_ENABLED}|VERTEX_LIVE_MODEL_ID=${_VERTEX_LIVE_MODEL_ID}|VERTEX_LIVE_LOCATION=${_VERTEX_LIVE_LOCATION}" \
+          --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}|HUSHH_ONE_CHAT_VERTEX_PROJECT=${_HUSHH_ONE_CHAT_VERTEX_PROJECT}|HUSHH_ONE_VOICE_VERTEX_PROJECT=${_HUSHH_ONE_VOICE_VERTEX_PROJECT}|HUSHH_MANAGED_VERTEX_PROBE_MODE=${probe_mode}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}|ONE_VOICE_LIVE_ENABLED=${_ONE_VOICE_LIVE_ENABLED}|VERTEX_LIVE_MODEL_ID=${_VERTEX_LIVE_MODEL_ID}|VERTEX_LIVE_LOCATION=${_VERTEX_LIVE_LOCATION}" \
           --max-retries=0 \
           --task-timeout=90s \
           --quiet
@@ -525,7 +542,7 @@ steps:
           --quiet
         execute_status=$?
         set -e
-        if [[ "${execute_status}" -eq 0 && -z "${_HUSHH_ONE_CHAT_VERTEX_PROJECT}" ]] \
+        if [[ "${execute_status}" -eq 0 && -z "${_HUSHH_ONE_CHAT_VERTEX_PROJECT}" && -z "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" ]] \
            && [[ "${_DEPLOY_ENV}" != "production" || "${_ONE_VOICE_LIVE_ENABLED}" != "true" ]]; then
           echo "Managed Vertex candidate probe passed."
           exit 0
@@ -607,6 +624,26 @@ steps:
             raise SystemExit("One chat Vertex target did not pass its runtime-identity probe")
         PY
         fi
+        if [[ -n "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" ]]; then
+          PROBE_LINE="${probe_line}" EXPECTED_VOICE_PROJECT="${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" EXPECTED_VOICE_MODEL="${_VERTEX_LIVE_MODEL_ID}" EXPECTED_VOICE_LOCATION="${_VERTEX_LIVE_LOCATION}" python3 - <<'PY'
+        import json
+        import os
+
+        line = os.environ.get("PROBE_LINE", "")
+        marker = "managed_vertex_probe_result"
+        try:
+            verdict = json.loads(line.split(marker, 1)[1].strip())
+        except (IndexError, json.JSONDecodeError):
+            raise SystemExit("One voice Vertex readiness verdict is missing") from None
+        if (
+            verdict.get("one_voice_project") != os.environ["EXPECTED_VOICE_PROJECT"]
+            or verdict.get("live_model") != os.environ["EXPECTED_VOICE_MODEL"]
+            or verdict.get("live_location") != os.environ["EXPECTED_VOICE_LOCATION"]
+            or verdict.get("one_voice_probe_ok") is not True
+        ):
+            raise SystemExit("One voice Vertex target did not pass its runtime-identity probe")
+        PY
+        fi
         if [[ "${execute_status}" -eq 0 ]]; then
           echo "Managed Vertex candidate probe passed."
           exit 0
@@ -648,6 +685,7 @@ substitutions:
   _RUNTIME_SERVICE_ACCOUNT: ""
   _GENAI_PROJECT_ID: ""
   _HUSHH_ONE_CHAT_VERTEX_PROJECT: ""
+  _HUSHH_ONE_VOICE_VERTEX_PROJECT: ""
   _REGION: us-central1
   _CLOUDSQL_INSTANCES: ""
   _VPC_CONNECTOR: ""

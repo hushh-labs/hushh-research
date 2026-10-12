@@ -1,4 +1,4 @@
-# Ship Android to Google Play production
+# Ship Android to Google Play
 
 Release authority, exact-SHA proof, branch restoration, and terminal monitoring follow the
 [canonical Admin release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md).
@@ -13,21 +13,22 @@ Canonical visual owner: [Mobile Guide](../mobile.md).
 One manual dispatch cuts a Hussh One Android App Bundle (`.aab`) from an explicitly selected green
 `main` SHA, builds the Capacitor app against the **UAT backend + shared Firebase authority**,
 signs it with the **existing Android Release Upload Keystore**, and uploads it directly to the
-**Google Play production track**.
+selected **Google Play production or internal testing track**. Production remains the default;
+select `internal` explicitly when releasing to testers alongside TestFlight.
 
 - **Workflow:** `.github/workflows/ship-android-playstore-v1.yml` (`workflow_dispatch`).
 - **CLI Dispatcher:** `node scripts/release/dispatch-android-playstore.mjs` (or `npm run android:release:playstore`).
 - **Runner:** GitHub-hosted `ubuntu-latest`.
-- **Target:** package `com.hussh.app` (Android only — iOS remains `com.hushh.app`), Google Play production track. The binary talks to the **UAT backend** (`hushh-pda-uat`); the production backend (`hushh-pda`) is never read or targeted by this lane.
+- **Target:** package `com.hussh.app` (Android only — iOS remains `com.hushh.app`), selected Google Play track. The binary talks to the **UAT backend** (`hushh-pda-uat`); the production backend (`hushh-pda`) is never read or targeted by this lane.
 - **Secret custody:** routing, signing, Play service-account, and native/shared Firebase material all live in `hushh-pda-uat` Secret Manager. The native `google-services.json` is cross-checked against the web Firebase identity before the build.
-- **Cadence:** operator-initiated, roughly twice per week when a release is warranted. There is no cron trigger and no internal, closed, open, alpha, or beta upload mode in this workflow.
+- **Cadence:** operator-initiated when a release is warranted. There is no cron trigger; only `production` and `internal` tracks are supported.
 
 This is the Android equivalent of the iOS App Store workflow with `backend_target=uat` (latest
 frontend + latest backend, matching UAT). A store binary that talks to UAT is an intentional product
-contract, not credential reuse: the Play production track is the upload target, UAT is the runtime.
+contract, not credential reuse: the selected Play track is the upload target, UAT is the runtime.
 The job runs in the `uat` GitHub environment because that environment carries the UAT workload
 identity needed to read the UAT backend revision and secrets; dispatch authority is still the
-stricter `production.manual_dispatch_users` list.
+stricter `production.manual_dispatch_users` list for either track.
 
 ## Version Cadence & Monotonic versionCode
 
@@ -123,17 +124,19 @@ base64 -i service-account-key.json \
 ```bash
 npm run android:release:playstore -- --dry-run  # query Play + build/sign/verify; no upload
 npm run android:release:playstore                # live upload to the Play production track
+npm run android:release:playstore -- --track internal --dry-run # verify an internal build
+npm run android:release:playstore -- --track internal # live upload for internal testers
 ```
 
 The dispatcher refreshes `origin/main`, shows the exact SHA/environment/package/track, and requires
-typing `dry run` or `release production`. Live confirmation cannot be bypassed with a non-interactive
+typing `dry run`, `release production`, or `release internal` for the selected mode. Live confirmation cannot be bypassed with a non-interactive
 flag. It watches and verifies the exact run ID returned by GitHub.
 
 ### Option B: GitHub Actions UI
 
 1. Open repository on GitHub $\rightarrow$ **Actions** $\rightarrow$ **Ship Android to Google Play Store**.
-2. First run with **dry_run** enabled and inspect every gate.
-3. For a live release, re-run the exact green SHA with **dry_run** disabled. The upload target is always the Play production track; the runtime is always UAT.
+2. Select **track** (`production` or `internal`), first run with **dry_run** enabled, and inspect every gate.
+3. For a live release, re-run the same track and exact green SHA with **dry_run** disabled. The runtime is always UAT.
 
 ## Contacts: the Data safety declaration, and the April 2026 policy
 

@@ -34,7 +34,7 @@ import {
   RedemptionReceiptSections,
   type OpenLinkedItem,
 } from "./receipt-sections";
-import { useOpenerFocus } from "./receipt-ui";
+import { useOpenerFocus, type PayoutReceiptAction } from "./receipt-ui";
 
 export type PayoutReceiptSheetProps = {
   /**
@@ -45,6 +45,11 @@ export type PayoutReceiptSheetProps = {
   onOpenChange: (open: boolean) => void;
   /** The row came from test activity: label it, so it never reads as real money. */
   test?: boolean;
+  /**
+   * Takes a review's next step on Payouts ("Update your bank", "Verify
+   * details"). The receipt closes first. Without it, the step only reads.
+   */
+  onAction?: (action: PayoutReceiptAction) => void;
 };
 
 type ReceiptState = { key: string; receipt: PayoutReceipt | null; failed: boolean; missing: boolean };
@@ -148,7 +153,7 @@ export function PayoutReceiptSheet(props: PayoutReceiptSheetProps) {
   return <ReceiptSheet {...props} ancestors={NO_ANCESTORS} />;
 }
 
-function ReceiptSheet({ itemId, onOpenChange, test = false, ancestors }: PayoutReceiptSheetProps & { ancestors: readonly string[] }) {
+function ReceiptSheet({ itemId, onOpenChange, test = false, onAction, ancestors }: PayoutReceiptSheetProps & { ancestors: readonly string[] }) {
   const { receipt, failed, missing, loading, retry } = usePayoutReceipt(itemId);
   const parsed = parsePayoutActivityItemId(itemId);
   // A linked receipt opens over this one; Back closes it first.
@@ -163,6 +168,8 @@ function ReceiptSheet({ itemId, onOpenChange, test = false, ancestors }: PayoutR
     setLinked({ parent: itemId, id });
   });
   const header = receipt ? receiptHeader(receipt, test) : null;
+  // A next step leaves the receipt: it closes (and any receipt beneath it) before Payouts acts.
+  const takeStep = onAction ? (action: PayoutReceiptAction) => { onOpenChange(false); onAction(action); } : undefined;
   return (
     <AdaptiveDetailSurface
       open={itemId !== null}
@@ -184,13 +191,13 @@ function ReceiptSheet({ itemId, onOpenChange, test = false, ancestors }: PayoutR
               <Button type="button" size="compact" variant="none" effect="fade" onClick={retry}>Retry</Button>
             </div>
           ) : null}
-          {receipt?.kind === "earning" ? <EarningReceiptSections receipt={receipt} openItem={openItem} /> : null}
-          {receipt?.kind === "redemption" ? <RedemptionReceiptSections receipt={receipt} openItem={openItem} /> : null}
-          {receipt?.kind === "deposit" ? <DepositReceiptSections receipt={receipt} openItem={openItem} /> : null}
+          {receipt?.kind === "earning" ? <EarningReceiptSections receipt={receipt} openItem={openItem} onAction={takeStep} /> : null}
+          {receipt?.kind === "redemption" ? <RedemptionReceiptSections receipt={receipt} openItem={openItem} onAction={takeStep} /> : null}
+          {receipt?.kind === "deposit" ? <DepositReceiptSections receipt={receipt} openItem={openItem} onAction={takeStep} /> : null}
           {receipt?.kind === "adjustment" ? <AdjustmentReceiptSections receipt={receipt} openItem={openItem} /> : null}
         </div>
       </SettingsPresentationProvider>
-      <ReceiptSheet itemId={linkedId} test={test} ancestors={chain}
+      <ReceiptSheet itemId={linkedId} test={test} ancestors={chain} onAction={takeStep}
         onOpenChange={(open) => { if (!open) { setLinked(null); opener.restore(); } }} />
     </AdaptiveDetailSurface>
   );

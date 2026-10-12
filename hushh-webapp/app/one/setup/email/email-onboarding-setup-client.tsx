@@ -217,7 +217,7 @@ export function EmailOnboardingSetupClient() {
       as="main"
       width="reading"
       headerContentSpacing="compact"
-      className="space-y-4 pb-[calc(var(--app-bottom-inset)+1rem)]"
+      className="pb-[calc(var(--app-bottom-inset)+1rem)]"
       nativeTest={{
         routeId: "/one/setup/email",
         marker: "native-route-one-setup-email",

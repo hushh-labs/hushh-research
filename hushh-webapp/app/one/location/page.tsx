@@ -14651,6 +14651,7 @@ export function OneLocationAgentPageContent({
     return (
       <AppPageShell
         width="agent"
+        headerContentSpacing="compact"
         fitContent
         className="relative isolate [--app-page-content-bottom-gap:0px]"
         nativeTest={nativeTestConfig}

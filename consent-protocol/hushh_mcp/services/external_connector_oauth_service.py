@@ -142,6 +142,13 @@ class ExternalConnectorOAuthService:
             )
         operator_connector = await self._registry.get_connector(connector_id)
         if _is_operator_owned(operator_connector):
+            from hushh_mcp.services.external_connector_curated_oauth import (
+                CuratedConnectorOAuthError,
+                is_curated_oauth_connector,
+            )
+
+            if not is_curated_oauth_connector(operator_connector):
+                raise CuratedConnectorOAuthError("connector_unavailable", status_code=503)
             return await self.curated().start(
                 connector_id=connector_id, user_id=user_id, redirect_uri=redirect_uri, flow=flow
             )

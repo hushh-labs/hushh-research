@@ -95,8 +95,23 @@ vi.mock("@/components/app-ui/settings-ui", () => ({
     </div>
   ),
 }));
+vi.mock("@/components/vault/vault-unlock-dialog", () => ({
+  VaultUnlockDialog: ({ open, onSuccess, onOpenChange, allowVaultCreation }: {
+    open: boolean;
+    onSuccess: () => void;
+    onOpenChange: (open: boolean) => void;
+    allowVaultCreation: boolean;
+  }) => open ? (
+    <div role="dialog" aria-label="Requester unlock" data-allow-creation={String(allowVaultCreation)}>
+      <button onClick={() => { m.unlocked = true; m.epoch++; onSuccess(); }}>Unlock fixture</button>
+      <button onClick={() => onOpenChange(false)}>Close unlock</button>
+    </div>
+  ) : null,
+}));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 import { AnswerRequestCard } from "@/components/consent/answer-request-card";
 const REQUEST = "11111111-2222-3333-4444-555555555555";
+const OTHER_REQUEST = "22222222-3333-4444-8555-666666666666";
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => {
@@ -121,15 +136,17 @@ beforeEach(() => {
   m.payment.mockResolvedValue({
     requestStatus: "answered",
     orderStatus: "paid",
+    preparationStatus: "ready",
+    reconciliationRequired: false,
     amountCents: 1000,
     answerDeadlineHours: 72,
   });
   m.answer.mockResolvedValue({ recipientKeyId: "fixture-envelope" });
-  m.decrypt.mockResolvedValue({ answer: "SYNTHETIC_ANSWER" });
+  m.decrypt.mockResolvedValue({ version: 1, answerMode: "agent", answer: "SYNTHETIC_ANSWER", memory: "INTERNAL_DEBUG" });
   m.sweep.mockResolvedValue({ delivered: 1, empty: 0 });
 });
-afterEach(cleanup);
-it.each(["lock", "owner"])(
+afterEach(() => { cleanup(); vi.useRealTimers(); });
+it.each(["lock", "owner", "request"])(
   "does not decrypt when %s changes while an envelope is pending",
   async (change) => {
     const read = deferred<unknown>();
@@ -137,10 +154,10 @@ it.each(["lock", "owner"])(
     const view = render(<AnswerRequestCard requestId={REQUEST} />);
     fireEvent.click(await screen.findByRole("button", { name: "Open answer" }));
     await waitFor(() => expect(m.answer).toHaveBeenCalledTimes(1));
-    m.epoch++;
+    if (change !== "request") m.epoch++;
     if (change === "lock") m.unlocked = false;
-    else m.uid = "owner-b";
-    view.rerender(<AnswerRequestCard requestId={REQUEST} />);
+    else if (change === "owner") m.uid = "owner-b";
+    view.rerender(<AnswerRequestCard requestId={change === "request" ? OTHER_REQUEST : REQUEST} />);
     await act(async () => {
       read.resolve({ recipientKeyId: "fixture-envelope" });
       await read.promise;
@@ -210,6 +227,8 @@ it("shows the price but no Pay control while payments are paused", async () => {
   m.payment.mockResolvedValue({
     requestStatus: "approved",
     orderStatus: "awaiting_payment",
+    preparationStatus: "ready",
+    reconciliationRequired: false,
     amountCents: 1000,
     answerDeadlineHours: 72,
   });
@@ -236,10 +255,135 @@ it("still offers Pay when payments are on", async () => {
   m.payment.mockResolvedValue({
     requestStatus: "approved",
     orderStatus: "awaiting_payment",
+    preparationStatus: "ready",
+    reconciliationRequired: false,
     amountCents: 1000,
     answerDeadlineHours: 72,
   });
   render(<AnswerRequestCard requestId={REQUEST} />);
   expect(await screen.findByRole("button", { name: /^Pay /})).toBeVisible();
   expect(screen.queryByText(/not switched on here yet/)).toBeNull();
+});
+
+
+it.each(["preparing", "empty", undefined])(
+  "does not offer payment without a nonempty completed staged answer (%s)",
+  async (preparationStatus) => {
+    m.state.mockResolvedValue({ role: "requester", requestStatus: "approved", question: "Fixture question" });
+    m.payment.mockResolvedValue({ requestStatus: "approved", orderStatus: "awaiting_payment",
+      amountCents: 1000, preparationStatus, reconciliationRequired: false });
+    render(<AnswerRequestCard requestId={REQUEST} />);
+    await screen.findByRole("button", { name: "Refresh question" });
+    expect(screen.queryByRole("button", { name: /^Pay / })).toBeNull();
+    expect(m.checkout).not.toHaveBeenCalled();
+    if (preparationStatus === "empty") {
+      expect(screen.getByRole("status")).toHaveTextContent("does not contain an answer");
+    } else {
+      expect(screen.getByRole("status")).toHaveTextContent("being prepared");
+      expect(screen.getByRole("status")).not.toHaveTextContent("does not contain an answer");
+    }
+  },
+);
+
+it("retries a failed requester status read without treating it as an absent answer", async () => {
+  m.payment.mockRejectedValueOnce(new Error("temporary status failure"));
+  render(<AnswerRequestCard requestId={REQUEST} />);
+  expect(await screen.findByText(/Payment status could not be checked/)).toBeVisible();
+  expect(screen.queryByText(/does not contain an answer/)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Refresh question" }));
+  expect(await screen.findByRole("button", { name: "Open answer" })).toBeVisible();
+  expect(m.payment).toHaveBeenCalledTimes(2);
+});
+
+it("keeps retrying paid preparation through a status failure until the answer arrives", async () => {
+  vi.useFakeTimers();
+  const answering = { role: "requester", requestStatus: "answering", question: "Fixture question" };
+  m.state.mockResolvedValueOnce(answering).mockResolvedValueOnce(answering);
+  m.payment
+    .mockResolvedValueOnce({ requestStatus: "answering", orderStatus: "paid", preparationStatus: "ready",
+      reconciliationRequired: false, amountCents: 1000 })
+    .mockRejectedValueOnce(new Error("temporary status failure"));
+  render(<AnswerRequestCard requestId={REQUEST} />);
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(screen.getByRole("status")).toHaveTextContent("Paid");
+  expect(screen.queryByRole("button", { name: "Open answer" })).toBeNull();
+  await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+  expect(screen.getByText(/Payment status could not be checked/)).toBeVisible();
+  await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+  expect(screen.getByRole("button", { name: "Open answer" })).toBeVisible();
+  expect(m.payment).toHaveBeenCalledTimes(3);
+});
+
+it("renders the purchased answer as readable Markdown and excludes internal envelope records", async () => {
+  m.decrypt.mockResolvedValue({ version: 1, answerMode: "agent",
+    answer: "## Your answer\n\nYour age is **32**.",
+    memory: "INTERNAL_MEMORY_DEBUG", approvedInformation: { age: 32, internal: "INTERNAL_SCOPE_DEBUG" },
+    sourceRevisions: { identity: 7 } });
+  const view = render(<AnswerRequestCard requestId={REQUEST} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Open answer" }));
+  expect(await screen.findByRole("heading", { name: "Your answer" })).toBeVisible();
+  expect(screen.getByText("32", { selector: "strong" })).toBeVisible();
+  expect(view.container).not.toHaveTextContent("INTERNAL_MEMORY_DEBUG");
+  expect(view.container).not.toHaveTextContent("INTERNAL_SCOPE_DEBUG");
+  expect(view.container).not.toHaveTextContent("approvedInformation");
+  expect(view.container).not.toHaveTextContent("sourceRevisions");
+});
+
+it("requires requester unlock and resumes the selected answer with the new session", async () => {
+  m.unlocked = false;
+  const view = render(<AnswerRequestCard requestId={REQUEST} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Open answer" }));
+  expect(screen.getByRole("dialog", { name: "Requester unlock" })).toHaveAttribute("data-allow-creation", "false");
+  expect(m.answer).not.toHaveBeenCalled();
+  expect(m.decrypt).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Unlock fixture" }));
+  view.rerender(<AnswerRequestCard requestId={REQUEST} />);
+  expect(await screen.findByText("SYNTHETIC_ANSWER")).toBeVisible();
+  expect(m.answer).toHaveBeenCalledWith("fixture-id-token", REQUEST);
+  expect(m.decrypt).toHaveBeenCalledWith({ userId: "owner-a", envelope: { recipientKeyId: "fixture-envelope" } });
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+it.each(["close", "owner", "request"])("drops a pending requester open on %s before unlock", async (change) => {
+  m.unlocked = false;
+  const view = render(<AnswerRequestCard requestId={REQUEST} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Open answer" }));
+  if (change === "close") fireEvent.click(screen.getByRole("button", { name: "Close unlock" }));
+  if (change === "owner") { m.uid = "owner-b"; m.epoch++; }
+  const nextRequest = change === "request" ? OTHER_REQUEST : REQUEST;
+  view.rerender(<AnswerRequestCard requestId={nextRequest} />);
+  m.unlocked = true;
+  m.epoch++;
+  view.rerender(<AnswerRequestCard requestId={nextRequest} />);
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(m.answer).not.toHaveBeenCalled();
+  expect(m.decrypt).not.toHaveBeenCalled();
+  expect(screen.queryByText("SYNTHETIC_ANSWER")).toBeNull();
+});
+
+it("does not decrypt an old request after the selection changes during authentication", async () => {
+  const view = render(<AnswerRequestCard requestId={REQUEST} />);
+  await screen.findByRole("button", { name: "Open answer" });
+  const token = deferred<string>();
+  m.token.mockReturnValueOnce(token.promise);
+  fireEvent.click(screen.getByRole("button", { name: "Open answer" }));
+  view.rerender(<AnswerRequestCard requestId={OTHER_REQUEST} />);
+  await act(async () => { token.resolve("fixture-id-token"); await token.promise; });
+  expect(m.answer).not.toHaveBeenCalled();
+  expect(m.decrypt).not.toHaveBeenCalled();
+});
+
+
+it("does not publish decrypted plaintext from the previous question after selection changes", async () => {
+  const decrypted = deferred<unknown>();
+  m.decrypt.mockReturnValueOnce(decrypted.promise);
+  const view = render(<AnswerRequestCard requestId={REQUEST} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Open answer" }));
+  await waitFor(() => expect(m.decrypt).toHaveBeenCalledTimes(1));
+  view.rerender(<AnswerRequestCard requestId={OTHER_REQUEST} />);
+  await act(async () => {
+    decrypted.resolve({ version: 1, answerMode: "agent", answer: "OLD_QUESTION_ANSWER" });
+    await decrypted.promise;
+  });
+  expect(screen.queryByText("OLD_QUESTION_ANSWER")).toBeNull();
 });

@@ -38,6 +38,7 @@ it("appends the next page on scroll and suppresses duplicate rows", async () => 
  render(<WalletSavedCardSharing card={card} getContext={getContext} disabled={false} />);
  await screen.findByText("Person 1");
  mocks.state.mockResolvedValue({ eligible: true, grants: [grant("1"), grant("2")], nextCursor: null, hasMore: false });
+ await waitFor(() => expect(mocks.observe).toHaveBeenCalled());
  await act(async () => intersect([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver));
  await screen.findByText("Person 2");
  expect(screen.getAllByText("Person 1")).toHaveLength(1);

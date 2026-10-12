@@ -86,7 +86,7 @@ async def paid(engine):
 
 
 async def test_overlapping_checkout_reuses_durable_attempt_and_parameters(answer_engine):
-    _, request, _ = await _approved(answer_engine)
+    _, request, _ = await _approved(answer_engine, prepared=True)
     entered = threading.Event()
     release = threading.Event()
     calls = []
@@ -130,7 +130,7 @@ async def test_overlapping_checkout_reuses_durable_attempt_and_parameters(answer
 
 
 async def test_lost_checkout_response_recovers_same_provider_session(answer_engine):
-    _, request, _ = await _approved(answer_engine)
+    _, request, _ = await _approved(answer_engine, prepared=True)
     api = Mock()
     seen = []
 
@@ -396,7 +396,7 @@ async def test_expand_only_rollback_preserves_financial_recovery_bindings(answer
 async def test_checkout_creation_does_not_advertise_session_after_authority_ends(
     answer_engine, end_authority
 ):
-    requests, request, _ = await _approved(answer_engine)
+    requests, request, _ = await _approved(answer_engine, prepared=True)
     entered = threading.Event()
     release = threading.Event()
     api = Mock()
@@ -430,7 +430,7 @@ async def test_checkout_creation_does_not_advertise_session_after_authority_ends
 async def test_direct_checkout_refuses_unapproved_composer_before_provider(
     answer_engine, monkeypatch
 ):
-    _, request, _ = await _approved(answer_engine)
+    _, request, _ = await _approved(answer_engine, prepared=True)
     monkeypatch.setenv("PKM_ANSWER_COMPOSER_ENABLED", "false")
     api = Mock()
     with pytest.raises(AnswerPaymentError, match="composer_not_enabled"):
@@ -509,7 +509,7 @@ async def test_existing_feed_status_projection_and_rollback(answer_engine):
 
 
 async def test_recovered_expired_checkout_never_advertises_stale_url(answer_engine):
-    _, request, _ = await _approved(answer_engine)
+    _, request, _ = await _approved(answer_engine, prepared=True)
     api = Mock()
     api.checkout.Session.create.return_value = {
         "id": "cs_expired",
@@ -564,13 +564,26 @@ async def test_answer_center_role_status_isolation_and_single_row_per_request(an
             assert entry["metadata"]["request_status"] == status
             assert entry["scope"] is None
             assert entry["action"] == "ANSWER_REQUEST_REVIEW"
+            # A closed set: this row reaches both participants, so a field
+            # added here is a field disclosed to both.
             assert set(entry["metadata"]) == {
                 "request_source",
                 "role",
                 "direction",
                 "request_status",
                 "payment_status",
+                "question",
+                "amount_cents",
+                "proposed_scope_count",
+                "answer_staged",
+                "answer_has_content",
             }
+            # The Feed names the price and the question before the tap, so it
+            # does not fetch one request per row. Both participants already
+            # read these through /state and /payment.
+            assert entry["metadata"]["question"] == "How much did you spend on travel last year?"
+            assert isinstance(entry["metadata"]["proposed_scope_count"], int)
+            assert entry["metadata"]["proposed_scope_count"] >= 0
         assert all(not entries for entries in (await center.collect("unrelated-account")).values())
     with answer_engine.begin() as c:
         c.execute(
