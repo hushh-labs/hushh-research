@@ -1,5 +1,7 @@
 "use client";
 
+import { ONE_AGENT_SHELL_SPACING } from "@/lib/design/one-agent-spacing";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { usePathname } from "next/navigation";
@@ -2074,7 +2076,7 @@ export default function GmailReceiptsPage({
     <AppPageShell
       as="div"
       width={journeyVariant === "workspace" ? "agent" : "reading"}
-      className="pb-[calc(var(--app-bottom-fixed-ui,96px)+1.5rem)]"
+      className={ONE_AGENT_SHELL_SPACING}
       nativeTest={{
         routeId:
           journeyVariant === "workspace"

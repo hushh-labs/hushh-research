@@ -1,5 +1,7 @@
 "use client";
 
+import { ONE_AGENT_SHELL_SPACING } from "@/lib/design/one-agent-spacing";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { CheckCircle2, Loader2 } from "@/components/icons";
@@ -536,7 +538,7 @@ export function CalendarAgentPage({
   return (
     <AppPageShell
       width="reading"
-      className={CALENDAR_SETUP_SHELL_CLASSNAME}
+      className={`${CALENDAR_SETUP_SHELL_CLASSNAME} ${ONE_AGENT_SHELL_SPACING}`}
       nativeTest={{
         routeId: ROUTES.CALENDAR,
         marker: "native-route-calendar",

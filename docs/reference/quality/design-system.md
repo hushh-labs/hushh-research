@@ -395,3 +395,17 @@ visible range, and current-page status with its page-jump controls. The shared
 bottom ambient material stays inside the measured fixed chrome footprint; its
 blur is clipped by the same edge dissolve as the tint and must never extend over
 the final route component.
+
+## One agent workspace spacing
+
+Ordinary `/one` pages inherit the spacing through the existing app-shell
+content marker in `app/providers.tsx`; full-screen routes, Location, Wallet
+and Messages are excluded. Individual agent workspaces can also opt into
+`one-agent-shell-spacing`, declared in
+`hushh-webapp/app/globals.css` and selected through
+`hushh-webapp/lib/design/one-agent-spacing.ts`. Location is the visual reference:
+section spacing is 6px below 640px and 14px above it; ordinary card padding
+uses 12px and action grids use 10px gaps. Existing responsive page gutters
+remain 16/20/24/28px. Page widths, typography, radii, centered setup geometry,
+full-screen maps and message-pane geometry retain their existing owners.
+Wallet already matches the Location outer rhythm and needs no override.

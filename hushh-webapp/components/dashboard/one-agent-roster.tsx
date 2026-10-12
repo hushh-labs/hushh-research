@@ -1,5 +1,7 @@
 "use client";
 
+import { ONE_AGENT_CARD_PADDING, ONE_AGENT_ACTION_GAP } from "@/lib/design/one-agent-spacing";
+
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -714,7 +716,7 @@ export function OneAgentRoster({
       // content can ever occupy. See components/calendar/calendar-agent-page-layout.ts.
       className="mx-auto w-full max-w-[720px]"
     >
-      <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="mb-1.5 flex items-center justify-between gap-2.5 sm:mb-3.5">
         <PageTitle
           as="h1"
           id="one-agents-heading"
@@ -756,11 +758,11 @@ export function OneAgentRoster({
         {view === "grid" ? (
           <div
             data-testid="one-agents-grid"
-            className="overflow-hidden rounded-[20px] border border-[rgba(60,60,67,.10)] bg-white/95 p-3.5 shadow-[0_16px_42px_-28px_rgba(0,0,0,.12)] dark:border-white/[0.1] dark:bg-[#0A0A0C] dark:shadow-[0_12px_40px_-20px_rgba(0,0,0,0.85)] sm:p-[18px]"
+            className={`overflow-hidden rounded-[20px] border border-[rgba(60,60,67,.10)] bg-white/95 ${ONE_AGENT_CARD_PADDING} shadow-[0_16px_42px_-28px_rgba(0,0,0,.12)] dark:border-white/[0.1] dark:bg-[#0A0A0C] dark:shadow-[0_12px_40px_-20px_rgba(0,0,0,0.85)]`}
           >
             <div
               data-agent-roster-layout="grouped-icon-grid"
-              className="grid w-full grid-cols-[repeat(3,minmax(80px,1fr))] justify-center gap-x-2 gap-y-5 min-[430px]:grid-cols-[repeat(3,minmax(96px,1fr))] sm:gap-x-3 sm:gap-y-6"
+              className={`grid w-full grid-cols-[repeat(3,minmax(80px,1fr))] justify-center ${ONE_AGENT_ACTION_GAP} min-[430px]:grid-cols-[repeat(3,minmax(96px,1fr))]`}
             >
               {visibleModes.map((mode) => (
                 <AgentGridItem key={mode.id} mode={mode} />

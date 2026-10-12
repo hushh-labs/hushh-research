@@ -1,5 +1,7 @@
 "use client";
 
+import { ONE_AGENT_SHELL_SPACING, ONE_AGENT_SECTION_SPACING } from "@/lib/design/one-agent-spacing";
+
 import { useCallback } from "react";
 import { CheckCircle2, Mail } from "@/components/icons";
 import { useRouter } from "next/navigation";
@@ -59,7 +61,7 @@ export function EmailAgentPageClient() {
       // subtracts the bar turns the rest into empty travel. No pb- either: the
       // scroll root already owns the bottom bars.
       // Canonical idiom: components/calendar/calendar-agent-page-layout.ts:48.
-      className="min-h-[calc(100dvh-var(--app-top-content-offset,6rem)-var(--app-bottom-content-clearance,7rem))]"
+      className={`min-h-[calc(100dvh-var(--app-top-content-offset,6rem)-var(--app-bottom-content-clearance,7rem))] ${ONE_AGENT_SHELL_SPACING}`}
       nativeTest={{
         routeId: ROUTES.EMAIL_AGENT,
         marker: "native-route-email-agent",
@@ -76,14 +78,14 @@ export function EmailAgentPageClient() {
       <AppPageContentRegion>
         <SurfaceStack compact>
           {authLoading || gmail.loadingStatus ? (
-            <SurfaceInset aria-busy="true" aria-label="Loading Mail connection" className="space-y-4 px-4 py-5 sm:px-5">
+            <SurfaceInset aria-busy="true" aria-label="Loading Mail connection" className={`p-3 ${ONE_AGENT_SECTION_SPACING}`}>
               <Skeleton className="h-4 w-28" />
               <Skeleton className="h-7 w-44" />
               <Skeleton className="h-4 w-full" />
               <Skeleton className="h-10 w-44" />
             </SurfaceInset>
           ) : connected ? (
-            <SurfaceInset className="space-y-4 px-4 py-5 sm:px-5">
+            <SurfaceInset className={`p-3 ${ONE_AGENT_SECTION_SPACING}`}>
               <div className="flex items-start gap-3">
                 <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" aria-hidden />
                 <div className="space-y-1">
@@ -98,7 +100,7 @@ export function EmailAgentPageClient() {
               </AskOneButton>
             </SurfaceInset>
           ) : (
-            <SurfaceInset className="space-y-4 px-4 py-5 sm:px-5">
+            <SurfaceInset className={`p-3 ${ONE_AGENT_SECTION_SPACING}`}>
               <div className="flex items-start gap-3">
                 <Mail className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
                 <div className="space-y-1">

@@ -1,5 +1,7 @@
 "use client";
 
+import { ONE_AGENT_SECTION_SPACING, ONE_AGENT_SHELL_SPACING } from "@/lib/design/one-agent-spacing";
+
 import { useEffect, useRef, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 
@@ -112,7 +114,7 @@ export function PkmSettingsShell({
   }, [pathname]);
 
   return (
-    <AppPageShell as="div" width={shellWidth}>
+    <AppPageShell as="div" width={shellWidth} className={ONE_AGENT_SHELL_SPACING}>
       <AppPageHeaderRegion>
         <div className={cn("w-full", innerClassName)}>
           <PageHeader
@@ -127,7 +129,7 @@ export function PkmSettingsShell({
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
-        <div ref={shellRef} className={cn("w-full space-y-4", innerClassName)}>
+        <div ref={shellRef} className={cn("w-full", ONE_AGENT_SECTION_SPACING, innerClassName)}>
           <div data-pkm-detail-panel="true" data-pkm-workspace={pathname === ROUTES.PKM || pathname?.startsWith(`${ROUTES.PKM}/`) ? "true" : undefined}>
             <SurfaceStack compact>{children}</SurfaceStack>
           </div>

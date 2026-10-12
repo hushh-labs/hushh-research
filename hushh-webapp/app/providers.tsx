@@ -292,6 +292,12 @@ function AppShellFrame({ children }: ProvidersProps) {
   const isFoundationRoute = isFoundationPublicRoute(pathname);
   const isPublicStandaloneRoute = isFoundationRoute && pathname !== ROUTES.HOME;
   const isCanonicalChatRoute = shellPathname === "/" && isAuthenticated;
+  const usesOneProductSpacing =
+    (pathname === "/one" || pathname.startsWith("/one/")) &&
+    !shouldLockFullscreenRoot &&
+    !["/one/location", "/one/setup/location", "/one/wallet", "/one/messages"].some(
+      (route) => pathname === route || pathname.startsWith(`${route}/`),
+    );
   const signedInShellContentOffset = useMemo(
     () =>
       resolveSignedInShellContentOffset({
@@ -726,6 +732,9 @@ function AppShellFrame({ children }: ProvidersProps) {
                                   ) : null}
                                   <div
                                     data-app-shell-content="true"
+                                    data-one-product-spacing={
+                                      usesOneProductSpacing ? "true" : undefined
+                                    }
                                     className={
                                       isCanonicalChatRoute ||
                                       shouldLockFullscreenRoot
@@ -784,6 +793,9 @@ function AppShellFrame({ children }: ProvidersProps) {
                                   ) : null}
                                   <div
                                     data-app-shell-content="true"
+                                    data-one-product-spacing={
+                                      usesOneProductSpacing ? "true" : undefined
+                                    }
                                     className={
                                       isCanonicalChatRoute ||
                                       shouldLockFullscreenRoot
