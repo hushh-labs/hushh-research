@@ -876,10 +876,28 @@ final class AppUITests: XCTestCase {
             XCTAssertFalse(web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message One")).firstMatch.isHittable)
         }
         for cycle in 0..<10 {
+            let openerFrame = history.frame
             history.coordinate(withNormalizedOffset: CGVector(dx: cycle % 2 == 0 ? 0.5 : 0.2, dy: 0.5)).tap()
             let close = app.buttons["Close chat history"].firstMatch
             guard waitForAdmittedControl(close), app.textFields["native-history-search"].firstMatch.exists else {
                 XCTFail("COHERENT_HISTORY_NOT_ADMITTED"); return
+            }
+            XCTAssertEqual(close.frame.minX, openerFrame.minX, accuracy: 1, "COHERENT_HISTORY_CLOSE_HORIZONTAL_ALIGNMENT")
+            XCTAssertEqual(close.frame.minY, openerFrame.minY, accuracy: 1, "COHERENT_HISTORY_CLOSE_VERTICAL_ALIGNMENT")
+            if cycle == 0 {
+                let actions = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "native-history-actions-")).firstMatch
+                guard waitForAdmittedControl(actions) else { XCTFail("COHERENT_HISTORY_ACTION_FIXTURE_MISSING"); return }
+                actions.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap()
+                let rename = app.buttons["Rename"].firstMatch
+                guard waitForAdmittedControl(rename), close.isHittable else { XCTFail("COHERENT_HISTORY_ACTIONS_NOT_DELIVERED"); return }
+                rename.tap()
+                guard app.textFields["native-history-rename"].firstMatch.waitForExistence(timeout: 10) else {
+                    XCTFail("COHERENT_HISTORY_RENAME_NOT_OPENED"); return
+                }
+                app.buttons["Cancel"].firstMatch.tap() // No rename/delete mutation.
+                guard app.textFields["native-history-search"].firstMatch.waitForExistence(timeout: 10) else {
+                    XCTFail("COHERENT_HISTORY_ACTION_RETURN_FAILED"); return
+                }
             }
             XCTAssertFalse(editor.isHittable)
             let drawer = app.otherElements["native-history-drawer-body"].firstMatch
@@ -957,6 +975,34 @@ final class AppUITests: XCTestCase {
             guard waitForAppliedPort(cloud, label: "Message One") else { XCTFail("COHERENT_ONE_PORT_RETURN_FAILED"); return }
             continuity()
             print("COHERENT_NATIVE_SHELL_CYCLE completed=\(cycle + 1) warm=true submitted=false")
+        }
+        let bar = app.descendants(matching: .any).matching(identifier: "one-native-navigation").firstMatch
+        let historyProbe = app.buttons["native-history-continuity"].firstMatch
+        for destination in ["One", "Connect", "Feed"] {
+            let tab = bar.buttons[destination].firstMatch
+            guard waitForAdmittedControl(tab) else { XCTFail("COHERENT_ROUTE_TAB_UNAVAILABLE"); return }
+            tab.tap()
+            // AX withdrawal alone would pass on the broken suspend path. The
+            // native installation/removal ledger also proves the host retired.
+            let retired = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                guard historyProbe.exists, let json = historyProbe.value as? String,
+                      let data = json.data(using: .utf8),
+                      let counters = try? JSONSerialization.jsonObject(with: data) as? [String: Int] else { return false }
+                return counters["installs", default: 0] > 0 && counters["installs"] == counters["removals"] &&
+                    !history.exists && !selector.exists && tab.isSelected
+            }, object: app)
+            guard XCTWaiter.wait(for: [retired], timeout: 15) == .completed else {
+                XCTFail("COHERENT_CHAT_CHROME_LEAKED_ON_ROUTE"); return
+            }
+            XCTAssertEqual(app.webViews.matching(identifier: "native-webview").count, 1)
+            XCTAssertFalse(web.buttons["Unlock"].exists)
+            let chat = bar.buttons["Chat"].firstMatch
+            guard waitForAdmittedControl(chat) else { XCTFail("COHERENT_CHAT_TAB_RETURN_UNAVAILABLE"); return }
+            chat.tap()
+            guard waitForAdmittedControl(history), waitForAppliedPort(cloud, label: "Message One") else {
+                XCTFail("COHERENT_CHAT_CHROME_ROUTE_RETURN_FAILED"); return
+            }
+            continuity()
         }
         editor.tap()
         guard app.keyboards.firstMatch.waitForExistence(timeout: 10) else { XCTFail("COHERENT_EDITOR_KEYBOARD_MISSING"); return }

@@ -324,17 +324,7 @@ struct NativeDrawerContent: View {
                 details(row)
             } else {
                 if model.projection.searchable == true {
-                    HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
-                        TextField("Search chats", text: $model.search)
-                            .textInputAutocapitalization(.never).autocorrectionDisabled()
-                            .accessibilityIdentifier("native-history-search")
-                        if !model.search.isEmpty {
-                            Button { model.search = "" } label: { Image(systemName: "xmark.circle.fill") }
-                                .frame(width: 44, height: 44).accessibilityLabel("Clear chat search")
-                        }
-                    }.padding(.horizontal, 16).frame(minHeight: 44)
-                        .disabled(!model.interactionEnabled)
+                    searchField.padding(.horizontal, 16).padding(.bottom, 4)
                 }
                 if model.projection.loading == true { ProgressView("Loading chats").padding() }
                 List {
@@ -345,9 +335,13 @@ struct NativeDrawerContent: View {
                             Button { model.choice("row", row: row.id) } label: {
                                 HStack(spacing: 12) {
                                     if let symbol = row.symbol { Image(systemName: symbol).frame(width: 24).accessibilityHidden(true) }
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(row.label).foregroundStyle(row.destructive == true ? Color.red : Color.primary).lineLimit(2)
-                                        if let detail = row.detail { Text(detail).font(.subheadline).foregroundStyle(.secondary) }
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(row.label).foregroundStyle(row.destructive == true ? Color.red : Color.primary)
+                                            .lineLimit(model.projection.family == "history" ? 1 : 2)
+                                        if let detail = row.detail {
+                                            Text(detail).font(model.projection.family == "history" ? .caption : .subheadline)
+                                                .foregroundStyle(.secondary).lineLimit(model.projection.family == "history" ? 1 : 2)
+                                        }
                                     }
                                     Spacer(minLength: 8)
                                     if row.pending == true { ProgressView() }
@@ -357,17 +351,43 @@ struct NativeDrawerContent: View {
                                 .accessibilityAddTraits(row.selected == true ? .isSelected : [])
                                 .accessibilityIdentifier("native-\(model.projection.family)-row-\(row.id)")
                             if row.renameActionId != nil || row.deleteActionId != nil {
-                                Button { model.details(row) } label: { Image(systemName: "ellipsis") }
-                                    .frame(width: 44, height: 44).accessibilityLabel("Open actions for \(row.label)")
+                                Button { model.details(row) } label: {
+                                    Image(systemName: "ellipsis").frame(width: 44, height: 44).contentShape(Rectangle())
+                                }
+                                    .accessibilityLabel("Open actions for \(row.label)")
+                                    .accessibilityIdentifier("native-\(model.projection.family)-actions-\(row.id)")
                                     .disabled(!row.enabled || row.pending == true || !model.interactionEnabled)
                             }
                           }
+                          // Automatic List buttons can invoke the row as well
+                          // as More. Each button owns only its authored action.
+                          .buttonStyle(.borderless)
+                          .listRowInsets(model.projection.family == "history" ?
+                              EdgeInsets(top: 3, leading: 12, bottom: 3, trailing: 4) : nil)
                         }
                     } header: { if let title = section.title { Text(title) } }
                 }
                 }.listStyle(.insetGrouped)
             }
         }.background(Color(uiColor: .systemBackground))
+    }
+    private var searchContent: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+            TextField("Search chats", text: $model.search)
+                .textInputAutocapitalization(.never).autocorrectionDisabled()
+                .accessibilityIdentifier("native-history-search")
+            if !model.search.isEmpty {
+                Button { model.search = "" } label: {
+                    Image(systemName: "xmark.circle.fill").frame(width: 44, height: 44).contentShape(Rectangle())
+                }.buttonStyle(.borderless).accessibilityLabel("Clear chat search")
+            }
+        }.padding(.horizontal, 14).frame(minHeight: 44).disabled(!model.interactionEnabled)
+    }
+    @ViewBuilder private var searchField: some View {
+        if #available(iOS 26.0, *) {
+            searchContent.glassEffect(.regular, in: Capsule())
+        } else { searchContent.background(.regularMaterial, in: Capsule()) }
     }
     private func details(_ row: NativeDrawerRow) -> some View {
         VStack(alignment: .leading, spacing: 16) {
