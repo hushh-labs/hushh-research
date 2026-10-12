@@ -1,4 +1,4 @@
-"""Private manual-card access routes. No credential-bearing responses are cacheable."""
+"""Private eligible-card access routes. Protected responses are never cacheable."""
 
 from __future__ import annotations
 

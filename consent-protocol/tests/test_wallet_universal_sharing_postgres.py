@@ -48,6 +48,30 @@ def grants_by_recipient(db):
     }
 
 
+def test_history_detail_handles_grant_erased_before_lock(cards_db, monkeypatch):
+    from hushh_mcp.services import wallet_sharing_history
+
+    db, service = cards_db
+    service.create_grants("alice", profile(db), str(uuid.uuid4()), refs(db), 15)
+    grant = grants_by_recipient(db)["charu"]
+    graph_lock = wallet_sharing_history.lock_connection_graph_users
+
+    def erase_after_selection(conn, **kwargs):
+        graph_lock(conn, **kwargs)
+        conn.execute(
+            text("DELETE FROM wallet_profile_access_grants WHERE id=CAST(:id AS uuid)"),
+            {"id": grant},
+        )
+
+    monkeypatch.setattr(
+        wallet_sharing_history, "lock_connection_graph_users", erase_after_selection
+    )
+    with pytest.raises(WalletCardAccessError) as error:
+        service.history("alice", grant_id=grant)
+    assert error.value.code == "WALLET_CARD_ACCESS_NOT_FOUND"
+    assert error.value.status_code == 404
+
+
 def test_profile_live_fields_independent_verification_and_terminal_revocation(cards_db):
     db, service = cards_db
     card = profile(db)

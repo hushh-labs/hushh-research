@@ -40,10 +40,11 @@ def profile_projection(conn, owner: str, card_id: str, *, lock=False):
     row = (
         conn.execute(
             text(
+                # Only a fixed optional row-lock suffix; request values are bound.
                 """SELECT c.*,COALESCE(i.custom_photo_url,i.photo_url) AS identity_photo_url
  FROM one_wallet_cards c LEFT JOIN actor_identity_cache i ON i.user_id=c.user_id WHERE c.user_id=:owner
  AND 'profile_'||c.pass_serial::text=:card AND c.status='active'
- AND (c.expires_at IS NULL OR c.expires_at>clock_timestamp())"""
+ AND (c.expires_at IS NULL OR c.expires_at>clock_timestamp())"""  # nosec B608
                 + (" FOR SHARE OF c" if lock else "")
             ),
             {"owner": owner, "card": card_id},

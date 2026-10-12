@@ -755,20 +755,16 @@ def _merged_workflow_predecessor_refs(base_ref: str | None = None) -> tuple[str,
     if not base_commit:
         return ()
     merges = subprocess.run(  # noqa: S603 - fixed git executable/arguments
-        ["git", "rev-list", "--first-parent", "--merges", "HEAD"],  # noqa: S607
+        ["git", "rev-list", "--first-parent", "--merges", "--parents", "HEAD"],  # noqa: S607
         cwd=REPO_ROOT,
         check=True,
         capture_output=True,
         text=True,
     ).stdout.splitlines()
+    # Include parent IDs in the history query instead of starting one Git
+    # process per merge. Preserve first-parent order and the full search.
     for merge in merges:
-        lineage = subprocess.run(  # noqa: S603 - fixed git executable/arguments
-            ["git", "rev-list", "--parents", "-n", "1", merge],  # noqa: S607
-            cwd=REPO_ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.split()
+        lineage = merge.split()
         if base_commit in lineage[1:]:
             return tuple(parent for parent in lineage[1:] if parent != base_commit)
     return ()

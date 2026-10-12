@@ -36,9 +36,14 @@ def history(
                 if source == PAYMENT
                 else "NULL::text AS content_ciphertext,NULL::text AS content_iv,NULL::text AS content_algorithm"
             )
-            queries.append(f"""SELECT g.id,g.owner_user_id,g.recipient_user_id,g.card_id,g.created_at,g.expires_at,
- g.revoked_at,g.verification_required,g.trusted_at_creation,g.permitted_fields,g.verified_at,g.last_accessed_at,'{source.kind}' AS card_type,{ciphertext}
- FROM {source.grants} g WHERE g.{side}=:viewer""")
+            # Only fixed sharing-source identifiers/fragments; request values are bound.
+            queries.append(
+                (
+                    f"SELECT g.id,g.owner_user_id,g.recipient_user_id,g.card_id,g.created_at,g.expires_at,\n"  # nosec B608
+                    f" g.revoked_at,g.verification_required,g.trusted_at_creation,g.permitted_fields,g.verified_at,g.last_accessed_at,'{source.kind}' AS card_type,{ciphertext}\n"
+                    f" FROM {source.grants} g WHERE g.{side}=:viewer"
+                )
+            )
         union = " UNION ALL ".join(queries)
         values = {"viewer": viewer, "limit": limit + 1}
         predicate = ""
@@ -50,7 +55,8 @@ def history(
                 raise WalletCardAccessError("WALLET_CARD_REQUEST_INVALID", 422) from None
             anchor = one(
                 conn,
-                f"SELECT id,created_at,card_type FROM ({union}) g WHERE id=CAST(:anchor AS uuid) AND card_type=:kind",
+                # Only fixed sharing-source identifiers/fragments; request values are bound.
+                f"SELECT id,created_at,card_type FROM ({union}) g WHERE id=CAST(:anchor AS uuid) AND card_type=:kind",  # nosec B608
                 {**values, "anchor": identifier, "kind": kind},
             )
             if not anchor:
@@ -62,13 +68,16 @@ def history(
             values["grant"] = grant_id
         rows = many(
             conn,
-            f"""SELECT g.*,a.display_name AS recipient_name,b.display_name AS sender_name,
- p.public_person_ref AS recipient_ref,q.public_person_ref AS sender_ref,clock_timestamp() AS server_now
- FROM ({union}) g LEFT JOIN actor_identity_cache a ON a.user_id=g.recipient_user_id
- LEFT JOIN actor_identity_cache b ON b.user_id=g.owner_user_id
- LEFT JOIN actor_profiles p ON p.user_id=g.recipient_user_id
- LEFT JOIN actor_profiles q ON q.user_id=g.owner_user_id {predicate}
- ORDER BY g.created_at DESC,g.card_type,g.id LIMIT :limit""",
+            # Only fixed sharing-source identifiers/fragments; request values are bound.
+            (
+                f"SELECT g.*,a.display_name AS recipient_name,b.display_name AS sender_name,\n"  # nosec B608
+                f" p.public_person_ref AS recipient_ref,q.public_person_ref AS sender_ref,clock_timestamp() AS server_now\n"
+                f" FROM ({union}) g LEFT JOIN actor_identity_cache a ON a.user_id=g.recipient_user_id\n"
+                f" LEFT JOIN actor_identity_cache b ON b.user_id=g.owner_user_id\n"
+                f" LEFT JOIN actor_profiles p ON p.user_id=g.recipient_user_id\n"
+                f" LEFT JOIN actor_profiles q ON q.user_id=g.owner_user_id {predicate}\n"
+                f" ORDER BY g.created_at DESC,g.card_type,g.id LIMIT :limit"
+            ),
             values,
         )
         if grant_id and len(rows) != 1:
@@ -87,7 +96,8 @@ def history(
             source = PROFILE if row["card_type"] == "profile" else PAYMENT
             locked = one(
                 conn,
-                f"SELECT *,clock_timestamp() AS server_now FROM {source.grants} WHERE id=CAST(:id AS uuid) FOR UPDATE",
+                # Only fixed sharing-source identifiers/fragments; request values are bound.
+                f"SELECT *,clock_timestamp() AS server_now FROM {source.grants} WHERE id=CAST(:id AS uuid) FOR UPDATE",  # nosec B608
                 {"id": str(row["id"])},
             )
             if not locked:
@@ -181,6 +191,10 @@ def history(
                     ],
                 }
             )
+        if grant_id and not items:
+            # Account erasure may remove the selected grant before graph locks
+            # are acquired. Detail callers must still get a scoped 404.
+            raise WalletCardAccessError("WALLET_CARD_ACCESS_NOT_FOUND", 404)
         more = len(rows) > limit
         return {
             "items": items,

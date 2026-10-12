@@ -1,4 +1,4 @@
-"""Owner-manual Wallet card access; grants never contain payment credentials.
+"""Eligible owner Wallet card access; grants never contain payment credentials.
 
 PKM owns card storage; its commit trigger owns provenance activation. Postgres
 remains authorization authority even if future metadata caching moves to Redis.
@@ -120,9 +120,12 @@ class WalletCardAccessService:
         )
         conn.execute(
             text(
-                f"""INSERT INTO wallet_card_access_audit({source.audit_key},actor_user_id,event_type)
- SELECT CAST(:id AS uuid),:actor,:event WHERE NOT EXISTS(SELECT 1 FROM wallet_card_access_audit
- WHERE {key}=CAST(:id AS uuid) AND actor_user_id=:actor AND event_type=:event)"""
+                (
+                    # Only fixed sharing-source identifiers/fragments; request values are bound.
+                    f"INSERT INTO wallet_card_access_audit({source.audit_key},actor_user_id,event_type)\n"  # nosec B608
+                    f" SELECT CAST(:id AS uuid),:actor,:event WHERE NOT EXISTS(SELECT 1 FROM wallet_card_access_audit\n"
+                    f" WHERE {key}=CAST(:id AS uuid) AND actor_user_id=:actor AND event_type=:event)"
+                )
             ),
             {"id": grant_id, "actor": actor, "event": event},
         )
@@ -161,9 +164,14 @@ class WalletCardAccessService:
         if not WalletCardAccessService._universal_installed(conn):
             return
         conn.execute(
-            text(f"""INSERT INTO wallet_card_access_audit({source.audit_key},actor_user_id,event_type,created_at)
- SELECT CAST(:id AS uuid),:owner,'expired',:expires WHERE NOT EXISTS(
- SELECT 1 FROM wallet_card_access_audit WHERE COALESCE(grant_id,profile_grant_id)=CAST(:id AS uuid) AND event_type='expired')"""),
+            # Only fixed sharing-source identifiers/fragments; request values are bound.
+            text(
+                (
+                    f"INSERT INTO wallet_card_access_audit({source.audit_key},actor_user_id,event_type,created_at)\n"  # nosec B608
+                    f" SELECT CAST(:id AS uuid),:owner,'expired',:expires WHERE NOT EXISTS(\n"
+                    f" SELECT 1 FROM wallet_card_access_audit WHERE COALESCE(grant_id,profile_grant_id)=CAST(:id AS uuid) AND event_type='expired')"
+                )
+            ),
             {"id": str(row["id"]), "owner": row["owner_user_id"], "expires": row["expires_at"]},
         )
 
@@ -247,10 +255,13 @@ class WalletCardAccessService:
     def _owner_grants(self, conn, owner, card_id, cursor=None):
         source = source_for_card(card_id)
         values = {"owner": owner, "card": card_id, "limit": 21}
-        query = f"""SELECT g.id,g.created_at,g.expires_at,g.revoked_at,a.display_name,clock_timestamp() AS server_now
- FROM {source.grants} g LEFT JOIN actor_identity_cache a ON a.user_id=g.recipient_user_id
- WHERE g.owner_user_id=:owner AND g.card_id=:card
- ORDER BY g.created_at DESC,g.id ASC LIMIT :limit"""
+        # Only fixed sharing-source identifiers/fragments; request values are bound.
+        query = (
+            f"SELECT g.id,g.created_at,g.expires_at,g.revoked_at,a.display_name,clock_timestamp() AS server_now\n"  # nosec B608
+            f" FROM {source.grants} g LEFT JOIN actor_identity_cache a ON a.user_id=g.recipient_user_id\n"
+            f" WHERE g.owner_user_id=:owner AND g.card_id=:card\n"
+            f" ORDER BY g.created_at DESC,g.id ASC LIMIT :limit"
+        )
         if cursor is not None:
             try:
                 grant_id = str(uuid.UUID(cursor))
@@ -258,18 +269,24 @@ class WalletCardAccessService:
                 raise WalletCardAccessError("WALLET_CARD_REQUEST_INVALID", 422) from None
             anchor = one(
                 conn,
-                f"""SELECT created_at FROM {source.grants}
- WHERE owner_user_id=:owner AND card_id=:card AND id=CAST(:grant_id AS uuid)""",
+                # Only fixed sharing-source identifiers/fragments; request values are bound.
+                (
+                    f"SELECT created_at FROM {source.grants}\n"  # nosec B608
+                    f" WHERE owner_user_id=:owner AND card_id=:card AND id=CAST(:grant_id AS uuid)"
+                ),
                 {"owner": owner, "card": card_id, "grant_id": grant_id},
             )
             if not anchor:
                 raise WalletCardAccessError("WALLET_CARD_REQUEST_INVALID", 422)
             values.update(created=anchor["created_at"], grant_id=grant_id)
-            query = f"""SELECT g.id,g.created_at,g.expires_at,g.revoked_at,a.display_name,clock_timestamp() AS server_now
- FROM {source.grants} g LEFT JOIN actor_identity_cache a ON a.user_id=g.recipient_user_id
- WHERE g.owner_user_id=:owner AND g.card_id=:card
- AND (g.created_at < :created OR (g.created_at=:created AND g.id>CAST(:grant_id AS uuid)))
- ORDER BY g.created_at DESC,g.id ASC LIMIT :limit"""
+            # Only fixed sharing-source identifiers/fragments; request values are bound.
+            query = (
+                f"SELECT g.id,g.created_at,g.expires_at,g.revoked_at,a.display_name,clock_timestamp() AS server_now\n"  # nosec B608
+                f" FROM {source.grants} g LEFT JOIN actor_identity_cache a ON a.user_id=g.recipient_user_id\n"
+                f" WHERE g.owner_user_id=:owner AND g.card_id=:card\n"
+                f" AND (g.created_at < :created OR (g.created_at=:created AND g.id>CAST(:grant_id AS uuid)))\n"
+                f" ORDER BY g.created_at DESC,g.id ASC LIMIT :limit"
+            )
         rows = many(
             conn,
             query,
@@ -343,9 +360,12 @@ class WalletCardAccessService:
     def _request_grants(self, conn, owner, request_id, source=PAYMENT):
         rows = many(
             conn,
-            f"""SELECT g.id,g.created_at,g.expires_at,g.revoked_at,a.display_name,clock_timestamp() AS server_now
- FROM {source.grants} g LEFT JOIN actor_identity_cache a ON a.user_id=g.recipient_user_id
- WHERE g.owner_user_id=:owner AND g.request_id=CAST(:request AS uuid) ORDER BY g.id""",
+            # Only fixed sharing-source identifiers/fragments; request values are bound.
+            (
+                f"SELECT g.id,g.created_at,g.expires_at,g.revoked_at,a.display_name,clock_timestamp() AS server_now\n"  # nosec B608
+                f" FROM {source.grants} g LEFT JOIN actor_identity_cache a ON a.user_id=g.recipient_user_id\n"
+                f" WHERE g.owner_user_id=:owner AND g.request_id=CAST(:request AS uuid) ORDER BY g.id"
+            ),
             {"owner": owner, "request": request_id},
         )
         return [
@@ -380,13 +400,15 @@ class WalletCardAccessService:
                 other = PROFILE if source == PAYMENT else PAYMENT
                 if one(
                     conn,
-                    f"SELECT 1 FROM {other.requests} WHERE owner_user_id=:owner AND request_id=CAST(:request AS uuid)",
+                    # Only fixed sharing-source identifiers/fragments; request values are bound.
+                    f"SELECT 1 FROM {other.requests} WHERE owner_user_id=:owner AND request_id=CAST(:request AS uuid)",  # nosec B608
                     {"owner": owner, "request": request_id},
                 ):
                     raise WalletCardAccessError("WALLET_CARD_RETRY_CONFLICT", 409)
             previous = one(
                 conn,
-                f"SELECT fingerprint FROM {source.requests} WHERE owner_user_id=:owner AND request_id=CAST(:request AS uuid)",
+                # Only fixed sharing-source identifiers/fragments; request values are bound.
+                f"SELECT fingerprint FROM {source.requests} WHERE owner_user_id=:owner AND request_id=CAST(:request AS uuid)",  # nosec B608
                 {"owner": owner, "request": request_id},
             )
             if previous:
@@ -418,9 +440,12 @@ class WalletCardAccessService:
             created_at = one(conn, "SELECT clock_timestamp() AS created_at")["created_at"]
             request = one(
                 conn,
-                f"""INSERT INTO {source.requests}(owner_user_id,request_id,card_id,fingerprint,created_at,expires_at,duration_minutes)
- VALUES(:owner,CAST(:request AS uuid),:card,:fingerprint,:created,:created+(:minutes*interval '1 minute'),:minutes)
- RETURNING created_at,expires_at""",
+                # Only fixed sharing-source identifiers/fragments; request values are bound.
+                (
+                    f"INSERT INTO {source.requests}(owner_user_id,request_id,card_id,fingerprint,created_at,expires_at,duration_minutes)\n"  # nosec B608
+                    f" VALUES(:owner,CAST(:request AS uuid),:card,:fingerprint,:created,:created+(:minutes*interval '1 minute'),:minutes)\n"
+                    f" RETURNING created_at,expires_at"
+                ),
                 {
                     "owner": owner,
                     "request": request_id,
@@ -461,9 +486,14 @@ class WalletCardAccessService:
                 trust_column = ",trusted_at_creation" if universal else ""
                 trust_value = ",:trusted" if universal else ""
                 conn.execute(
-                    text(f"""INSERT INTO {source.grants}
- (id,owner_user_id,recipient_user_id,request_id,card_id,message_id,created_at,expires_at,verification_required{trust_column},{columns})
- VALUES(CAST(:id AS uuid),:owner,:recipient,CAST(:request AS uuid),:card,CAST(:message AS uuid),:created,:expires,:verification{trust_value},{values})"""),
+                    # Only fixed sharing-source identifiers/fragments; request values are bound.
+                    text(
+                        (
+                            f"INSERT INTO {source.grants}\n"  # nosec B608
+                            f" (id,owner_user_id,recipient_user_id,request_id,card_id,message_id,created_at,expires_at,verification_required{trust_column},{columns})\n"
+                            f" VALUES(CAST(:id AS uuid),:owner,:recipient,CAST(:request AS uuid),:card,CAST(:message AS uuid),:created,:expires,:verification{trust_value},{values})"
+                        )
+                    ),
                     {
                         "id": grant_id,
                         "owner": owner,
@@ -492,7 +522,8 @@ class WalletCardAccessService:
             source = locate_source(conn, grant_id)
             locator = one(
                 conn,
-                f"SELECT owner_user_id,card_id FROM {source.grants} WHERE id=CAST(:id AS uuid) AND recipient_user_id=:recipient",
+                # Only fixed sharing-source identifiers/fragments; request values are bound.
+                f"SELECT owner_user_id,card_id FROM {source.grants} WHERE id=CAST(:id AS uuid) AND recipient_user_id=:recipient",  # nosec B608
                 {"id": grant_id, "recipient": recipient},
             )
             if not locator:
@@ -510,9 +541,12 @@ class WalletCardAccessService:
                 )
             row = one(
                 conn,
-                f"""SELECT g.*,a.display_name AS sender_name,clock_timestamp() AS server_now
- FROM {source.grants} g LEFT JOIN actor_identity_cache a ON a.user_id=g.owner_user_id
- WHERE g.id=CAST(:id AS uuid) AND g.recipient_user_id=:recipient FOR UPDATE OF g""",
+                # Only fixed sharing-source identifiers/fragments; request values are bound.
+                (
+                    f"SELECT g.*,a.display_name AS sender_name,clock_timestamp() AS server_now\n"  # nosec B608
+                    f" FROM {source.grants} g LEFT JOIN actor_identity_cache a ON a.user_id=g.owner_user_id\n"
+                    f" WHERE g.id=CAST(:id AS uuid) AND g.recipient_user_id=:recipient FOR UPDATE OF g"
+                ),
                 {"id": grant_id, "recipient": recipient},
             )
             if not row:
@@ -536,7 +570,8 @@ class WalletCardAccessService:
                     return {**result, "status": "unavailable"}
                 conn.execute(
                     text(
-                        f"UPDATE {source.grants} SET revoked_at=clock_timestamp() WHERE id=CAST(:id AS uuid)"
+                        # Only fixed sharing-source identifiers/fragments; request values are bound.
+                        f"UPDATE {source.grants} SET revoked_at=clock_timestamp() WHERE id=CAST(:id AS uuid)"  # nosec B608
                     ),
                     {"id": grant_id},
                 )
@@ -559,8 +594,11 @@ class WalletCardAccessService:
                 if started is None:
                     started = one(
                         conn,
-                        f"""UPDATE {source.grants} SET verification_required=true,
- verification_started_at=clock_timestamp() WHERE id=CAST(:id AS uuid) RETURNING verification_started_at""",
+                        # Only fixed sharing-source identifiers/fragments; request values are bound.
+                        (
+                            f"UPDATE {source.grants} SET verification_required=true,\n"  # nosec B608
+                            f" verification_started_at=clock_timestamp() WHERE id=CAST(:id AS uuid) RETURNING verification_started_at"
+                        ),
                         {"id": grant_id},
                     )["verification_started_at"]
                 if universal and verified_auth_time is not None:
@@ -579,7 +617,8 @@ class WalletCardAccessService:
                         }
                     conn.execute(
                         text(
-                            f"UPDATE {source.grants} SET verification_attempts=:count,verification_attempted_at=:attempted WHERE id=CAST(:id AS uuid)"
+                            # Only fixed sharing-source identifiers/fragments; request values are bound.
+                            f"UPDATE {source.grants} SET verification_attempts=:count,verification_attempted_at=:attempted WHERE id=CAST(:id AS uuid)"  # nosec B608
                         ),
                         {
                             "count": count + 1,
@@ -603,7 +642,8 @@ class WalletCardAccessService:
                     }
                 conn.execute(
                     text(
-                        f"UPDATE {source.grants} SET verified_at=clock_timestamp() WHERE id=CAST(:id AS uuid)"
+                        # Only fixed sharing-source identifiers/fragments; request values are bound.
+                        f"UPDATE {source.grants} SET verified_at=clock_timestamp() WHERE id=CAST(:id AS uuid)"  # nosec B608
                     ),
                     {"id": grant_id},
                 )
@@ -636,7 +676,8 @@ class WalletCardAccessService:
             if universal:
                 conn.execute(
                     text(
-                        f"UPDATE {source.grants} SET last_accessed_at=clock_timestamp() WHERE id=CAST(:id AS uuid)"
+                        # Only fixed sharing-source identifiers/fragments; request values are bound.
+                        f"UPDATE {source.grants} SET last_accessed_at=clock_timestamp() WHERE id=CAST(:id AS uuid)"  # nosec B608
                     ),
                     {"id": grant_id},
                 )
@@ -648,7 +689,8 @@ class WalletCardAccessService:
             source = locate_source(conn, grant_id)
             grant = one(
                 conn,
-                f"SELECT recipient_user_id FROM {source.grants} WHERE id=CAST(:id AS uuid) AND owner_user_id=:owner",
+                # Only fixed sharing-source identifiers/fragments; request values are bound.
+                f"SELECT recipient_user_id FROM {source.grants} WHERE id=CAST(:id AS uuid) AND owner_user_id=:owner",  # nosec B608
                 {"id": grant_id, "owner": owner},
             )
             if not grant:
@@ -656,8 +698,11 @@ class WalletCardAccessService:
             lock_connection_graph_users(conn, user_ids=[owner, grant["recipient_user_id"]])
             row = one(
                 conn,
-                f"""UPDATE {source.grants} SET revoked_at=COALESCE(revoked_at,clock_timestamp())
- WHERE id=CAST(:id AS uuid) AND owner_user_id=:owner RETURNING id""",
+                # Only fixed sharing-source identifiers/fragments; request values are bound.
+                (
+                    f"UPDATE {source.grants} SET revoked_at=COALESCE(revoked_at,clock_timestamp())\n"  # nosec B608
+                    f" WHERE id=CAST(:id AS uuid) AND owner_user_id=:owner RETURNING id"
+                ),
                 {"id": grant_id, "owner": owner},
             )
             if not row:
