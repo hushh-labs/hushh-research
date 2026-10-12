@@ -225,3 +225,23 @@ it("answer settlement reuses pricing without invoking Drive account setup", () =
   expect(screen.queryByText("Drive account setup")).toBeNull();
   expect(screen.queryByText(/Undelivered files/)).toBeNull();
 });
+
+it("lets a non-file lane replace the Drive delivery sentence", () => {
+  // Request scope prices one written answer. This sheet told that owner their
+  // files were about to be found and shared, which is the Drive lane's
+  // promise and not the one they are approving.
+  renderSheet({
+    settlement: <span>Answer account setup</span>,
+    description: "They pay this price before the answer is written.",
+  });
+  expect(
+    screen.getByText("They pay this price before the answer is written."),
+  ).toBeVisible();
+  expect(screen.queryByText(/matching files/)).toBeNull();
+});
+
+it("keeps the Drive sentence when no lane description is supplied", () => {
+  // Negative control: the document workflow's own wording is unchanged.
+  renderSheet();
+  expect(screen.getByText(/matching files are found/)).toBeVisible();
+});

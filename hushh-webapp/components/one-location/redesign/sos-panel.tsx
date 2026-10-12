@@ -377,9 +377,7 @@ export function SosPanel({
         {recipientsLoading && !readyRecipients.length ? (
           <PageSubtitle>Checking emergency contacts…</PageSubtitle>
         ) : noReadyRecipients ? (
-          <PageSubtitle>
-            {recipientCount ? `${recipientCountLabel} · Setup needs attention` : "No emergency contacts"}
-          </PageSubtitle>
+          recipientCount ? <PageSubtitle>{recipientCountLabel} · Setup needs attention</PageSubtitle> : null
         ) : (
           <div className="flex items-center gap-3">
             <PageSubtitle className="min-w-0 flex-1 truncate">

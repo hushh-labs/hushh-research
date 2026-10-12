@@ -261,13 +261,13 @@ export const PICKER_MAP_HEIGHT_CLASSNAME =
 
 /** Pinned map actions; the modal owns the safe-area inset once. */
 export const PICKER_ACTIONS_CLASSNAME =
-  "mx-auto flex w-full max-w-[320px] shrink-0 flex-col gap-2.5";
+  "mx-auto flex w-fit max-w-full shrink-0 flex-col items-center gap-2";
 
 export const PICKER_PRIMARY_ACTION_CLASSNAME =
-  "press-scale flex h-[52px] w-full items-center justify-center rounded-full px-5 text-[16px] font-bold transition-colors disabled:cursor-not-allowed";
+  "press-scale flex h-11 min-h-11 w-fit max-w-full items-center justify-center rounded-full px-5 text-[16px] font-semibold transition-colors disabled:cursor-not-allowed";
 
 export const PICKER_SECONDARY_ACTION_CLASSNAME =
-  "h-11 w-full rounded-full px-5 text-[15px] font-semibold text-[#6b7280] transition-colors hover:text-[#374151] dark:text-[#9aa6b6] dark:hover:text-[#c4cdda]";
+  "h-11 min-h-11 w-fit max-w-full rounded-none px-5 text-[15px] font-medium text-muted-foreground transition-colors hover:text-foreground";
 
 /** Widths the surface has to hold its shape at, smallest phone upward. */
 export const SHEET_LAYOUT_WIDTHS = [320, 360, 375, 390, 430, 768] as const;

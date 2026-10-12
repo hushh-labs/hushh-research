@@ -209,6 +209,7 @@ vi.mock("sonner", () => ({
 }));
 
 import { PersonProfilePage } from "@/components/connections/person-profile-page";
+import { CONNECTION_GRAPH_CHANGED_EVENT } from "@/lib/connections/connection-graph-events";
 
 function viewerProfile(overrides = {}) {
   return {
@@ -271,6 +272,59 @@ describe("PersonProfilePage native profile route", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+  });
+
+  it.each(["connected", "none", "pending_incoming", "pending_outgoing"])("shows contact details only for an accepted connection (%s)", async (status) => {
+    mocks.user = { uid: "viewer", getIdToken: vi.fn().mockResolvedValue("viewer-token") };
+    mocks.getViewer.mockResolvedValue(viewerProfile({
+      relationship: { status, connectionId: null, connectedAt: null, requestId: null },
+      contactEmail: "friend@example.test", contactPhoneNumber: "+919876543210",
+    }));
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    await screen.findByLabelText("Relationship actions");
+    await waitFor(() => expect(mocks.getViewer).toHaveBeenCalled());
+    if (status === "connected") {
+      const email = await screen.findByRole("link", { name: "friend@example.test" });
+      const phone = screen.getByRole("link", { name: "+919876543210" });
+      expect(phone).toHaveAttribute("href", "tel:+919876543210");
+      expect(email.compareDocumentPosition(phone) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    } else {
+      await screen.findByText(status === "none" ? "Not connected" : "Request pending");
+      expect(screen.queryByText("friend@example.test")).toBeNull();
+      expect(screen.queryByText("+919876543210")).toBeNull();
+    }
+  });
+
+  it("finishes the authenticated profile read if the vault changes while loading", async () => {
+    mocks.user = { uid: "viewer", getIdToken: vi.fn().mockResolvedValue("viewer-token") };
+    let resolveViewer!: (value: unknown) => void;
+    mocks.getViewer.mockImplementationOnce(() => new Promise(resolve => { resolveViewer = resolve; }));
+    const rendered = render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    await waitFor(() => expect(mocks.getViewer).toHaveBeenCalledTimes(1));
+    mocks.isVaultUnlocked = false;
+    rendered.rerender(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    await act(async () => { resolveViewer(viewerProfile({ contactPhoneNumber: "+919876543210" })); });
+    expect(await screen.findByRole("link", { name: "+919876543210" })).toHaveAttribute("href", "tel:+919876543210");
+  });
+
+  it("clears contact details on connection changes and ignores late profile reads", async () => {
+    mocks.user = { uid: "viewer", getIdToken: vi.fn().mockResolvedValue("viewer-token") };
+    const connected = viewerProfile({ contactEmail: "friend@example.test", contactPhoneNumber: "+919876543210" });
+    let resolveOld!: (value: unknown) => void;
+    mocks.getViewer.mockResolvedValueOnce(connected)
+      .mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }))
+      .mockResolvedValueOnce(viewerProfile({ relationship: { status: "none" } }));
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    await screen.findByRole("link", { name: "+919876543210" });
+    const changed = (changedAt: number) => window.dispatchEvent(new CustomEvent(CONNECTION_GRAPH_CHANGED_EVENT, { detail: { userId: "viewer", changedAt } }));
+    act(() => { changed(1); });
+    expect(screen.queryByText("+919876543210")).toBeNull();
+    await waitFor(() => expect(mocks.getViewer).toHaveBeenCalledTimes(2));
+    act(() => { changed(2); });
+    await screen.findByText("Not connected");
+    await act(async () => { resolveOld(connected); });
+    expect(screen.queryByText("+919876543210")).toBeNull();
+    expect(screen.queryByText("friend@example.test")).toBeNull();
   });
 
   it("uses the real iOS pathname person ref when native serves the static export shell", async () => {

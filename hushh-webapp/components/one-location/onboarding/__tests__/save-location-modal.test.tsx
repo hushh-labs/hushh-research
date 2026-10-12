@@ -1721,8 +1721,8 @@ describe("SaveLocationModal", () => {
       expect(screen.getByRole("button", { name: "Work" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Other" })).toBeInTheDocument();
       expect(
-        screen.getByText("Private to you. Nothing is shared until you choose."),
-      ).toBeInTheDocument();
+        screen.queryByText("Private to you. Nothing is shared until you choose."),
+      ).not.toBeInTheDocument();
       expect(
         screen.getByRole("button", { name: "Save & continue" }),
       ).toBeEnabled();

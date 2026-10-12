@@ -4,3 +4,8 @@ Copyright 2026 Hushh
 This product includes software developed by Hushh and distributed under the Apache License 2.0.
 
 Third-party dependency attributions and license summaries are documented in THIRD_PARTY_NOTICES.md.
+
+The onboarding Check-in location pin includes Google's Material Icons location_on
+artwork, distributed under the Apache License 2.0 (see LICENSE).
+Source: https://github.com/google/material-design-icons/blob/master/src/communication/location_on/materialicons/24px.svg
+Modification: the fill uses Hushh Location blue (#007AFF); original geometry is retained.

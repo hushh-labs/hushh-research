@@ -54,7 +54,9 @@ describe("the production selector CLI", () => {
         const path = new URL(url).pathname;
         let payload;
         if (path.endsWith("/deployments")) {
-          payload = state.deployments ?? (state.live ? [{ id: 1, sha: state.live }] : []);
+          const page = new URL(url).searchParams.get("page") || "1";
+          payload = state.deploymentsByPage?.[page] ??
+            (page === "1" ? state.deployments ?? (state.live ? [{ id: 1, sha: state.live }] : []) : []);
         } else if (path.includes("/statuses")) {
           payload = state.statuses?.[path.split("/").at(-2)] ??
             [{ state: state.verified === false ? "failure" : "success",
@@ -67,7 +69,8 @@ describe("the production selector CLI", () => {
             "sha: " + sha + "\\nrun: https://github.com/hushh-labs/hushh-research/actions/runs/" +
             (state.receiptRun ?? "123") + "\\nbackend_revision: backend-1\\nfrontend_revision: frontend-1" };
         } else if (path.includes("/actions/runs/")) {
-          payload = { path: state.workflowPath ?? ".github/workflows/deploy-uat.yml",
+          const runId = path.split("/").at(-1);
+          payload = { path: state.workflowPaths?.[runId] ?? state.workflowPath ?? ".github/workflows/deploy-uat.yml",
             event: "workflow_dispatch", head_sha: state.runSha ?? state.live,
             status: "completed", conclusion: "success" };
         } else if (path.includes("/check-runs")) {
@@ -111,7 +114,6 @@ describe("the production selector CLI", () => {
 
   it.each([
     { main: B, live: null, candidates: [] },
-    { main: LIVE, live: LIVE, verified: false, candidates: [] },
     { main: LIVE, live: LIVE, statuses: { 1: [{ state: "failure" }, { state: "success" }] }, candidates: [] },
     { main: LIVE, live: LIVE, statuses: { 1: [{ state: "inactive" }, { state: "success" }] }, candidates: [] },
     { main: LIVE, live: LIVE, deployments: [{ id: 2, sha: B }, { id: 1, sha: LIVE }],
@@ -127,6 +129,45 @@ describe("the production selector CLI", () => {
     { main: B, live: LIVE, candidates: [{ sha: B, gate: "failure" }] },
   ])("refuses an unverified or unavailable target (%j)", (state) => {
     expect(run(state).status).toBe(3);
+  });
+
+  it("blocks when no full UAT deployment has succeeded", () => {
+    expect(run({ main: LIVE, live: LIVE, verified: false, candidates: [] }).status).toBe(1);
+  });
+
+  it("ignores a newer Chat-only deployment even when Actions appends @main to its path", () => {
+    const result = run({
+      main: LIVE, live: LIVE, candidates: [],
+      deployments: [{ id: 2, sha: B }, { id: 1, sha: LIVE }],
+      statuses: {
+        2: [{ state: "success", log_url: "https://github.com/hushh-labs/hushh-research/actions/runs/456/job/1" }],
+        1: [{ state: "success", log_url: "https://github.com/hushh-labs/hushh-research/actions/runs/123/job/1" }],
+      },
+      workflowPaths: {
+        456: ".github/workflows/deploy-uat-one-chat.yml@main",
+        123: ".github/workflows/deploy-uat.yml@main",
+      },
+    });
+    expect(result.status).toBe(0);
+    expect(result.output).toContain(`uat_actual_sha=${LIVE}\n`);
+    expect(result.output).toContain("decision=NO_OP");
+  });
+
+  it("looks past 100 partial deployments for the last full UAT baseline", () => {
+    const partial = Array.from({ length: 100 }, (_, index) => ({ id: index + 1, sha: B }));
+    const result = run({
+      main: LIVE, live: LIVE, candidates: [], receiptRun: "456",
+      deploymentsByPage: { 1: partial, 2: [{ id: 101, sha: LIVE }] },
+      statuses: {
+        101: [{ state: "success", log_url: "https://github.com/hushh-labs/hushh-research/actions/runs/456/job/1" }],
+      },
+      workflowPaths: {
+        123: ".github/workflows/deploy-uat-one-chat.yml@main",
+        456: ".github/workflows/deploy-uat.yml@main",
+      },
+    });
+    expect(result.status).toBe(0);
+    expect(result.output).toContain(`uat_actual_sha=${LIVE}\n`);
   });
 
   it("still selects the newest proven forward-moving commit", () => {
