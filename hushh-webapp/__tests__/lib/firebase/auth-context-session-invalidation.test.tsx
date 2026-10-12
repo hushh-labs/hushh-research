@@ -6,6 +6,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import type { User } from "firebase/auth";
+import { useRef, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -24,6 +25,10 @@ const mocks = vi.hoisted(() => ({
   clearForUser: vi.fn(),
   clearDeviceSecretsForDeletedAccount: vi.fn(),
   identityRefresh: vi.fn(),
+  identityPeek: vi.fn(),
+  identityClaim: vi.fn(),
+  phoneClaimToken: vi.fn(),
+  phoneReplacementConfirm: vi.fn(),
   clearMarketingSeen: vi.fn(),
   markForceIntroOnce: vi.fn(),
   clearLocalChatNotificationState: vi.fn().mockResolvedValue(undefined),
@@ -85,13 +90,27 @@ vi.mock("@/lib/services/auth-service", () => ({
     getCurrentUser: mocks.authServiceGetCurrentUser,
     restoreNativeSession: mocks.authServiceRestoreNativeSession,
     signOut: mocks.authServiceSignOut,
+    shouldUseLocalDevPhoneVerification: () => false,
+    startPhoneLinkVerification: vi.fn().mockResolvedValue({
+      autoVerified: false,
+      verificationId: "web-otp-verification",
+    }),
+    startPhoneReplacementVerification: vi.fn().mockResolvedValue({ autoVerified: false, verificationId: "replacement-verification" }),
+    confirmPhoneReplacementVerification: mocks.phoneReplacementConfirm,
+    isLocalDevPhoneVerificationId: () => false,
+    isUatPhoneTestVerificationId: () => false,
+    getPhoneClaimIdToken: mocks.phoneClaimToken,
   },
 }));
 
 vi.mock("@/lib/services/account-identity-service", () => ({
   AccountIdentityService: {
-    peekCachedIdentity: vi.fn(() => null),
+    peekCachedIdentity: mocks.identityPeek,
     refreshCurrentUserIdentity: mocks.identityRefresh,
+    claimCurrentUserPhone: mocks.identityClaim,
+    hasVerifiedPhone: (identity: { phone_verified?: boolean } | null) =>
+      identity?.phone_verified === true,
+    startUatTestPhoneVerification: vi.fn().mockResolvedValue({ eligible: false }),
   },
 }));
 
@@ -302,6 +321,31 @@ function InteractiveSettlementProbe() {
   }}>Complete interactive sign-in</button>;
 }
 
+function VerifiedPhoneProbe() {
+  const { phoneNumber, startPhoneVerification, confirmPhoneVerification } = useAuth();
+  const [error, setError] = useState("");
+  return <>
+    <p data-testid="verified-phone">{phoneNumber ?? "missing"}</p>
+    <p data-testid="phone-error">{error}</p>
+    <button onClick={() => void startPhoneVerification("+12025550101").catch((failure: Error) => setError(failure.message))}>Send phone OTP</button>
+    <button onClick={() => void confirmPhoneVerification("123456").catch((failure: Error) => setError(failure.message))}>Confirm phone OTP</button>
+  </>;
+}
+
+function RetainedPhoneProbe({ replacement }: { replacement: boolean }) {
+  const { startPhoneVerification, confirmPhoneVerification, startPhoneReplacement, confirmPhoneReplacement } = useAuth();
+  const [error, setError] = useState("");
+  const retained = useRef<((otp: string) => Promise<User>) | null>(null);
+  const start = replacement ? startPhoneReplacement : startPhoneVerification;
+  const confirm = replacement ? confirmPhoneReplacement : confirmPhoneVerification;
+  return <>
+    <button onClick={() => void start("+12025550101")}>Start retained phone</button>
+    <button onClick={() => { retained.current = confirm; }}>Retain confirmation</button>
+    <button onClick={() => void retained.current?.("123456").catch((failure: Error) => setError(failure.message))}>Invoke retained confirmation</button>
+    <p data-testid="retained-phone-error">{error}</p>
+  </>;
+}
+
 describe("AuthProvider terminal session invalidation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -320,6 +364,9 @@ describe("AuthProvider terminal session invalidation", () => {
     );
     mocks.apiDeleteSession.mockResolvedValue(undefined);
     mocks.identityRefresh.mockResolvedValue(null);
+    mocks.identityPeek.mockReturnValue(null);
+    mocks.identityClaim.mockReset();
+    mocks.phoneClaimToken.mockReset().mockResolvedValue("phone-id-token");
     mocks.clearForUser.mockResolvedValue(undefined);
     mocks.clearMarketingSeen.mockResolvedValue(undefined);
     mocks.markForceIntroOnce.mockResolvedValue(undefined);
@@ -333,6 +380,84 @@ describe("AuthProvider terminal session invalidation", () => {
   afterEach(() => {
     vi.useRealTimers();
     delete window.__HUSHH_NATIVE_TEST__;
+  });
+
+  it("publishes the committed backend phone after web OTP even when Firebase republishes the same phone-less user", async () => {
+    mocks.firebaseUser = makeUser("account-owner", "");
+    let snapshot: object | null = null;
+    mocks.identityPeek.mockImplementation((uid: string) => uid === "account-owner" ? snapshot : null);
+    mocks.identityClaim.mockImplementation(async () => {
+      const identity = { user_id: "account-owner", phone_number: "+12025550101", phone_verified: true };
+      snapshot = { data: identity, isStale: false };
+      return identity;
+    });
+    render(<AuthProvider><SessionProbe /><VerifiedPhoneProbe /></AuthProvider>);
+    await screen.findByText("Vault content for account-owner");
+    await waitFor(() => expect(mocks.identityRefresh).toHaveBeenCalled());
+    expect(screen.getByTestId("verified-phone")).toHaveTextContent("missing");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send phone OTP" })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Confirm phone OTP" })); });
+    await waitFor(() => expect(screen.getByTestId("verified-phone")).toHaveTextContent("+12025550101"));
+    expect(mocks.identityClaim).toHaveBeenCalledWith(mocks.firebaseUser, "phone-id-token");
+    act(() => mocks.authStateListener?.(mocks.firebaseUser));
+    expect(screen.getByTestId("verified-phone")).toHaveTextContent("+12025550101");
+    const otherUser = makeUser("other-owner", "");
+    act(() => mocks.authStateListener?.(otherUser));
+    await waitFor(() => expect(screen.getByTestId("verified-phone")).toHaveTextContent("missing"));
+  });
+
+  it.each([
+    { stale: true, verified: true },
+    { stale: false, verified: false },
+  ])("does not publish stale or unverified cached phone evidence: %j", async ({ stale, verified }) => {
+    mocks.firebaseUser = makeUser("account-owner", "");
+    mocks.identityPeek.mockReturnValue({ data: { user_id: "account-owner", phone_number: "+12025550101", phone_verified: verified }, isStale: stale });
+    render(<AuthProvider><SessionProbe /><VerifiedPhoneProbe /></AuthProvider>);
+    await screen.findByText("Vault content for account-owner");
+    expect(screen.getByTestId("verified-phone")).toHaveTextContent("missing");
+  });
+
+  it.each(["account switch", "same-user resend"])("does not submit an old OTP after %s while phone proof is pending", async (change) => {
+    mocks.firebaseUser = makeUser("account-owner", "");
+    const token = deferred<string>();
+    mocks.phoneClaimToken.mockReturnValueOnce(token.promise);
+    render(<AuthProvider><SessionProbe /><VerifiedPhoneProbe /></AuthProvider>);
+    await screen.findByText("Vault content for account-owner");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send phone OTP" })); });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm phone OTP" }));
+    await waitFor(() => expect(mocks.phoneClaimToken).toHaveBeenCalled());
+    if (change === "account switch") {
+      mocks.firebaseUser = makeUser("other-owner", "");
+      act(() => mocks.authStateListener?.(mocks.firebaseUser));
+    } else {
+      await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send phone OTP" })); });
+    }
+    await act(async () => { token.resolve("old-phone-proof"); });
+    await waitFor(() => expect(screen.getByTestId("phone-error")).toHaveTextContent("account changed"));
+    expect(mocks.identityClaim).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { replacement: false, switchAccount: true },
+    { replacement: false, switchAccount: false },
+    { replacement: true, switchAccount: true },
+    { replacement: true, switchAccount: false },
+  ])("rejects retained confirmation after another challenge starts: %j", async ({ replacement, switchAccount }) => {
+    render(<AuthProvider><SessionProbe /><RetainedPhoneProbe replacement={replacement} /></AuthProvider>);
+    await screen.findByText("Vault content for account-owner");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Start retained phone" })); });
+    fireEvent.click(screen.getByRole("button", { name: "Retain confirmation" }));
+    if (switchAccount) {
+      mocks.firebaseUser = makeUser("other-owner", "");
+      act(() => mocks.authStateListener?.(mocks.firebaseUser));
+      await screen.findByText("Vault content for other-owner");
+    }
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Start retained phone" })); });
+    fireEvent.click(screen.getByRole("button", { name: "Invoke retained confirmation" }));
+    await waitFor(() => expect(screen.getByTestId("retained-phone-error")).toHaveTextContent("account changed"));
+    expect(mocks.phoneClaimToken).not.toHaveBeenCalled();
+    expect(mocks.phoneReplacementConfirm).not.toHaveBeenCalled();
+    expect(mocks.identityClaim).not.toHaveBeenCalled();
   });
 
   it("withdraws the live identity immediately and leaves profile when push cleanup stalls", async () => {

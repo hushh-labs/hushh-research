@@ -69,7 +69,9 @@ from hushh_mcp.services.account_service import (
 )
 from hushh_mcp.services.actor_identity_service import (
     ActorIdentityAliasError,
+    ActorIdentityPhoneClaimConflictError,
     ActorIdentityService,
+    ActorIdentitySyncUnavailableError,
 )
 from hushh_mcp.services.support_email_service import (
     SupportEmailDeliveryUncertainError,
@@ -849,6 +851,7 @@ async def revoke_trusted_device(
 async def refresh_account_identity(
     firebase_uid: str = Depends(require_firebase_auth),
     force: bool = True,
+    require_success: bool = False,
 ):
     """Refresh the backend account identity shadow from Firebase Auth.
 
@@ -857,7 +860,24 @@ async def refresh_account_identity(
     keeps read-only callers (such as the phone-mandate guard) fast while
     callers that need guaranteed freshness keep the default forced refresh.
     """
-    identity = await ActorIdentityService().sync_from_firebase(firebase_uid, force=force)
+    if require_success:
+        try:
+            identity = await ActorIdentityService().sync_from_firebase(
+                firebase_uid, force=True, require_success=True
+            )
+            if identity is None:
+                raise ActorIdentitySyncUnavailableError()
+        except Exception as exc:
+            logger.warning("account.identity.refresh_unavailable error=%s", type(exc).__name__)
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "IDENTITY_PROVIDER_UNAVAILABLE",
+                    "message": "Account verification is temporarily unavailable. Please retry.",
+                },
+            ) from None
+    else:
+        identity = await ActorIdentityService().sync_from_firebase(firebase_uid, force=force)
     return {
         "success": True,
         "user_id": firebase_uid,
@@ -1021,6 +1041,7 @@ class EmailAliasVerificationConfirmRequest(BaseModel):
 
 class PhoneClaimRequest(BaseModel):
     phone_id_token: str = Field(min_length=1, max_length=20_000)
+    expected_user_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 class UatPhoneTestStartRequest(BaseModel):
@@ -1031,6 +1052,18 @@ class UatPhoneTestConfirmRequest(BaseModel):
     phone_number: str = Field(min_length=3, max_length=32)
     verification_code: str = Field(min_length=1, max_length=16)
     verification_id: str = Field(min_length=1, max_length=256)
+    expected_user_id: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+def _require_phone_verification_owner(expected_user_id: str | None, firebase_uid: str) -> None:
+    if expected_user_id is not None and expected_user_id != firebase_uid:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PHONE_VERIFICATION_ACCOUNT_CHANGED",
+                "message": "Your signed-in account changed. Start phone verification again.",
+            },
+        )
 
 
 def _clean_env(name: str) -> str:
@@ -1378,6 +1411,7 @@ async def claim_account_phone(
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     """Persist a Firebase phone-auth session as the app-level verified phone claim."""
+    _require_phone_verification_owner(payload.expected_user_id, firebase_uid)
     phone_number, phone_session_uid = await _verify_phone_claim_id_token(payload.phone_id_token)
     phone_session_cleanup = await _prepare_safe_phone_session_cleanup_intent(
         uid=phone_session_uid,
@@ -1443,7 +1477,6 @@ async def start_uat_test_phone_verification(
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     """Start an environment-gated fixed-code phone verification challenge."""
-    del firebase_uid
     phone_number = _normalize_phone_number(payload.phone_number)
     enabled = _phone_test_enabled()
     eligible = enabled and phone_number in _configured_phone_test_numbers()
@@ -1454,6 +1487,24 @@ async def start_uat_test_phone_verification(
             "eligible": False,
             "reason": "uat_phone_test_not_configured_or_not_allowlisted",
         }
+
+    try:
+        available = await ActorIdentityService().can_claim_test_phone(
+            user_id=firebase_uid, phone_number=phone_number
+        )
+    except Exception as exc:
+        logger.warning("Phone test ownership lookup unavailable error=%s", type(exc).__name__)
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "PHONE_TEST_IDENTITY_UNAVAILABLE",
+                "message": "Phone verification is temporarily unavailable. Please retry.",
+            },
+        ) from None
+    if not available:
+        # Web can use real Firebase OTP; native stops before linking this
+        # occupied test number. A shared fixed code is not possession.
+        return {"success": True, "eligible": False, "reason": "phone_test_number_in_use"}
 
     return {
         "success": True,
@@ -1468,6 +1519,7 @@ async def confirm_uat_test_phone_verification(
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     """Persist an environment-gated fixed-code phone verification claim."""
+    _require_phone_verification_owner(payload.expected_user_id, firebase_uid)
     phone_number = _normalize_phone_number(payload.phone_number)
     configured_code = _configured_phone_test_code()
 
@@ -1498,11 +1550,23 @@ async def confirm_uat_test_phone_verification(
             },
         )
 
-    identity = await ActorIdentityService().claim_verified_phone(
-        user_id=firebase_uid,
-        phone_number=phone_number,
-        source="uat_test_phone_claim",
-    )
+    try:
+        identity = await ActorIdentityService().claim_verified_phone(
+            user_id=firebase_uid,
+            phone_number=phone_number,
+            source="uat_test_phone_claim",
+        )
+    except ActorIdentityPhoneClaimConflictError:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PHONE_TEST_NUMBER_IN_USE",
+                "message": (
+                    "This test phone number is already linked to another account. "
+                    "Use a different test number or verify your own phone number."
+                ),
+            },
+        ) from None
     if not identity:
         raise HTTPException(
             status_code=503,

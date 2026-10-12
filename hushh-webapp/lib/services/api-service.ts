@@ -1792,7 +1792,7 @@ export class ApiService {
 
   static async refreshAccountIdentityShadow(
     idToken?: string,
-    options?: { force?: boolean },
+    options?: { force?: boolean; requireSuccess?: boolean },
   ): Promise<Response> {
     const firebaseIdToken = idToken || (await this.getFirebaseToken());
     if (!firebaseIdToken) {
@@ -1805,7 +1805,9 @@ export class ApiService {
     }
 
     const force = options?.force ?? true;
-    const path = force
+    const path = options?.requireSuccess === true
+      ? "/api/account/identity/refresh?require_success=true"
+      : force
       ? "/api/account/identity/refresh"
       : "/api/account/identity/refresh?force=false";
 
@@ -1884,6 +1886,7 @@ export class ApiService {
   static async claimAccountPhone(
     phoneIdToken: string,
     idToken?: string,
+    expectedUserId?: string,
   ): Promise<AccountPhoneClaimResponse> {
     const normalizedPhoneIdToken = String(phoneIdToken || "").trim();
     if (!normalizedPhoneIdToken) {
@@ -1902,6 +1905,7 @@ export class ApiService {
       },
       body: JSON.stringify({
         phone_id_token: normalizedPhoneIdToken,
+        expected_user_id: expectedUserId,
       }),
     });
 
@@ -1981,6 +1985,7 @@ export class ApiService {
     verificationCode: string,
     verificationId: string,
     idToken?: string,
+    expectedUserId?: string,
   ): Promise<AccountPhoneClaimResponse> {
     const firebaseIdToken = idToken || (await this.getFirebaseToken());
     if (!firebaseIdToken) {
@@ -1996,6 +2001,7 @@ export class ApiService {
         phone_number: phoneNumber,
         verification_code: verificationCode,
         verification_id: verificationId,
+        expected_user_id: expectedUserId,
       }),
     });
 

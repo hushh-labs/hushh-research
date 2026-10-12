@@ -1,6 +1,6 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { User } from "firebase/auth";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -13,6 +13,10 @@ const mocks = vi.hoisted(() => ({
   apiGetAccountSessionStatus: vi.fn(),
   completePrivacyValidation: vi.fn(),
   getPrivacyState: vi.fn(),
+  phoneStart: vi.fn(),
+  phoneConfirm: vi.fn(),
+  phoneTestStart: vi.fn(),
+  phoneFinalize: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -56,6 +60,11 @@ vi.mock("@/lib/services/auth-service", () => ({
     getCurrentUser: vi.fn(() => null),
     restoreNativeSession: mocks.restoreNativeSession,
     signOut: mocks.authServiceSignOut,
+    startPhoneLinkVerification: mocks.phoneStart,
+    startPhoneReplacementVerification: mocks.phoneStart,
+    confirmPhoneLinkVerification: mocks.phoneConfirm,
+    confirmPhoneReplacementVerification: mocks.phoneConfirm,
+    isUatPhoneTestVerificationId: () => false,
   },
 }));
 
@@ -63,6 +72,8 @@ vi.mock("@/lib/services/account-identity-service", () => ({
   AccountIdentityService: {
     peekCachedIdentity: vi.fn(() => null),
     refreshCurrentUserIdentity: vi.fn().mockResolvedValue(null),
+    startUatTestPhoneVerification: mocks.phoneTestStart,
+    finalizeNativePhoneVerification: mocks.phoneFinalize,
   },
 }));
 
@@ -132,6 +143,30 @@ function makeUser(uid = "native-account-owner"): User {
   } as unknown as User;
 }
 
+function NativePhoneProbe() {
+  const { startPhoneVerification, confirmPhoneVerification, startPhoneReplacement, confirmPhoneReplacement } = useAuth();
+  const [status, setStatus] = useState("idle");
+  const start = async (replace: boolean) => {
+    try {
+      const result = await (replace ? startPhoneReplacement : startPhoneVerification)("+12025550101");
+      setStatus(result.autoVerified ? "verified" : "code ready");
+    } catch (error) { setStatus((error as Error).message); }
+  };
+  const confirm = async (replace: boolean) => {
+    try {
+      await (replace ? confirmPhoneReplacement : confirmPhoneVerification)("123456");
+      setStatus("verified");
+    } catch (error) { setStatus((error as Error).message); }
+  };
+  return <>
+    <p data-testid="native-phone-status">{status}</p>
+    <button onClick={() => void start(false)}>Start native phone</button>
+    <button onClick={() => void start(true)}>Start native replacement</button>
+    <button onClick={() => void confirm(false)}>Confirm native phone</button>
+    <button onClick={() => void confirm(true)}>Confirm native replacement</button>
+  </>;
+}
+
 function SessionProbe() {
   const {
     beginPostAuthSettlement,
@@ -194,6 +229,10 @@ describe("AuthProvider native privacy generations", () => {
     mocks.restoreNativeSession.mockReset();
     mocks.getPrivacyState.mockReset();
     mocks.completePrivacyValidation.mockReset();
+    mocks.phoneStart.mockReset().mockResolvedValue({ autoVerified: false, verificationId: "native-verification" });
+    mocks.phoneConfirm.mockReset().mockResolvedValue(makeUser());
+    mocks.phoneTestStart.mockReset().mockResolvedValue({ eligible: false });
+    mocks.phoneFinalize.mockReset().mockResolvedValue(undefined);
     mocks.privacyState = { shielded: false, generation: 0, cause: "inactive", appIsActive: true };
     mocks.privacyListener = null;
     mocks.getPrivacyState.mockImplementation(() => Promise.resolve({ ...mocks.privacyState }));
@@ -207,6 +246,38 @@ describe("AuthProvider native privacy generations", () => {
   });
 
   afterEach(() => vi.useRealTimers());
+
+  it.each(["manual", "replacement", "automatic"])("waits for backend persistence before native %s verification succeeds", async (mode) => {
+    mocks.restoreNativeSession.mockResolvedValue(makeUser());
+    mocks.apiGetAccountSessionStatus.mockResolvedValue(activeSessionResponse());
+    const saved = deferred<void>();
+    mocks.phoneFinalize.mockReturnValueOnce(saved.promise);
+    if (mode === "automatic") mocks.phoneStart.mockResolvedValue({ autoVerified: true, user: makeUser() });
+    render(<AuthProvider><SessionProbe /><NativePhoneProbe /></AuthProvider>);
+    await waitFor(() => expect(snapshotValidatedAuthSessionOwner()?.userId).toBe("native-account-owner"));
+    fireEvent.click(screen.getByRole("button", { name: mode === "replacement" ? "Start native replacement" : "Start native phone" }));
+    if (mode !== "automatic") {
+      await waitFor(() => expect(screen.getByTestId("native-phone-status")).toHaveTextContent("code ready"));
+      fireEvent.click(screen.getByRole("button", { name: mode === "replacement" ? "Confirm native replacement" : "Confirm native phone" }));
+    }
+    await waitFor(() => expect(mocks.phoneFinalize).toHaveBeenCalledOnce());
+    expect(mocks.phoneFinalize).toHaveBeenCalledWith(expect.objectContaining({ uid: "native-account-owner" }), "+12025550101");
+    expect(screen.getByTestId("native-phone-status")).not.toHaveTextContent("verified");
+    await act(async () => { saved.resolve(); });
+    await waitFor(() => expect(screen.getByTestId("native-phone-status")).toHaveTextContent("verified"));
+  });
+
+  it("stops an occupied test number before native OTP linking", async () => {
+    mocks.restoreNativeSession.mockResolvedValue(makeUser());
+    mocks.apiGetAccountSessionStatus.mockResolvedValue(activeSessionResponse());
+    mocks.phoneTestStart.mockResolvedValue({ eligible: false, reason: "phone_test_number_in_use" });
+    render(<AuthProvider><SessionProbe /><NativePhoneProbe /></AuthProvider>);
+    await waitFor(() => expect(snapshotValidatedAuthSessionOwner()?.userId).toBe("native-account-owner"));
+    fireEvent.click(screen.getByRole("button", { name: "Start native phone" }));
+    await waitFor(() => expect(screen.getByTestId("native-phone-status")).toHaveTextContent("already linked to another account"));
+    expect(mocks.phoneStart).not.toHaveBeenCalled();
+    expect(mocks.phoneFinalize).not.toHaveBeenCalled();
+  });
 
   it("automatically recovers a transient native restore failure before a UID is known", async () => {
     vi.useFakeTimers();

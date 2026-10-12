@@ -2028,6 +2028,35 @@ Frontend reads/writes these fields through the centralized onboarding/profile fl
 
 #### Account & Sync
 
+Phone metadata refreshes cannot transfer a verified phone to another actor,
+regardless of their descriptive source. Only a server-validated Firebase phone
+session claim carries transfer authority. Fixed-code test verification preserves
+another verified owner: its start response declines the test shortcut. Web uses
+real Firebase OTP; native stops before linking and asks for a different test
+number. Confirmation rechecks under the phone advisory/row
+locks and returns `PHONE_TEST_NUMBER_IN_USE` (409) for a stale/racing test challenge.
+Same-owner retries and claims for unbound test numbers remain supported. An
+unavailable ownership read returns `PHONE_TEST_IDENTITY_UNAVAILABLE` (503).
+
+Phone confirmation requests may supply `expected_user_id`; it must match the
+authenticated Firebase UID before proof verification or persistence. Clients
+fence pending verification by account and attempt generation, so an account
+switch or resend cannot publish an earlier result. Native completion waits for
+a fresh backend identity with the exact current UID and linked verified phone;
+provider linking alone is not reported as a saved app-level phone. Linked
+provider metadata does not authorize cross-owner reconciliation.
+Native finalization uses `/api/account/identity/refresh?require_success=true`:
+this forces current provider/persistence success and returns 503 on failure
+instead of falling back to a prior identity. Background refresh keeps its
+existing cache fallback.
+
+Web verification's app-level phone need not be linked to the primary social
+Firebase user. Auth state publishes a fresh verified identity-cache phone after
+the backend claim commits, including same-user Firebase republication, and never
+uses stale/unverified cache evidence or a previous user's cache. Historical
+missing phone bindings are not reconstructed from email verification or OTP log
+messages; account owners restore them through the existing phone verification flow.
+
 | Method | Path                                              | Description                                                                                                                                                                                              |
 | ------ | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | POST   | `/api/account/identity/refresh`                   | Refresh backend identity shadow from Firebase Auth                                                                                                                                                       |
