@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -13,6 +13,26 @@ const payoutsSource = readFileSync(
   join(process.cwd(), "components/consent/document-hashcoins.tsx"),
   "utf8",
 );
+
+/** Every mounted bank control that turns on Stripe-return handling, one entry per mount. */
+function returnHandlingBankControls(): string[] {
+  const mounts: string[] = [];
+  const visit = (dir: string) => {
+    for (const entry of readdirSync(join(process.cwd(), dir), { withFileTypes: true })) {
+      const path = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (entry.name !== "__tests__") visit(path);
+      } else if (path.endsWith(".tsx")) {
+        // A bare (or {true}) handleReturn; forwarding a prop is not a second mount.
+        const source = readFileSync(join(process.cwd(), path), "utf8");
+        for (const _ of source.matchAll(/<(?:PayoutBankRows|DocumentPayoutAccountCard)\b[^>]*?\shandleReturn(?=[\s/>]|=\{true\})/g)) mounts.push(path);
+      }
+    }
+  };
+  visit("components");
+  visit("app");
+  return mounts;
+}
 
 describe("profile workspace duplication contract", () => {
   it("keeps One dashboard workspaces out of the Profile landing screen", () => {
@@ -63,12 +83,17 @@ describe("profile workspace duplication contract", () => {
     expect(profilePageSource).toContain('activePanel === "payouts"');
     expect(profilePageSource).toContain('activePanel === "request-pricing"');
     expect(profilePageSource).toContain("<DocumentHashcoinPayouts />");
-    // One bank control on Payouts: the document card, which also takes Stripe's return.
+    // One bank control on Payouts: the bank rows in "Your money", the only
+    // control that takes Stripe's return. A second would start setup again.
     const payoutsPanel = profilePageSource.split('activePanel === "payouts") {')[1]?.split("} else if (")[0] ?? "";
     expect(payoutsPanel).toContain("<DocumentHashcoinPayouts />");
     expect(payoutsPanel).not.toContain("AnswerPayoutAccount");
-    expect(payoutsSource.match(/<DocumentPayoutAccountCard\b/g)).toEqual(["<DocumentPayoutAccountCard"]);
-    expect(payoutsSource).toContain("<DocumentPayoutAccountCard handleReturn showHistory={false} onAccountChange={setBank} />");
+    expect(payoutsSource.match(/<(?:PayoutBankRows|DocumentPayoutAccountCard)\b/g)).toEqual(["<PayoutBankRows"]);
+    expect(payoutsSource).toContain("<PayoutBankRows handleReturn onAccountChange={setBank} actionsRef={bankActions} />");
+    expect(returnHandlingBankControls()).toEqual(["components/consent/document-hashcoins.tsx"]);
+    // Search reads the redeem controls' literal ids where Payouts mounts them.
+    expect(payoutsSource).toContain('data-voice-control-id="profile_payouts_redeem"');
+    expect(payoutsSource).toContain('data-voice-control-id="profile_payouts_test_redeem"');
     expect(profilePageSource).toContain("<DocumentRequestPricingCard");
     expect(profilePageSource).toMatch(/if \(vaultAccess\.needsVaultCreation && panel !== "security"\) \{\s*setPendingProfileTarget\(\{ panel, detail, mode: "push" \}\);/);
     expect(profilePageSource).toMatch(/else if \(pendingProfileTarget\) \{\s*updateProfileView\(/);

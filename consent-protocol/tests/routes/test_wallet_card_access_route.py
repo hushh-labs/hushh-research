@@ -64,3 +64,26 @@ def test_recipient_view_needs_no_owner_vault_token_and_errors_are_private():
         assert response.status_code == 503
         assert "internal secret" not in response.text
         assert response.headers["cache-control"] == "private, no-store"
+
+
+def test_history_cursor_is_forwarded_with_owner_authority():
+    service = MagicMock()
+    service.card_access.return_value = {
+        "eligible": True,
+        "grants": [],
+        "nextCursor": None,
+        "hasMore": False,
+    }
+    with patch("api.routes.one.wallet_card_access.service", return_value=service):
+        response = client().get(ROOT + "/cards/card_one", params={"cursor": ID})
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "private, no-store"
+        service.card_access.assert_called_once_with("owner", "card_one", ID)
+
+
+def test_malformed_history_cursor_is_private_and_not_forwarded():
+    with patch("api.routes.one.wallet_card_access.service") as service:
+        response = client().get(ROOT + "/cards/card_one?cursor=not-a-uuid")
+        assert response.status_code == 422
+        assert response.headers["cache-control"] == "private, no-store"
+        service.assert_not_called()

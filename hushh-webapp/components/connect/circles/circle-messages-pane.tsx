@@ -17,9 +17,8 @@ import { ArrowLeft, MessageCircle, Pencil, Plus, RefreshCw, Search, UsersRound }
 import styles from "./circle-messages-pane.module.css";
 import peopleStyles from "@/components/direct-messages/direct-messages-page.module.css";
 
-function GroupAvatar({ name, photoUrl }: { name: string; photoUrl?: string | null }) {
+function GroupAvatar({ photoUrl }: { photoUrl?: string | null }) {
   return <span className={styles.groupAvatar} aria-hidden="true">
-    <span className={styles.groupAvatarBack}>{Array.from(name.trim())[0]?.toUpperCase() ?? "C"}</span>
     <span className={styles.groupAvatarFront}>{photoUrl ? <Image src={photoUrl} alt="" width={33} height={33} unoptimized /> : <UsersRound className="size-5" />}</span>
   </span>;
 }
@@ -164,7 +163,7 @@ export function CircleMessagesPane({ active = true, initialCircleId = null, onTh
           setSelectedId(circle.id);
           writeLastMessagesSelection(ownerId, { lane: "circles", circleId: circle.id });
         }}>
-        <GroupAvatar name={circle.name} photoUrl={circle.photoUrl} />
+        <GroupAvatar photoUrl={circle.photoUrl} />
         <span className={styles.rowText}><strong>{circle.name}</strong><span>{circle.memberCount} {circle.memberCount === 1 ? "member" : "members"}</span></span>
         <MessageCircle aria-hidden="true" className="size-4" />
       </button>)}
@@ -176,7 +175,7 @@ export function CircleMessagesPane({ active = true, initialCircleId = null, onTh
           <div className={peopleStyles.threadHeaderContent}>
           <button type="button" className={styles.back} aria-label="Back to circles" onClick={closeThread}><ArrowLeft aria-hidden="true" className="size-5" /></button>
           <div className={peopleStyles.threadIdentity}>
-          <GroupAvatar name={selected.name} photoUrl={selected.photoUrl} />
+          <GroupAvatar photoUrl={selected.photoUrl} />
           <div className={peopleStyles.threadTitle}><h2>{selected.name}</h2><p>{selected.memberCount} {selected.memberCount === 1 ? "member" : "members"}</p></div>
           </div>
           </div>

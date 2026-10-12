@@ -166,7 +166,7 @@ test("relative standup request asks for exact dates before sending", async ({ pa
   await page.addScriptTag({ content: script });
   await page.getByRole("button", { name: "Request files", exact: true }).click();
   const panel = page.getByRole("dialog", { name: "Request files", exact: true });
-  await expect(panel.getByText("Price: $10. Pay only if files are found.")).toBeVisible();
+  await expect(panel.getByText("Estimated price $10. You'll see the final price before you pay. You pay only if files are found.")).toBeVisible();
   await panel.getByLabel("What do you need?").fill("last 3 days standup notes");
   await expect(panel.getByText("Choose exact start and end dates before sending this request.")).toBeVisible();
   await expect(panel.getByRole("button", { name: "Send request" })).toBeDisabled();

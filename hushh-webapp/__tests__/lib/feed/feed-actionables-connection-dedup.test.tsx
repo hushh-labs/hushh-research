@@ -772,6 +772,72 @@ describe("useFeedActionables — document requests outside the Trusted circle", 
     expect(mocks.refresh).toHaveBeenCalledWith({ force: true });
   });
 
+  it("shows the owner the estimate the requester saw, without fixing the price", async () => {
+    mocks.allow.mockResolvedValue({
+      requestId: DOC_ID,
+      status: "pending",
+      revision: 3,
+    });
+    mocks.review.mockResolvedValue(ownerReview({ estimateCents: 2500 }));
+    const { result } = renderWith(documentEntry(DOC_ID));
+    act(() => {
+      actionOf(documentRow(result), "allow").run();
+    });
+    await waitFor(() =>
+      expect(result.current.documentPricePrompt.detailsPending).toBe(false),
+    );
+    expect(result.current.documentPricePrompt).toMatchObject({
+      estimateCents: 2500,
+      lockedAmountCents: null,
+      initialAmountCents: null,
+    });
+
+    // The owner still chooses: Allow sends their price, not the estimate.
+    act(() => result.current.documentPricePrompt.submit(4000));
+    await waitFor(() =>
+      expect(result.current.documentPricePrompt.open).toBe(false),
+    );
+    expect(mocks.allow).toHaveBeenCalledExactlyOnceWith(
+      "vault-token",
+      DOC_ID,
+      { revision: 3, amountCents: 4000 },
+      expect.any(Function),
+    );
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["fractional", 1050],
+    ["above the limit", 50_100],
+    ["not a number", "2500"],
+  ])("never lets a %s estimate block pricing", async (_label, estimateCents) => {
+    mocks.allow.mockResolvedValue({
+      requestId: DOC_ID,
+      status: "pending",
+      revision: 3,
+    });
+    mocks.review.mockResolvedValue(ownerReview({ estimateCents }));
+    const { result } = renderWith(documentEntry(DOC_ID));
+    act(() => {
+      actionOf(documentRow(result), "allow").run();
+    });
+    await waitFor(() =>
+      expect(result.current.documentPricePrompt.detailsPending).toBe(false),
+    );
+    expect(result.current.documentPricePrompt.estimateCents).toBeNull();
+
+    act(() => result.current.documentPricePrompt.submit(2000));
+    await waitFor(() =>
+      expect(result.current.documentPricePrompt.open).toBe(false),
+    );
+    expect(mocks.allow).toHaveBeenCalledExactlyOnceWith(
+      "vault-token",
+      DOC_ID,
+      { revision: 3, amountCents: 2000 },
+      expect.any(Function),
+    );
+  });
+
   it("allows a free request without a price", async () => {
     mocks.allow.mockResolvedValue({
       requestId: DOC_ID,

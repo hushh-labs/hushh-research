@@ -279,7 +279,14 @@
     "305_pkm_answer_payment_recovery.sql",
     "306_one_business_profile_saved.sql",
     "313_feed_realtime_changes.sql",
-    "314_one_magic_intelligence_saved.sql"
+    "314_one_magic_intelligence_saved.sql",
+    "315_payout_activity_indexes.sql",
+    "316_connect_bank_payout_snapshot.sql",
+    "317_connect_balance_ledger.sql",
+    "318_payout_doorbell_kinds.sql",
+    "319_hashcoin_hold_tracking.sql",
+    "320_drive_request_initial_quote.sql",
+    "321_drive_request_review_requests.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -587,6 +594,13 @@
     "305_pkm_answer_payment_recovery.sql": "rollback/305_pkm_answer_payment_recovery.rollback.sql",
     "306_one_business_profile_saved.sql": "rollback/306_one_business_profile_saved.rollback.sql",
     "313_feed_realtime_changes.sql": "rollback/313_feed_realtime_changes.rollback.sql",
-    "314_one_magic_intelligence_saved.sql": "rollback/314_one_magic_intelligence_saved.rollback.sql"
+    "314_one_magic_intelligence_saved.sql": "rollback/314_one_magic_intelligence_saved.rollback.sql",
+    "315_payout_activity_indexes.sql": "rollback/315_payout_activity_indexes.rollback.sql",
+    "316_connect_bank_payout_snapshot.sql": "rollback/316_connect_bank_payout_snapshot.rollback.sql",
+    "317_connect_balance_ledger.sql": "rollback/317_connect_balance_ledger.rollback.sql",
+    "318_payout_doorbell_kinds.sql": "rollback/318_payout_doorbell_kinds.rollback.sql",
+    "319_hashcoin_hold_tracking.sql": "rollback/319_hashcoin_hold_tracking.rollback.sql",
+    "320_drive_request_initial_quote.sql": "rollback/320_drive_request_initial_quote.rollback.sql",
+    "321_drive_request_review_requests.sql": "rollback/321_drive_request_review_requests.rollback.sql"
   }
 }

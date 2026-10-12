@@ -12,6 +12,9 @@ import pytest
 from hushh_mcp.services.drive_permission_worker import DrivePermissionWorker
 from hushh_mcp.services.drive_share_notification_worker import DriveShareNotificationWorker
 from hushh_mcp.services.drive_work_drain import DriveWorkDrain, _safe_outcomes
+from hushh_mcp.services.stripe_connect_balances import WORKER_OUTCOMES
+
+CONNECT_LEDGER_OUTCOMES = {name: 1 for name in sorted(WORKER_OUTCOMES)}
 
 
 def test_hashcoin_recovery_counts_remain_bounded_and_visible():
@@ -25,6 +28,7 @@ def test_hashcoin_recovery_counts_remain_bounded_and_visible():
                 "bank_accounts_checked": 1,
                 "bank_payouts_changed": 2,
                 "bank_provider_deferred": 3,
+                **CONNECT_LEDGER_OUTCOMES,
                 "secret": "transfer_id",
                 "succeeded": 501,
             }
@@ -36,6 +40,8 @@ def test_hashcoin_recovery_counts_remain_bounded_and_visible():
         "bank_accounts_checked": 1,
         "bank_payouts_changed": 2,
         "bank_provider_deferred": 3,
+        # Connect balance and deposit-contents upkeep stays visible, never dropped.
+        **CONNECT_LEDGER_OUTCOMES,
     }
 
 
