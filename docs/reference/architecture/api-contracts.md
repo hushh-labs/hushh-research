@@ -1171,6 +1171,16 @@ even if the optional directory lookup is already ready. Review and explicit
 receipt-confirmed PKM completion are unchanged. Hosted multi-instance acceptance
 and physical-device suspension are separate verification, not localhost proof.
 
+Personal review pins one complete, owner-scoped decrypted inventory before asynchronous memory
+preparation. Duplicate checks, semantic reconciliation and business-origin binding
+use that same memory-only witness even if a concurrent PKM write invalidates the
+shared context cache. Vault expiry revokes the witness; it is not persisted or
+write authority. Canonical saves still rebuild against fresh PKM on every conflict
+retry. A bound existing business must retain its UID at the same active target;
+deleted, moved, inactive or replaced targets require another review and cannot
+be resurrected by an extension. Personal details remain independent of Business
+cache readiness once preparation has captured its complete inventory.
+
 Personal completion is independent of Business completion. A successful review
 calls `POST /api/one/profile-research/complete` with 1–64 unique domain/plan
 receipts using the same VAULT_OWNER + derived chat-key authority. The server

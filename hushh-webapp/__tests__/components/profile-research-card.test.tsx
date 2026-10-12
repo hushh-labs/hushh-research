@@ -65,6 +65,11 @@ vi.mock("@/lib/agent/agent-pkm-context-store", () => ({
     findLocalDuplicate: () => ({ kind: "none" }),
     findProfileReconciliationCandidates: mocks.candidates,
     profileBusinessTarget: mocks.businessTarget,
+    captureProfileReviewInventory: () => ({
+      findLocalDuplicate: () => null,
+      findReconciliationCandidates: mocks.candidates,
+      businessTarget: mocks.businessTarget,
+    }),
   },
 }));
 
