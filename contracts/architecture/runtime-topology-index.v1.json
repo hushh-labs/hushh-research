@@ -1839,7 +1839,10 @@
       "data_class": "workflow_state",
       "exact_tables": [
         "stripe_connect_bank_payouts",
-        "stripe_connect_bank_payout_events"
+        "stripe_connect_bank_payout_events",
+        "stripe_connect_balance_snapshots",
+        "stripe_connect_balance_transactions",
+        "stripe_connect_payout_reconciliations"
       ],
       "id": "stripe_connect_bank_payout_status",
       "lifecycle_status": "customer0",
@@ -6694,7 +6697,7 @@
     "action_gateway": "c0fee109f7399c33e455b5ba0f3a14bae28bad517e827de5cd721b26cf4ffe19",
     "agent_registry": "91f9e241f4bdbbaa16405eec58fc7c88dda453d355b45e4cf7806fc3156bc39d",
     "cache_manifest": "2f4ccfba59c856698838753971f14d3aa12e0dced3f8834cfe33ad8f98f75656",
-    "data_plane": "dff905610b0c2ab9c5639a87b762358e01bf8eff13ee2cc415a1028edaaf2c08",
+    "data_plane": "8b458a2550ae4b55b7757e08b71326a1d4c784f9767e0beffbaccd1b39a3ce69",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "cb76edf8be0ad6bbef975a9a9db27c9564dd768e7edd3da999ec5d3a5877b283",
     "route_index": "24a5d2b90aac6f8c0166b7242020fe4859ad8ee4cabb390b039136b263f38c2e",

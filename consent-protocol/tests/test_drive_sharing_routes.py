@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from api.middleware import require_firebase_auth_read_only, require_vault_owner_token
+from api.routes import drive_request_requester as requester_routes
 from api.routes import drive_sharing as routes
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 
@@ -229,6 +230,20 @@ def test_requester_context_is_private_and_rechecks_vault_authority(setup):
     assert "no-store" in response.headers["Cache-Control"]
 
 
+def test_delivery_details_ask_for_the_price_recovery_and_review_views(setup):
+    # Only GET /delivery adds the requester's price and recovery (or the owner's
+    # review notice); file pages read the bare snapshot.
+    client, app, service, _ = setup
+    unlock(app)
+    service.delivery.return_value = {"requestId": REQUEST_ID, "status": "partial", "files": []}
+    response = client.get(BASE + f"/{REQUEST_ID}/delivery")
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, no-store"
+    service.delivery.assert_awaited_once_with(
+        user_id="recipient", request_id=REQUEST_ID, views=True
+    )
+
+
 def test_late_owner_revocation_releases_no_private_result(setup):
     client, app, service, current = setup
     unlock(app)
@@ -296,6 +311,43 @@ def test_approval_only_acknowledges_pending_work(setup):
     )
     assert response.status_code == 202
     assert response.json() == {"status": "approved", "sharingStatus": "pending"}
+
+
+def test_withdraw_refuses_paid_requests_and_never_fails_on_checkout_retirement(setup, monkeypatch):
+    from hushh_mcp.services import drive_request_payment_service as payments
+
+    client, app, service, _ = setup
+    unlock(app)
+    service.decide.side_effect = DriveSharingError("request_paid")
+    for action in ("cancel", "decline"):
+        response = client.post(BASE + f"/{REQUEST_ID}/{action}", json={"revision": 0})
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "request_paid"
+        assert "no-store" in response.headers["Cache-Control"]
+
+    service.decide.side_effect = None
+    payment = {"state": "closed", "amountCents": 2500, "refund": None, "nextAction": "none"}
+    service.decide.return_value = {
+        "requestId": REQUEST_ID,
+        "status": "cancelled",
+        "revision": 0,
+        "payment": payment,
+    }
+    retire = AsyncMock(side_effect=RuntimeError("stripe-secret-error"))
+    monkeypatch.setattr(
+        payments, "DriveRequestPaymentService", lambda: SimpleNamespace(retire_checkout=retire)
+    )
+    response = client.post(BASE + f"/{REQUEST_ID}/cancel", json={"revision": 0})
+    assert response.status_code == 200 and response.json()["payment"] == payment
+    assert "stripe-secret-error" not in response.text
+    retire.assert_awaited_once_with(requester_user_id="recipient", request_id=REQUEST_ID)
+
+    # Payment won the race at Stripe: the withdrawal reports the refund it will get.
+    retire.side_effect, retire.return_value = None, "paid"
+    response = client.post(BASE + f"/{REQUEST_ID}/cancel", json={"revision": 0})
+    assert response.status_code == 200
+    assert response.json()["payment"]["state"] == "refund_pending"
+    assert response.json()["payment"]["refund"] == {"status": "queued", "amountCents": 2500}
 
 
 @pytest.mark.parametrize(
@@ -868,3 +920,100 @@ def test_a_reviewed_drive_write_needs_the_unlocked_owner_and_an_explicit_confirm
     assert client.post(path, json=_reviewed_body()).status_code == 200
     execute.assert_awaited_once()
     assert execute.await_args.kwargs["owner_id"] == "owner"
+
+
+# Requester-only routes (api/routes/drive_request_requester.py): the caller's
+# own Google identity, and the review ask.
+SHARING = "/api/connectors/google_drive/sharing"
+FIREBASE = {"Authorization": "Bearer synthetic-firebase"}
+
+
+@pytest.fixture
+def requester_setup(monkeypatch):
+    app = FastAPI()
+    app.include_router(requester_routes.router)
+    current = AsyncMock(return_value={"user_id": "recipient"})
+    monkeypatch.setattr(routes, "require_vault_owner_token", current)
+    review = AsyncMock()
+    monkeypatch.setattr(requester_routes.requester_store, "request_review", review)
+    monkeypatch.setattr(requester_routes, "_service", lambda: SimpleNamespace(store="store"))
+    monkeypatch.setattr(requester_routes, "wake_drive_work", AsyncMock(return_value=False))
+    return TestClient(app), app, current, review
+
+
+def test_recipient_identity_is_only_the_callers_own_google_account(requester_setup, monkeypatch):
+    client, app, _, _ = requester_setup
+    response = client.get(SHARING + "/recipient-identity", headers=FIREBASE)
+    assert response.status_code == 401 and "no-store" in response.headers["Cache-Control"]
+
+    unlock(app)
+    google_identity(monkeypatch, app)
+    response = client.get(SHARING + "/recipient-identity", headers=FIREBASE)
+    assert response.status_code == 200
+    assert response.json() == {"email": "recipient@example.invalid", "provider": "google.com"}
+    assert response.headers["Cache-Control"] == "private, no-store"
+
+    # Another person's Firebase session never reads this vault owner's account.
+    google_identity(monkeypatch, app, firebase_uid="someone-else")
+    response = client.get(SHARING + "/recipient-identity", headers=FIREBASE)
+    assert response.status_code == 403
+    assert "recipient@example.invalid" not in response.text
+
+
+def test_recipient_identity_names_a_missing_or_unverifiable_google_account(
+    requester_setup, monkeypatch
+):
+    client, app, _, _ = requester_setup
+    unlock(app)
+    google_identity(monkeypatch, app)
+    monkeypatch.setattr(
+        routes.firebase_auth,
+        "get_user",
+        Mock(return_value=SimpleNamespace(disabled=False, provider_data=[])),
+    )
+    response = client.get(SHARING + "/recipient-identity", headers=FIREBASE)
+    assert (response.status_code, response.json()["detail"]["code"]) == (
+        409,
+        "verify_google_identity_required",
+    )
+    monkeypatch.setattr(
+        routes.firebase_auth, "get_user", Mock(side_effect=RuntimeError("provider-body"))
+    )
+    response = client.get(SHARING + "/recipient-identity", headers=FIREBASE)
+    assert (response.status_code, response.json()["detail"]["code"]) == (
+        503,
+        "identity_verification_unavailable",
+    )
+    assert "provider-body" not in response.text and "no-store" in response.headers["Cache-Control"]
+
+
+def test_review_ask_is_vault_bound_and_maps_only_its_own_codes(requester_setup):
+    client, app, current, review = requester_setup
+    path = f"{SHARING}/requests/{REQUEST_ID}/review-request"
+    assert client.post(path, json={}).status_code == 401
+    review.assert_not_awaited()
+
+    unlock(app)
+    review.return_value = {
+        "requestId": REQUEST_ID,
+        "reviewRequestedAt": "2026-10-11T08:00:00+00:00",
+        "ownerRetry": {"state": "requested", "retryableCount": 1},
+        "refund": {"state": "none", "amountCents": None},
+    }
+    response = client.post(path, json={})
+    assert (response.status_code, response.json()) == (200, review.return_value)
+    assert response.headers["Cache-Control"] == "private, no-store"
+    review.assert_awaited_once_with("store", user_id="recipient", request_id=REQUEST_ID)
+    assert current.await_count == 2
+
+    for raised, status, code in (
+        ("review_not_available", 409, "review_not_available"),
+        ("review_limit_reached", 409, "review_limit_reached"),
+        ("request_unavailable", 404, "request_unavailable"),
+        ("secret-provider-body", 503, "sharing_unavailable"),
+    ):
+        review.side_effect = DriveSharingError(raised)
+        response = client.post(path, json={})
+        assert (response.status_code, response.json()["detail"]["code"]) == (status, code)
+        assert "secret-provider-body" not in response.text
+        assert "no-store" in response.headers["Cache-Control"]

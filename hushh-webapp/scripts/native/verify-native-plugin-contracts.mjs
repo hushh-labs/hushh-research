@@ -20,6 +20,7 @@ const tsPluginFiles = [
   "lib/capacitor/oauth-return.ts",
   "lib/capacitor/google-connector-auth.ts",
   "lib/capacitor/plaid-link.ts",
+  "lib/capacitor/card-scanner.ts",
 ];
 
 const iosPluginsDir = path.join(appRoot, "ios/App/App/Plugins");
@@ -48,7 +49,8 @@ const webOnlyPlugins = new Set();
 // The TypeScript adapter returns unsupported/no pending invocation elsewhere.
 // (HushhPlaidLink is implemented on both platforms: LinkKit on iOS, Plaid's
 // Link SDK on Android, so it is held to full parity like every other plugin.)
-const iosOnlyPlugins = new Set(["HushhNativeNavigation", "HushhNativeChrome", "HushhNativeDock"]);
+// Card scanning uses Apple Vision on iOS and the existing web worker elsewhere.
+const iosOnlyPlugins = new Set(["HushhNativeNavigation", "HushhNativeChrome", "HushhNativeDock", "HushhCardScanner"]);
 const appleInvocationMethods = new Set([
   "getPendingInvocation", "claimInvocation", "reportInvocationProgress", "completeInvocation",
   "getPendingActionInvocation", "claimActionInvocation", "completeActionInvocation", "reportActionInvocationProgress",

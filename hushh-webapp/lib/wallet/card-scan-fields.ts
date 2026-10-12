@@ -5,8 +5,10 @@ export type ScannedCardFields = { pan: string; expiry?: string; cardholderName?:
 /** A conservative parser of local OCR output, never a saved card or authority. */
 export function parseCardScan(text: string): ScannedCardFields | null {
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const candidates = new Set(lines.flatMap((line) =>
-    (line.match(/\d(?:[ -]?\d)*/g) ?? []).map((value) => value.replace(/\D/g, ""))
+  // OCR may split the printed groups across lines or emit repeated whitespace.
+  const groupedLines = text.replace(/(?:^|\n)((?:[ \t]*\d{4}[ \t]*\r?\n){3}[ \t]*\d{4})(?=\s|$)/g, (_, groups: string) => "\n" + groups.replace(/\s+/g, " "));
+  const candidates = new Set([...lines, ...groupedLines.split(/\r?\n/)].flatMap((line) =>
+    (line.match(/\d(?:[ \t\u00a0-]*\d)*/g) ?? []).map((value) => value.replace(/\D/g, ""))
   ).filter((pan) => pan.length >= 13 && pan.length <= 19 && luhnValid(pan)));
   // Never guess between multiple card numbers.
   if (candidates.size !== 1) return null;

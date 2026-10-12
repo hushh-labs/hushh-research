@@ -28,6 +28,38 @@ are separately verified below; they do not prove a consumer purchase or payout.
 
 ### Shared Dev checkpoint — 2026-10-12 UTC
 
+- The current main `4277558db7` reconciliation retains its document payout and
+  request lanes alongside scope commerce. Main's migration registrations
+  315–321 remain unchanged; the feature's six registrations move to 322–327
+  with exact forward/rollback bytes archived under
+  `db/legacy/scope-commerce-infrastructure-79856d1f/`. Independent backend review
+  verifies ordering, unique IDs, rollback mappings and both schema-head fields
+  at 327. All 61 focused migration/authority cases pass. The ledger cases that
+  initially required an explicit database were rerun on an owned loopback-only
+  Postgres instance: all five pass, including append-only negative controls,
+  non-destructive replay/rollback and concurrent reservations. These receipts
+  do not authorize altering accepted environment checksums or financial rows.
+- Read-only Dev/UAT/production observations found no accepted 315–327 collision
+  IDs or release baseline. Dev's 59 recorded IDs are private-lane 900–958,
+  **not** evidence of release head 320. Earlier schema replay may have run
+  without applied-ID receipts. Preserve existing tables, funding and journals;
+  neither fabricate acceptance rows nor rebuild them to simplify migration.
+- Saved shares its existing exact-scope price editor rather than adding another
+  control; buyer review shows one availability explanation and only offers
+  funding when admitted and needed. The combined interface suite passes 83
+  cases. The incoming document requester payment section now retires Checkout
+  and withdrawal responses after owner/request/vault changes or unmount. Its
+  nearest 19 cases pass; the exact incoming-main component fails all 11
+  strengthened retirement assertions with the same valid fixture. The broader
+  pricing, payment, stream-proxy and scope-commerce selection passes 86 cases.
+  All 447 Back cases, UI regeneration, typecheck and native plugin contracts
+  pass. Complete core, exact-source hosted CI and Dev promotion remain pending;
+  local source receipts do not establish new deployed interfaces or purchases.
+- Independent architecture review qualifies only 98 size slots introduced by
+  this main union: 94 inherit matching main measurements and four retain
+  byte-exact existing-parent blocks. All 2,424 previous slots and maxima remain;
+  the retained baseline has 2,459 slots with unchanged 500/250/80 budgets.
+  No dependency, initialization or parse regression is admitted.
 - The normal main `f7b76b5d4f` union retains owner/card-scoped sharing-history
   pagination and current-call-bound presentation completion. Historical sent
   copies remain separately inspectable in a collapsed section; they cannot
@@ -337,7 +369,7 @@ consent flow; missing pricing means free and still requires approval.
   starts, unused-time refunds retain actual nonreturned processing costs against
   consumer earnings.
 
-The [migration](../../db/migrations/316_consumer_scope_commerce.sql) owns tariff,
+The [migration](../../db/migrations/323_consumer_scope_commerce.sql) owns tariff,
 quote, purchase, wallet, funding-lot, reservation, immutable journal/posting,
 provider-operation and financial-obligation tables. These are financial/workflow
 metadata, not another PKM store. SQLite/offline behavior is not accounting proof.
@@ -681,7 +713,7 @@ Pause new admission with `SCOPE_COMMERCE_ENABLED=false` and
 `SCOPE_COMMERCE_PROVIDER_ENABLED=false`, while retaining account/country/cost,
 OIDC drain policy and provider secrets so refunds/payouts/recovery can finish. Account
 returns `managed_balances` and retains existing funds controls during rollback.
-[Schema rollback](../../db/migrations/rollback/316_consumer_scope_commerce.rollback.sql)
+[Schema rollback](../../db/migrations/rollback/323_consumer_scope_commerce.rollback.sql)
 refuses to discard posted journals, obligations or provider operations; after
 financial use, preserve the schema and roll back compatible application behavior.
 

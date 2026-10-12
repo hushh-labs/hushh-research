@@ -17,6 +17,7 @@ from sqlalchemy import text
 
 from hushh_mcp.services.drive_document_store import PROCESSING_DISCLOSURE_VERSION
 from hushh_mcp.services.drive_owner_allowed import end_owner_allows_for_disconnected_pair
+from hushh_mcp.services.drive_request_requester_store import requester_price_view
 from hushh_mcp.services.drive_sharing_contract import (
     BROAD_TRUST_DISCLOSURE,
     BROAD_TRUST_SCOPE,
@@ -116,6 +117,9 @@ async def sharing(documents, monkeypatch):
             "297_document_commerce_readiness.sql",
             "298_stripe_mode_isolation.sql",
             "299_hashcoin_wallet.sql",
+            "304_connect_bank_payout_reconciliation.sql",
+            "316_connect_bank_payout_snapshot.sql",
+            "320_drive_request_initial_quote.sql",
         ):
             # Raw SQL preserves JSON colons; double percent signs for psycopg2's
             # parameter parser while retaining PostgreSQL format() placeholders.
@@ -131,6 +135,11 @@ async def sharing(documents, monkeypatch):
             "Drive Feed migration event constraint section is missing"
         )
         connection.exec_driver_sql((stream_sql + marker + "\nCOMMIT;").replace("%", "%%"))
+        # Review asks widen the event vocabulary 288 installed; with no Feed
+        # projection installed here, 321 skips its allowlist step.
+        connection.exec_driver_sql(
+            (MIGRATIONS / "321_drive_request_review_requests.sql").read_text().replace("%", "%%")
+        )
         connection.commit()
     return DriveSharingStore(db=documents.db, authority_key="synthetic-ledger-key")
 
@@ -283,6 +292,104 @@ async def test_non_trusted_allow_fixes_owners_final_quote_before_payment(sharing
     assert await owner_allow(sharing, created, 3000) == allowed
     with pytest.raises(DriveSharingError, match="request_already_decided"):
         await owner_allow(sharing, created, 2500)
+
+
+@pytest.mark.asyncio
+async def test_estimate_is_written_once_and_an_owner_price_reads_as_owner_set(sharing, monkeypatch):
+    from hushh_mcp.services.drive_sharing_projection_store import DriveSharingProjectionStore
+
+    live_drive(sharing, monkeypatch)
+    monkeypatch.setenv("DRIVE_REQUEST_PAYMENTS_ENABLED", "true")
+    monkeypatch.setenv("DRIVE_REQUEST_OWNER_PAYOUTS_ENABLED", "true")
+    monkeypatch.setattr(
+        "hushh_mcp.services.drive_request_payment_service.require_payment_configuration",
+        lambda: None,
+    )
+    await sharing.update_owner_pricing(
+        user_id="owner", enabled=True, amount_cents=2500, expected_version=0
+    )
+    client_id = str(uuid4())
+
+    async def send():
+        return await sharing.create_request(
+            recipient=VerifiedGoogleRecipient(
+                "recipient", "1234567", "recipient@example.invalid", datetime.now(UTC)
+            ),
+            owner_user_id="owner",
+            client_request_id=client_id,
+            purpose=ShareRequestPurpose(
+                purpose="Statements", periodStart="2026-01-01", periodEnd="2026-06-30"
+            ),
+            expected_quote_version=1,
+        )
+
+    created = await send()
+    projections = DriveSharingProjectionStore(db=sharing.db, authority_key="synthetic-ledger-key")
+
+    async def price(user_id="recipient", direction="outgoing"):
+        listed = await projections.list_requests(user_id=user_id, direction=direction)
+        status = await sharing.request_status(user_id=user_id, request_id=created["requestId"])
+        # The request list and GET /requests/{id} carry the same price view.
+        assert status.get("price") == listed["items"][0].get("price")
+        return listed["items"][0].get("price")
+
+    assert await price() == {
+        "estimateCents": 2500,
+        "currentCents": 2500,
+        "finalCents": None,
+        "state": "estimate",
+    }
+    await owner_allow(sharing, created, 4000)
+    # A retried send returns the same request and never rewrites the estimate.
+    assert (await send())["requestId"] == created["requestId"]
+    row = stored_request(sharing, created["requestId"])[0]
+    assert (row["initial_quote_cents"], row["quoted_amount_cents"]) == (2500, 4000)
+    assert await price() == {
+        "estimateCents": 2500,
+        "currentCents": 4000,
+        "finalCents": None,
+        "state": "owner_set",
+    }
+    review = await sharing.owner_review(user_id="owner", request_id=created["requestId"])
+    assert (review["estimateCents"], review["priceCents"]) == (2500, 4000)
+    # Once an order freezes the amount, that amount is the final price.
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO drive_request_payment_orders
+              (stripe_mode,request_id,user_id,requester_user_id,amount_cents,status)
+              VALUES ('test',:request,'owner','recipient',4000,'awaiting_payment')"""),
+            {"request": created["requestId"]},
+        )
+    assert await price() == {
+        "estimateCents": 2500,
+        "currentCents": 4000,
+        "finalCents": 4000,
+        "state": "final",
+    }
+    # The owner's list never carries the requester's price view.
+    assert await price("owner", "incoming") is None
+
+
+@pytest.mark.parametrize(
+    "initial,quoted,allowed,order,expected",
+    [
+        (None, None, False, None, ("awaiting_owner", None, None)),
+        # An unknown estimate (older request) never reads as an estimate.
+        (None, 2500, False, None, ("owner_set", 2500, None)),
+        (2500, 2500, True, None, ("owner_set", 2500, None)),
+        (2500, 2500, False, 2500, ("final", 2500, 2500)),
+        (2550, 2500, False, None, ("owner_set", 2500, None)),
+    ],
+)
+def test_price_view_states(initial, quoted, allowed, order, expected):
+    view = requester_price_view(
+        initial_quote_cents=initial,
+        quoted_amount_cents=quoted,
+        owner_allowed=allowed,
+        order_amount_cents=order,
+    )
+    assert (view["state"], view["currentCents"], view["finalCents"]) == expected
+    assert view["estimateCents"] == (initial if initial in {2500} else None)
 
 
 @pytest.mark.asyncio
@@ -776,14 +883,9 @@ async def test_recipient_sees_status_not_private_suggestions(sharing):
 async def test_payment_context_is_only_the_requesters_own_text(sharing, monkeypatch):
     created = await request(sharing)
     request_id = created["requestId"]
-    # Free/owner-initiated shares must not expose owner-authored context.
-    with pytest.raises(DriveSharingError, match="request_unavailable"):
-        await sharing.requester_context(user_id="recipient", request_id=request_id)
-    with sharing.db.engine.begin() as connection:
-        connection.execute(
-            text("UPDATE drive_share_requests SET payment_required=TRUE WHERE request_id=:id"),
-            {"id": request_id},
-        )
+    assert created["recipientEmail"] == "recipient@example.invalid"
+    # A request its requester wrote is sealed with that origin, so even a free
+    # one reads back: their words, dates and the Google account files go to.
     context = await sharing.requester_context(user_id="recipient", request_id=request_id)
     assert context == {
         "requestId": request_id,
@@ -792,7 +894,50 @@ async def test_payment_context_is_only_the_requesters_own_text(sharing, monkeypa
             "periodStart": "2026-01-01",
             "periodEnd": "2026-06-30",
         },
+        "recipientEmail": "recipient@example.invalid",
+        "requestedAt": stored_request(sharing, request_id)[0]["created_at"].isoformat(),
+        "timeZone": None,
     }
+    # Negative controls: an owner-initiated share carries the owner's own words,
+    # and a free request without the marker (older releases) stays hidden too.
+    shared = await sharing.create_request(
+        recipient=VerifiedGoogleRecipient(
+            "recipient", "1234567", "recipient@example.invalid", datetime.now(UTC)
+        ),
+        owner_user_id="owner",
+        client_request_id=str(uuid4()),
+        purpose=ShareRequestPurpose(purpose="Owner-authored Drive question"),
+        owner_initiated=True,
+    )
+    legacy = (await request(sharing))["requestId"]
+    _, private = stored_request(sharing, legacy)
+    del private["origin"]
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE drive_share_requests SET request_envelope=CAST(:e AS jsonb) WHERE request_id=:id"
+            ),
+            {
+                "id": legacy,
+                "e": json.dumps(
+                    sharing.sharing_cipher.seal(
+                        private, user_id="owner", resource_id=legacy, purpose="request"
+                    )
+                ),
+            },
+        )
+    for hidden in (shared["requestId"], legacy):
+        with pytest.raises(DriveSharingError, match="request_unavailable"):
+            await sharing.requester_context(user_id="recipient", request_id=hidden)
+    # A paid request was always written by its requester, marker or not.
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_share_requests SET payment_required=TRUE WHERE request_id=:id"),
+            {"id": legacy},
+        )
+    assert (await sharing.requester_context(user_id="recipient", request_id=legacy))[
+        "recipientEmail"
+    ] == "recipient@example.invalid"
     # Authorization fails before private-envelope decryption, identically for
     # the file owner, an unrelated viewer, and an unknown request.
     monkeypatch.setattr(sharing, "_open_request", lambda _: pytest.fail("unauthorized decrypt"))

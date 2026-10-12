@@ -504,6 +504,44 @@ async def test_requester_can_reopen_payment_from_consent_center(sharing, monkeyp
 
 
 @pytest.mark.asyncio
+async def test_requester_metadata_carries_the_estimate_beside_the_owner_price(sharing):
+    request_id = (await request(sharing))["requestId"]
+
+    def priced(initial):
+        with sharing.db.engine.begin() as connection:
+            connection.execute(
+                text("""UPDATE drive_share_requests SET payment_required=TRUE,
+                  quoted_amount_cents=4000,quote_version=2,initial_quote_cents=:initial
+                  WHERE request_id=:id"""),
+                {"id": request_id, "initial": initial},
+            )
+
+    projection = DriveSharingCenterContributor(db=sharing.db)
+
+    async def requester():
+        page = await projection.page("recipient", bucket="outgoing_requests", limit=1)
+        preview = await projection.preview("recipient")
+        listed = page["items"][0]["metadata"]
+        assert preview["buckets"]["outgoing_requests"][0]["metadata"].get(
+            "estimateCents", "absent"
+        ) == listed.get("estimateCents", "absent")
+        return listed
+
+    priced(2500)
+    metadata = await requester()
+    # The same pair the details price view shows: "Price $40 · estimate was $25".
+    assert (metadata["quotedAmountCents"], metadata["estimateCents"]) == (4000, 2500)
+    owner = (await projection.page("owner", bucket="incoming_requests", limit=1))["items"][0]
+    assert "estimateCents" not in owner["metadata"]
+    # An older request has no recorded estimate: known to be unknown, never the price.
+    priced(None)
+    assert (await requester())["estimateCents"] is None
+    # Before migration 320 the key is left out, so clients keep their fallback.
+    with patch.object(projection, "_estimate_installed", return_value=False):
+        assert "estimateCents" not in await requester()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("stored_mode", ["test", "legacy"])
 async def test_live_projection_expires_foreign_mode_payment(sharing, monkeypatch, stored_mode):
     request_id = (await request(sharing))["requestId"]

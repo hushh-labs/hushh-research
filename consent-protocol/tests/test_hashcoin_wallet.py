@@ -3,6 +3,7 @@
 # ruff: noqa: F811 -- isolated PostgreSQL fixture import
 import asyncio
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
@@ -30,12 +31,37 @@ def test_wallet_notification_is_sse_feed_reset_doorbell():
 
     class Connection:
         def execute(self, _statement, parameters):
-            payloads.append(json.loads(parameters["payload"]))
+            payloads.append(parameters["payload"])
 
-    HashcoinWalletService._notify(Connection(), {"user_id": "owner"})
-    assert payloads[0]["type"] == "bank_payout_changed"
-    assert payloads[0]["user_id"] == "owner"
-    assert _is_user_state_event_type(payloads[0]["type"])
+    for _ in range(2):
+        HashcoinWalletService._notify(Connection(), {"user_id": "owner"})
+    # An erased wallet has no owner to tell.
+    HashcoinWalletService._notify(Connection(), {"user_id": None})
+    # Identical payloads collapse inside one transaction, so a burst of ledger
+    # posts rings once: no random event ID, and only the wallet kind.
+    assert payloads == [payloads[0]] * 2
+    assert json.loads(payloads[0]) == {
+        "type": "bank_payout_changed",
+        "user_id": "owner",
+        "kinds": ["wallet"],
+    }
+    assert _is_user_state_event_type(json.loads(payloads[0])["type"])
+
+
+class _DoorbellSpy:
+    """Records owner doorbells queued on a connection, whichever helper rings them."""
+
+    def __init__(self, connection):
+        self._connection = connection
+        self.owners = []
+
+    def execute(self, statement, *args, **kwargs):
+        if "pg_notify('one_user_state_changed'" in str(statement):
+            self.owners.append(json.loads(args[0]["payload"])["user_id"])
+        return self._connection.execute(statement, *args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._connection, name)
 
 
 @pytest.fixture
@@ -86,6 +112,12 @@ def ledger(connector_postgres_url, monkeypatch):
                 (MIGRATIONS / "303_hashcoin_live_redemption.sql").read_text(),
                 execution_options={"no_parameters": True},
             )
+            c.exec_driver_sql(
+                (MIGRATIONS / "319_hashcoin_hold_tracking.sql").read_text(),
+                execution_options={"no_parameters": True},
+            )
+        # Added last so positional request inserts keep their column order.
+        c.exec_driver_sql("ALTER TABLE drive_share_requests ADD COLUMN request_envelope JSONB")
     yield HashcoinWalletService(db=SimpleNamespace(engine=engine))
     engine.dispose()
     with admin.begin() as c:
@@ -813,21 +845,17 @@ async def test_dispute_won_releases_only_resolved_hold_without_destroying_earnin
     _settle(ledger, first)
     _settle(ledger, second)
     service = DriveRequestOwnerPayoutService(db=ledger.db)
-    doorbells = []
-    monkeypatch.setattr(
-        HashcoinWalletService,
-        "_notify",
-        staticmethod(lambda _connection, wallet: doorbells.append(wallet["user_id"])),
-    )
     with ledger.db.engine.begin() as c:
-        service._finish_coin_source_check(c, first, "dispute_pending")
-        service._finish_coin_source_check(c, second, "dispute_pending")
-        service._finish_coin_source_check(c, first, "clear")
-    assert doorbells == ["owner", "owner", "owner"]
+        spy = _DoorbellSpy(c)
+        service._finish_coin_source_check(spy, first, "dispute_pending")
+        service._finish_coin_source_check(spy, second, "dispute_pending")
+        service._finish_coin_source_check(spy, first, "clear")
+    assert spy.owners == ["owner", "owner", "owner"]
     assert (await ledger.summary(user_id="owner"))["live"]["held"]
     with ledger.db.engine.begin() as c:
-        service._finish_coin_source_check(c, second, "clear")
-    assert doorbells == ["owner"] * 4
+        spy = _DoorbellSpy(c)
+        service._finish_coin_source_check(spy, second, "clear")
+    assert spy.owners == ["owner"]
     snapshot = await ledger.summary(user_id="owner")
     assert not snapshot["live"]["held"] and snapshot["live"]["balanceCoins"] == 1822
     with ledger.db.engine.begin() as c:
@@ -893,3 +921,453 @@ async def test_dispute_update_never_clears_an_unrelated_manual_source_fence(ledg
             == "provider_mismatch"
         )
     assert (await ledger.summary(user_id="owner"))["live"]["held"]
+
+
+@pytest.mark.parametrize(
+    ("payout", "expected"),
+    [
+        (
+            {"status": "hashcoins_held", "safe_error_code": "charge_unavailable"},
+            ("payment_disputed", "wait_for_bank"),
+        ),
+        (
+            {"status": "hashcoins_held", "safe_error_code": "provider_mismatch"},
+            ("payment_check", "none"),
+        ),
+        (
+            {"status": "hashcoins_held", "safe_error_code": "refund_mismatch"},
+            ("refund_check", "none"),
+        ),
+        # A code that is not a hold reason, or none at all, is a neutral check.
+        (
+            {"status": "hashcoins_held", "safe_error_code": "provider_unavailable"},
+            ("under_review", "none"),
+        ),
+        ({"status": "hashcoins_held", "safe_error_code": None}, ("under_review", "none")),
+        # A manual-review code is an operator fence, never a dispute verdict.
+        (
+            {"status": "manual_review", "safe_error_code": "charge_unavailable"},
+            ("under_review", "none"),
+        ),
+        ({"status": "hashcoins_credited", "safe_error_code": None}, None),
+        ({"status": "hashcoins_reversed", "safe_error_code": "external_debit"}, None),
+    ],
+)
+def test_earning_review_maps_closed_server_codes(payout, expected):
+    from hushh_mcp.services.payout_review import review_for_earning
+
+    review = review_for_earning(payout)
+    assert (None if review is None else (review["reason"], review["nextStep"])) == expected
+
+
+@pytest.mark.parametrize(
+    ("redemption", "source", "expected"),
+    [
+        (
+            {"status": "succeeded", "provider_review_reason": "transfer_reversed"},
+            None,
+            ("transfer_reversed", "contact_support"),
+        ),
+        (
+            {"status": "succeeded", "provider_review_reason": "transfer_mismatch"},
+            None,
+            ("transfer_check", "none"),
+        ),
+        (
+            {"status": "succeeded", "provider_review_reason": "newer_reason"},
+            None,
+            ("under_review", "none"),
+        ),
+        ({"status": "succeeded"}, {"status": "hashcoins_reversed"}, ("refund_recovery", "none")),
+        ({"status": "unknown"}, {"status": "hashcoins_reversed"}, ("refund_recovery", "none")),
+        # Without the source row, a recovery state still proves the refund.
+        ({"status": "succeeded", "reversal_status": "due"}, None, ("refund_recovery", "none")),
+        (
+            {"status": "succeeded", "reversal_status": "manual_review"},
+            {"status": "hashcoins_reversed"},
+            ("recovery_review", "contact_support"),
+        ),
+        # Negative controls: recovered, never sent, sandbox, or not refunded.
+        (
+            {"status": "succeeded", "reversal_status": "reversed"},
+            {"status": "hashcoins_reversed"},
+            None,
+        ),
+        ({"status": "failed"}, {"status": "hashcoins_reversed"}, None),
+        ({"status": "reserved"}, {"status": "hashcoins_reversed"}, None),
+        ({"status": "succeeded", "stripe_mode": "test"}, {"status": "hashcoins_reversed"}, None),
+        ({"status": "succeeded"}, {"status": "hashcoins_credited"}, None),
+    ],
+)
+def test_cash_out_review_mirrors_the_wallet_release_predicate(redemption, source, expected):
+    from hushh_mcp.services.payout_review import review_for_redemption
+
+    row = {"stripe_mode": "live", "reversal_status": "none", "provider_review_reason": None}
+    review = review_for_redemption({**row, **redemption}, source)
+    assert (None if review is None else (review["reason"], review["nextStep"])) == expected
+
+
+def test_wallet_review_names_debt_and_unexplained_holds_only():
+    from hushh_mcp.services.payout_review import (
+        HOLD_NEXT_STEPS,
+        HOLD_REASONS,
+        review_for_balance,
+    )
+
+    assert review_for_balance(balance_coins=-1, held=True, explained=True) == {
+        "reason": "negative_balance",
+        "nextStep": "none",
+    }
+    assert review_for_balance(balance_coins=5, held=True, explained=False) == {
+        "reason": "under_review",
+        "nextStep": "none",
+    }
+    assert review_for_balance(balance_coins=5, held=True, explained=True) is None
+    assert review_for_balance(balance_coins=0, held=False, explained=False) is None
+    # The vocabulary mirrors hushh-webapp/lib/payouts/review-copy.ts.
+    copy = (
+        Path(__file__).resolve().parents[2] / "hushh-webapp/lib/payouts/review-copy.ts"
+    ).read_text()
+    for code in HOLD_REASONS + HOLD_NEXT_STEPS:
+        assert f'"{code}"' in copy
+
+
+def _labels(monkeypatch, label="October statements"):
+    from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher
+
+    monkeypatch.setattr(
+        DriveSharingCipher, "open", lambda self, envelope, **kw: {"purpose": {"purpose": label}}
+    )
+
+
+@pytest.mark.asyncio
+async def test_redeemable_total_matches_sequential_cash_outs(ledger, monkeypatch):
+    _labels(monkeypatch)
+    first = _claim_live_source(ledger, monkeypatch)
+    second = _prepare(ledger)
+    _settle(ledger, second)
+    third = _prepare(ledger, retained=667, refund=333, confirmed=2, expected=3)
+    _settle(ledger, third)
+    # An unrelated debit leaves 1,500 available: 911 + 588 fit, a second 911 cannot.
+    with ledger.db.engine.begin() as c:
+        c.execute(
+            text("""INSERT INTO hashcoin_ledger_entries
+              (entry_id,wallet_id,entry_kind,source_ref,amount_coins)
+              SELECT :entry,wallet_id,'reversal',:source,-910 FROM hashcoin_wallets
+              WHERE user_id='owner' AND stripe_mode='live'"""),
+            {"entry": str(uuid4()), "source": str(uuid4())},
+        )
+    live = (await ledger.summary(user_id="owner"))["live"]
+    assert (live["availableCoins"], live["nextRedeemCoins"]) == (1500, 911)
+    assert {
+        key: live[key]
+        for key in (
+            "redeemableCoins",
+            "redeemableCount",
+            "remainingAfterNextCoins",
+            "notRedeemableCoins",
+        )
+    } == {
+        "redeemableCoins": 1499,
+        "redeemableCount": 2,
+        "remainingAfterNextCoins": 589,
+        "notRedeemableCoins": 1,
+    }
+    assert live["nextRedeemSource"] == {"requestId": first, "label": "October statements"}
+    assert live["holds"] == []
+    # Owner boundary: another owner's request never lends its ID or label.
+    with ledger.db.engine.begin() as c:
+        c.execute(
+            text("UPDATE drive_share_requests SET user_id='other' WHERE request_id=:id"),
+            {"id": first},
+        )
+    assert (await ledger.summary(user_id="owner"))["live"]["nextRedeemSource"] is None
+    with ledger.db.engine.begin() as c:
+        c.execute(
+            text("UPDATE drive_share_requests SET user_id='owner' WHERE request_id=:id"),
+            {"id": first},
+        )
+    # Cash out exactly as the Redeem button would, until nothing is offered.
+    spent = []
+    while next_coins := (await ledger.summary(user_id="owner"))["live"]["nextRedeemCoins"]:
+        record = await ledger.reserve_redemption(
+            user_id="owner",
+            amount_coins=next_coins,
+            request_key=str(uuid4()),
+            destination_account_id="acct_live",
+            stripe_mode="live",
+        )
+        spent.append((record["sourceRequestId"], next_coins))
+    assert spent == [(first, 911), (third, 588)]
+    final = (await ledger.summary(user_id="owner"))["live"]
+    assert (final["redeemableCoins"], final["redeemableCount"]) == (0, 0)
+    assert (final["availableCoins"], final["notRedeemableCoins"]) == (1, 1)
+    assert final["nextRedeemSource"] is None
+    assert final["holds"] == []
+    # A debt holds the wallet even before any hold flag is set.
+    with ledger.db.engine.begin() as c:
+        c.execute(
+            text("""INSERT INTO hashcoin_ledger_entries
+              (entry_id,wallet_id,entry_kind,source_ref,amount_coins)
+              SELECT :entry,wallet_id,'reversal',:source,-1501 FROM hashcoin_wallets
+              WHERE user_id='owner' AND stripe_mode='live' AND NOT held"""),
+            {"entry": str(uuid4()), "source": str(uuid4())},
+        )
+    debt = (await ledger.summary(user_id="owner"))["live"]
+    assert debt["held"] and (debt["availableCoins"], debt["redeemableCoins"]) == (0, 0)
+    assert [(hold["id"], hold["reason"], hold["coins"]) for hold in debt["holds"]] == [
+        ("balance", "negative_balance", 1)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_summary_reads_redeemable_sources_once_and_not_while_cash_out_is_off(
+    ledger, monkeypatch
+):
+    from sqlalchemy import event
+
+    _labels(monkeypatch)
+    first = _claim_live_source(ledger, monkeypatch)
+    second = _prepare(ledger)
+    _settle(ledger, second)
+    source_reads = []
+
+    def record(_connection, _cursor, statement, *_args):
+        if "NOT EXISTS (SELECT 1 FROM hashcoin_redemptions r" in statement:
+            source_reads.append(statement)
+
+    event.listen(ledger.db.engine, "before_cursor_execute", record)
+    try:
+        live = (await ledger.summary(user_id="owner"))["live"]
+        assert (live["nextRedeemCoins"], live["redeemableCoins"], live["redeemableCount"]) == (
+            911,
+            1822,
+            2,
+        )
+        assert live["nextRedeemSource"] == {"requestId": first, "label": "October statements"}
+        # The next cash-out and the totals come from one scan of the owner's sources.
+        assert len(source_reads) == 1
+        source_reads.clear()
+        monkeypatch.setenv("DRIVE_REQUEST_HASHCOINS_LIVE_ENABLED", "false")
+        off = (await ledger.summary(user_id="owner"))["live"]
+        assert (off["nextRedeemCoins"], off["redeemableCoins"], off["redeemableCount"]) == (
+            0,
+            0,
+            0,
+        )
+        assert off["nextRedeemSource"] is None and off["availableCoins"] == 1822
+        # Nothing is offered while live cash-out is off, so nothing is scanned.
+        assert source_reads == []
+    finally:
+        event.remove(ledger.db.engine, "before_cursor_execute", record)
+
+
+@pytest.mark.asyncio
+async def test_held_earnings_name_their_reason_and_start(ledger, monkeypatch):
+    _labels(monkeypatch)
+    disputed, mismatched = _prepare(ledger), _prepare(ledger)
+    _settle(ledger, disputed)
+    _settle(ledger, mismatched)
+    service = DriveRequestOwnerPayoutService(db=ledger.db)
+    with ledger.db.engine.begin() as c:
+        service._finish_coin_source_check(c, disputed, "dispute_pending")
+        service._finish_coin_source_check(c, mismatched, "provider_mismatch")
+        started = dict(
+            c.execute(
+                text("""SELECT request_id::text,held_at FROM drive_request_owner_payouts
+                  WHERE held_at IS NOT NULL""")
+            ).all()
+        )
+    live = (await ledger.summary(user_id="owner"))["live"]
+    assert live["held"] and live["availableCoins"] == 0
+    assert live["holds"] == [
+        {
+            "id": f"earning:{request}",
+            "reason": reason,
+            "nextStep": next_step,
+            "coins": 911,
+            "requestId": request,
+            "requestLabel": "October statements",
+            "since": started[request].isoformat(),
+        }
+        for request, reason, next_step in [
+            (disputed, "payment_disputed", "wait_for_bank"),
+            (mismatched, "payment_check", "none"),
+        ]
+    ]
+    assert (live["redeemableCoins"], live["notRedeemableCoins"]) == (0, 0)
+    assert live["nextRedeemSource"] is None
+    with ledger.db.engine.begin() as c:
+        service._finish_coin_source_check(c, disputed, "clear")
+        assert (
+            c.execute(
+                text("SELECT held_at FROM drive_request_owner_payouts WHERE request_id=:id"),
+                {"id": disputed},
+            ).scalar_one()
+            is None
+        )
+    live = (await ledger.summary(user_id="owner"))["live"]
+    assert [hold["id"] for hold in live["holds"]] == [f"earning:{mismatched}"]
+    # A wallet still held after its last fence lifts reads as a neutral check
+    # on what it freezes, never as a refund.
+    with ledger.db.engine.begin() as c:
+        c.execute(
+            text("""UPDATE drive_request_owner_payouts SET status='hashcoins_credited',
+              safe_error_code=NULL WHERE request_id=:id"""),
+            {"id": mismatched},
+        )
+    live = (await ledger.summary(user_id="owner"))["live"]
+    assert live["held"]
+    assert live["holds"] == [
+        {
+            "id": "balance",
+            "reason": "under_review",
+            "nextStep": "none",
+            "coins": 1822,
+            "requestId": None,
+            "requestLabel": None,
+            "since": None,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_refunded_cash_out_holds_until_its_transfer_is_recovered(ledger, monkeypatch):
+    request = _claim_live_source(ledger, monkeypatch)
+    record = await ledger.reserve_redemption(
+        user_id="owner",
+        amount_coins=911,
+        request_key=str(uuid4()),
+        destination_account_id="acct_live",
+        stripe_mode="live",
+    )
+    claim = await ledger.claim_redemption(
+        user_id="owner", redemption_id=record["id"], stripe_mode="live"
+    )
+    await ledger.finish_redemption(
+        redemption_id=record["id"],
+        outcome="succeeded",
+        stripe_transfer_id="tr_sent",
+        attempt_id=claim["attemptId"],
+    )
+    assert (await ledger.summary(user_id="owner"))["live"]["holds"] == []
+    with ledger.db.engine.begin() as c:
+        assert ledger.reverse_earning(c, request_id=request)
+        refunded_at = c.execute(
+            text("""SELECT created_at FROM hashcoin_ledger_entries
+              WHERE entry_kind='reversal' AND source_ref=:id"""),
+            {"id": request},
+        ).scalar_one()
+
+    async def holds():
+        return [
+            (hold["id"], hold["reason"], hold["nextStep"], hold["coins"])
+            for hold in (await ledger.summary(user_id="owner"))["live"]["holds"]
+        ]
+
+    cash_out = f"redemption:{record['id']}"
+    assert await holds() == [
+        ("balance", "negative_balance", "none", 911),
+        (cash_out, "refund_recovery", "none", 911),
+    ]
+    live = (await ledger.summary(user_id="owner"))["live"]
+    assert live["holds"][1]["since"] == refunded_at.isoformat()
+    assert live["holds"][1]["requestId"] == request
+    reversal = await ledger.claim_live_reversal(redemption_id=record["id"])
+    await ledger.finish_live_reversal(
+        redemption_id=record["id"],
+        attempt_id=reversal["reversalAttemptId"],
+        outcome="manual_review",
+        review_reason="provider_mismatch",
+    )
+    assert (await holds())[1] == (cash_out, "recovery_review", "contact_support", 911)
+    await ledger.record_live_transfer_check(
+        redemption_id=record["id"],
+        stripe_transfer_id="tr_sent",
+        review_reason="transfer_mismatch",
+    )
+    assert (await holds())[1] == (cash_out, "transfer_check", "none", 911)
+
+
+def test_hold_tracking_migration_replays_backfills_and_rolls_back(ledger):
+    request = _prepare(ledger)
+    _settle(ledger, request)
+    forward = (MIGRATIONS / "319_hashcoin_hold_tracking.sql").read_text()
+    rollback = (MIGRATIONS / "rollback/319_hashcoin_hold_tracking.rollback.sql").read_text()
+
+    def run(sql):
+        with ledger.db.engine.connect() as c:
+            c.exec_driver_sql(sql, execution_options={"no_parameters": True})
+
+    def installed(c):
+        return (
+            c.execute(
+                text("""SELECT count(*) FROM information_schema.columns
+                  WHERE table_schema=current_schema() AND column_name='held_at'
+                    AND table_name='drive_request_owner_payouts'""")
+            ).scalar_one(),
+            c.execute(
+                text("""SELECT count(*) FROM pg_trigger WHERE tgname='drive_owner_payout_held_at'
+                  AND tgrelid='drive_request_owner_payouts'::regclass""")
+            ).scalar_one(),
+            c.execute(
+                text("SELECT to_regprocedure('stamp_drive_owner_payout_held_at()') IS NOT NULL")
+            ).scalar_one(),
+        )
+
+    def held_at(c):
+        return c.execute(
+            text("SELECT held_at FROM drive_request_owner_payouts WHERE request_id=:id"),
+            {"id": request},
+        ).scalar_one()
+
+    run(rollback)
+    held_before = datetime(2026, 10, 1, tzinfo=UTC)
+    with ledger.db.engine.begin() as c:
+        assert installed(c) == (0, 0, False)
+        # Held before the migration existed: backfilled from its last update.
+        c.execute(
+            text("""UPDATE drive_request_owner_payouts SET status='hashcoins_held',
+              safe_error_code='charge_unavailable',updated_at=:at WHERE request_id=:id"""),
+            {"id": request, "at": held_before},
+        )
+    run(forward)
+    run(forward)
+    with ledger.db.engine.begin() as c:
+        assert installed(c) == (1, 1, True)
+        assert held_at(c) == held_before
+        # A check that keeps the hold keeps its start; leaving clears it.
+        c.execute(
+            text("""UPDATE drive_request_owner_payouts SET status='hashcoins_held',
+              updated_at=clock_timestamp() WHERE request_id=:id"""),
+            {"id": request},
+        )
+        assert held_at(c) == held_before
+        c.execute(
+            text("""UPDATE drive_request_owner_payouts SET status='hashcoins_credited',
+              safe_error_code=NULL WHERE request_id=:id"""),
+            {"id": request},
+        )
+        assert held_at(c) is None
+        c.execute(
+            text("""UPDATE drive_request_owner_payouts SET status='hashcoins_held',
+              safe_error_code='charge_unavailable' WHERE request_id=:id"""),
+            {"id": request},
+        )
+        assert held_at(c) > held_before
+    run(rollback)
+    run(rollback)
+    with ledger.db.engine.begin() as c:
+        assert installed(c) == (0, 0, False)
+        # Money evidence stays: the held earning and both ledger credits.
+        assert (
+            c.execute(
+                text("SELECT status FROM drive_request_owner_payouts WHERE request_id=:id"),
+                {"id": request},
+            ).scalar_one()
+            == "hashcoins_held"
+        )
+        assert c.execute(text("SELECT count(*) FROM hashcoin_ledger_entries")).scalar_one() == 2
+    run(forward)
+    with ledger.db.engine.begin() as c:
+        assert installed(c) == (1, 1, True)

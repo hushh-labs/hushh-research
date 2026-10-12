@@ -48,6 +48,11 @@ DOCUMENT_SHARE_NOTIFICATION_COPY = {
     "document_share_outcome": ("Drive request update", "Open One to see the result."),
     "document_share_revoked": ("Drive access changed", "Open One to see what changed."),
     "document_share_revocation_outcome": ("Drive access changed", "Open One to see what changed."),
+    # To the owner: the requester asked about files a partial delivery missed.
+    "document_share_review_requested": (
+        "Review requested",
+        "Open One to see the files that weren't shared.",
+    ),
     "document_share_question": (
         "Drive question",
         "Someone asked about your Drive. Open One to review.",

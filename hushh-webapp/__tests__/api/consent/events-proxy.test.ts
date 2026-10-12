@@ -62,6 +62,7 @@ describe("GET /api/consent/events/[userId]", () => {
     expect(res.headers.get("Cache-Control")).toBe("private, no-store");
     expect(res.headers.get("Connection")).toBe("keep-alive");
     expect(res.headers.get("X-Accel-Buffering")).toBe("no");
+    expect(res.headers.get("Content-Encoding")).toBe("none");
 
     expect(mockFetch).toHaveBeenCalledWith(
       "http://backend.test/api/consent/events/user_123",
@@ -71,6 +72,7 @@ describe("GET /api/consent/events/[userId]", () => {
           "Cache-Control": "no-cache",
           Connection: "keep-alive",
         }),
+        signal: expect.any(AbortSignal),
       })
     );
 
@@ -115,6 +117,31 @@ describe("GET /api/consent/events/[userId]", () => {
     incomingAbort.abort();
 
     expect(mockFetch.mock.calls[0][1]?.signal?.aborted).toBe(true);
+  });
+
+  // Next decodes params before the route sees them, so "..%2F..%2F..%2Fdebug"
+  // arrives as "../../../debug" and would normalise to the backend's /debug.
+  it.each([
+    "../../../debug/consent-listener",
+    "a/b",
+    "..",
+    ".",
+    "a\\b",
+    "user?x=1",
+    "user#frag",
+    "user%2F..",
+    "user\u0000",
+    "user\u0085",
+    "x".repeat(129),
+  ])("refuses %j before reaching the backend", async (userId) => {
+    const mockFetch = vi.spyOn(globalThis, "fetch");
+    const req = createMockGET("/api/consent/events/x", {}, { authorization: "Bearer token" });
+    const res = await eventsRoute.GET(req, { params: Promise.resolve({ userId }) });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/userId/i);
+    expect(mockFetch).not.toHaveBeenCalled();
+    mockFetch.mockRestore();
   });
 
   it("returns backend status when backend returns non-OK", async () => {
@@ -203,4 +230,53 @@ it("opens the document Feed stream through its own fixed web route", async () =>
   });
   expect(response.status).toBe(200);
   expect(fetcher).toHaveBeenCalledWith("http://backend.test/api/consent/document-feed/owner", expect.any(Object));
+});
+
+describe("document Feed stream through the proxy", () => {
+  const sse = () => new Response("event: hello\ndata: {}\n\n", { headers: { "Content-Type": "text/event-stream" } });
+  const route = () => import("../../../app/api/consent/document-feed/[userId]/route");
+
+  it("forwards only a known protocol version and marks the stream so it ends before this server's timeout", async () => {
+    const { GET } = await route();
+    const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValue(sse());
+    const response = await GET(authenticatedGET("/api/consent/document-feed/owner", { v: "2", other: "../x" }), {
+      params: Promise.resolve({ userId: "owner" }),
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Encoding")).toBe("none");
+    const [url, init] = fetcher.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://backend.test/api/consent/document-feed/owner?v=2");
+    expect(init.headers).toMatchObject({ Authorization: "Bearer test-token", "X-Hussh-Stream-Via": "next-proxy" });
+  });
+
+  it.each(["3", "2 ", "", "2&v=1", "../debug"])("refuses version %j before reaching the backend", async (v) => {
+    const { GET } = await route();
+    const fetcher = vi.spyOn(globalThis, "fetch");
+    const response = await GET(authenticatedGET("/api/consent/document-feed/owner", { v }), {
+      params: Promise.resolve({ userId: "owner" }),
+    });
+    expect(response.status).toBe(400);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("passes a busy backend's plain Retry-After on, and never marks the consent stream", async () => {
+    const { GET } = await route();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("busy", {
+      status: 503, headers: { "Retry-After": "60" },
+    }));
+    const busy = await GET(authenticatedGET("/api/consent/document-feed/owner", { v: "2" }), {
+      params: Promise.resolve({ userId: "owner" }),
+    });
+    expect(busy.status).toBe(503);
+    expect(busy.headers.get("Retry-After")).toBe("60");
+
+    const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValue(sse());
+    fetcher.mockClear();
+    await eventsRoute.GET(authenticatedGET("/api/consent/events/owner", { v: "2" }), {
+      params: Promise.resolve({ userId: "owner" }),
+    });
+    const [url, init] = fetcher.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://backend.test/api/consent/events/owner");
+    expect(init.headers).not.toHaveProperty("X-Hussh-Stream-Via");
+  });
 });

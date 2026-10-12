@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -68,6 +68,42 @@ describe("Feed payment return", () => {
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Payment confirmed"));
     expect(mocks.apiFetch).toHaveBeenCalledOnce();
     expect(mocks.dispatchConsentStateChanged).toHaveBeenCalledWith({ source: "drive_payment_confirmed" });
+  });
+
+  it("reports a refund, not a confirmation, when the payment arrived after withdrawal", async () => {
+    window.history.replaceState({}, "", "/one/feed?paymentRequestId=11111111-1111-4111-8111-111111111111&checkout=success");
+    mocks.status.mockResolvedValueOnce({
+      status: "paid", amountCents: 2500, currency: "usd", reconciliationRequired: true,
+      paymentView: {
+        state: "refund_pending", amountCents: 2500, currency: "usd", checkoutExpiresAt: null,
+        requestExpiresAt: null, refund: { status: "queued", amountCents: 2500 }, nextAction: "none",
+        withdrawn: true,
+      },
+    });
+    render(<FeedPaymentReturnNotice />);
+    await waitFor(() => expect(screen.getByRole("status"))
+      .toHaveTextContent("Payment received after you withdrew · Refund of $25 pending"));
+    expect(screen.getByRole("status")).not.toHaveTextContent("confirmed");
+  });
+
+  it("never says nothing was charged while a returned payment may still settle", async () => {
+    const closed = {
+      status: "expired", amountCents: 2500, currency: "usd",
+      paymentView: {
+        state: "closed", amountCents: 2500, currency: "usd", checkoutExpiresAt: null,
+        requestExpiresAt: null, refund: null, nextAction: "none", withdrawn: true,
+      },
+    };
+    window.history.replaceState({}, "", "/one/feed?paymentRequestId=11111111-1111-4111-8111-111111111111&checkout=cancel");
+    mocks.status.mockResolvedValueOnce(closed);
+    render(<FeedPaymentReturnNotice />);
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("This request is closed. Nothing to pay."));
+    cleanup();
+    window.history.replaceState({}, "", "/one/feed?paymentRequestId=11111111-1111-4111-8111-111111111111&checkout=success");
+    mocks.status.mockResolvedValueOnce(closed);
+    render(<FeedPaymentReturnNotice />);
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Payment is processing"));
+    expect(screen.getByRole("status")).not.toHaveTextContent("payment link expired");
   });
 
   it("explains when the Stripe payment link expired", async () => {

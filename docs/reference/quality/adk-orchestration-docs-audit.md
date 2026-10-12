@@ -191,6 +191,23 @@ all other findings, scanner rules and 500/250/80 budgets remain unchanged.
 Actual PostgreSQL pagination and hosted native resolution remain separate
 runtime evidence, not claims established by this source review.
 
+The main `4277558db7` union qualifies 98 size slots over 96 keys through
+independent `ci_registry_review`: 94 matching main spans and four composed
+modules retain exact existing-parent blocks. The payment suite preserves five
+constraint-assertion lines (3350 to 3355); sharing routes retain six placement
+fixture lines (1013 to 1019); wallet tests retain twelve connector-erasure race
+lines (1361 to 1373); Feed retains the existing profile/recipient/private-agent
+cases (1685 to 1826). No added block is novel relative to kept parent
+`79856d1f1b`. Exactly 63 existing slots grow and 35 main-owned size slots are
+added; all 2,424 previous slots/maxima survive, yielding 2,459 retained slots.
+Exact hashes and per-slot evidence live in
+`scope_commerce_main_document_payout_union_20261012`. No dependency-direction,
+initialization or parse finding is accepted, and budgets/scanner rules remain
+unchanged. Backend review separately verifies pinned migration replay and the
+byte-preserved 322–327 registration repair; accepted environment rows and
+financial obligations remain untouched. This is source lineage qualification,
+not deployed payment or payout acceptance.
+
 ## GCP-only pod deployment correction — 2026-09-25
 
 Historical pointer: Anypoint pod deployment was removed; the CRM connector remains.

@@ -1181,3 +1181,16 @@ tests/test_pkm_answer_routes.py
 tests/test_sse_routes.py
 tests/test_feed_realtime_postgres.py
 tests/test_payout_account_refresh_route.py
+# Payouts v2: owner-scoped activity and receipts, Connect balances, deposit
+# snapshots, typed payout doorbell and stream v2, request terms, and the
+# release replay of the Connect event CHECK (real PostgreSQL where named).
+tests/test_payout_doorbell.py
+tests/test_payout_doorbell_kinds_postgres.py
+tests/test_document_feed_stream.py
+tests/test_payout_activity_routes.py
+tests/test_payout_activity_postgres.py
+tests/test_stripe_connect_balances.py
+tests/test_stripe_connect_balances_postgres.py
+tests/test_connect_bank_payout_snapshot_postgres.py
+tests/test_bank_payout_event_replay_postgres.py
+tests/test_drive_request_terms_migrations_postgres.py

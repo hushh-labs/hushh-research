@@ -74,6 +74,9 @@ TIMEOUT_JOB_INTERVAL = 120
 NOTIFICATION_JOB_INTERVAL = 60
 JOB_DB_RECOVERY_DELAY_SECONDS = 15
 LISTENER_HEALTHCHECK_INTERVAL_SECONDS = 30
+# A LISTEN connection can look open while the server no longer delivers to it;
+# a round trip proves it. NOTIFYs sent while LISTEN is down are lost, so every
+# (re)activation tells this worker's open streams to reread their snapshot.
 LISTENER_PROBE_TIMEOUT_SECONDS = 5
 LOCAL_RESYNC_EVENT_TYPE = "__resync__"
 _SNAPSHOT_HINT_TYPES = {"feed_changed", "document_share_feed_changed", "bank_payout_changed"}
@@ -198,13 +201,20 @@ async def _push_to_consent_queue(user_id: str, data: Dict[str, Any]) -> None:
     _offer_consent_event(user_id, data)
 
 
-async def broadcast_local_resync() -> None:
-    """Repair every local stream after a non-durable LISTEN gap."""
-    for user_id in tuple(_consent_notify_queues):
+async def broadcast_local_resync() -> int:
+    """Repair every local stream after a non-durable LISTEN gap (no NOTIFY involved).
+
+    Only snapshot-aware (Feed) queues receive the sentinel; legacy consent
+    streams keep their actionable events. Returns the number of accounts reached.
+    """
+    user_ids = tuple(_consent_notify_queues)
+    for user_id in user_ids:
         _offer_consent_event(user_id, {"type": LOCAL_RESYNC_EVENT_TYPE})
+    return len(user_ids)
 
 
 def is_listener_active() -> bool:
+    """True while this worker's LISTEN connection is established and probed."""
     return _listener_active
 
 
@@ -1148,8 +1158,13 @@ async def _timeout_job_loop():
 
 
 async def _probe_listen_connection(conn) -> None:
-    """A bounded round trip also detects half-open listener connections."""
-    if conn.is_closed():
+    """A bounded round trip also detects half-open listener connections.
+
+    Raises ConnectionError when the connection reports closed and TimeoutError
+    when it no longer answers; the listener loop re-LISTENs on either.
+    """
+    is_closed = getattr(conn, "is_closed", None)
+    if callable(is_closed) and is_closed():
         raise ConnectionError("Consent LISTEN connection closed")
     await asyncio.wait_for(conn.fetchval("SELECT 1"), timeout=LISTENER_PROBE_TIMEOUT_SECONDS)
 
@@ -1191,6 +1206,7 @@ async def run_consent_listener():
                     "Consent NOTIFY listener active (consent_audit_new, %s)",
                     USER_STATE_CHANNEL,
                 )
+                # Streams opened while LISTEN was down may have missed NOTIFYs.
                 await broadcast_local_resync()
                 while True:
                     await asyncio.sleep(LISTENER_HEALTHCHECK_INTERVAL_SECONDS)

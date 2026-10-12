@@ -45,6 +45,7 @@
 		A11C0A710000000000000072 /* LocationEnvelopeCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A710000000000000071 /* LocationEnvelopeCrypto.swift */; };
 		A11C0A710000000000000082 /* BackgroundLocationPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A710000000000000081 /* BackgroundLocationPublisher.swift */; };
 		A11C0A720000000000000062 /* HushhContactsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A720000000000000061 /* HushhContactsPlugin.swift */; };
+		A11C0A720000000000000092 /* HushhCardScannerPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A720000000000000091 /* HushhCardScannerPlugin.swift */; };
 		A11C0A780000000000000062 /* HushhInvitationsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A780000000000000061 /* HushhInvitationsPlugin.swift */; };
 		A11C0A730000000000000011 /* OneVoiceAppIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A740000000000000001 /* OneVoiceAppIntent.swift */; };
 		A11C0A730000000000000012 /* OneVoiceInvocationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A730000000000000002 /* OneVoiceInvocationCoordinator.swift */; };
@@ -140,6 +141,7 @@
 		A11C0A710000000000000071 /* LocationEnvelopeCrypto.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LocationEnvelopeCrypto.swift; path = Plugins/LocationEnvelopeCrypto.swift; sourceTree = "<group>"; };
 		A11C0A710000000000000081 /* BackgroundLocationPublisher.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = BackgroundLocationPublisher.swift; path = Plugins/BackgroundLocationPublisher.swift; sourceTree = "<group>"; };
 		A11C0A720000000000000061 /* HushhContactsPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhContactsPlugin.swift; path = Plugins/HushhContactsPlugin.swift; sourceTree = "<group>"; };
+		A11C0A720000000000000091 /* HushhCardScannerPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhCardScannerPlugin.swift; path = Plugins/HushhCardScannerPlugin.swift; sourceTree = "<group>"; };
 		A11C0A780000000000000061 /* HushhInvitationsPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhInvitationsPlugin.swift; path = Plugins/HushhInvitationsPlugin.swift; sourceTree = "<group>"; };
 		A11C0A740000000000000001 /* OneVoiceAppIntent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OneVoiceAppIntent.swift; sourceTree = "<group>"; };
 		A11C0A730000000000000002 /* OneVoiceInvocationCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OneVoiceInvocationCoordinator.swift; sourceTree = "<group>"; };
@@ -318,6 +320,7 @@
 				A11C0A710000000000000071 /* LocationEnvelopeCrypto.swift */,
 				A11C0A710000000000000081 /* BackgroundLocationPublisher.swift */,
 				A11C0A720000000000000061 /* HushhContactsPlugin.swift */,
+				A11C0A720000000000000091 /* HushhCardScannerPlugin.swift */,
 				A11C0A780000000000000061 /* HushhInvitationsPlugin.swift */,
 				A11C0A730000000000000003 /* HushhVoiceInvocationPlugin.swift */,
 				A11C0A730000000000000032 /* OneVoiceMicrophoneCapture.swift */,
@@ -560,6 +563,7 @@
 				A11C0A710000000000000072 /* LocationEnvelopeCrypto.swift in Sources */,
 				A11C0A710000000000000082 /* BackgroundLocationPublisher.swift in Sources */,
 				A11C0A720000000000000062 /* HushhContactsPlugin.swift in Sources */,
+				A11C0A720000000000000092 /* HushhCardScannerPlugin.swift in Sources */,
 				A11C0A780000000000000062 /* HushhInvitationsPlugin.swift in Sources */,
 				6146083798073DA5027983D9 /* NativeTestSupport.swift in Sources */,
 				71A2B3C49D8E7F6012345678 /* NativeUiTestRunnerScript.swift in Sources */,
