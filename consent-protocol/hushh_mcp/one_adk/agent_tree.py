@@ -165,6 +165,7 @@ from hushh_mcp.one_adk.workspace_mcp_tools import (
     read_selected_drive_search_result,
 )
 from hushh_mcp.runtime_providers import (
+    bind_managed_vertex_project,
     build_managed_gemini_adk_model,
     build_managed_regional_gemini_adk_model,
     thinking_config_for,
@@ -1675,8 +1676,16 @@ async def _specialist_turn(
             "message": "Unlock the vault before asking this specialist to use protected information.",
         }
     trace = _new_dependency_trace()
+    # The canonical AG-UI ingress authors execution_surface after discarding
+    # client state. Keep this billing choice local to the delegated operation;
+    # standalone specialist and Live calls retain the fleet project.
+    chat_project = (
+        (os.getenv("HUSHH_ONE_CHAT_VERTEX_PROJECT") or "").strip() or None
+        if getattr(task, "execution_surface", None) == "typed_chat"
+        else None
+    )
     try:
-        with _dependency_scope(trace):
+        with _dependency_scope(trace), bind_managed_vertex_project(chat_project):
             result = await dispatch(agent_id, task)
     except PuppyCapabilityUnsupported as exc:
         return _with_dependency(
@@ -2322,7 +2331,7 @@ def _build_ria_agent(*, model: Any | None = None) -> LlmAgent:
     )
 
 
-def _resolve_text_model(model: Any | None) -> Any:
+def _resolve_text_model(model: Any | None, *, vertex_project: str | None = None) -> Any:
     """Resolve text-model authority without requiring cloud ADC in test collection.
 
     Text agents use the regional model: a 429/500/503 while a request is being
@@ -2333,13 +2342,21 @@ def _resolve_text_model(model: Any | None) -> Any:
     The Live head stays pinned to its own location.
     """
     if model is not None:
+        if vertex_project is not None:
+            raise ValueError("Explicit text model and Vertex project override are exclusive")
         return model
     if os.getenv("TESTING", "").strip().lower() in {"1", "true", "yes"}:
         return _SPECIALIST_MODEL
+    if vertex_project is not None:
+        return build_managed_regional_gemini_adk_model(
+            _SPECIALIST_MODEL, vertex_project=vertex_project
+        )
     return build_managed_regional_gemini_adk_model(_SPECIALIST_MODEL)
 
 
-def build_one_intro_text_agent(*, model: Any | None = None) -> LlmAgent:
+def build_one_intro_text_agent(
+    *, model: Any | None = None, vertex_project: str | None = None
+) -> LlmAgent:
     """Build One's semantic but lower-privilege pre-vault text head.
 
     This is deliberately not the full One roster. It can converse and propose
@@ -2349,7 +2366,7 @@ def build_one_intro_text_agent(*, model: Any | None = None) -> LlmAgent:
     manifest = next(child for child in _ONE_MANIFEST.subagents if child.id == "one_intro")
     return LlmAgent(
         name=manifest.name,
-        model=_resolve_text_model(model),
+        model=_resolve_text_model(model, vertex_project=vertex_project),
         description=manifest.description,
         instruction=manifest.system_instruction,
         tools=[run_intro_navigation_action, list_intro_navigation_actions],
@@ -2711,6 +2728,7 @@ def _one_consent_before_model(callback_context: Any, llm_request: Any) -> None:
 def build_one_text_agent(
     *,
     model: Any | None = None,
+    vertex_project: str | None = None,
     allow_workspace_tools: bool = False,
     allow_private_mcp: bool = False,
     include_thought_summaries: bool = False,
@@ -2725,7 +2743,7 @@ def build_one_text_agent(
     # Route modules construct both ADK apps during import so FastAPI can
     # register the canonical endpoint. The shared resolver keeps that import
     # credential-independent in tests while hosted runtimes stay explicit.
-    text_model = _resolve_text_model(model)
+    text_model = _resolve_text_model(model, vertex_project=vertex_project)
     return LlmAgent(
         name="one",
         model=text_model,

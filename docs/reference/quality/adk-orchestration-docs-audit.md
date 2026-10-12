@@ -140,6 +140,18 @@ does not change scope-commerce authority or strict hosted-return admission.
 This is source qualification; audible cues and physical delivery remain separate
 acceptance work. Every other finding and future-growth enforcement is preserved.
 
+The main `1056ed5652` union qualifies exactly 41 additional size slots through
+independent backend, frontend and operations review. It preserves lazy pod
+imports, recipient/owner admission and extracted deployment packaging. Review
+found a shared specialist still selecting the legacy client; default turns now
+use per-turn ADK project routing while injected owner models and explicit legacy
+callbacks retain their contracts. Actual `handle_turn` tests cover both caller
+orders and the callback negative control. The Information class remains 337;
+its ceiling is unchanged. Exact hashes and parent revisions are retained in
+`scope_commerce_main_project_and_location_20261012`. Budgets, scanner, exclusions
+and every unrelated finding remain unchanged. Source qualification does not
+establish deployed behavior or successful provider-job cleanup.
+
 ## GCP-only pod deployment correction — 2026-09-25
 
 Historical pointer: Anypoint pod deployment was removed; the CRM connector remains.

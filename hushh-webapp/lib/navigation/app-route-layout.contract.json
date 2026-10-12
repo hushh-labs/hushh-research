@@ -1183,7 +1183,8 @@
           }
         }
       ],
-      "kind": "parent"
+      "kind": "parent",
+      "reason": "The active Location onboarding layer unwinds optional panels and Ready, Place, Features before Welcome exits to agents home. Pending permission, contact, join and save operations consume Back; topmost modal dismissal retains precedence. Outside onboarding, the authored route parent applies."
     }
   },
   {
@@ -3661,7 +3662,8 @@
           }
         }
       ],
-      "kind": "parent"
+      "kind": "parent",
+      "reason": "The active Location onboarding layer unwinds optional panels and Ready, Place, Features before Welcome exits to agents home. Pending permission, contact, join and save operations consume Back; topmost modal dismissal retains precedence. Outside onboarding, the authored route parent applies."
     }
   },
   {

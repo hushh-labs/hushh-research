@@ -105,6 +105,16 @@ execution or claim `Queue Validation` ran when it did not. Monitor the resulting
 4. Read the exact-SHA verification-plan artifact. It alone selects PKM and BYOK
    reviewer lanes; do not invent a second path classifier.
 
+The exceptional One chat external Vertex cutover uses deploy-uat-one-chat.yml
+only when the operator requested exactly the existing backend service. It
+requires the same exact landed-main SHA and smoke gate, then checks the complete
+serving-backend-to-target backend image and release-input diff against its narrow
+allowlist. Its release
+artifact is partial and does not replace the full UAT receipt or authorize a
+production release. Its one-time Location baseline exception accepts only four
+reviewed Git blob IDs already on main; any drift or other blocked path requires
+a normal UAT catch-up before retrying this service-only lane.
+
 ### 5. Dispatch only the requested environment
 
 UAT:

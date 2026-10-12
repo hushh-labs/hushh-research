@@ -986,23 +986,25 @@ describe("Connect — People", () => {
         createdAt: "2026-08-25T00:00:00Z",
         connectedFromContacts: true,
       },
+      { connectionId: "c-other", userId: "u-other", displayName: "Manual Friend", photoUrl: null, createdAt: "invalid", connectedFromContacts: false },
+      { connectionId: "c-legacy", userId: "u-legacy", displayName: "Legacy Friend", photoUrl: null, createdAt: null },
+      { connectionId: "c-contact-two", userId: "u-contact-two", displayName: "Second Contact", photoUrl: null, createdAt: "2026-08-26T00:00:00Z", connectedFromContacts: true },
     ]);
 
     render(<ConnectPageClient />);
 
-    const name = await screen.findByText("Asha Contact");
-    const badge = screen.getByLabelText("Connected from your contacts");
-    const titleRow = name.parentElement;
-
-    expect(badge).toBeTruthy();
-    expect(titleRow).toBeTruthy();
-    expect(titleRow).toContainElement(badge);
-
-    const titleClasses = new Set(titleRow!.className.split(/\s+/));
-    expect(titleClasses.has("flex-col")).toBe(true);
-    expect(titleClasses.has("items-start")).toBe(true);
-    expect(titleClasses.has("sm:flex-row")).toBe(true);
-    expect(titleClasses.has("sm:items-center")).toBe(true);
+    await screen.findByText("Asha Contact");
+    const contacts = screen.getByRole("region", { name: "From contacts" });
+    const other = screen.getByRole("region", { name: "Other connections" });
+    expect(within(contacts).getByRole("heading", { name: "From contacts" })).toBeTruthy();
+    expect(within(contacts).getByText("Asha Contact")).toBeTruthy();
+    expect(within(contacts).getByText("Second Contact")).toBeTruthy();
+    expect(within(contacts).queryByText("Manual Friend")).toBeNull();
+    expect(within(other).getByText("Manual Friend")).toBeTruthy();
+    expect(within(other).getByText("Legacy Friend")).toBeTruthy();
+    expect(within(other).getAllByText("Connected")).toHaveLength(2);
+    expect(screen.queryByLabelText("Connected from your contacts")).toBeNull();
+    expect([...contacts.querySelectorAll("[data-voice-label]")].map(row => row.getAttribute("data-voice-label"))).toEqual(["Asha Contact", "Second Contact"]);
   });
 
   it("opens a connection's person profile from My connections", async () => {
@@ -1025,6 +1027,8 @@ describe("Connect — People", () => {
     fireEvent.click(screen.getByRole("button", { name: "My connections (1)" }));
     const connectionName =
       await within(myConnections).findByText("Scoped Friend");
+    expect(within(myConnections).queryByRole("heading", { name: "From contacts" })).toBeNull();
+    expect(within(myConnections).getByRole("heading", { name: "Other connections" })).toBeTruthy();
     // The whole row is the target. The name sits on the row's content layer,
     // beside its one full-row action rather than inside a title-only button.
     const connectionRow = connectionName.closest<HTMLElement>(
@@ -1056,7 +1060,7 @@ describe("Connect — People", () => {
     expect(mocks.routerPush).not.toHaveBeenCalled();
   });
 
-  it("loads page 2 in stable server order and keeps its contact badge", async () => {
+  it("loads page 2 in stable server order within each provenance group", async () => {
     mocks.listConnectionsPage.mockImplementation(async (options) => ({
       items:
         options.page === 2
@@ -1095,7 +1099,8 @@ describe("Connect — People", () => {
     await waitFor(() =>
       expect(screen.getAllByText("Same Name")).toHaveLength(2),
     );
-    expect(screen.getByLabelText("Connected from your contacts")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "From contacts" })).getByText("Same Name")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Other connections" })).getByText("Same Name")).toBeTruthy();
     expect(mocks.listConnectionsPage).toHaveBeenCalledWith(
       expect.objectContaining({ page: 2, limit: 50, audience: "all" }),
     );
@@ -2787,11 +2792,11 @@ describe("Connect — the phone-width geometry QA reported", () => {
     expect(await screen.findByText("My connections (12)")).toBeTruthy();
 
     const list = container.querySelector(
-      '[data-testid="connect-my-connections-group"] [data-inset-separators="true"]',
+      '#connect-my-connections-panel',
     );
     expect(list).toBeTruthy();
     // Unprefixed, so the bound applies on phones too.
-    expect(list!.className).toContain("max-h-[min(42dvh,18rem)]");
+    expect(list!.className).toContain("max-h-[min(60dvh,28rem)]");
     expect(list!.className).toContain("overflow-y-auto");
     // The mitigation the phone bound depends on. Without it the roster chains
     // its scroll into the page and the old gesture trap comes back.

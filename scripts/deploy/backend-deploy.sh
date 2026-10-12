@@ -479,6 +479,7 @@ append_optional_env "APP_REVIEW_MODE" "${_APP_REVIEW_MODE}"
 # One switch for every text agent (constants.GEMINI_MODEL). Empty keeps the proven
 # default. Ported from main 2026-09-02: the workflow passes it, this lane dropped it.
 append_optional_env "HUSSH_GEMINI_TEXT_MODEL" "${_HUSSH_GEMINI_TEXT_MODEL}"
+append_optional_env "HUSHH_ONE_CHAT_VERTEX_PROJECT" "${_HUSHH_ONE_CHAT_VERTEX_PROJECT}"
 append_optional_env "ONE_VOICE_LIVE_ENABLED" "${_ONE_VOICE_LIVE_ENABLED:-}"
 append_optional_env "ONE_VOICE_CALENDAR_NARRATION_ENABLED" "${_ONE_VOICE_CALENDAR_NARRATION_ENABLED:-false}"
 append_optional_env "VERTEX_LIVE_MODEL_ID" "${_VERTEX_LIVE_MODEL_ID:-}"

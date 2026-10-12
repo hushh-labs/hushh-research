@@ -74,7 +74,7 @@ const connections = () =>
       connectionId: `connection-${index}`,
       userId: `user-${index}`,
       publicPersonRef: `person_${index}`,
-      displayName,
+      displayName: dataset().longConnectionName === "1" && index === 2 ? "24E2100221 Mayank Featherstonehaugh-Rajendran" : displayName,
       photoUrl: null,
       createdAt: "2026-09-28T12:00:00Z",
       connectedFromContacts: index === 1,
@@ -201,6 +201,8 @@ export const useContactSync = () => ({
 export const ContactSyncResultsSheet = () => null;
 export const ContactDiscoverabilityConsentDialog = () => null;
 export const usePublishVoiceSurfaceMetadata = noop;
+export const useVoiceSurfaceMetadata = () => null;
+export const getVoiceSurfaceMetadata = () => null;
 export const useLocalOnboardingActionHandler = noop;
 export const hasMountedLocalOnboardingHandler = () => false;
 export const useOutgoingRequestResolutionWatch = noop;

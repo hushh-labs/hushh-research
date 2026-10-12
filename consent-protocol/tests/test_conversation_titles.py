@@ -84,6 +84,35 @@ async def test_generates_once_and_preserves_manual_titles(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_authenticated_conversation_titles_use_chat_project_only_for_generation(monkeypatch):
+    from api.routes.one import agent_chat
+    from hushh_mcp.runtime_providers import ManagedGeminiRuntimeBinding
+
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "hushh-vertex-personal54")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+    monkeypatch.setattr(agent_chat, "_ONE_CHAT_VERTEX_PROJECT", "hussh-511311")
+    monkeypatch.setattr(
+        agent_chat,
+        "_session_service",
+        SimpleNamespace(list_sessions=AsyncMock(return_value=SimpleNamespace(sessions=[]))),
+    )
+    projects = []
+
+    async def generate(**_kwargs):
+        projects.append(ManagedGeminiRuntimeBinding.from_environment().project)
+
+    monkeypatch.setattr(agent_chat, "ensure_conversation_titles", generate)
+    result = await agent_chat.list_conversations(
+        user_id="owner", limit=5, token={"user_id": "owner", "token": "synthetic"}
+    )
+
+    assert result["conversations"] == []
+    assert projects == ["hussh-511311"]
+    assert ManagedGeminiRuntimeBinding.from_environment().project == "hushh-vertex-personal54"
+
+
+@pytest.mark.asyncio
 async def test_model_failure_leaves_history_untouched(monkeypatch):
     chat = session()
     monkeypatch.setattr(titles, "generate_titles", AsyncMock(side_effect=TimeoutError))

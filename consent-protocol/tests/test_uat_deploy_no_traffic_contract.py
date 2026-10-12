@@ -345,7 +345,7 @@ def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> N
     # UAT honors the explicit opt-in through the canonical verification plan.
     assert '_VERIFY_MANAGED_VERTEX_RUNTIME: "false"' in backend_build
     assert 'case "${_VERIFY_MANAGED_VERTEX_RUNTIME}" in' in backend_build
-    assert "true) ;;" in backend_build
+    assert "true) probe_mode=full ;;" in backend_build
     assert "false)" in backend_build
     assert 'echo "_VERIFY_MANAGED_VERTEX_RUNTIME must be true or false." >&2' in backend_build
     assert (
@@ -438,6 +438,38 @@ def test_cross_project_vertex_uses_exact_personal_bridge_for_managed_lanes() -> 
     assert backend_deploy.count('"GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"') == 1
     assert "GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}" in backend_deploy
     assert '_GENAI_PROJECT_ID: ""' in backend_build
+
+
+def test_one_chat_vertex_override_is_uat_only_and_keeps_fleet_project() -> None:
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    uat_workflow = _read(".github/workflows/deploy-uat.yml")
+    production_workflow = _read(".github/workflows/deploy-production.yml")
+    readiness = _read("consent-protocol/scripts/verify_managed_vertex_runtime.py")
+    agent_chat = _read("consent-protocol/api/routes/one/agent_chat.py")
+
+    assert 'case "${_DEPLOY_ENV}:${_HUSHH_ONE_CHAT_VERTEX_PROJECT}" in' in backend_build
+    assert "uat:hussh-511311)" in backend_build
+    assert "One chat Vertex target is not allowlisted." in backend_build
+    assert (
+        'append_optional_env "HUSHH_ONE_CHAT_VERTEX_PROJECT" "${_HUSHH_ONE_CHAT_VERTEX_PROJECT}"'
+        in _backend_deploy()
+    )
+    assert '_HUSHH_ONE_CHAT_VERTEX_PROJECT: ""' in backend_build
+    assert "##_HUSHH_ONE_CHAT_VERTEX_PROJECT=hussh-511311" in uat_workflow
+    assert "_HUSHH_ONE_CHAT_VERTEX_PROJECT=hussh-511311" not in production_workflow
+    assert "##_GENAI_PROJECT_ID=hushh-vertex-personal54" in uat_workflow
+    assert 'if [[ -z "${_HUSHH_ONE_CHAT_VERTEX_PROJECT}" ]]; then' in backend_build
+    assert "|HUSHH_ONE_CHAT_VERTEX_PROJECT=${_HUSHH_ONE_CHAT_VERTEX_PROJECT}|" in backend_build
+    assert "HUSHH_MANAGED_VERTEX_PROBE_MODE=${probe_mode}" in backend_build
+    assert "probe_mode=one_chat" in backend_build
+    assert 'verdict.get("one_chat_probe_ok") is not True' in backend_build
+    assert 'job_name="genai-ready-${BUILD_ID}"' in backend_build
+    assert "binding.build_regional_adk_model(model)" in readiness
+    assert '"one_chat_probe_ok": False' in readiness
+    assert (
+        "root_agent=build_one_intro_text_agent(vertex_project=_ONE_CHAT_VERTEX_PROJECT),"
+        in agent_chat
+    )
 
 
 def test_command_deploys_do_not_restore_live_or_model_pack_dependencies() -> None:

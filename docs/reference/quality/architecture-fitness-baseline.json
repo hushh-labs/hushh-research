@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2418,
+  "finding_count": 2424,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1022,7 +1022,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/person_profile_service.py",
       "symbol": "PersonProfileService",
-      "value": 640
+      "value": 647
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1535,7 +1535,7 @@
       "limit": 250,
       "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
       "symbol": "TestAgentTreeShape",
-      "value": 522
+      "value": 560
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1589,7 +1589,7 @@
       "limit": 250,
       "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
       "symbol": "TestSpecialistTurn",
-      "value": 342
+      "value": 391
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -3515,7 +3515,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
       "symbol": "_specialist_turn",
-      "value": 377
+      "value": 385
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -7583,7 +7583,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/person_profile_service.py",
       "symbol": "get_viewer_profile",
-      "value": 246
+      "value": 253
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -10238,7 +10238,7 @@
       "limit": 80,
       "path": "consent-protocol/scripts/verify_managed_vertex_runtime.py",
       "symbol": "main",
-      "value": 173
+      "value": 186
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -11876,7 +11876,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_managed_vertex_readiness_script.py",
       "symbol": "test_stalled_live_preserves_slower_command_verdicts",
-      "value": 97
+      "value": 101
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -13667,7 +13667,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/one/agent_chat.py",
       "symbol": null,
-      "value": 1114
+      "value": 1123
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13973,7 +13973,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
       "symbol": null,
-      "value": 2859
+      "value": 2872
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13982,7 +13982,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_adk/agui_turn_timing.py",
       "symbol": null,
-      "value": 903
+      "value": 913
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14198,7 +14198,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/runtime_providers/factory.py",
       "symbol": null,
-      "value": 641
+      "value": 677
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14864,7 +14864,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/information_chat_service.py",
       "symbol": null,
-      "value": 571
+      "value": 582
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14891,7 +14891,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/location_chat_service.py",
       "symbol": null,
-      "value": 928
+      "value": 936
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15035,7 +15035,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/person_profile_service.py",
       "symbol": null,
-      "value": 786
+      "value": 794
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16529,7 +16529,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_person_profile_service.py",
       "symbol": null,
-      "value": 607
+      "value": 638
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16610,7 +16610,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_runtime_providers.py",
       "symbol": null,
-      "value": 1585
+      "value": 1663
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16664,7 +16664,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_agui_turn_timing.py",
       "symbol": null,
-      "value": 1161
+      "value": 1194
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17213,7 +17213,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
       "symbol": null,
-      "value": 6245
+      "value": 6332
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17825,7 +17825,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
       "symbol": null,
-      "value": 804
+      "value": 836
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17897,7 +17897,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/app/connect/page-client.test.tsx",
       "symbol": null,
-      "value": 3573
+      "value": 3578
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18140,7 +18140,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/location-immersive-map.test.tsx",
       "symbol": null,
-      "value": 4929
+      "value": 5023
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18158,7 +18158,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/one-location-agent-page.test.tsx",
       "symbol": null,
-      "value": 9945
+      "value": 9972
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18167,7 +18167,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/one-location-onboarding-flow.test.tsx",
       "symbol": null,
-      "value": 678
+      "value": 717
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18194,7 +18194,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/person-profile-page.test.tsx",
       "symbol": null,
-      "value": 1637
+      "value": 1691
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18788,7 +18788,7 @@
       "limit": 500,
       "path": "hushh-webapp/app/connect/page-client.tsx",
       "symbol": null,
-      "value": 4255
+      "value": 4272
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19211,7 +19211,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/connections/person-profile-page.tsx",
       "symbol": null,
-      "value": 1121
+      "value": 1135
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19697,7 +19697,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-location/nearby-check-in/__tests__/nearby-check-in-sheet.test.tsx",
       "symbol": null,
-      "value": 2887
+      "value": 2911
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19706,7 +19706,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
       "symbol": null,
-      "value": 3487
+      "value": 3505
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19742,7 +19742,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-location/onboarding/one-location-onboarding-flow.tsx",
       "symbol": null,
-      "value": 2671
+      "value": 2683
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19769,7 +19769,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-location/redesign/__tests__/sos-panel.test.tsx",
       "symbol": null,
-      "value": 730
+      "value": 731
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19796,7 +19796,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-location/redesign/circles/__tests__/named-circle-flows.test.tsx",
       "symbol": null,
-      "value": 2992
+      "value": 3109
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19823,7 +19823,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-location/redesign/circles/named-circle-flows.tsx",
       "symbol": null,
-      "value": 3122
+      "value": 3165
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20156,7 +20156,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/circle-member-row.layout.spec.ts",
       "symbol": null,
-      "value": 1182
+      "value": 1214
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20228,7 +20228,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/save-location-sheet.layout.spec.ts",
       "symbol": null,
-      "value": 714
+      "value": 721
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21533,7 +21533,7 @@
       "limit": 500,
       "path": "scripts/deploy/backend-deploy.sh",
       "symbol": null,
-      "value": 1030
+      "value": 1031
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -21769,6 +21769,60 @@
       "path": "hushh-webapp/lib/pkm/markdown-memory.ts",
       "symbol": null,
       "value": 812
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/runtime_providers/factory.py|ManagedGeminiRuntimeBinding|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/runtime_providers/factory.py",
+      "symbol": "ManagedGeminiRuntimeBinding",
+      "value": 252
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/uat_one_chat_backend_release.py|main|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/uat_one_chat_backend_release.py",
+      "symbol": "main",
+      "value": 114
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/uat_one_chat_backend_release.py|deploy_candidate|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/uat_one_chat_backend_release.py",
+      "symbol": "deploy_candidate",
+      "value": 109
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/uat_one_chat_backend_release.py|probe_runtime|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/uat_one_chat_backend_release.py",
+      "symbol": "probe_runtime",
+      "value": 101
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/uat_one_chat_backend_release.py|recover_interrupted|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/uat_one_chat_backend_release.py",
+      "symbol": "recover_interrupted",
+      "value": 99
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|scripts/ci/uat_one_chat_backend_release.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "scripts/ci/uat_one_chat_backend_release.py",
+      "symbol": null,
+      "value": 835
     }
   ],
   "inspected_files": 6625,
@@ -30508,6 +30562,548 @@
           "source_sha256": "60e7374b746a6a33fc842404d667db3e14944ee8cbd013b3a8c6b9f45848a0fd",
           "classification": "exact_incoming_main",
           "reason": "Incoming finite-lived emergency SMS notification behavior and nearest delivery regressions; no commerce authority change."
+        }
+      ]
+    },
+    "scope_commerce_main_project_and_location_20261012": {
+      "root_revision": "ec3b13d1f7e8a228b54734aeaedcfc7c0a0e40d4",
+      "main_revision": "1056ed5652d2e74ac4a36bb2a2e32ebd01086c94",
+      "reviewed_at": "2026-10-12",
+      "evidence": "docs/reference/quality/adk-orchestration-docs-audit.md#reviewed-integration-debt",
+      "boundary": "Exactly 41 independently reviewed size slots, preserving every previous occurrence and all unreviewed values, budgets, scanner and exclusions. The Information class remains337 and requires no increase. Retained debt is source qualification, not release or payment acceptance.",
+      "slots": [
+        {
+          "key": "class_size|consent-protocol/hushh_mcp/services/person_profile_service.py|PersonProfileService|class exceeds the advisory operon budget",
+          "path": "consent-protocol/hushh_mcp/services/person_profile_service.py",
+          "before": 640,
+          "after": 647,
+          "source_sha256": "efa16ee590f02948921be1bcbbbbaceaf5ea72f977ce6e3fcae91fe16d0cdb25",
+          "classification": "exact_incoming_main",
+          "reviewers": [
+            "backend_context",
+            "parent"
+          ],
+          "reason": "Independently qualified per-turn managed project routing, injected owner-model precedence, lazy pod import safety, unfinished-call timing and freshly consented profile reads; real handle_turn and legacy negative controls passed."
+        },
+        {
+          "key": "class_size|consent-protocol/tests/test_one_adk_agent_tree.py|TestAgentTreeShape|class exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
+          "before": 522,
+          "after": 560,
+          "source_sha256": "9911dbd9aa9544bd7a4061c94343c28130994743a5a1a3d013344a59329be8e2",
+          "classification": "reviewed_composition",
+          "reviewers": [
+            "backend_context",
+            "parent"
+          ],
+          "reason": "Independently qualified per-turn managed project routing, injected owner-model precedence, lazy pod import safety, unfinished-call timing and freshly consented profile reads; real handle_turn and legacy negative controls passed."
+        },
+        {
+          "key": "class_size|consent-protocol/tests/test_one_adk_agent_tree.py|TestSpecialistTurn|class exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
+          "before": 342,
+          "after": 391,
+          "source_sha256": "9911dbd9aa9544bd7a4061c94343c28130994743a5a1a3d013344a59329be8e2",
+          "classification": "reviewed_composition",
+          "reviewers": [
+            "backend_context",
+            "parent"
+          ],
+          "reason": "Independently qualified per-turn managed project routing, injected owner-model precedence, lazy pod import safety, unfinished-call timing and freshly consented profile reads; real handle_turn and legacy negative controls passed."
+        },
+        {
+          "key": "class_size|consent-protocol/hushh_mcp/runtime_providers/factory.py|ManagedGeminiRuntimeBinding|class exceeds the advisory operon budget",
+          "path": "consent-protocol/hushh_mcp/runtime_providers/factory.py",
+          "before": null,
+          "after": 252,
+          "source_sha256": "2490b65a5e92f81f57b8726a6359c67528629fbcde13709a00d4ef17c16566a1",
+          "classification": "reviewed_composition",
+          "reviewers": [
+            "backend_context",
+            "parent"
+          ],
+          "reason": "Independently qualified per-turn managed project routing, injected owner-model precedence, lazy pod import safety, unfinished-call timing and freshly consented profile reads; real handle_turn and legacy negative controls passed."
+        },
+        {
+          "key": "function_size|consent-protocol/hushh_mcp/one_adk/agent_tree.py|_specialist_turn|function exceeds the advisory gene budget",
+          "path": "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
+          "before": 377,
+          "after": 385,
+          "source_sha256": "b6ad084237574913bd5569fc930abdc9f27884467ca45c52553db5083da3dbb5",
+          "classification": "reviewed_composition",
+          "reviewers": [
+            "backend_context",
+            "parent"
+          ],
+          "reason": "Independently qualified per-turn managed project routing, injected owner-model precedence, lazy pod import safety, unfinished-call timing and freshly consented profile reads; real handle_turn and legacy negative controls passed."
+        },
+        {
+          "key": "function_size|consent-protocol/hushh_mcp/services/person_profile_service.py|get_viewer_profile|function exceeds the advisory gene budget",
+          "path": "consent-protocol/hushh_mcp/services/person_profile_service.py",
+          "before": 246,
+          "after": 253,
+          "source_sha256": "efa16ee590f02948921be1bcbbbbaceaf5ea72f977ce6e3fcae91fe16d0cdb25",
+          "classification": "exact_incoming_main",
+          "reviewers": [
+            "backend_context",
+            "parent"
+          ],
+          "reason": "Independently qualified per-turn managed project routing, injected owner-model precedence, lazy pod import safety, unfinished-call timing and freshly consented profile reads; real handle_turn and legacy negative controls passed."
+        },
+        {
+          "key": "function_size|consent-protocol/scripts/verify_managed_vertex_runtime.py|main|function exceeds the advisory gene budget",
+          "path": "consent-protocol/scripts/verify_managed_vertex_runtime.py",
+          "before": 173,
+          "after": 186,
+          "source_sha256": "0e86ca37263b4376a63d35aa8e8b485048da274d42285ac884dbc6e059124334",
+          "classification": "exact_incoming_main",
+          "reviewers": [
+            "backend_context",
+            "parent"
+          ],
+          "reason": "Independently qualified per-turn managed project routing, injected owner-model precedence, lazy pod import safety, unfinished-call timing and freshly consented profile reads; real handle_turn and legacy negative controls passed."
+        },
+        {
+          "key": "function_size|scripts/ci/uat_one_chat_backend_release.py|main|function exceeds the advisory gene budget",
+          "path": "scripts/ci/uat_one_chat_backend_release.py",
+          "before": null,
+          "after": 114,
+          "source_sha256": "3736d06baddac2bca5c4b1a8a118e836bf10f563d7699919c586a0057cf2e1da",
+          "classification": "exact_incoming_main",
+          "reviewers": [
+            "merge_security_review",
+            "parent"
+          ],
+          "reason": "Independently qualified exact-main service-only release authority or extracted deploy composition; 99 env entries and 6727-character maximum argument preserve fixed caps, isolation, provenance and rollback."
+        },
+        {
+          "key": "function_size|scripts/ci/uat_one_chat_backend_release.py|deploy_candidate|function exceeds the advisory gene budget",
+          "path": "scripts/ci/uat_one_chat_backend_release.py",
+          "before": null,
+          "after": 109,
+          "source_sha256": "3736d06baddac2bca5c4b1a8a118e836bf10f563d7699919c586a0057cf2e1da",
+          "classification": "exact_incoming_main",
+          "reviewers": [
+            "merge_security_review",
+            "parent"
+          ],
+          "reason": "Independently qualified exact-main service-only release authority or extracted deploy composition; 99 env entries and 6727-character maximum argument preserve fixed caps, isolation, provenance and rollback."
+        },
+        {
+          "key": "function_size|consent-protocol/tests/test_managed_vertex_readiness_script.py|test_stalled_live_preserves_slower_command_verdicts|function exceeds the advisory gene budget",
+          "path": "consent-protocol/tests/test_managed_vertex_readiness_script.py",
+          "before": 97,
+          "after": 101,
+          "source_sha256": "4dc77196789bb2a3f8ebcbe49ce18d62f3f04466490a8161d98107c72ad1e891",
+          "classification": "exact_incoming_main",
+          "reviewers": [
+            "backend_context",
+            "parent"
+          ],
+          "reason": "Independently qualified per-turn managed project routing, injected owner-model precedence, lazy pod import safety, unfinished-call timing and freshly consented profile reads; real handle_turn and legacy negative controls passed."
+        },
+        {
+          "key": "function_size|scripts/ci/uat_one_chat_backend_release.py|probe_runtime|function exceeds the advisory gene budget",
+          "path": "scripts/ci/uat_one_chat_backend_release.py",
+          "before": null,
+          "after": 101,
+          "source_sha256": "3736d06baddac2bca5c4b1a8a118e836bf10f563d7699919c586a0057cf2e1da",
+          "classification": "exact_incoming_main",
+          "reviewers": [
+            "merge_security_review",
+            "parent"
+          ],
+          "reason": "Independently qualified exact-main service-only release authority or extracted deploy composition; 99 env entries and 6727-character maximum argument preserve fixed caps, isolation, provenance and rollback."
+        },
+        {
+          "key": "function_size|scripts/ci/uat_one_chat_backend_release.py|recover_interrupted|function exceeds the advisory gene budget",
+          "path": "scripts/ci/uat_one_chat_backend_release.py",
+          "before": null,
+          "after": 99,
+          "source_sha256": "3736d06baddac2bca5c4b1a8a118e836bf10f563d7699919c586a0057cf2e1da",
+          "classification": "exact_incoming_main",
+          "reviewers": [
+            "merge_security_review",
+            "parent"
+          ],
+          "reason": "Independently qualified exact-main service-only release authority or extracted deploy composition; 99 env entries and 6727-character maximum argument preserve fixed caps, isolation, provenance and rollback."
+        },
+        {
+          "key": "module_size|hushh-webapp/__tests__/components/one-location-agent-page.test.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/__tests__/components/one-location-agent-page.test.tsx",
+          "before": 9945,
+          "after": 9972,
+          "source_sha256": "3b8aa728e86dbe730c91f3b4250709e45cd590c2981ace70c1bd67378ef75ee9",
+          "classification": "reviewed_composition",
+          "reviewers": [
+            "client_context",
+            "parent"
+          ],
+          "reason": "Independently qualified incoming Location/Connect/profile accessibility and regression coverage; composed root consent, Back, stale-response and compensating-revocation controls remain intact."
+        },
+        {
+          "key": "module_size|consent-protocol/tests/test_one_adk_agent_tree.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
+          "before": 6245,
+          "after": 6332,
+          "source_sha256": "9911dbd9aa9544bd7a4061c94343c28130994743a5a1a3d013344a59329be8e2",
+          "classification": "reviewed_composition",
+          "reviewers": [
+            "backend_context",
+            "parent"
+          ],
+          "reason": "Independently qualified per-turn managed project routing, injected owner-model precedence, lazy pod import safety, unfinished-call timing and freshly consented profile reads; real handle_turn and legacy negative controls passed."
+        },
+        {
+          "key": "module_size|hushh-webapp/__tests__/components/location-immersive-map.test.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/__tests__/components/location-immersive-map.test.tsx",
+          "before": 4929,
+          "after": 5023,
+          "source_sha256": "f068139514ecb02a8c922c7b6517351548e32dedf721f507e1aa7a48052b728a",
+          "classification": "reviewed_composition",
+          "reviewers": [
+            "client_context",
+            "parent"
+          ],
+          "reason": "Independently qualified incoming Location/Connect/profile accessibility and regression coverage; composed root consent, Back, stale-response and compensating-revocation controls remain intact."
+        },
+        {
+          "key": "module_size|hushh-webapp/app/connect/page-client.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/app/connect/page-client.tsx",
+          "before": 4255,
+          "after": 4272,
+          "source_sha256": "850585e40caf3da18f10097526b5cefd35f2d1db7e6b07acdaf8c2be193d9903",
+          "classification": "reviewed_composition",
+          "reviewers": [
+            "client_context",
+            "parent"
+          ],
+          "reason": "Independently qualified incoming Location/Connect/profile accessibility and regression coverage; composed root consent, Back, stale-response and compensating-revocation controls remain intact."
+        },
+        {
+          "key": "module_size|hushh-webapp/__tests__/app/connect/page-client.test.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/__tests__/app/connect/page-client.test.tsx",
+          "before": 3573,
+          "after": 3578,
+          "source_sha256": "04f6239daa577231bb9dd9c5783af8214e28101df42c0a4fa216ee97c44ce2eb",
+          "classification": "reviewed_composition",
+          "reviewers": [
+            "client_context",
+            "parent"
+          ],
+          "reason": "Independently qualified incoming Location/Connect/profile accessibility and regression coverage; composed root consent, Back, stale-response and compensating-revocation controls remain intact."
+        },
+        {
+          "key": "module_size|hushh-webapp/components/one-location/nearby-check-in/nearby-check-in-sheet.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
+          "before": 3487,
+          "after": 3505,
+          "source_sha256": "c2baef4b25f61c730411946765f98e24c0900ee899401459a8551791d5000dca",
+          "classification": "exact_incoming_main",
+          "reviewers": [
+            "client_context",
+            "parent"
+          ],
+          "reason": "Independently qualified incoming Location/Connect/profile accessibility and regression coverage; composed root consent, Back, stale-response and compensating-revocation controls remain intact."
+        },
+        {
+          "key": "module_size|hushh-webapp/components/one-location/redesign/circles/named-circle-flows.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/components/one-location/redesign/circles/named-circle-flows.tsx",
+          "before": 3122,
+          "after": 3165,
+          "source_sha256": "f7bc89acf6244816aa2288f1b1976303bdd29acf54025db56bbc56e9a2dbcfbf",
+          "classification": "exact_incoming_main",
+          "reviewers": [
+            "client_context",
+            "parent"
+          ],
+          "reason": "Independently qualified incoming Location/Connect/profile accessibility and regression coverage; composed root consent, Back, stale-response and compensating-revocation controls remain intact."
+        },
+        {
+          "key": "module_size|hushh-webapp/components/one-location/redesign/circles/__tests__/named-circle-flows.test.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/components/one-location/redesign/circles/__tests__/named-circle-flows.test.tsx",
+          "before": 2992,
+          "after": 3109,
+          "source_sha256": "f1a446b4a0067d5fd1fca0c995ceaf36a13ae1586fccf468ae2416665c91d2fd",
+          "classification": "exact_incoming_main",
+          "reviewers": [
+            "client_context",
+            "parent"
+          ],
+          "reason": "Independently qualified incoming Location/Connect/profile accessibility and regression coverage; composed root consent, Back, stale-response and compensating-revocation controls remain intact."
+        },
+        {
+          "key": "module_size|hushh-webapp/components/one-location/nearby-check-in/__tests__/nearby-check-in-sheet.test.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/components/one-location/nearby-check-in/__tests__/nearby-check-in-sheet.test.tsx",
+          "before": 2887,
+          "after": 2911,
+          "source_sha256": "9191dd5d738586b1b8a1b3688e7ee6a9bf7193050f8810221bb48bdaf9b29070",
+          "classification": "exact_incoming_main",
+          "reviewers": [
+            "client_context",
+            "parent"
+          ],
+          "reason": "Independently qualified incoming Location/Connect/profile accessibility and regression coverage; composed root consent, Back, stale-response and compensating-revocation controls remain intact."
+        },
+        {
+          "key": "module_size|consent-protocol/hushh_mcp/one_adk/agent_tree.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
+          "before": 2859,
+          "after": 2872,
+          "source_sha256": "b6ad084237574913bd5569fc930abdc9f27884467ca45c52553db5083da3dbb5",
+          "classification": "reviewed_composition",
+          "reviewers": [
+            "backend_context",
+            "parent"
+          ],
+          "reason": "Independently qualified per-turn managed project routing, injected owner-model precedence, lazy pod import safety, unfinished-call timing and freshly consented profile reads; real handle_turn and legacy negative controls passed."
+        },
+        {
+          "key": "module_size|hushh-webapp/components/one-location/onboarding/one-location-onboarding-flow.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/components/one-location/onboarding/one-location-onboarding-flow.tsx",
+          "before": 2671,
+          "after": 2683,
+          "source_sha256": "3d7c183310bf5bbb0a6d766b923f187b267d8ae524f6e021de5c22135112808e",
+          "classification": "exact_incoming_main",
+          "reviewers": [
+            "client_context",
+            "parent"
+          ],
+          "reason": "Independently qualified incoming Location/Connect/profile accessibility and regression coverage; composed root consent, Back, stale-response and compensating-revocation controls remain intact."
+        },
+        {
+          "key": "module_size|hushh-webapp/__tests__/components/person-profile-page.test.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/__tests__/components/person-profile-page.test.tsx",
+          "before": 1637,
+          "after": 1691,
+          "source_sha256": "5480329e6378c303f992c3a7c6f560687911880109314f639958b67964bea5e4",
+          "classification": "reviewed_composition",
+          "reviewers": [
+            "client_context",
+            "parent"
+          ],
+          "reason": "Independently qualified incoming Location/Connect/profile accessibility and regression coverage; composed root consent, Back, stale-response and compensating-revocation controls remain intact."
+        },
+        {
+          "key": "module_size|consent-protocol/tests/services/test_runtime_providers.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/services/test_runtime_providers.py",
+          "before": 1585,
+          "after": 1663,
+          "source_sha256": "64c24737ea9d7749d4bbb62b12b7570c518f275b41ff83dd0f62f534270dc768",
+          "classification": "reviewed_composition",
+          "reviewers": [
+            "backend_context",
+            "parent"
+          ],
+          "reason": "Independently qualified per-turn managed project routing, injected owner-model precedence, lazy pod import safety, unfinished-call timing and freshly consented profile reads; real handle_turn and legacy negative controls passed."
+        },
+        {
+          "key": "module_size|hushh-webapp/e2e/circle-member-row.layout.spec.ts||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/e2e/circle-member-row.layout.spec.ts",
+          "before": 1182,
+          "after": 1214,
+          "source_sha256": "0c67ba541379210ba6fcb4e4a0fdc5280e963d86ec0705e889ec446f456c3a77",
+          "classification": "exact_incoming_main",
+          "reviewers": [
+            "client_context",
+            "parent"
+          ],
+          "reason": "Independently qualified incoming Location/Connect/profile accessibility and regression coverage; composed root consent, Back, stale-response and compensating-revocation controls remain intact."
+        },
+        {
+          "key": "module_size|consent-protocol/tests/test_agui_turn_timing.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/test_agui_turn_timing.py",
+          "before": 1161,
+          "after": 1194,
+          "source_sha256": "79380141cfdcd3a9351a7d06e40b5d63691c0bfe7e9d9bb062e27a042a7f2b58",
+          "classification": "reviewed_composition",
+          "reviewers": [
+            "backend_context",
+            "parent"
+          ],
+          "reason": "Independently qualified per-turn managed project routing, injected owner-model precedence, lazy pod import safety, unfinished-call timing and freshly consented profile reads; real handle_turn and legacy negative controls passed."
+        },
+        {
+          "key": "module_size|hushh-webapp/components/connections/person-profile-page.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/components/connections/person-profile-page.tsx",
+          "before": 1121,
+          "after": 1135,
+          "source_sha256": "6ed243b036a64710d1b46c110740bca5187d59de60d7e3fda20fa1574622082a",
+          "classification": "reviewed_composition",
+          "reviewers": [
+            "client_context",
+            "parent"
+          ],
+          "reason": "Independently qualified incoming Location/Connect/profile accessibility and regression coverage; composed root consent, Back, stale-response and compensating-revocation controls remain intact."
+        },
+        {
+          "key": "module_size|consent-protocol/api/routes/one/agent_chat.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/api/routes/one/agent_chat.py",
+          "before": 1114,
+          "after": 1123,
+          "source_sha256": "155c87ede6593789029033b942b935191bcec11e94d4dcb8ecadfc999ea47499",
+          "classification": "reviewed_composition",
+          "reviewers": [
+            "backend_context",
+            "parent"
+          ],
+          "reason": "Independently qualified per-turn managed project routing, injected owner-model precedence, lazy pod import safety, unfinished-call timing and freshly consented profile reads; real handle_turn and legacy negative controls passed."
+        },
+        {
+          "key": "module_size|scripts/deploy/backend-deploy.sh||module exceeds the advisory operon budget",
+          "path": "scripts/deploy/backend-deploy.sh",
+          "before": 1030,
+          "after": 1031,
+          "source_sha256": "3bdc26d537c620c7fcea90772547e262e148b2438d5ef13b0b76b2e101f16988",
+          "classification": "reviewed_composition",
+          "reviewers": [
+            "merge_security_review",
+            "parent"
+          ],
+          "reason": "Independently qualified exact-main service-only release authority or extracted deploy composition; 99 env entries and 6727-character maximum argument preserve fixed caps, isolation, provenance and rollback."
+        },
+        {
+          "key": "module_size|consent-protocol/hushh_mcp/services/location_chat_service.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/hushh_mcp/services/location_chat_service.py",
+          "before": 928,
+          "after": 936,
+          "source_sha256": "9520f3e1261bb4cc1f62fffb6057785c730b65c4d5465fb14159ac23e69f8c23",
+          "classification": "reviewed_composition",
+          "reviewers": [
+            "backend_context",
+            "parent"
+          ],
+          "reason": "Independently qualified per-turn managed project routing, injected owner-model precedence, lazy pod import safety, unfinished-call timing and freshly consented profile reads; real handle_turn and legacy negative controls passed."
+        },
+        {
+          "key": "module_size|consent-protocol/hushh_mcp/one_adk/agui_turn_timing.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/hushh_mcp/one_adk/agui_turn_timing.py",
+          "before": 903,
+          "after": 913,
+          "source_sha256": "11fa64c1afe6184992bc94bf75fc2338b44b4772eaa6ccb3b55a0a87ba156b90",
+          "classification": "reviewed_composition",
+          "reviewers": [
+            "backend_context",
+            "parent"
+          ],
+          "reason": "Independently qualified per-turn managed project routing, injected owner-model precedence, lazy pod import safety, unfinished-call timing and freshly consented profile reads; real handle_turn and legacy negative controls passed."
+        },
+        {
+          "key": "module_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
+          "before": 804,
+          "after": 836,
+          "source_sha256": "4431709d30099b8ba562e28dc74cc375ed055fa2f2ddb4041436dcc60657e687",
+          "classification": "reviewed_composition",
+          "reviewers": [
+            "backend_context",
+            "parent"
+          ],
+          "reason": "Independently qualified per-turn managed project routing, injected owner-model precedence, lazy pod import safety, unfinished-call timing and freshly consented profile reads; real handle_turn and legacy negative controls passed."
+        },
+        {
+          "key": "module_size|scripts/ci/uat_one_chat_backend_release.py||module exceeds the advisory operon budget",
+          "path": "scripts/ci/uat_one_chat_backend_release.py",
+          "before": null,
+          "after": 835,
+          "source_sha256": "3736d06baddac2bca5c4b1a8a118e836bf10f563d7699919c586a0057cf2e1da",
+          "classification": "exact_incoming_main",
+          "reviewers": [
+            "merge_security_review",
+            "parent"
+          ],
+          "reason": "Independently qualified exact-main service-only release authority or extracted deploy composition; 99 env entries and 6727-character maximum argument preserve fixed caps, isolation, provenance and rollback."
+        },
+        {
+          "key": "module_size|consent-protocol/hushh_mcp/services/person_profile_service.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/hushh_mcp/services/person_profile_service.py",
+          "before": 786,
+          "after": 794,
+          "source_sha256": "efa16ee590f02948921be1bcbbbbaceaf5ea72f977ce6e3fcae91fe16d0cdb25",
+          "classification": "exact_incoming_main",
+          "reviewers": [
+            "backend_context",
+            "parent"
+          ],
+          "reason": "Independently qualified per-turn managed project routing, injected owner-model precedence, lazy pod import safety, unfinished-call timing and freshly consented profile reads; real handle_turn and legacy negative controls passed."
+        },
+        {
+          "key": "module_size|hushh-webapp/components/one-location/redesign/__tests__/sos-panel.test.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/components/one-location/redesign/__tests__/sos-panel.test.tsx",
+          "before": 730,
+          "after": 731,
+          "source_sha256": "a127620e95c033cc1927192098559899631d036dd8bb391893bbd5541b9bf20d",
+          "classification": "exact_incoming_main",
+          "reviewers": [
+            "client_context",
+            "parent"
+          ],
+          "reason": "Independently qualified incoming Location/Connect/profile accessibility and regression coverage; composed root consent, Back, stale-response and compensating-revocation controls remain intact."
+        },
+        {
+          "key": "module_size|hushh-webapp/e2e/save-location-sheet.layout.spec.ts||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/e2e/save-location-sheet.layout.spec.ts",
+          "before": 714,
+          "after": 721,
+          "source_sha256": "5f6aad4a967c9523b27266ab4fa47c951e5651cf78e4b92b6279f9b31e5d8c7e",
+          "classification": "exact_incoming_main",
+          "reviewers": [
+            "client_context",
+            "parent"
+          ],
+          "reason": "Independently qualified incoming Location/Connect/profile accessibility and regression coverage; composed root consent, Back, stale-response and compensating-revocation controls remain intact."
+        },
+        {
+          "key": "module_size|hushh-webapp/__tests__/components/one-location-onboarding-flow.test.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/__tests__/components/one-location-onboarding-flow.test.tsx",
+          "before": 678,
+          "after": 717,
+          "source_sha256": "6d51143f4d7b0ae6711de1d7f4a38250e782df3d8d04cedf7233d14d95491133",
+          "classification": "exact_incoming_main",
+          "reviewers": [
+            "client_context",
+            "parent"
+          ],
+          "reason": "Independently qualified incoming Location/Connect/profile accessibility and regression coverage; composed root consent, Back, stale-response and compensating-revocation controls remain intact."
+        },
+        {
+          "key": "module_size|consent-protocol/hushh_mcp/runtime_providers/factory.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/hushh_mcp/runtime_providers/factory.py",
+          "before": 641,
+          "after": 677,
+          "source_sha256": "2490b65a5e92f81f57b8726a6359c67528629fbcde13709a00d4ef17c16566a1",
+          "classification": "reviewed_composition",
+          "reviewers": [
+            "backend_context",
+            "parent"
+          ],
+          "reason": "Independently qualified per-turn managed project routing, injected owner-model precedence, lazy pod import safety, unfinished-call timing and freshly consented profile reads; real handle_turn and legacy negative controls passed."
+        },
+        {
+          "key": "module_size|consent-protocol/tests/services/test_person_profile_service.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/services/test_person_profile_service.py",
+          "before": 607,
+          "after": 638,
+          "source_sha256": "da80dddaffa8680a874c0325e628529074621bc14ce60e84e673c7edcea41756",
+          "classification": "exact_incoming_main",
+          "reviewers": [
+            "backend_context",
+            "parent"
+          ],
+          "reason": "Independently qualified per-turn managed project routing, injected owner-model precedence, lazy pod import safety, unfinished-call timing and freshly consented profile reads; real handle_turn and legacy negative controls passed."
+        },
+        {
+          "key": "module_size|consent-protocol/hushh_mcp/services/information_chat_service.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/hushh_mcp/services/information_chat_service.py",
+          "before": 571,
+          "after": 582,
+          "source_sha256": "7d51342777f3074bb30643278084eab3ea5668010bbd555e571241068597cb9c",
+          "classification": "reviewed_composition",
+          "reviewers": [
+            "backend_context",
+            "parent"
+          ],
+          "reason": "Independently qualified per-turn managed project routing, injected owner-model precedence, lazy pod import safety, unfinished-call timing and freshly consented profile reads; real handle_turn and legacy negative controls passed."
         }
       ]
     }

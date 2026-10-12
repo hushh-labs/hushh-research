@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import {
   CaretDownIcon,
@@ -714,8 +715,15 @@ export function NearbyCheckInSheet({
   onStateChange,
   onSearchAreaChange,
   onPlaceFocusChange,
+  presentationReady = true,
+  onStartupReadyChange,
+  rendererAccess,
 }: {
   open: boolean;
+  /** Bootstrap can run before the parent reveals the map and sheet together. */
+  presentationReady?: boolean;
+  onStartupReadyChange?: (ready: boolean) => void;
+  rendererAccess?: ReactNode;
   ownerId: string | null;
   vaultOwnerToken: string | null;
   /**
@@ -1066,7 +1074,7 @@ export function NearbyCheckInSheet({
         setPoint(sessionFix);
         setPointOrigin("last-known");
         setLocationError(null);
-        void loadPlaces(sessionFix, generation, expectedOwnerEpoch);
+        await loadPlaces(sessionFix, generation, expectedOwnerEpoch);
         return true;
       }
 
@@ -1080,7 +1088,7 @@ export function NearbyCheckInSheet({
       setPoint(restored);
       setPointOrigin("last-known");
       setLocationError(null);
-      void loadPlaces(restored, generation, expectedOwnerEpoch);
+      await loadPlaces(restored, generation, expectedOwnerEpoch);
       return true;
     },
     [loadPlaces, ownerId],
@@ -1319,8 +1327,10 @@ export function NearbyCheckInSheet({
   }, [ownerId, publishState, vaultOwnerToken]);
 
   useEffect(() => {
+    onStartupReadyChange?.(!open);
     if (!ownerId || !vaultOwnerToken) return;
     const expectedOwnerEpoch = ownerEpochRef.current;
+    let cancelled = false;
     requestGenerationRef.current += 1;
     searchGenerationRef.current += 1;
     setPoint(null);
@@ -1344,8 +1354,8 @@ export function NearbyCheckInSheet({
     setPresenceLoadError(null);
     setPlacesError(null);
     if (open) setViewState("loading");
-    void loadPresence(!open, expectedOwnerEpoch).then((next) => {
-      if (next === "error" || ownerEpochRef.current !== expectedOwnerEpoch) {
+    void loadPresence(!open, expectedOwnerEpoch).then(async (next) => {
+      if (cancelled || next === "error" || ownerEpochRef.current !== expectedOwnerEpoch) {
         return;
       }
       if (next?.presence) {
@@ -1354,14 +1364,20 @@ export function NearbyCheckInSheet({
       }
       if (!open) return;
       setViewState("setup");
-      void captureAndLoadPlaces("all");
+      await captureAndLoadPlaces("all");
+    }).finally(() => {
+      // Both success and failure reveal the existing setup/recovery controls.
+      if (!cancelled && ownerEpochRef.current === expectedOwnerEpoch) {
+        onStartupReadyChange?.(true);
+      }
     });
     return () => {
+      cancelled = true;
       requestGenerationRef.current += 1;
       presenceReadGenerationRef.current += 1;
       searchGenerationRef.current += 1;
     };
-  }, [captureAndLoadPlaces, loadPresence, open, ownerId, vaultOwnerToken]);
+  }, [captureAndLoadPlaces, loadPresence, onStartupReadyChange, open, ownerId, vaultOwnerToken]);
 
   useEffect(() => {
     onSearchAreaChange?.(
@@ -1695,11 +1711,12 @@ export function NearbyCheckInSheet({
     if (
       next === null ||
       next === "error" ||
-      next.presence ||
       ownerEpochRef.current !== expectedOwnerEpoch
     ) {
       return;
     }
+    setViewState(next.presence ? "active" : "setup");
+    if (next.presence) return;
     void captureAndLoadPlaces();
   };
 
@@ -2513,7 +2530,7 @@ export function NearbyCheckInSheet({
   // SheetContent).
   return (
     <>
-      <Sheet modal={false} open={open} onOpenChange={onOpenChange}>
+      <Sheet modal={false} open={open && presentationReady} onOpenChange={onOpenChange}>
         <SheetContent
           side="bottom"
           // Handle-only, not the whole body.
@@ -2579,6 +2596,7 @@ export function NearbyCheckInSheet({
           </SheetHeader>
 
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+            {rendererAccess}
             <p className="sr-only" aria-live="polite" aria-atomic="true">
               {state.presence
                 ? `Checked in. ${state.attendees.length} ${
