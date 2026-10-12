@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { ApiService } from "@/lib/services/api-service";
 import { ByocCloudSetupPage } from "@/components/connections/byoc-cloud-setup-page";
 
@@ -35,6 +36,9 @@ vi.mock("@/components/connections/byoc-cloud-card", () => ({
     <button type="button" onClick={() => onProjectNamed("owner-project")}>Deploy to your cloud</button>
   ),
 }));
+vi.mock("@/components/connections/gemini-runtime-configuration-page", () => ({
+  GeminiRuntimeConfigurationPage: () => <section aria-label="AI access" />,
+}));
 vi.mock("@/components/onboarding/setup/setup-completion-footer", () => ({
   SetupCompletionFooter: () => null,
 }));
@@ -50,6 +54,7 @@ vi.mock("@/components/app-ui/page-sections", () => ({
 describe("BYOC setup recovery", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    publishValidatedAuthSessionOwner("owner");
     vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({ hostingMode: "shared" });
     vi.mocked(ApiService.suggestByocProject).mockResolvedValue({
       projectId: "owner-project", displayName: "Owner", editable: true,

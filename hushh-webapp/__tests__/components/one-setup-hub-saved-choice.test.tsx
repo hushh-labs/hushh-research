@@ -54,6 +54,8 @@ describe("Setup saved AI choice", () => {
     expect(finish).toBeDisabled();
     expect(screen.queryByRole("progressbar")).toBeNull();
     expect(screen.queryByText("Set up the rest later.")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Choose your AI/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Set up your private agent: Continue" })).toBeVisible();
     fireEvent.click(finish);
     expect(screen.queryByRole("dialog")).toBeNull();
     // Pending or rejected saves do not publish a successful cache write.
@@ -64,7 +66,7 @@ describe("Setup saved AI choice", () => {
     expect(finish).toBeDisabled();
     act(() => state.listener?.({ type: "set", key: "bootstrap:owner" }));
     await waitFor(() => expect(finish).toBeEnabled());
-    expect(screen.getByRole("button", { name: "Choose your AI: Selected" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Agent home: Connected" })).toBeVisible();
     fireEvent.click(finish);
     await screen.findByRole("dialog");
     view.unmount();

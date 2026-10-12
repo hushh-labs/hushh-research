@@ -119,11 +119,11 @@ create the first vault. Vault keys and owner tokens remain in memory only.
 ```mermaid
 flowchart TD
   Hub["/one/setup (hub)<br/>tiles + live status<br/>master Finish setup"]
-  Placement["/one/setup/cloud<br/>choose where One runs"]
+  Placement["/one/setup/cloud<br/>verify hosting first"]
   Shared["Hussh Shared<br/>shared runtime; no personal pod"]
-  Byoc["BYOC<br/>owner's Google Cloud pod"]
+  Byoc["BYOC<br/>owner's Google Cloud or Azure pod"]
   Hosted["Hussh Pods<br/>Hussh-operated pod; new assignments gated"]
-  Connections["/one/setup/connections<br/>choose model provider and credential"]
+  Connections["AI access inside the cloud wizard<br/>save verified provider and credential"]
   Pod["Assigned private-agent pod"]
   Gmail["/one/setup/gmail (workspace)<br/>Connect, review receipt signals, Finish Gmail setup"]
   Static["/one/setup/location | email | ria | connected-systems<br/>reused feature workspace + terminal footer"]
@@ -137,7 +137,8 @@ flowchart TD
   Placement -->|only when the hosted gate opens| Hosted
   Byoc -.-> Pod
   Hosted -.-> Pod
-  Hub --> Connections
+  Placement -->|verified hosting| Connections
+  Connections -->|Finish agent setup| Hub
   Connections -.->|"verified model access may start assigned-pod provisioning"| Pod
   Hub -->|Connect Gmail| Gmail
   Gmail -->|verified connection + Finish Gmail setup| Hub
@@ -145,13 +146,14 @@ flowchart TD
   Hub -->|Finance| Wizard --> Import
   Static -->|verified Finish or Skip| Hub
   Import -->|verified Finish or Skip| Hub
-  Hub -->|after placement and Connections: Finish setup then required vault| Dash
+  Hub -->|after both saved choices: Finish setup then required vault| Dash
 ```
 
-An account with no assigned pod and no pending setup resolves to Hussh Shared.
+The evidenced legacy Shared cohort retains Shared. An account with unknown placement
+must choose explicitly; missing or pending setup is never silently moved.
 The hosting selector offers BYOC and Hussh Pods as alternatives; new Hussh Pods
 assignments remain server-gated. Existing pod assignments and pending setup are
-preserved. Model provider and credential choice are a separate setup step.
+preserved. Model provider and credential remain a separate decision in the same wizard.
 
 The dotted edges are deliberately dotted: provisioning does not block the setup
 journey. A verified model connection can start pod provisioning only when an
@@ -249,11 +251,11 @@ Note on routes: `/one/setup` is the hub and resolves the **master** account
 gate only after its Finish setup action and successful private-vault creation
 or unlock. The action remains disabled until the hosting choice and AI access
 prerequisites are complete. `/one/setup/cloud` selects Hussh Shared, BYOC, or
-the gated Hussh Pods option; no pod assignment defaults to Shared only after
-registry and setup-job reads confirm there is no assigned or pending pod.
-Existing assignments are not silently changed. The visible AI access surface
-separately selects a supported provider and credential; `connections` remains
-its route/action compatibility ID. AI access is a root prerequisite, not an
+the gated Hussh Pods option, then reuses the existing AI selector within that
+same wizard. Existing assignments and pending setup remain intact. There is
+no separate AI tile on the hub. The hosting and `connections` markers remain
+independent durable prerequisites; the older AI route remains a compatibility
+entrypoint; its legacy action remains hidden from the hub. AI access is a root prerequisite, not an
 agent capability: it does not change the capability count or publish a generated
 voice action. `/one/setup/finance` is the Finance preferences wizard and
 `/one/setup/finance/import` selects its source. Every other first-run
@@ -335,16 +337,21 @@ never acknowledges root setup. Static setup adapters at
 `app/one/setup/{gmail,location,email,finance,ria,connected-systems}` record
 only their own capability signal; none can write the master account gate.
 Root acknowledgement never writes Finance completion into the Kai profile.
-The AI access setup preface writes only the bounded `connections` marker in
+The embedded AI selector writes only the bounded `connections` marker in
 the existing pre-vault setup-state set. BYOK material remains encrypted in the
 vault and is never present in that marker.
 
+Historical cloud-workflow cursors that cannot satisfy the combined finish gate
+are rejected by exact graph revision in the owning capability evolution manifest.
+Re-entering setup preserves the saved hosting assignment; no owner resource or
+setup marker is reset.
+
 ### Hosting placement and AI access are separate decisions
 
-Hosting placement determines whether a person has a personal pod. With no pod
-assignment and no pending setup, the server resolves the account to Hussh Shared.
-The selected deployment target is authoritative for BYOC (`user_gcp`) and Hussh
-Pods (`gcp`). The model provider and credential are a separate axis.
+Hosting placement determines whether a person has a personal pod. Shared is
+explicitly selected or retained for the evidenced legacy cohort; unplaced
+accounts and unreadable placement never default into it. The selected deployment
+target is authoritative for BYOC (`user_gcp` or `user_azure`) and Hussh Pods (`gcp`). The model provider and credential are a separate axis.
 
 When a pod target is already assigned, the model connection is verified before
 provisioning begins:

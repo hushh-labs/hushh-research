@@ -19402,11 +19402,12 @@
     },
     {
       "aliases": [
-        "Finish cloud setup",
+        "Finish agent setup",
         "finish cloud setup",
         "finish my cloud",
         "use this project",
-        "continue with my cloud"
+        "continue with my cloud",
+        "finish agent setup"
       ],
       "authorization": {
         "guard_ids": [
@@ -19433,7 +19434,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Keeps the person's own cloud as the home for their private agent and returns to the One setup hub.",
+      "description": "Keeps the verified hosting and saved AI choice, then returns to the One setup hub.",
       "execution": {
         "binding_ref": "semantic_action:setup.finish_cloud",
         "executor": {
@@ -19466,7 +19467,7 @@
         "type": "object"
       },
       "kind": "action",
-      "label": "Finish cloud setup",
+      "label": "Finish agent setup",
       "navigation": {
         "fallback": "setup.finish_cloud",
         "routes": [
@@ -19527,7 +19528,8 @@
         "cloud",
         "project",
         "subscription",
-        "byoc"
+        "byoc",
+        "AI"
       ],
       "settlement_proof": "directive_ledger_settlement",
       "side_effect": {
@@ -32968,7 +32970,7 @@
     },
     {
       "aliases": [
-        "Set up your cloud",
+        "Set up your private agent",
         "set up my cloud",
         "connect my cloud",
         "open cloud setup",
@@ -32999,7 +33001,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Opens the step where the person names and authorizes their own Google Cloud project for their private agent.",
+      "description": "Opens one wizard to choose hosting, prove the cloud setup when required, and then select verified AI access.",
       "execution": {
         "binding_ref": "route:/one/setup/cloud",
         "executor": {
@@ -33032,7 +33034,7 @@
         "type": "object"
       },
       "kind": "action",
-      "label": "Set up your cloud",
+      "label": "Set up your private agent",
       "navigation": {
         "fallback": "/one/setup/cloud",
         "routes": [
@@ -39555,7 +39557,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "b9469d2b0c68fe4ae7bcf5b57c994cd6741e87ac7cce25e6adcb33a9df25fff5",
+      "projection_digest": "1dd43a81eb6897c517c86dd0ea3b108ed06854f99d70c657e7f05a2b1fd84a7d",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -39565,7 +39567,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "b316cd02f2a172614365e215251d17f833646233e067ce2d4799cf4a8749f73e",
+        "capability_graph_evolution": "d671d8b9f654bdb6fe4b46c0ab61e983ba4f306899d8419768c16cc054298b3a",
         "capability_runtime_compiler": "465de0a7294d6b0733e422548f9ed9c087fc41fd5b2632431d0f120136da819f",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
@@ -39574,7 +39576,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
       },
-      "source_revision": "8a957610367a7fda",
+      "source_revision": "b8805c1a908dad71",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -41092,7 +41094,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "8a957610367a7fda",
+    "source_revision": "b8805c1a908dad71",
     "web": {
       "actions": [
         {
@@ -41135,7 +41137,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "9893bd3dfc731f5d62785350573d0651dfcb1525e79673d8cff6db89dd2cae5d",
+      "projection_digest": "f3ba0b75d9e8ed9ce12800663e7874f4283a4f331700e2acd4462b00984083ec",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -41145,7 +41147,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "b316cd02f2a172614365e215251d17f833646233e067ce2d4799cf4a8749f73e",
+        "capability_graph_evolution": "d671d8b9f654bdb6fe4b46c0ab61e983ba4f306899d8419768c16cc054298b3a",
         "capability_runtime_compiler": "465de0a7294d6b0733e422548f9ed9c087fc41fd5b2632431d0f120136da819f",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
@@ -41154,7 +41156,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
       },
-      "source_revision": "8a957610367a7fda",
+      "source_revision": "b8805c1a908dad71",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -42711,7 +42713,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "8a957610367a7fda",
+  "revision": "b8805c1a908dad71",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -46902,21 +46904,21 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "b316cd02f2a172614365e215251d17f833646233e067ce2d4799cf4a8749f73e",
+    "capability_graph_evolution": "d671d8b9f654bdb6fe4b46c0ab61e983ba4f306899d8419768c16cc054298b3a",
     "capability_runtime_compiler": "465de0a7294d6b0733e422548f9ed9c087fc41fd5b2632431d0f120136da819f",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "845c70d82d5e472bb18040700ea80fceaa8168091d7cde370d1ef48e9b8bb1da",
+    "kai_action_gateway": "fcac64de64b5ebb43bc356f0a47c462460a67ce29e7f38f45edbadfb0a2b6f7d",
     "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
     "location_knowledge_package": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "aeec5379de4b5ed7dbbfde8ad02d4d2900cf911d6af10afb83aa45403b2fe6d4",
-    "route_orchestration_index": "69b778e9a50b58b07245052c24a10f640f23d764943533211e4e497a3a2e34b8",
+    "route_orchestration_index": "e1a17a84addcba4ca93739a4f714fde55b9d83a3c9c612b9a53a87245ac021c5",
     "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
   },
-  "source_revision": "8a957610367a7fda",
+  "source_revision": "b8805c1a908dad71",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "8a957610367a7fda",
+    "current_graph_revision": "b8805c1a908dad71",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -47071,25 +47073,10 @@
         "workflow_version": 1
       },
       {
-        "compatible_graph_revisions": [
-          "05f5a43ac04150f7",
-          "3186f9f8f525e755",
-          "60f9c47270b215a8",
-          "6d4f353397278c4c",
-          "7d29dd99f31ad3ca",
-          "8065981a6233598e",
-          "82b0f2c85fa6d4da",
-          "83966cd4fefe54f6",
-          "9901faaed410026a",
-          "9b9069c8c60c02f9",
-          "9c1f8b9bcf9e2d4b",
-          "cb10ee16c62231b2",
-          "d71ad90b1264bb6c",
-          "e816c23283695a99"
-        ],
+        "compatible_graph_revisions": [],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
-        "workflow_digest": "b31fd84656bbddd7fd3b2985736c9d587d6220ae7fae712a5cbc6ca593d7b5cb",
+        "workflow_digest": "3ee4bf0d6facead10360843527de50897a25f103d60998539d25515b281b0f26",
         "workflow_id": "workflow.setup.cloud",
         "workflow_version": 1
       },
@@ -48273,7 +48260,7 @@
       "completion_action_ids": [
         "setup.finish_cloud"
       ],
-      "description": "Opens the step where the person names and authorizes their own Google Cloud project for their private agent.",
+      "description": "Opens one wizard to choose hosting, prove the cloud setup when required, and then select verified AI access.",
       "entry_action_id": "setup.open_cloud",
       "execution": {
         "mode": "generated_setup_workflow",
@@ -48358,7 +48345,7 @@
           "step_id": "workflow.setup.cloud.navigate"
         },
         {
-          "description": "Setup records the project and the proven grant only. No credential is ever held: authorization is re-proven per operation with a short-lived impersonated token.",
+          "description": "Finish returns to the hub only after verified hosting and a durable AI choice; it never acknowledges root onboarding.",
           "directive": null,
           "outcome": "RENDER",
           "render_surface": "existing_route_surface",

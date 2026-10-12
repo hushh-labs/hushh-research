@@ -45,6 +45,9 @@ vi.mock("@/lib/services/api-service", () => ({
 vi.mock("@/components/connections/byoc-cloud-card", () => ({
   ByocCloudCard: () => <div data-testid="byoc-cloud-card">Google project form</div>,
 }));
+vi.mock("@/components/connections/gemini-runtime-configuration-page", () => ({
+  GeminiRuntimeConfigurationPage: () => <section aria-label="AI access" />,
+}));
 vi.mock("@/components/onboarding/setup/setup-completion-footer", () => ({
   SetupCompletionFooter: () => null,
 }));
@@ -57,6 +60,7 @@ vi.mock("@/components/app-ui/page-sections", () => ({
   PageHeader: ({ title }: { title: string }) => <h1>{title}</h1>,
 }));
 
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { ByocCloudSetupPage } from "@/components/connections/byoc-cloud-setup-page";
 import { ApiService } from "@/lib/services/api-service";
 import { AzureByocError } from "@/lib/services/azure-byoc-contract";
@@ -90,6 +94,7 @@ async function openOwnCloud() {
 describe("Connect Azure on the cloud step", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    publishValidatedAuthSessionOwner("owner");
     vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({ hostingMode: "shared" });
     vi.mocked(ApiService.getByocSetupStatus).mockResolvedValue({ ...NO_JOB });
     vi.mocked(ApiService.beginAzureByocAuthorize).mockResolvedValue({ authorizationUrl: SIGN_IN });

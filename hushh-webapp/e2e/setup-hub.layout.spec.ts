@@ -13,6 +13,8 @@ test.beforeAll(async () => {
   const scanner = new Scanner({});
   const candidates = new Set<string>();
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "setup-hub-"));
+  let moduleCss = "";
+  try {
   await build({
     configFile: false,
     logLevel: "error",
@@ -32,7 +34,7 @@ test.beforeAll(async () => {
     // Match production React regardless of the parent process build mode.
     oxc: { jsx: { runtime: "automatic", development: false } },
     resolve: { alias: [
-      ...["@/lib/services/kai-profile-service", "next/navigation", "next/image", "@/lib/firebase/auth-context", "@/lib/vault/vault-context", "@/components/vault/vault-unlock-dialog", "@/components/app-ui/native-test-beacon", "@/lib/services/pre-vault-user-state-service", "@/lib/services/cache-service", "@/lib/services/one-setup-exit-service", "@/lib/services/pre-vault-sensitive-draft-service", "@/lib/services/finance-setup-draft-service", "@/lib/services/post-unlock-sync-service", "@/lib/connections/gemini-runtime-configuration", "@/lib/agent/one-conversation-session", "@/lib/kai/actions/voice-surface-metadata", "@/lib/agent/local-onboarding-actions"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/setup-hub-boundaries.tsx") })),
+      ...["@/components/onboarding/setup/local-first-vault-sequence", "@/lib/services/onboarding-buffer-migration-service", "@/lib/feed/personal-agent-readiness", "@/lib/services/account-identity-service", "@/lib/services/api-service", "@/lib/onboarding/use-capability-setup-states", "@/components/dashboard/one-agent-presence", "@/components/profile/public-profile-discovery-card", "@/lib/services/kai-profile-service", "next/navigation", "next/image", "@/lib/firebase/auth-context", "@/lib/vault/vault-context", "@/components/vault/vault-unlock-dialog", "@/components/app-ui/native-test-beacon", "@/lib/services/pre-vault-user-state-service", "@/lib/services/cache-service", "@/lib/services/one-setup-exit-service", "@/lib/services/pre-vault-sensitive-draft-service", "@/lib/services/finance-setup-draft-service", "@/lib/services/post-unlock-sync-service", "@/lib/connections/gemini-runtime-configuration", "@/lib/agent/one-conversation-session", "@/lib/kai/actions/voice-surface-metadata", "@/lib/agent/local-onboarding-actions"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/setup-hub-boundaries.tsx") })),
       { find: "@", replacement: root },
     ] },
     define: {
@@ -51,6 +53,10 @@ test.beforeAll(async () => {
     },
   });
   script = fs.readFileSync(path.join(outDir, "fixture.js"), "utf8");
+  moduleCss = fs.readdirSync(outDir).filter((name) => name.endsWith(".css")).map((name) => fs.readFileSync(path.join(outDir, name), "utf8")).join("\n");
+  } finally {
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
   const { compile } = await import("tailwindcss");
   const compiler = await compile(
     fs
@@ -76,7 +82,7 @@ test.beforeAll(async () => {
       },
     },
   );
-  css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle() + fs.readdirSync(outDir).filter((name) => name.endsWith(".css")).map((name) => fs.readFileSync(path.join(outDir, name), "utf8")).join("\n");
+  css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle() + moduleCss;
 });
 
 for (const width of [320, 393, 768, 1440]) {
@@ -86,13 +92,13 @@ for (const width of [320, 393, 768, 1440]) {
       await page.setContent(`<html class="${theme === "dark" ? "dark" : ""}"><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`);
       await page.addScriptTag({content:script});
       const subtitle = page.locator('[data-slot="page-header-description"]');
-      await expect(subtitle).toHaveText("Choose your AI first.");
+      await expect(subtitle).toHaveText("Finish your agent setup.");
       await awaitProductFont(page);
-      const card = page.getByTestId("one-setup-ai-choice");
+      const card = page.getByTestId("one-setup-foundation");
       const finish = page.getByRole("button", {name:"Finish setup",exact:true});
       await expect(finish).toBeDisabled();
       await expect(page.getByRole("progressbar")).toHaveCount(0);
-      await expect(page.getByText("Remaining",{exact:true})).toHaveCount(0);
+      await expect(page.getByRole("button", {name:/Choose your AI/})).toHaveCount(0);
       await expect(page.getByText("Set up the rest later.",{exact:true})).toHaveCount(0);
       const subBox = (await subtitle.boundingBox())!;
       const cardBox = (await card.boundingBox())!;
@@ -105,8 +111,8 @@ for (const width of [320, 393, 768, 1440]) {
       await page.evaluate(() => document.documentElement.style.setProperty("--app-safe-area-bottom-effective", "34px"));
       const insetBox = (await finish.boundingBox())!;
       expect(insetBox.y + insetBox.height).toBeCloseTo(852 - 16 - 34, 0);
-      await expect(page.getByTestId("one-agent-icon-connections").locator("svg")).toHaveCSS("color", "rgb(255, 255, 255)");
-      await expect(page.getByTestId("one-agent-icon-connections").locator("svg")).toHaveCSS("opacity", "1");
+      await expect(page.getByTestId("one-agent-icon-cloud").locator("svg")).toHaveCSS("color", "rgb(255, 255, 255)");
+      await expect(page.getByTestId("one-agent-icon-cloud").locator("svg")).toHaveCSS("opacity", "1");
       for (const property of ["height","border-radius","font-size","font-weight","background-color","color","opacity"]) {
         const expected = await page.getByTestId("primary-reference").evaluate((el, prop) => getComputedStyle(el).getPropertyValue(prop),property);
         await expect(finish).toHaveCSS(property,expected);
@@ -115,7 +121,7 @@ for (const width of [320, 393, 768, 1440]) {
       await page.screenshot({path:testInfo.outputPath("setup-required.png")});
       await page.evaluate(() => window.dispatchEvent(new Event("fixture:ai-choice-saved")));
       await expect(finish).toBeEnabled();
-      await expect(page.getByRole("button", {name:"Choose your AI: Selected"})).toBeVisible();
+      await expect(page.getByRole("button", {name:"Agent home: Connected"})).toBeVisible();
       await page.screenshot({path:testInfo.outputPath("setup-saved.png")});
     });
   }

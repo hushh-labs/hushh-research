@@ -16326,21 +16326,23 @@
     {
       "action_id": "setup.finish_cloud",
       "surface_id": "one_setup_cloud",
-      "label": "Finish cloud setup",
+      "label": "Finish agent setup",
       "aliases": [
         "finish cloud setup",
         "finish my cloud",
         "use this project",
-        "continue with my cloud"
+        "continue with my cloud",
+        "finish agent setup"
       ],
       "search_keywords": [
         "finish",
         "cloud",
         "project",
         "subscription",
-        "byoc"
+        "byoc",
+        "AI"
       ],
-      "meaning": "Keeps the person's own cloud as the home for their private agent and returns to the One setup hub.",
+      "meaning": "Keeps the verified hosting and saved AI choice, then returns to the One setup hub.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -16352,7 +16354,7 @@
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
-          "The person's own cloud has been authorized AND hushh has proven it can reach it without holding a long-lived credential."
+          "Hosting is verified and the current owner has saved a verified AI choice; no hosting or AI save is pending."
         ],
         "active_personas": [
           "investor",
@@ -16378,7 +16380,7 @@
         "one-setup-cloud-terminal"
       ],
       "state_exposure": [
-        "Own-cloud selection and authorization state"
+        "Verified hosting choice and saved AI access"
       ],
       "docs_references": [
         "docs/reference/one/one-voice-runtime-architecture.md"
@@ -16409,7 +16411,7 @@
           {
             "type": "action",
             "action_id": "setup.finish_cloud",
-            "label": "Finish cloud setup",
+            "label": "Finish agent setup",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup",
@@ -26666,7 +26668,7 @@
     {
       "action_id": "setup.open_cloud",
       "surface_id": "one_setup_hub",
-      "label": "Set up your cloud",
+      "label": "Set up your private agent",
       "aliases": [
         "set up my cloud",
         "connect my cloud",
@@ -26680,7 +26682,7 @@
         "byoc",
         "own compute"
       ],
-      "meaning": "Opens the step where the person names and authorizes their own Google Cloud project for their private agent.",
+      "meaning": "Opens one wizard to choose hosting, prove the cloud setup when required, and then select verified AI access.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -26747,7 +26749,7 @@
           {
             "type": "action",
             "action_id": "setup.open_cloud",
-            "label": "Set up your cloud",
+            "label": "Set up your private agent",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/cloud",
@@ -26805,7 +26807,7 @@
           "one_setup_hub",
           "one_setup"
         ],
-        "hidden_navigable": false,
+        "hidden_navigable": true,
         "navigation_prerequisites": [],
         "active_personas": [
           "investor",
@@ -26827,9 +26829,7 @@
         "path": "route",
         "target": "/one/setup/connections"
       },
-      "control_ids": [
-        "one_setup_tile_connections"
-      ],
+      "control_ids": [],
       "state_exposure": [],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",

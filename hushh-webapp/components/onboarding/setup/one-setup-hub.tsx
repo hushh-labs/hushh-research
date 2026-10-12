@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Cloud, PlugZap } from "@/components/icons";
+import { Cloud } from "@/components/icons";
 import { toast } from "sonner";
 
 import {
@@ -33,7 +33,7 @@ import {
   isOneSetupSurfaceRoute,
   normalizeInternalRouteHref,
   ROUTES,
-  buildOneSetupConnectionsRoute,
+  buildOneSetupCloudRoute,
   buildOneSetupFinanceImportRoute,
   buildPhoneMandateRoute,
 } from "@/lib/navigation/routes";
@@ -322,12 +322,8 @@ export function OneSetupHub() {
   // this rather than either half, so a person cannot leave the hub having done one.
   const setupPrerequisitesComplete =
     cloudComplete && phoneVerified && runtimeChoiceComplete;
-  // "Ready" counts only GENUINELY set-up capabilities (completed/skipped). A
-  // tile that still needs a connection or an unlock (blocked/unknown) is NOT
-  // ready, even though it is not directly tappable-into-setup — so we never
-  // count it as done. AI access is also a real, mandatory setup step and is
-  // rendered alongside these capability rows, so it must participate in the
-  // same progress projection instead of being omitted from the denominator.
+  // Hosting and AI access remain separate durable prerequisites, presented
+  // together by the existing agent setup wizard.
 
   // Capability setup is optional, but the root vault is not. Finish setup is
   // therefore the only exit from the hub and always leads to vault setup when
@@ -643,15 +639,15 @@ export function OneSetupHub() {
         // carries the way out with it.
         //
         // One block, no description: the toast ceiling is two lines.
-        toast.info("Choose your AI first.", {
+        toast.info("Finish your agent setup.", {
           action: {
             label: "Choose",
-            onClick: () => router.push(buildOneSetupConnectionsRoute(returnTo)),
+            onClick: () => router.push(buildOneSetupCloudRoute(returnTo)),
           },
         });
         return {
           status: "blocked" as const,
-          summary: "Choose your AI first.",
+          summary: "Finish your agent setup.",
         };
       }
 
@@ -706,7 +702,7 @@ export function OneSetupHub() {
       : !cloudComplete
         ? "Choose where your agent lives first."
         : !runtimeChoiceComplete
-          ? "Choose your AI first."
+          ? "Finish your agent setup."
           : "Finish setting up One.";
   const localFirstSequenceActive =
     localFirstEnabled && localFirstStage !== "idle" && Boolean(user);
@@ -781,8 +777,8 @@ export function OneSetupHub() {
             {phoneVerified ? <PublicProfileDiscoveryCard userId={user?.uid} onboarding /> : null}
             <div className={styles.flatChecklist}>
               {/* The hosting choice comes first and stays first. It determines
-                  whether the agent uses Shared or a pod, so keep this group
-                  above the later AI and capability choices. */}
+                  whether the agent uses Shared or a pod. AI access is completed
+                  inside that wizard, before the capability choices. */}
               <SettingsGroup
                 title="Start here"
                 testId="one-setup-foundation"
@@ -791,29 +787,32 @@ export function OneSetupHub() {
                 <SetupNavigationTile
                   id="cloud"
                   title={
-                    cloudComplete ? "Agent home" : "Where your agent lives"
+                    cloudComplete && runtimeChoiceComplete
+                      ? "Agent home" : "Set up your private agent"
                   }
                   description={
                     cloudComplete
-                      ? "Your agent's hosting choice is saved."
+                      ? runtimeChoiceComplete
+                        ? "Your hosting and AI choices are saved."
+                        : "Finish choosing AI access in your agent setup."
                       : cloudSetupRunning
                         ? "Being set up in the background. Keep going; this finishes on its own."
                         : "Choose Hussh Shared, your own cloud, or Hussh Pods when available."
                   }
-                  href={ROUTES.ONE_SETUP_CLOUD}
+                  href={buildOneSetupCloudRoute(returnTo)}
                   voiceControlId="one_setup_tile_cloud"
                   icon={lucideCapabilityIcon(Cloud)}
                   tone="connected"
                   statusLabel={
                     cloudComplete
-                      ? "Connected"
+                      ? runtimeChoiceComplete ? "Connected" : "Continue"
                       : cloudSetupRunning
                         ? cloudSetupStageLabel
                         : "Required"
                   }
-                  statusTone={cloudComplete ? undefined : "required"}
-                  isCurrent={!cloudComplete}
-                  isComplete={cloudComplete}
+                  statusTone={cloudComplete && runtimeChoiceComplete ? undefined : "required"}
+                  isCurrent={!cloudComplete || !runtimeChoiceComplete}
+                  isComplete={cloudComplete && runtimeChoiceComplete}
                 />
                 <SetupNavigationTile
                   id="phone"
@@ -845,48 +844,6 @@ export function OneSetupHub() {
                   }
                   isCurrent={cloudComplete && !phoneVerified}
                   isComplete={phoneVerified}
-                />
-                <SetupNavigationTile
-                  id="connections"
-                  title="Choose your AI"
-                  description={
-                    runtimeChoiceComplete
-                      ? "Change this any time."
-                      : cloudComplete && phoneVerified
-                        ? "Your pod's AI, or your own key."
-                        : cloudComplete
-                          ? "Verify your phone first, then choose."
-                          : "Choose where your agent lives first, then choose."
-                  }
-                  href={buildOneSetupConnectionsRoute(returnTo)}
-                  voiceControlId="one_setup_tile_connections"
-                  icon={lucideCapabilityIcon(PlugZap)}
-                  tone="connected"
-                  statusLabel={
-                    runtimeChoiceComplete
-                      ? "Selected"
-                      : cloudComplete && phoneVerified
-                        ? "Required"
-                        : cloudComplete
-                          ? "After your phone"
-                          : "After agent home"
-                  }
-                  // The one row that blocks the exit. A muted grey "Required"
-                  // reads like every other trailing label, so it gets the
-                  // accent pill and the current-step role — but only once the
-                  // cloud step ahead of it is done; before that the cloud row
-                  // is the current step, not this one.
-                  statusTone={
-                    runtimeChoiceComplete
-                      ? undefined
-                      : cloudComplete && phoneVerified
-                        ? "required"
-                        : "muted"
-                  }
-                  isCurrent={
-                    cloudComplete && phoneVerified && !runtimeChoiceComplete
-                  }
-                  isComplete={runtimeChoiceComplete}
                 />
                 {/* The agent's live build status, IN the journey where it
                     started. The honest presence surface existed only on the

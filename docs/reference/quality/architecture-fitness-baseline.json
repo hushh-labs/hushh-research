@@ -19184,7 +19184,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/connections/byoc-cloud-setup-page.tsx",
       "symbol": null,
-      "value": 782
+      "value": 811
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20633,7 +20633,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/navigation/routes.ts",
       "symbol": null,
-      "value": 966
+      "value": 972
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -32683,6 +32683,29 @@
           "after": 997,
           "source_sha256": "3d310accd68d86f598109ea3b08760f680a6fc2f66bcad03f04f130a8f9c2af4",
           "reason": "One regression protects the observed ambient profile-research refusal in dev381874 and mutation-authorized resumption in the nearest existing suite. 27 cases pass; old behavior fails the exact zero-request assertion."
+        }
+      ]
+    },
+    "hosting_ai_setup_consolidation_20261011": {
+      "parent_revision": "97830fa5b4af365b14b51acc64d4da3b6ccc27be",
+      "reviewer": "main_ui_fitness_review",
+      "scope": "Two existing module-size slots only; cohesive hosting/AI composition, validated owner fences, durable readiness, safe return navigation. Budgets and scanner unchanged.",
+      "slots": [
+        {
+          "key": "module_size|hushh-webapp/components/connections/byoc-cloud-setup-page.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/components/connections/byoc-cloud-setup-page.tsx",
+          "before": 782,
+          "after": 811,
+          "source_sha256": "801f095c2180e998e8b253df0cc92065e1588eb73993cf3d1d058b52cab7e271",
+          "reason": "Cohesive existing owner composition, durable hosting/AI readiness, validated generation fences and canonical internal return navigation."
+        },
+        {
+          "key": "module_size|hushh-webapp/lib/navigation/routes.ts||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/lib/navigation/routes.ts",
+          "before": 966,
+          "after": 972,
+          "source_sha256": "f7cad036c18fff9b5e45c2679991137fd73d88a914a76b97c7bdff3ad413f625",
+          "reason": "Cohesive existing owner composition, durable hosting/AI readiness, validated generation fences and canonical internal return navigation."
         }
       ]
     }

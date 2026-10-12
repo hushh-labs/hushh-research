@@ -7,21 +7,23 @@
  * the ceiling the page must show an explicit status retry and must not offer a
  * new pod choice while existing placement is unknown.
  */
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiService } from "@/lib/services/api-service";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import {
   ByocCloudSetupPage,
   CLOUD_CHECK_TIMEOUT_MS,
 } from "@/components/connections/byoc-cloud-setup-page";
 
+const fixture = vi.hoisted(() => ({ user: { uid: "uid-returning" }, savedHosting: false, replace: vi.fn() }));
 vi.mock("@/lib/firebase/auth-context", () => ({
-  useAuth: () => ({ user: { uid: "uid-returning" }, loading: false }),
+  useAuth: () => ({ user: fixture.user, loading: false }),
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  useRouter: () => ({ replace: fixture.replace, push: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
 }));
 
@@ -31,9 +33,9 @@ vi.mock("@/lib/kai/actions/voice-surface-metadata", () => ({
 
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
   PreVaultUserStateService: {
-    getCachedBootstrapState: () => null,
+    getCachedBootstrapState: () => fixture.savedHosting ? {} : null,
     bootstrapState: () => new Promise(() => {}),
-    hasOneCloudProject: () => false,
+    hasOneCloudProject: () => fixture.savedHosting,
   },
 }));
 
@@ -54,7 +56,10 @@ vi.mock("@/components/connections/byoc-cloud-card", () => ({
 }));
 
 vi.mock("@/components/onboarding/setup/setup-completion-footer", () => ({
-  SetupCompletionFooter: () => null,
+  SetupCompletionFooter: ({ disabled, onComplete, label }: { disabled: boolean; onComplete: () => void; label: string }) => <button disabled={disabled} onClick={onComplete}>{label}</button>,
+}));
+vi.mock("@/components/connections/gemini-runtime-configuration-page", () => ({
+  GeminiRuntimeConfigurationPage: ({ onSetupReadyChange }: { onSetupReadyChange: (ready: boolean) => void }) => <button onClick={() => onSetupReadyChange(true)}>Save AI access</button>,
 }));
 
 vi.mock("@/components/app-ui/app-page-shell", () => ({
@@ -75,13 +80,43 @@ const mockAgentStatus = vi.mocked(ApiService.getPersonalAgentStatus);
 describe("ByocCloudSetupPage — the checking ceiling", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    fixture.user = { uid: "uid-returning" };
+    fixture.savedHosting = false;
+    fixture.replace.mockReset();
+    publishValidatedAuthSessionOwner(fixture.user.uid);
     mockStatus.mockReset();
     mockAgentStatus.mockReset();
     mockAgentStatus.mockResolvedValue({ hostingMode: "shared" } as never);
     mockStatus.mockResolvedValue({ status: "none" } as never);
   });
   afterEach(() => {
+    publishValidatedAuthSessionOwner(null);
     vi.useRealTimers();
+  });
+
+  it("keeps AI behind verified hosting and drops both proofs on an owner switch", async () => {
+    const view = render(<ByocCloudSetupPage />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    expect(screen.queryByRole("button", { name: "Save AI access" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Finish agent setup" })).toBeDisabled();
+    fixture.savedHosting = true;
+    view.unmount();
+    const readyView = render(<ByocCloudSetupPage />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+    expect(ApiService.selectSharedHosting).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Finish agent setup" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Save AI access" }));
+    expect(screen.getByRole("button", { name: "Finish agent setup" })).toBeEnabled();
+    fixture.user = { uid: "different-owner" };
+    fixture.savedHosting = false;
+    publishValidatedAuthSessionOwner(fixture.user.uid);
+    mockAgentStatus.mockReturnValue(new Promise(() => {}));
+    readyView.rerender(<ByocCloudSetupPage />);
+    expect(screen.queryByRole("button", { name: "Save AI access" })).toBeNull();
+    const finish = screen.getByRole("button", { name: "Finish agent setup" });
+    expect(finish).toBeDisabled();
+    fireEvent.click(finish);
+    expect(fixture.replace).not.toHaveBeenCalled();
   });
 
   it("stops saying 'Checking' at the ceiling without offering a tier on unknown status", async () => {
