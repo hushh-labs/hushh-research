@@ -190,6 +190,16 @@ primitives, and surfaces that use it are conformant.
 
 ## Shell Contract
 
+Agent workspace headings opt into `AppPageShell headerContentSpacing="compact"`.
+Their next content or tab slot consumes `--page-header-section-gap` once: 0px
+on phones and 6px from 640px upward. Nested hub stacks, body tab rails and
+custom heading/action layouts use this same token instead of adding local
+margins or padding. The 56px segmented rail retains its 10px inset above the
+visible pill, giving a 10px/16px heading-to-pill gap. Calendar's workspace
+connection action follows the compact token; its focused onboarding
+illustration keeps the existing setup layout. General page headers retain
+their standard spacing.
+
 1. The top shell is the single authority for header clearance.
 2. The top shell is one public visual component with three route-declared
    modes: `hidden`, `bar`, and `bar-with-tabs`. A fixed-shell tab row cannot

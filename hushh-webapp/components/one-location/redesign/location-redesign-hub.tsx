@@ -1869,7 +1869,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   return renderLocationSurface(
     <div
       data-location-hub
-      className="mx-auto w-full max-w-[820px] space-y-1.5 sm:space-y-3.5"
+      className="mx-auto w-full max-w-[820px] space-y-[var(--page-header-section-gap)]"
     >
       <PageHeader
         title="Location"
