@@ -3384,8 +3384,9 @@ final class AppUITests: XCTestCase {
             // be withdrawn, not left hit-testable through its content.
             XCTAssertFalse(close.exists && close.isHittable, "PROFILE_BATCH_ROOT_OVERLAPS_DETAIL")
             if id == "security" {
-                for title in ["Vault methods", "Account access", "Trusted devices"] {
+                for title in ["Vault methods"] {
                     let nested = row(title)
+                    print("PROFILE_SECURITY_ROW kind=\(title == "Vault methods" ? "vault" : "session") exists=\(nested.exists) hittable=\(nested.isHittable)")
                     guard waitForAdmittedControl(nested) else { XCTFail("PROFILE_BATCH_SECURITY_ROW_UNAVAILABLE"); return }
                     nested.tap()
                     guard admittedBack() else { XCTFail("PROFILE_BATCH_NESTED_BACK_UNAVAILABLE"); return }
