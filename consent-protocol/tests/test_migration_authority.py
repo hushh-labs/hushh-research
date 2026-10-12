@@ -267,7 +267,13 @@ async def test_legacy_replay_repair_preserves_historical_ledger_checksums(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("drift", ["metadata", "body", "both"])
 @pytest.mark.parametrize(
-    "filename", ["295_direct_message_attachments.sql", "288_drive_request_feed_stream.sql"]
+    "filename",
+    [
+        "295_direct_message_attachments.sql",
+        "288_drive_request_feed_stream.sql",
+        "298_stripe_mode_isolation.sql",
+        "304_connect_bank_payout_reconciliation.sql",
+    ],
 )
 async def test_legacy_replay_rejects_unknown_or_forged_source_before_execution(drift, filename):
     entry = build_manifest_entries(

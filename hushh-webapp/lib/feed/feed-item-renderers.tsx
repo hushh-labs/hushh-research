@@ -20,6 +20,10 @@ import {
   reasonMidSentence,
 } from "@/lib/consent/consent-owner-copy";
 import { documentShareNotificationSelection } from "@/lib/consent/document-share-consent";
+import {
+  formatPaymentMoney,
+  REQUESTER_PAYMENT_TITLES,
+} from "@/lib/consent/document-request-payment-view";
 import { documentRequestSetupHref } from "@/lib/consent/document-request-setup";
 import {
   documentPayoutNetEarnings,
@@ -198,10 +202,12 @@ function driveFeedLine(
       return "Document request received";
     case "document_share_review_ready":
       return "Files ready for your review";
+    case "document_share_review_requested":
+      return "Asked you to review unshared files";
     case "document_share_payment_ready":
       return paymentInstructionLine(metadata);
     case "document_share_payment_confirmed":
-      return "Payment confirmed for your document request";
+      return paymentConfirmedLine(metadata);
     case "document_share_payment_refunded":
       return documentRefundLine(metadata);
     case "document_share_decided":
@@ -311,7 +317,61 @@ function ownerDocumentPayoutFeedLine(
   return net === null ? label : `${label} · Net ${net}`;
 }
 
+/**
+ * The history line for the server's shared payment view state. Payable and
+ * owner-setup states return null: the live deadline checks below decide them.
+ */
+function paymentStateLine(metadata: Record<string, unknown>): string | null {
+  switch (metadataString(metadata, "current_payment_state")) {
+    case "paid":
+    case "partially_refunded":
+      return "Payment confirmed";
+    case "refunded":
+      return "Payment refunded";
+    case "refund_pending":
+      return "Refund pending";
+    case "closed":
+      return metadata.current_access_stopped === true
+        ? "Document access stopped"
+        : "Document request closed";
+    case "request_expired":
+      return REQUESTER_PAYMENT_TITLES.requestExpired;
+    case "link_expired":
+      return REQUESTER_PAYMENT_TITLES.linkExpired;
+    case "preparing":
+      return "Check document request";
+    default:
+      return null;
+  }
+}
+
+/**
+ * A payment that arrived after the request closed is refunded, never
+ * "confirmed". Older Feed rows still carry the historical confirmation.
+ */
+function paymentConfirmedLine(metadata: Record<string, unknown>): string {
+  const state = metadataString(metadata, "current_payment_state");
+  if (state !== "refund_pending" && state !== "refunded")
+    return "Payment confirmed for your document request";
+  const when =
+    metadataString(metadata, "current_request_status") === "cancelled"
+      ? "after you withdrew"
+      : "after the request closed";
+  const cents = metadata.current_refund_amount_cents;
+  const amount =
+    Number.isSafeInteger(cents) && (cents as number) > 0 && (cents as number) <= 50_000
+      ? formatPaymentMoney(cents as number)
+      : null;
+  const refund =
+    state === "refunded"
+      ? amount ? `Refunded ${amount}` : "Refunded"
+      : amount ? `Refund of ${amount} pending` : "Refund pending";
+  return `Payment received ${when} · ${refund}`;
+}
+
 function paymentInstructionLine(metadata: Record<string, unknown>): string {
+  const fromState = paymentStateLine(metadata);
+  if (fromState) return fromState;
   const requestStatus = metadataString(
     metadata,
     "current_request_status",
@@ -335,7 +395,7 @@ function paymentInstructionLine(metadata: Record<string, unknown>): string {
     metadata.current_request_expired === true ||
     (Number.isFinite(requestExpiry) && requestExpiry <= Date.now())
   ) {
-    return "Document request expired";
+    return REQUESTER_PAYMENT_TITLES.requestExpired;
   }
   const checkoutExpiry = Date.parse(
     metadataString(metadata, "current_checkout_expires_at"),
@@ -345,7 +405,7 @@ function paymentInstructionLine(metadata: Record<string, unknown>): string {
     metadata.current_checkout_expired === true ||
     (Number.isFinite(checkoutExpiry) && checkoutExpiry <= Date.now())
   ) {
-    return "Payment link expired";
+    return REQUESTER_PAYMENT_TITLES.linkExpired;
   }
   // The actionable above history owns Checkout. An unavailable status cannot
   // resurrect a Pay instruction from an old immutable Feed event.
@@ -1566,6 +1626,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     case "document_share_request_sent":
     case "document_share_request":
     case "document_share_review_ready":
+    case "document_share_review_requested":
     case "document_share_payment_ready":
     case "document_share_payment_confirmed":
     case "document_share_payment_refunded":

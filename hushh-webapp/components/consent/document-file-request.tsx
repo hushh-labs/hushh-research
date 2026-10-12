@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   snapshotVaultSessionEpoch,
@@ -13,6 +13,7 @@ import {
   validDocumentRequestPeriod,
   validDocumentRequestTerms,
 } from "@/lib/services/drive-sharing-service";
+import { DriveRequestRequesterService } from "@/lib/services/drive-request-requester-service";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { CONSENT_ACTION_COMPLETE_EVENT } from "@/lib/consent/consent-events";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
@@ -56,6 +57,87 @@ export function validFileRequest(terms: FileRequestTerms): boolean {
     terms.periodStart || null,
     terms.periodEnd || null,
   );
+}
+
+export type RecipientIdentityPreview = {
+  state: "idle" | "loading" | "ready" | "missing" | "unavailable";
+  email: string | null;
+  refresh: () => void;
+};
+
+/**
+ * The Google account a new request's files would go to, checked by the server
+ * the way sending checks it, never from client providerData. A failed check
+ * only hides the line: sending verifies the account again.
+ */
+export function useRecipientIdentityPreview({
+  active,
+  userId,
+  getToken,
+}: {
+  active: boolean;
+  userId: string;
+  getToken: () => string | null;
+}): RecipientIdentityPreview {
+  const [result, setResult] = useState<Omit<RecipientIdentityPreview, "refresh">>({
+    state: "idle",
+    email: null,
+  });
+  const [reload, setReload] = useState(0);
+  const refresh = useCallback(() => setReload((current) => current + 1), []);
+
+  useEffect(() => {
+    const token = active ? getToken() : null;
+    if (!token) {
+      setResult({ state: "idle", email: null });
+      return;
+    }
+    const epoch = snapshotVaultSessionEpoch();
+    let cancelled = false;
+    const current = () =>
+      !cancelled && isVaultSessionEpochCurrent(epoch) && getToken() === token;
+    const guard = () => {
+      if (!current()) throw new DriveSharingError("session_changed");
+    };
+    setResult((previous) => ({ state: "loading", email: previous.email }));
+    void Promise.resolve()
+      .then(() => AuthService.documentRequestIdentityToken(userId, current))
+      .then((firebaseToken) => {
+        guard();
+        return DriveRequestRequesterService.recipientIdentity(token, firebaseToken, guard);
+      })
+      .then((identity) => {
+        if (current()) setResult({ state: "ready", email: identity.email });
+      })
+      .catch((cause) => {
+        if (!current()) return;
+        const code =
+          cause instanceof DriveSharingError
+            ? cause.code
+            : cause instanceof Error
+              ? cause.message
+              : "";
+        setResult({ state: IDENTITY_REQUIRED.has(code) ? "missing" : "unavailable", email: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [active, userId, getToken, reload]);
+
+  return { ...result, refresh };
+}
+
+/** "Files will be shared with a@gmail.com", or what to add before sending. */
+export function RecipientIdentityNotice({ preview }: { preview: RecipientIdentityPreview }) {
+  if (preview.state === "ready" && preview.email)
+    return (
+      <HelperText className="[overflow-wrap:anywhere]">
+        Files will be shared with {preview.email}
+      </HelperText>
+    );
+  if (preview.state === "missing")
+    return <HelperText role="status">Add a Google account to receive the files.</HelperText>;
+  return null;
 }
 
 function fileRequestError(code: string): string {
@@ -105,16 +187,24 @@ export function useFileRequest({
   getToken,
   initial,
   onQuoteChanged,
+  identityMissing = false,
+  onIdentityLinked,
 }: {
   userId: string;
   personRef: string;
   getToken: () => string | null;
   initial?: { terms: FileRequestTerms; clientRequestId: string };
   onQuoteChanged?: () => void;
+  /** The preview found no linked Google account: sending links one first. */
+  identityMissing?: boolean;
+  /** A Google account was linked while sending; the preview reads it again. */
+  onIdentityLinked?: () => void;
 }) {
   const [phase, setPhase] = useState<"idle" | "verifying" | "sending">("idle");
   const [error, setError] = useState<string | null>(null);
-  const [needsGoogle, setNeedsGoogle] = useState(false);
+  const [needsGoogleAfterSend, setNeedsGoogle] = useState(false);
+  const [linked, setLinked] = useState(false);
+  const needsGoogle = needsGoogleAfterSend || (identityMissing && !linked);
   const alive = useRef(false);
   const serial = useRef(0);
   const inFlight = useRef(false);
@@ -169,7 +259,11 @@ export function useFileRequest({
         ? AuthService.linkGoogleIdentity(userId, current)
         : AuthService.documentRequestIdentityToken(userId, current));
       guard();
-      if (linkGoogle) setNeedsGoogle(false);
+      if (linkGoogle) {
+        setNeedsGoogle(false);
+        setLinked(true);
+        onIdentityLinked?.();
+      }
       setPhase("sending");
       const result = await DriveSharingService.create(
         token,
@@ -255,7 +349,15 @@ export function RequestFilesButton({
   const [end, setEnd] = useState("");
   const [created, setCreated] = useState<string | null>(null);
   const quote = useDocumentRequestQuote({ active: open && !created, ownerPersonRef: personRef, getToken });
-  const request = useFileRequest({ userId, personRef, getToken, onQuoteChanged: quote.refresh });
+  const identity = useRecipientIdentityPreview({ active: open && !created, userId, getToken });
+  const request = useFileRequest({
+    userId,
+    personRef,
+    getToken,
+    onQuoteChanged: quote.refresh,
+    identityMissing: identity.state === "missing",
+    onIdentityLinked: identity.refresh,
+  });
   const terms = { purpose, periodStart: start || null, periodEnd: end || null };
   const valid = validFileRequest(terms);
   const busy = request.phase !== "idle";
@@ -402,6 +504,7 @@ export function RequestFilesButton({
                   {request.error}
                 </HelperText>
               ) : null}
+              <RecipientIdentityNotice preview={identity} />
               <DocumentRequestQuoteNotice quote={quote.quote} loading={quote.loading}
                 error={quote.error} onRetry={quote.refresh} />
               <FlowActionGroup

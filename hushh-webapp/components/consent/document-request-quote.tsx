@@ -88,10 +88,12 @@ export function DocumentRequestQuoteNotice({
   if (!quote) return null;
   return (
     <div className="space-y-1" aria-label="Document request quote">
+      {/* True for every requester, Trusted or not: the owner may still set the
+          price, which is shown before any payment. */}
       <HelperText>{!quote.paymentRequired
         ? "No payment is required for this request."
         : quote.priceReady && quote.amountCents !== null
-          ? `Price: ${formatDocumentRequestPrice(quote.amountCents)}. Pay only if files are found.`
+          ? `Estimated price ${formatDocumentRequestPrice(quote.amountCents)}. You'll see the final price before you pay. You pay only if files are found.`
           : "The owner will set a price. You review it before paying."}</HelperText>
       {quote.paymentRequired && !quote.payoutReady ? (
         <HelperText>We'll ask the owner to set up payouts.</HelperText>

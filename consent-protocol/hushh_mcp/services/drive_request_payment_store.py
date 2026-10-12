@@ -20,6 +20,10 @@ from hushh_mcp.services.drive_owner_allowed import (
     owner_allowed_price_cents,
     valid_owner_price_cents,
 )
+from hushh_mcp.services.drive_request_payment_view import (
+    order_view_input,
+    requester_payment_view,
+)
 from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher, DriveSharingError
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
 from hushh_mcp.services.stripe_mode import configured_stripe_mode
@@ -469,10 +473,19 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             order = self._row(
                 connection,
                 """SELECT o.*,EXISTS(SELECT 1 FROM drive_request_owner_payouts p
-                     WHERE p.request_id=o.request_id) AS payout_enrolled
+                     WHERE p.request_id=o.request_id) AS payout_enrolled,
+                     f.status AS refund_status,f.amount_cents AS refund_amount_cents,
+                     (SELECT a.account_ready FROM stripe_owner_payout_accounts a
+                       WHERE a.user_id=o.user_id AND a.stripe_mode=:stripe_mode)
+                       AS owner_account_ready
                    FROM drive_request_payment_orders o
+                   LEFT JOIN drive_request_payment_refunds f ON f.request_id=o.request_id
                    WHERE o.request_id=:request AND o.requester_user_id=:requester""",
-                {"request": request["request_id"], "requester": requester_user_id},
+                {
+                    "request": request["request_id"],
+                    "requester": requester_user_id,
+                    "stripe_mode": configured_stripe_mode(),
+                },
             )
             payout_enrolled = bool(order and order.get("payout_enrolled"))
             request_expired = (
@@ -541,7 +554,37 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             ):
                 # Expiry does not invent a charge for a request that never had a price.
                 setup = {"ownerPriceRequired": True}
+            settlement = (
+                order.get("settlement_method", "stripe_transfer")
+                if order
+                else request.get("settlement_method", "stripe_transfer")
+            )
+            view = requester_payment_view(
+                payment_required=True,
+                request_status=request["status"],
+                request_expires_at=request.get("expires_at"),
+                now=datetime.now(UTC),
+                access_stopped=request.get("access_stop_requested_at") is not None,
+                preparation_error_code=request.get("preparation_error_code"),
+                quoted_amount_cents=request.get("quoted_amount_cents"),
+                order=order_view_input(order),
+                refund=(
+                    {
+                        "status": order["refund_status"],
+                        "amount_cents": order.get("refund_amount_cents"),
+                    }
+                    if order and order.get("refund_status") is not None
+                    else None
+                ),
+                owner_payout_ready=(
+                    order.get("owner_account_ready") is True
+                    if payout_enrolled and settlement != "hashcoins"
+                    else None
+                ),
+                configured_mode=configured_stripe_mode(),
+            )
             return {
+                "paymentView": view,
                 "status": status,
                 "amountCents": None
                 if setup.get("ownerPriceRequired")
