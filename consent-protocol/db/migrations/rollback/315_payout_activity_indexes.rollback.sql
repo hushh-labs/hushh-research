@@ -1,4 +1,4 @@
--- Rollback for 306_payout_activity_indexes.sql: drops only the three read
+-- Rollback for 315_payout_activity_indexes.sql: drops only the three read
 -- indexes it created. No rows, columns or constraints change, so every money
 -- and audit record stays intact. An equivalent index that existed under
 -- another name before 306 is left in place.

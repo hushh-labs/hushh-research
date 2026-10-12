@@ -1,4 +1,4 @@
-"""Migrations 311 (requester estimate) and 312 (review asks) on real PostgreSQL.
+"""Migrations 320 (requester estimate) and 321 (review asks) on real PostgreSQL.
 
 UAT replays every migration on every deploy with a short lock timeout, so a
 replay must change nothing and never wait behind live writers. 312 widens the
@@ -35,8 +35,8 @@ from tests.services.test_drive_sharing_store import (  # noqa: F401
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS = ROOT / "db" / "migrations"
-QUOTE = "311_drive_request_initial_quote.sql"
-REVIEW = "312_drive_request_review_requests.sql"
+QUOTE = "320_drive_request_initial_quote.sql"
+REVIEW = "321_drive_request_review_requests.sql"
 REVIEW_EVENT = "document_share_review_requested"
 LIVE_TABLES = ("drive_share_requests", "drive_share_events")
 
@@ -200,7 +200,7 @@ async def test_review_vocabulary_is_widened_never_narrowed_and_rollback_keeps_hi
 
 @pytest.mark.asyncio
 async def test_a_review_ask_reaches_the_owner_feed(feed, sharing):
-    # The Feed fixture replays 246 and 288 after the shared schema; 312 follows.
+    # The Feed fixture replays 246 and 288 after the shared schema; 321 follows.
     _execute(sharing, _sql(REVIEW))
     _execute(sharing, _sql(REVIEW))
     created = await request(sharing)

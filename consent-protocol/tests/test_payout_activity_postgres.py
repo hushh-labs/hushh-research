@@ -2,7 +2,7 @@
 
 Running balance, keyset pages, mode and owner isolation, kind filters, since=
 updates, receipts without provider IDs, owner-only request labels, the typed
-hold/release doorbell and migration 306 replay and rollback.
+hold/release doorbell and migration 315 replay and rollback.
 """
 
 # ruff: noqa: F811 -- imported isolated PostgreSQL fixture
@@ -75,7 +75,7 @@ _SUPPORT_DDL = (
     """CREATE TABLE stripe_owner_payout_accounts(user_id TEXT NOT NULL,stripe_mode TEXT NOT NULL,
       stripe_account_id TEXT NOT NULL UNIQUE,PRIMARY KEY (user_id,stripe_mode))""",
 )
-# 307 and 308 belong to other lanes. Their files are applied when filled; these
+# 316 and 317 belong to other lanes. Their files are applied when filled; these
 # contract columns and tables keep this read model testable either way.
 _CONNECT_DDL = (
     """ALTER TABLE stripe_connect_bank_payouts
@@ -140,16 +140,16 @@ def world(connector_postgres_url, monkeypatch):
             "294_drive_request_bank_payout_events.sql",
         ):
             _apply(c, name)
-        if _filled("307_connect_bank_payout_snapshot.sql", "destination_last4"):
-            _apply(c, "307_connect_bank_payout_snapshot.sql")
-        if _filled("308_connect_balance_ledger.sql", "stripe_connect_balance_transactions"):
-            _apply(c, "308_connect_balance_ledger.sql")
-        if _filled("310_hashcoin_hold_tracking.sql", "held_at"):
-            _apply(c, "310_hashcoin_hold_tracking.sql")
+        if _filled("316_connect_bank_payout_snapshot.sql", "destination_last4"):
+            _apply(c, "316_connect_bank_payout_snapshot.sql")
+        if _filled("317_connect_balance_ledger.sql", "stripe_connect_balance_transactions"):
+            _apply(c, "317_connect_balance_ledger.sql")
+        if _filled("319_hashcoin_hold_tracking.sql", "held_at"):
+            _apply(c, "319_hashcoin_hold_tracking.sql")
         for statement in _CONNECT_DDL:
             c.exec_driver_sql(statement)
         for _ in range(2):
-            _apply(c, "306_payout_activity_indexes.sql")
+            _apply(c, "315_payout_activity_indexes.sql")
     db = SimpleNamespace(engine=engine)
     yield SimpleNamespace(
         engine=engine,
@@ -825,8 +825,8 @@ def _index_definitions(connection):
 def test_migration_306_replays_without_table_locks_skips_equivalents_and_rolls_back(
     connector_postgres_url,
 ):
-    forward = (MIGRATIONS / "306_payout_activity_indexes.sql").read_text()
-    rollback = (MIGRATIONS / "rollback/306_payout_activity_indexes.rollback.sql").read_text()
+    forward = (MIGRATIONS / "315_payout_activity_indexes.sql").read_text()
+    rollback = (MIGRATIONS / "rollback/315_payout_activity_indexes.rollback.sql").read_text()
     created = {
         "hashcoin_ledger_wallet_seq": " USING btree (wallet_id, created_at, entry_id) "
         "INCLUDE (amount_coins, entry_kind, source_ref)",

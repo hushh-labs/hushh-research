@@ -80,7 +80,7 @@ through `consent-protocol/hushh_mcp/services/payout_doorbell.py`: the owner, the
 closed `kinds` (`wallet`, `earnings`, `bank_payouts`, `account`, `balance`) and
 optionally one request ID. The payload is deterministic, so identical doorbells
 in one transaction collapse; the owner-earning trigger
-(`consent-protocol/db/migrations/309_payout_doorbell_kinds.sql`) sends the same
+(`consent-protocol/db/migrations/318_payout_doorbell_kinds.sql`) sends the same
 bytes. Missing or unknown kinds mean every kind.
 
 Frames with `?v=2`:

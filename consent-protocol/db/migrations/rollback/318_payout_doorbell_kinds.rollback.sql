@@ -1,4 +1,4 @@
--- Rollback for 309_payout_doorbell_kinds.sql: restores the 297 function body
+-- Rollback for 318_payout_doorbell_kinds.sql: restores the 297 function body
 -- (untyped doorbell). The trigger, money rows and event history are untouched;
 -- readers treat a doorbell without kinds as "every kind".
 BEGIN;

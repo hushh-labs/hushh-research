@@ -423,7 +423,7 @@ def _reversal_status(redemption: Mapping[str, Any]) -> str | None:
 
 
 def _bank(row: Mapping[str, Any]) -> dict[str, str | None] | None:
-    """The deposit's own destination snapshot (migration 307), never today's bank."""
+    """The deposit's own destination snapshot (migration 316), never today's bank."""
     name = row.get("destination_bank_name")
     last4 = row.get("destination_last4")
     name = name.strip() if isinstance(name, str) and 1 <= len(name.strip()) <= 80 else None

@@ -118,8 +118,8 @@ async def sharing(documents, monkeypatch):
             "298_stripe_mode_isolation.sql",
             "299_hashcoin_wallet.sql",
             "304_connect_bank_payout_reconciliation.sql",
-            "307_connect_bank_payout_snapshot.sql",
-            "311_drive_request_initial_quote.sql",
+            "316_connect_bank_payout_snapshot.sql",
+            "320_drive_request_initial_quote.sql",
         ):
             # Raw SQL preserves JSON colons; double percent signs for psycopg2's
             # parameter parser while retaining PostgreSQL format() placeholders.
@@ -136,9 +136,9 @@ async def sharing(documents, monkeypatch):
         )
         connection.exec_driver_sql((stream_sql + marker + "\nCOMMIT;").replace("%", "%%"))
         # Review asks widen the event vocabulary 288 installed; with no Feed
-        # projection installed here, 312 skips its allowlist step.
+        # projection installed here, 321 skips its allowlist step.
         connection.exec_driver_sql(
-            (MIGRATIONS / "312_drive_request_review_requests.sql").read_text().replace("%", "%%")
+            (MIGRATIONS / "321_drive_request_review_requests.sql").read_text().replace("%", "%%")
         )
         connection.commit()
     return DriveSharingStore(db=documents.db, authority_key="synthetic-ledger-key")

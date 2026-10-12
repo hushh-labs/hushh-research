@@ -1,4 +1,4 @@
--- Rollback for 307_connect_bank_payout_snapshot.sql. Drops only the deposit
+-- Rollback for 316_connect_bank_payout_snapshot.sql. Drops only the deposit
 -- snapshot columns it added (their CHECKs go with them). Deposit rows, amounts,
 -- statuses and the signed event history all stay.
 BEGIN;

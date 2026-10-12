@@ -1,4 +1,4 @@
-"""Migration 309: the owner-earning trigger names its kinds and request (real PostgreSQL)."""
+"""Migration 318: the owner-earning trigger names its kinds and request (real PostgreSQL)."""
 
 # ruff: noqa: F811 -- isolated PostgreSQL fixture import
 import json
@@ -15,7 +15,7 @@ from tests.services.test_external_connector_lifecycle_postgres import (
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS = ROOT / "db/migrations"
-NAME = "309_payout_doorbell_kinds.sql"
+NAME = "318_payout_doorbell_kinds.sql"
 
 
 def test_doorbell_kinds_migration_and_rollback_are_in_release_lanes():
@@ -98,7 +98,7 @@ def test_trigger_doorbell_is_typed_deterministic_and_rolls_back(connector_postgr
         _set_status(engine, request_id, "hashcoins_held", service_doorbell=True)
         assert _notifications(listener) == [typed]
 
-        _apply(engine, MIGRATIONS / "rollback/309_payout_doorbell_kinds.rollback.sql")
+        _apply(engine, MIGRATIONS / "rollback/318_payout_doorbell_kinds.rollback.sql")
         _set_status(engine, request_id, "hashcoins_credited")
         (untyped,) = _notifications(listener)
         assert json.loads(untyped) == {"type": "bank_payout_changed", "user_id": "owner-1"}

@@ -1,7 +1,7 @@
--- Rollback for 308_connect_balance_ledger.sql: drops only what it added and keeps money evidence.
+-- Rollback for 317_connect_balance_ledger.sql: drops only what it added and keeps money evidence.
 -- The snapshot cache and the itemisation queue are rebuilt from Stripe on demand.
 -- Mirrored balance transactions are settlement evidence: they stay once any exist.
--- Re-applying 308 afterwards is idempotent.
+-- Re-applying 317 afterwards is idempotent.
 BEGIN;
 DROP TABLE IF EXISTS stripe_connect_payout_reconciliations;
 DROP TABLE IF EXISTS stripe_connect_balance_snapshots;

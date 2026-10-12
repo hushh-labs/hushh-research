@@ -112,7 +112,7 @@ def ledger(connector_postgres_url, monkeypatch):
                 execution_options={"no_parameters": True},
             )
             c.exec_driver_sql(
-                (MIGRATIONS / "310_hashcoin_hold_tracking.sql").read_text(),
+                (MIGRATIONS / "319_hashcoin_hold_tracking.sql").read_text(),
                 execution_options={"no_parameters": True},
             )
         # Added last so positional request inserts keep their column order.
@@ -1238,8 +1238,8 @@ async def test_refunded_cash_out_holds_until_its_transfer_is_recovered(ledger, m
 def test_hold_tracking_migration_replays_backfills_and_rolls_back(ledger):
     request = _prepare(ledger)
     _settle(ledger, request)
-    forward = (MIGRATIONS / "310_hashcoin_hold_tracking.sql").read_text()
-    rollback = (MIGRATIONS / "rollback/310_hashcoin_hold_tracking.rollback.sql").read_text()
+    forward = (MIGRATIONS / "319_hashcoin_hold_tracking.sql").read_text()
+    rollback = (MIGRATIONS / "rollback/319_hashcoin_hold_tracking.rollback.sql").read_text()
 
     def run(sql):
         with ledger.db.engine.connect() as c:

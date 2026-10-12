@@ -277,13 +277,13 @@
     "303_hashcoin_live_redemption.sql",
     "304_connect_bank_payout_reconciliation.sql",
     "305_pkm_answer_payment_recovery.sql",
-    "306_payout_activity_indexes.sql",
-    "307_connect_bank_payout_snapshot.sql",
-    "308_connect_balance_ledger.sql",
-    "309_payout_doorbell_kinds.sql",
-    "310_hashcoin_hold_tracking.sql",
-    "311_drive_request_initial_quote.sql",
-    "312_drive_request_review_requests.sql"
+    "315_payout_activity_indexes.sql",
+    "316_connect_bank_payout_snapshot.sql",
+    "317_connect_balance_ledger.sql",
+    "318_payout_doorbell_kinds.sql",
+    "319_hashcoin_hold_tracking.sql",
+    "320_drive_request_initial_quote.sql",
+    "321_drive_request_review_requests.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -586,12 +586,12 @@
     "303_hashcoin_live_redemption.sql": "rollback/303_hashcoin_live_redemption.rollback.sql",
     "304_connect_bank_payout_reconciliation.sql": "rollback/304_connect_bank_payout_reconciliation.rollback.sql",
     "305_pkm_answer_payment_recovery.sql": "rollback/305_pkm_answer_payment_recovery.rollback.sql",
-    "306_payout_activity_indexes.sql": "rollback/306_payout_activity_indexes.rollback.sql",
-    "307_connect_bank_payout_snapshot.sql": "rollback/307_connect_bank_payout_snapshot.rollback.sql",
-    "308_connect_balance_ledger.sql": "rollback/308_connect_balance_ledger.rollback.sql",
-    "309_payout_doorbell_kinds.sql": "rollback/309_payout_doorbell_kinds.rollback.sql",
-    "310_hashcoin_hold_tracking.sql": "rollback/310_hashcoin_hold_tracking.rollback.sql",
-    "311_drive_request_initial_quote.sql": "rollback/311_drive_request_initial_quote.rollback.sql",
-    "312_drive_request_review_requests.sql": "rollback/312_drive_request_review_requests.rollback.sql"
+    "315_payout_activity_indexes.sql": "rollback/315_payout_activity_indexes.rollback.sql",
+    "316_connect_bank_payout_snapshot.sql": "rollback/316_connect_bank_payout_snapshot.rollback.sql",
+    "317_connect_balance_ledger.sql": "rollback/317_connect_balance_ledger.rollback.sql",
+    "318_payout_doorbell_kinds.sql": "rollback/318_payout_doorbell_kinds.rollback.sql",
+    "319_hashcoin_hold_tracking.sql": "rollback/319_hashcoin_hold_tracking.rollback.sql",
+    "320_drive_request_initial_quote.sql": "rollback/320_drive_request_initial_quote.rollback.sql",
+    "321_drive_request_review_requests.sql": "rollback/321_drive_request_review_requests.rollback.sql"
   }
 }

@@ -39,8 +39,8 @@ from tests.services.test_external_connector_lifecycle_postgres import (
 )
 
 MIGRATIONS = Path(__file__).resolve().parents[1] / "db/migrations"
-MIGRATION = "308_connect_balance_ledger.sql"
-ROLLBACK = "rollback/308_connect_balance_ledger.rollback.sql"
+MIGRATION = "317_connect_balance_ledger.sql"
+ROLLBACK = "rollback/317_connect_balance_ledger.rollback.sql"
 TEST_KEY = "sk_test_" + "k" * 30
 OWNER_WALLET = "00000000-0000-4000-8000-00000000000a"
 OTHER_WALLET = "00000000-0000-4000-8000-00000000000b"
@@ -242,7 +242,7 @@ def ledger(connector_postgres_url, monkeypatch):
         _execute_file(engine, "294_drive_request_bank_payout_events.sql")
         with engine.begin() as connection:
             connection.exec_driver_sql(ACCOUNTS)
-            # 307 owns these columns; add them here whether or not it has landed.
+            # 316 owns these columns; add them here whether or not it has landed.
             connection.exec_driver_sql(
                 "ALTER TABLE stripe_connect_bank_payouts "
                 "ADD COLUMN IF NOT EXISTS automatic BOOLEAN, "

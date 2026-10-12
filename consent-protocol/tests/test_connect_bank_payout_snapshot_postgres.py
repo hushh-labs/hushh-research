@@ -1,6 +1,6 @@
-"""Migration 307 and the bank deposit snapshot SQL on real PostgreSQL.
+"""Migration 316 and the bank deposit snapshot SQL on real PostgreSQL.
 
-Release replay runs every migration on every deploy. Migration 307 must apply
+Release replay runs every migration on every deploy. Migration 316 must apply
 twice, wait behind no live writer once applied, and roll back without touching
 deposit rows or signed event history. The service SQL that orders Stripe reads,
 keeps the bank snapshot write-once and pages deposits runs here as in UAT.
@@ -40,9 +40,9 @@ from tests.test_stripe_connect_bank_payouts import (
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS = ROOT / "db" / "migrations"
 EARLIER = ("294_drive_request_bank_payout_events.sql", "304_connect_bank_payout_reconciliation.sql")
-SNAPSHOT = "307_connect_bank_payout_snapshot.sql"
+SNAPSHOT = "316_connect_bank_payout_snapshot.sql"
 MIGRATION = (MIGRATIONS / SNAPSHOT).read_text(encoding="utf-8")
-ROLLBACK = (MIGRATIONS / "rollback" / "307_connect_bank_payout_snapshot.rollback.sql").read_text(
+ROLLBACK = (MIGRATIONS / "rollback" / "316_connect_bank_payout_snapshot.rollback.sql").read_text(
     encoding="utf-8"
 )
 SNAPSHOT_COLUMNS = {
@@ -341,7 +341,7 @@ async def test_new_connect_events_keep_the_release_replay_green(bank_db, monkeyp
     assert await service.process_webhook(**reconciled) == "updated"
     assert [call for call, _ in ledger_calls] == ["refresh_due", "reconcile"]
 
-    # Every deploy replays 294 and 304 before 307; they must still pass.
+    # Every deploy replays 294 and 304 before 316; they must still pass.
     await asyncio.to_thread(_replay, engine, *EARLIER, SNAPSHOT)
 
     # Negative control: migration 304's replay re-adds its narrower event CHECK,

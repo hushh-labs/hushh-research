@@ -248,7 +248,7 @@ def world(monkeypatch, request):
         with engine.begin() as connection:
             return operation(connection)
 
-    # The Connect balance ledger (migration 308) has its own suite; record the
+    # The Connect balance ledger (migration 317) has its own suite; record the
     # contract calls made on this webhook transaction instead.
     ledger_calls = []
     monkeypatch.setattr(

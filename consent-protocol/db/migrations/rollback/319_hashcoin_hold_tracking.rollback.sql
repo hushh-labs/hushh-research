@@ -1,4 +1,4 @@
--- Rollback for 310_hashcoin_hold_tracking.sql: drops only what it added and keeps money evidence.
+-- Rollback for 319_hashcoin_hold_tracking.sql: drops only what it added and keeps money evidence.
 -- held_at is a derived display time. Payout status, review codes and every
 -- ledger row stay. Roll the application back first: it reads held_at.
 BEGIN;
