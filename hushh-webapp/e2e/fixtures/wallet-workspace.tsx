@@ -1,4 +1,6 @@
 import React from "react";
+import { WalletAddCollection } from "../../components/wallet/wallet-add-collection";
+import { WALLET_DEMO_CARDS, WalletDemoCardFace } from "../../components/wallet/wallet-demo-cards";
 import { WalletProfileCard } from "../../components/wallet-card/wallet-profile-card";
 import { walletProfilePresentation } from "../../components/wallet-card/wallet-profile-presentation";
 import { createRoot } from "react-dom/client";
@@ -36,6 +38,7 @@ function ArtworkGallery() {
 
 function ProfileGallery() {
   const profile = walletProfilePresentation({ cardPayload: { full_name: "Alexandra Rivera-Washington de la Cruz", email: "alexandra.rivera.washington@example.com", phone: "+44 7700 900123", organisation: "Independent Design and Research Organization", headline: "Product designer" }, shareUrl: "https://one.hushh.ai/c/abcdefghijklmnopqrstuvwxyz1234567890" });
+  if (window.__walletScenario?.profileDeck) return <div style={{ padding: 16, maxWidth: 480 }}><WalletAddCollection cards={WALLET_DEMO_CARDS} selectedCardId={null} onSelect={() => {}} onAdd={() => {}} onRemove={() => {}} busyCardId={null} initialExpanded showActions={false} renderCard={card => <WalletDemoCardFace summary={card} profile={{ displayName: profile.name, shareUrl: profile.authorizedProfileUrl, cardPayload: { email: profile.email, phone: profile.phone, headline: profile.professionalTitle } }} />} /></div>;
   return <div style={{ padding: 16, display: "grid", gap: 24, maxWidth: 480, margin: "0 auto" }}>
     <div className="@container"><WalletProfileCard profile={profile} compact /></div>
     <WalletProfileCard profile={profile} />
@@ -46,7 +49,7 @@ function ProfileGallery() {
 const root = createRoot(document.getElementById("root")!);
 let revision = 0;
 window.__walletRemount = () => root.render(<WalletWorkspace key={++revision} />);
-root.render(window.__walletScenario?.profileGallery ? <ProfileGallery /> : (window as unknown as { __encryptedCardReader?: boolean }).__encryptedCardReader ? <WalletEncryptedCardViewer /> : window.__walletScenario?.artworkGallery ? <ArtworkGallery /> : reference ? (
+root.render((window.__walletScenario?.profileGallery || window.__walletScenario?.profileDeck) ? <ProfileGallery /> : (window as unknown as { __encryptedCardReader?: boolean }).__encryptedCardReader ? <WalletEncryptedCardViewer /> : window.__walletScenario?.artworkGallery ? <ArtworkGallery /> : reference ? (
   <AppPageShell width="agent" fitContent className="relative isolate [--app-page-content-bottom-gap:0px]">
     <AppPageContentRegion className="min-w-0 space-y-4 overflow-x-hidden">
       <div data-location-hub className={reference.hubClass}>

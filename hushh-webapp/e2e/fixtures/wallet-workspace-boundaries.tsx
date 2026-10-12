@@ -28,7 +28,7 @@ type Scenario = {
   locked?: boolean;
   delayMs?: number;
   error?: boolean;
-  profileGallery?: boolean; artworkGallery?: boolean;
+  profileDeck?: boolean; profileGallery?: boolean; artworkGallery?: boolean;
 };
 
 const SYNTHETIC: FixtureCard[] = [

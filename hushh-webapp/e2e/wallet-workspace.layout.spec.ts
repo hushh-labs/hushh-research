@@ -111,7 +111,7 @@ test.beforeAll(async () => {
   }
 });
 
-type Scenario = { cards?: number; networkCards?: boolean; locked?: boolean; delayMs?: number; profileGallery?: boolean; artworkGallery?: boolean };
+type Scenario = { cards?: number; networkCards?: boolean; locked?: boolean; delayMs?: number; profileDeck?: boolean; profileGallery?: boolean; artworkGallery?: boolean };
 
 const PROBES = `
 window.__walletFrames = [];
@@ -904,3 +904,15 @@ for (const width of [320, 375, 390, 430, 768, 1024, 1440]) {
     expect(await page.getByTestId("wallet-profile-card").evaluateAll(cards => cards.every(card => card.scrollWidth <= card.clientWidth + 1))).toBe(true);
   });
 }
+
+test("premium profile deck reserves enlarged identity text without overlapping the next card", async ({ page }) => {
+  await open(page, 320, "light", { profileDeck: true });
+  await page.addScriptTag({ content: script });
+  await expect(page.getByTestId("wallet-card-face")).toHaveCount(3);
+  await page.evaluate(() => { document.documentElement.style.fontSize = "32px"; });
+  await expect.poll(() => page.getByTestId("wallet-card-face").evaluateAll(cards => {
+    const profile = cards[0].getBoundingClientRect();
+    const next = cards[1].getBoundingClientRect();
+    return next.top - profile.bottom;
+  })).toBeGreaterThanOrEqual(15);
+});
