@@ -17,7 +17,8 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Event
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import asyncpg
 import pytest
@@ -25,6 +26,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 
+from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.connection_graph_service import (
     activate_contact_sync_connections_bulk,
     lock_connection_graph_users,
@@ -280,6 +282,93 @@ async def _drop_schema(schema: str) -> None:
         await connection.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
     finally:
         await connection.close()
+
+
+@pytest.mark.db
+@pytest.mark.skipif(not POSTGRES_URL, reason="requires disposable PostgreSQL")
+def test_signup_phone_survives_ria_deletion_and_passive_provider_conflict(monkeypatch) -> None:
+    schema = f"contact_identity_{uuid.uuid4().hex}"
+
+    async def exercise():
+        await _prepare_schema(schema)
+        settings = {"search_path": f'"{schema}", public'}
+        pool = await asyncpg.create_pool(
+            POSTGRES_URL, server_settings=settings, min_size=1, max_size=2
+        )
+        conn = await asyncpg.connect(POSTGRES_URL, server_settings=settings)
+        try:
+            await conn.execute("""
+                ALTER TABLE actor_profiles ADD COLUMN personas TEXT[] DEFAULT ARRAY['investor','ria'],
+                  ADD COLUMN last_active_persona TEXT DEFAULT 'ria',
+                  ADD COLUMN investor_marketplace_opt_in BOOLEAN DEFAULT FALSE;
+                ALTER TABLE actor_identity_cache ADD COLUMN email_verified BOOLEAN DEFAULT FALSE,
+                  ADD COLUMN source TEXT, ADD COLUMN last_synced_at TIMESTAMPTZ DEFAULT NOW(),
+                  ADD COLUMN created_at TIMESTAMPTZ DEFAULT NOW(),
+                  ADD COLUMN updated_at TIMESTAMPTZ DEFAULT NOW();
+                CREATE TABLE ria_profiles (id UUID DEFAULT gen_random_uuid(), user_id TEXT PRIMARY KEY);
+                CREATE TABLE advisor_investor_relationships
+                  (id UUID, investor_user_id TEXT, last_request_id TEXT, ria_profile_id UUID, status TEXT);
+                CREATE TABLE marketplace_investor_actions (actor_user_id TEXT);
+                CREATE TABLE ria_business_contacts (user_id TEXT);
+                CREATE TABLE ria_license_verifications (user_id TEXT);
+                INSERT INTO ria_profiles (user_id) VALUES ('owner');
+                INSERT INTO actor_profiles (user_id) VALUES ('phone-session');
+            """)
+            service = _LiveMatcher(conn)
+            with (
+                patch.object(service, "_ensure_vault_user_row", AsyncMock()),
+                patch.object(service, "_set_runtime_last_persona", AsyncMock()),
+            ):
+                assert (await service.delete_ria_self_profile("owner"))["deleted"] is True
+            identity = ActorIdentityService()
+            from firebase_admin import auth as firebase_auth
+
+            monkeypatch.setattr(
+                firebase_auth,
+                "get_user",
+                lambda *_args, **_kwargs: SimpleNamespace(phone_number=None),
+            )
+            with (
+                patch(
+                    "hushh_mcp.services.actor_identity_service.get_pool",
+                    AsyncMock(return_value=pool),
+                ),
+                patch(
+                    "hushh_mcp.services.actor_identity_service.get_firebase_auth_app",
+                    return_value=object(),
+                ),
+                patch.object(identity, "_ensure_actor_spine", AsyncMock()),
+                patch.object(identity, "_sync_referral_qualification_best_effort", AsyncMock()),
+            ):
+                # The UID syntax gate is unrelated to this SQL fixture's short IDs.
+                with patch.object(identity, "_looks_like_firebase_uid", return_value=True):
+                    refreshed = await identity.sync_from_firebase("owner", force=True)
+                assert refreshed["phone_number"] == "+919000000001"
+                assert refreshed["phone_verified"] is True
+                stale = await identity.upsert_identity(
+                    user_id="phone-session",
+                    phone_number="+919000000001",
+                    phone_verified=True,
+                    source="firebase_auth",
+                )
+                assert stale["phone_verified"] is False
+                assert (await identity.get_many(["owner"]))["owner"]["phone_verified"] is True
+                # Explicit OTP claims retain the established owner-transfer path.
+                claimed = await identity.claim_verified_phone(
+                    user_id="phone-session",
+                    phone_number="+919000000001",
+                )
+                assert claimed["phone_verified"] is True
+                assert (await identity.get_many(["owner"]))["owner"]["phone_verified"] is False
+        finally:
+            if not conn.is_closed():
+                await conn.close()
+            await pool.close()
+
+    try:
+        asyncio.run(exercise())
+    finally:
+        asyncio.run(_drop_schema(schema))
 
 
 async def _assert_policy_writers_wait_for_graph_lock(schema: str) -> None:

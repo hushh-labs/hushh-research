@@ -9,7 +9,10 @@ from pydantic import BaseModel, Field, validator
 
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import RateLimits, get_rate_limit_key, limiter
-from hushh_mcp.services.actor_identity_service import ActorIdentityService
+from hushh_mcp.services.actor_identity_service import (
+    ActorIdentityService,
+    ActorIdentitySyncUnavailableError,
+)
 from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
 from hushh_mcp.services.directory_identity_service import DirectoryIdentityUnavailableError
 from hushh_mcp.services.ria_iam_service import (
@@ -28,7 +31,10 @@ def _service() -> ConnectionsService:
 
 
 def _handle(exc: Exception) -> HTTPException:
-    if isinstance(exc, (ConnectionsError, DirectoryIdentityUnavailableError)):
+    if isinstance(
+        exc,
+        (ConnectionsError, DirectoryIdentityUnavailableError, ActorIdentitySyncUnavailableError),
+    ):
         # Expected, and already carries a code the client can act on.
         return HTTPException(
             status_code=exc.status_code, detail={"code": exc.code, "message": exc.message}
@@ -259,7 +265,7 @@ async def sync_contacts(
         ) from exc
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-    except ConnectionsError as exc:
+    except (ConnectionsError, ActorIdentitySyncUnavailableError) as exc:
         raise _handle(exc) from None
     except Exception as exc:  # noqa: BLE001 - SQL exceptions can contain submitted phone proofs
         # SQLAlchemy includes bound parameters in exception text/tracebacks.

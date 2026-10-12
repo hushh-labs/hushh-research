@@ -6,6 +6,7 @@ import logging
 import sys
 import types
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -238,7 +239,21 @@ class _PhoneClaimFakeConnection:
         self.statement_order.append("claim")
         if self.fail_claim:
             raise RuntimeError("simulated identity insert failure")
-        user_id, phone_number, source = args
+        if len(args) == 8:
+            (
+                user_id,
+                display_name,
+                email,
+                phone_number,
+                photo_url,
+                email_verified,
+                verified,
+                source,
+            ) = args
+        else:
+            user_id, phone_number, source = args
+            display_name = email = photo_url = email_verified = None
+            verified = True
         now = datetime.now(timezone.utc)
         row = self.rows.setdefault(
             user_id,
@@ -251,16 +266,66 @@ class _PhoneClaimFakeConnection:
                 "created_at": now,
             },
         )
-        row.update(
-            {
-                "phone_number": phone_number,
-                "phone_verified": True,
-                "source": source,
-                "last_synced_at": now,
-                "updated_at": now,
-            }
-        )
+        for key, value in (
+            ("display_name", display_name),
+            ("email", email),
+            ("photo_url", photo_url),
+            ("email_verified", email_verified),
+            ("phone_number", phone_number),
+            ("phone_verified", verified),
+        ):
+            if value is not None:
+                row[key] = value
+        row.update(source=source, last_synced_at=now, updated_at=now)
         return row
+
+    async def fetch(self, query: str, *args):
+        assert "FOR UPDATE" in query
+        user_id, phone_number = args
+        return [
+            row.copy()
+            for row in self.rows.values()
+            if row["user_id"] == user_id or row["phone_number"] == phone_number
+        ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("conflicting_owner", [True, False])
+async def test_provider_refresh_cannot_displace_a_verified_phone_owner(
+    monkeypatch: pytest.MonkeyPatch,
+    conflicting_owner: bool,
+) -> None:
+    _stub_referral_resync(monkeypatch)
+    conn = _PhoneClaimFakeConnection()
+    if not conflicting_owner:
+        conn.rows.pop("other-firebase-user-1234567890")
+        # A legitimate native replacement must still reach this account.
+        conn.rows["firebase-user-123456789012"].update(
+            phone_number="+16505550202",
+            phone_verified=True,
+        )
+    monkeypatch.setattr(
+        actor_identity_service, "get_pool", AsyncMock(return_value=_AliasFakePool(conn))
+    )
+
+    identity = await ActorIdentityService().upsert_identity(
+        user_id="firebase-user-123456789012",
+        display_name="Updated Name",
+        phone_number="+16505550101",
+        phone_verified=True,
+        source="firebase_auth",
+    )
+
+    assert identity is not None
+    assert identity["display_name"] == "Updated Name"
+    if conflicting_owner:
+        assert identity["phone_verified"] is False
+        assert identity["phone_number"] is None
+        assert conn.rows["other-firebase-user-1234567890"]["phone_number"] == "+16505550101"
+        assert conn.rows["other-firebase-user-1234567890"]["phone_verified"] is True
+    else:
+        assert identity["phone_number"] == "+16505550101"
+        assert identity["phone_verified"] is True
 
 
 @pytest.mark.asyncio

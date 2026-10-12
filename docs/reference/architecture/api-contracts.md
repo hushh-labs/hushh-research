@@ -1321,6 +1321,24 @@ normalized multi-number contact can still match, but cannot be labelled unmatche
 or inviteable unless every usable number was checked. Database verification remains
 mandatory after recovery.
 
+Signup phone verification is account-scoped: deleting only an RIA persona retains
+the shared identity row and its verified phone, email and avatar. Full account
+deletion still removes it. Passive Firebase hydration cannot transfer a phone
+already verified for another account; ownership is rechecked under the existing
+phone advisory lock and ordered identity row locks. An explicit validated phone
+claim retains the transfer path, and Firebase phone replacement still updates an
+account when the new number is unbound.
+
+If an incomplete identity cannot be refreshed because the provider or persistence
+is unavailable, both contact-sync endpoints return retryable HTTP 503 with
+`CONTACT_SYNC_IDENTITY_UNAVAILABLE`, before lookup charging or matching. That
+failure does not ask for another OTP. A successful refresh with no trusted phone
+proof still fails the existing verified-requester admission gate; vault/setup
+completion and client phone hints are not proof. The refusal describes account
+verification recovery rather than telling a signed-in user to repeat phone OTP.
+Previously deleted app-only
+claims cannot be reconstructed from a phone-less Firebase record.
+
 `actor_identity_cache` stores only canonical E.164 verified phones. Migration 198 clears every
 member of a malformed or duplicate verified binding, marks the shadow stale for an immediate
 Firebase refresh, and enforces a partial unique index; it never guesses an owner.
