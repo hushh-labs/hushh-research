@@ -24,6 +24,10 @@ thumb and 44px targets. Send/Mic keep compact paint inside 44px hit regions;
 multiline fields scroll at a bounded height without a second entrance fade.
 Native attachment Edit opens the existing attachment editor instead of replacing
 the accompanying message. Puppy cannot submit unfinished IME composition.
+Inactive or drawer-covered Puppy editors reject queued submission. Authored
+Send/Stop roles share compact accent paint; Mic retains the same 44px target.
+The keyboard lift starts only in actual keyboard state: shell admission's
+temporary zero navigation height no longer starts a spurious lift animation.
 
 The custom native Dock/header/selector policy remains disabled. A foreground
 native Chat family cannot remain visibly behind a full-height React Profile
@@ -34,7 +38,11 @@ continues in the separate ADK worktree and is not enabled by this integration.
 
 Focused behavior, typecheck, design/performance-source and generated gateway,
 Siri, route-index and surface-map checks pass. The retained-seat negative control
-fails on the previous voice-owner replacement. Physical acceptance is pending
+fails on the previous voice-owner replacement. The existing layout regression
+also failed on the unguarded lift; after correction, three runs in each of
+WebKit and Chromium retain the same frame within 0.5 CSS px at 320/393/768px,
+with bounded multiline editing, 16px icons, 44px targets and keyboard return.
+Physical acceptance is pending
 installation of this source; prior installed-device evidence below applies only
 to its recorded candidate. No native-family or release readiness is inferred.
 

@@ -902,6 +902,42 @@ Local Android release signing:
 | CI | Env in workflow (dummy keys, TESTING=true) | Env in workflow (dummy Firebase, BACKEND_URL) |
 | Production | Secret Manager + Cloud Run env (GOOGLE_GENAI_USE_VERTEXAI, ENVIRONMENT) | Secret Manager → build-args in Dockerfile |
 
+### Connector OAuth across app origins
+
+A load-balancer alias does not migrate OAuth. Browser popup completion uses
+same-origin correlation and redacted settlement events; `one.hushh.ai` and
+`one.hussh.ai` do not share that storage or Firebase browser session. The shared
+web handoff rejects a provider callback on a different origin before navigating
+the consent window. It never rewrites a signed/registered redirect or expands
+the opener's message trust to a second domain.
+
+The approved canonical app origins are `https://one.hussh.ai` (production) and
+`https://uat.one.hussh.ai` (UAT). The `hushh.ai` app hosts remain compatibility
+aliases, not interchangeable OAuth return origins. Backend/API and email domains
+are outside this app-origin change; do not rename them by global substitution.
+
+For each environment migration, register the exact new Mail, Calendar and
+connector callback paths with their providers first. Align `APP_FRONTEND_ORIGIN`,
+`GMAIL_OAUTH_REDIRECT_URI`, `GOOGLE_OAUTH_REDIRECT_URI`, curated connector registry
+redirects and Firebase authorized domains through the governed release. Preserve
+old callback registration for in-flight attempts and rollback; do not redirect
+provider returns indiscriminately at the load balancer. Gmail's signed state is
+bound to the configured callback at completion: drain its ten-minute old-origin
+attempt lifetime before switching configuration, or provide a separately
+verified compatibility exchange. Keeping the old provider URI registered alone
+does not make an old signed attempt valid under new backend configuration.
+Prove a real completion
+from the selected app origin: consent closes, the original window confirms the
+owner-authenticated status, and its document/draft/vault session survive.
+
+Read-only live inspection on 2026-10-10 found production and UAT backend origins
+and Mail/Calendar callbacks still on `hushh.ai`, while both production app domain
+aliases served the frontend. Domain reachability is not OAuth migration acceptance.
+Public authorization-entry probes for the four new Mail/Calendar callbacks
+reached Google's sign-in entry without exchanging a code; these are not proof of
+provider registration or owner-authenticated completion. The read-only check did
+not change secrets, runtime configuration, provider registrations or traffic.
+
 ### Passkeys across the domain transition
 
 `hushh-webapp/lib/vault/passkey-domain-aliases.json` owns the exact dev, UAT and production alias groups for `hushh.ai`, `hussh.ai` and `hussh.si`. Browser registration keeps the current host RP; unlock uses the stored RP, credential and PRF salt unchanged. Each RP serves `/.well-known/webauthn` over HTTPS with only its own environment origins. Native unlock also retains the stored RP; existing OS associations remain required.

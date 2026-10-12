@@ -95,6 +95,15 @@ afterEach(() => {
 });
 
 describe("HermesChatPanel empty state", () => {
+  it.each([{ active: false }, { composerDisabled: true }])("rejects a queued Enter when the composer is no longer eligible: %j", async props => {
+    const view = await mount();
+    const editor = await screen.findByPlaceholderText("Ask Puppy One…");
+    fireEvent.change(editor, { target: { value: "Unsent synthetic draft" } });
+    view.rerender(<HermesChatPanel {...props} />);
+    fireEvent.keyDown(editor, { key: "Enter" });
+    expect(mocks.runAgent).not.toHaveBeenCalled();
+    expect(editor).toHaveValue("Unsent synthetic draft");
+  });
   it("shares the retained bar with Cloud while keeping each unsent draft isolated", async () => {
     function CloudComposer({ active }: { active: boolean }) {
       const [draft, setDraft] = useState("");

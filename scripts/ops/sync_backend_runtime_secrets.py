@@ -16,6 +16,7 @@ from urllib.parse import urlsplit, urlunsplit
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UPSERT_SECRET_SCRIPT = REPO_ROOT / "scripts" / "ops" / "upsert_gcp_secret.py"
 GMAIL_OAUTH_RETURN_PATH = "/one/profile/gmail/oauth/return"
+CALENDAR_OAUTH_RETURN_PATH = "/one/profile/google/oauth/return"
 AZURE_OAUTH_RETURN_PATH = "/one/setup/cloud/azure/return"
 CONNECTOR_ROLLOUT_FLAGS = (
     "connections_panel_v2",
@@ -28,6 +29,7 @@ CONNECTOR_ROLLOUT_FLAGS = (
     "google_drive_chat_reads",
     "curated_mcp_connectors",
 )
+
 
 def _scope_commerce_runtime_policy() -> dict[str, Any]:
     # File-relative loading supports both direct CLI execution and importlib test harnesses.
@@ -158,6 +160,17 @@ def _canonical_frontend_origin(app_frontend_origin: str) -> str:
 
 def _gmail_oauth_redirect_uri(app_frontend_origin: str) -> str:
     return f"{_canonical_frontend_origin(app_frontend_origin)}{GMAIL_OAUTH_RETURN_PATH}"
+
+
+def _sync_oauth_redirects(project: str, app_frontend_origin: str) -> list[str]:
+    origin = _canonical_frontend_origin(app_frontend_origin)
+    callbacks = {
+        "GMAIL_OAUTH_REDIRECT_URI": GMAIL_OAUTH_RETURN_PATH,
+        "GOOGLE_OAUTH_REDIRECT_URI": CALENDAR_OAUTH_RETURN_PATH,
+    }
+    for name, path in callbacks.items():
+        _upsert_secret(project, name, f"{origin}{path}")
+    return list(callbacks)
 
 
 def _frontend_origin_host(app_frontend_origin: str) -> str:
@@ -348,7 +361,9 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         ),
         "one_magic_intelligence_qa_emails": getattr(args, "one_magic_intelligence_qa_emails", ""),
     }
-    return _scope_commerce_runtime_policy()["apply_policy"](_drop_empty(config), getattr(args, "scope_commerce_policy", {}))
+    return _scope_commerce_runtime_policy()["apply_policy"](
+        _drop_empty(config), getattr(args, "scope_commerce_policy", {})
+    )
 
 
 def _split_production_drive_candidate_config(
@@ -593,11 +608,15 @@ def main() -> int:
     args = parser.parse_args()
     try:
         _validate_connector_rollout(args)
-        args.scope_commerce_policy = _scope_commerce_runtime_policy()["policy_for_args"](args, _run, _secret_exists, _canonical_frontend_origin)
+        args.scope_commerce_policy = _scope_commerce_runtime_policy()["policy_for_args"](
+            args, _run, _secret_exists, _canonical_frontend_origin
+        )
     except ValueError as exc:
         parser.error(str(exc))
 
-    _scope_commerce_runtime_policy()["validate_passkey_origin"](args, parser, _canonical_passkey_allowed_rp_ids, _normalize_passkey_rp_ids)
+    _scope_commerce_runtime_policy()["validate_passkey_origin"](
+        args, parser, _canonical_passkey_allowed_rp_ids, _normalize_passkey_rp_ids
+    )
     args.cors_allowed_origins = _cors_with_frontend_aliases(
         args.app_frontend_origin, args.cors_allowed_origins
     )
@@ -655,12 +674,7 @@ def main() -> int:
     _upsert_secret(args.project, "APP_FRONTEND_ORIGIN", args.app_frontend_origin.strip())
     sync_summary.append("APP_FRONTEND_ORIGIN")
 
-    _upsert_secret(
-        args.project,
-        "GMAIL_OAUTH_REDIRECT_URI",
-        _gmail_oauth_redirect_uri(args.app_frontend_origin),
-    )
-    sync_summary.append("GMAIL_OAUTH_REDIRECT_URI")
+    sync_summary.extend(_sync_oauth_redirects(args.project, args.app_frontend_origin))
 
     backend_runtime_config, candidate_runtime_config = _split_production_drive_candidate_config(
         args, _build_backend_runtime_config(args)

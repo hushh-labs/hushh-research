@@ -84,7 +84,7 @@ describe("Drive popup boundary", () => {
     navigateDriveOAuthPopup(
       target,
       currentAttempt,
-      "https://accounts.google.com/o/oauth2/v2/auth?state=signed-state",
+      "https://accounts.google.com/o/oauth2/v2/auth?state=signed-state&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fconnectors%2Foauth%2Freturn",
     );
     expect(target.location.replace).toHaveBeenCalledOnce();
     // Google COOP can create a new popup browsing-context group, losing this
@@ -140,7 +140,7 @@ describe("Drive popup boundary", () => {
     navigateDriveOAuthPopup(
       popup(),
       currentAttempt,
-      "https://accounts.google.com/o/oauth2/v2/auth?state=signed-state",
+      "https://accounts.google.com/o/oauth2/v2/auth?state=signed-state&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fconnectors%2Foauth%2Freturn",
     );
     notifyDrivePopup(currentAttempt, "succeeded");
     expect(window.localStorage.getItem("one_drive_popup_attempt_v1")).toBeNull();

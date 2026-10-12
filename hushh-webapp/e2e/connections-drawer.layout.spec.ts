@@ -908,7 +908,7 @@ test(`blocked Drive popup fails closed when chat recovery is ${readiness}`, asyn
         connectorId: "google_drive",
         attemptId,
         expiresAt: new Date(Date.now() + 60_000).toISOString(),
-        authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?synthetic=blocked",
+        authorizeUrl: `https://accounts.google.com/o/oauth2/v2/auth?synthetic=blocked&redirect_uri=${encodeURIComponent("http://localhost/one/profile/connectors/oauth/return")}`,
       }),
     }),
   );
@@ -961,12 +961,12 @@ test("Drive popup reaches Google with server clock skew and ignores forged settl
           attemptId,
           expiresAt: new Date(serverExpiresAt).toISOString(),
           authorizeUrl:
-            "https://accounts.google.com/o/oauth2/v2/auth?synthetic=1",
+            "https://accounts.google.com/o/oauth2/v2/auth?synthetic=1&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fconnectors%2Foauth%2Freturn",
         }),
       }),
   );
   await context.route(
-    "https://accounts.google.com/o/oauth2/v2/auth?synthetic=1",
+    "https://accounts.google.com/o/oauth2/v2/auth?synthetic=1&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fconnectors%2Foauth%2Freturn",
     (route) =>
       route.fulfill({
         contentType: "text/html",
@@ -984,7 +984,7 @@ test("Drive popup reaches Google with server clock skew and ignores forged settl
     .click();
   const popup = await popupEvent;
   await popup.waitForURL(
-    "https://accounts.google.com/o/oauth2/v2/auth?synthetic=1",
+    "https://accounts.google.com/o/oauth2/v2/auth?synthetic=1&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fconnectors%2Foauth%2Freturn",
   );
   const popupExpiresAt = await page.evaluate(() => {
     const marker = localStorage.getItem("one_drive_popup_attempt_v1");
@@ -1040,7 +1040,7 @@ async function armCalendarConnect(page: import("@playwright/test").Page) {
     return route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
-        authorize_url: "https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar",
+        authorize_url: "https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fgoogle%2Foauth%2Freturn",
         redirect_uri: "http://localhost/one/profile/google/oauth/return",
         expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
       }),
@@ -1059,7 +1059,7 @@ async function armCalendarConnect(page: import("@playwright/test").Page) {
     });
   });
   await page.context().route(
-    "https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar",
+    "https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fgoogle%2Foauth%2Freturn",
     (route) =>
       route.fulfill({
         contentType: "text/html",
@@ -1093,7 +1093,7 @@ async function finishCallback(
   consent: import("@playwright/test").Page,
   options: { severOpener?: boolean } = {},
 ) {
-  await consent.waitForURL("https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar");
+  await consent.waitForURL("https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fgoogle%2Foauth%2Freturn");
   // Google redirects the consent window back to the registered return URI.
   // Navigate from inside the page, as Google's redirect does: a harness
   // `goto` is browser-initiated, which WebKit treats as severing the opener.
@@ -1186,7 +1186,7 @@ test("closing Calendar consent without finishing ends quietly as not connected",
   const popupEvent = page.waitForEvent("popup");
   await page.getByRole("button", { name: "Connect Calendar", exact: true }).click();
   const consent = await popupEvent;
-  await consent.waitForURL("https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar");
+  await consent.waitForURL("https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fgoogle%2Foauth%2Freturn");
   await consent.close();
   await page.getByRole("button", { name: "Cancel sign-in", exact: true }).click();
   await expect(page.getByText("Calendar not connected.")).toBeVisible();
@@ -1212,7 +1212,7 @@ async function armChatConnect(page: import("@playwright/test").Page) {
     return route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
-        authorize_url: "https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar",
+        authorize_url: "https://accounts.google.com/o/oauth2/v2/auth?synthetic=calendar&redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fgoogle%2Foauth%2Freturn",
         redirect_uri: "http://localhost/one/profile/google/oauth/return",
         expires_at: new Date(Date.now() + 5 * 60_000).toISOString(),
       }),

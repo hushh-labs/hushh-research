@@ -31,6 +31,7 @@ export function PuppyOneSurface({
   className,
   active = true,
   sharedDock = false,
+  composerDisabled = false,
   conversations,
   activeConversationId,
   onCreateConversation,
@@ -49,6 +50,7 @@ export function PuppyOneSurface({
    */
   active?: boolean;
   sharedDock?: boolean;
+  composerDisabled?: boolean;
 }) {
   const link = usePuppyLink();
   // A deployed frontend's loopback is its Cloud Run container, never the
@@ -60,9 +62,9 @@ export function PuppyOneSurface({
   const sheet = <PuppyMachineSheet className="shrink-0" active={active} />;
   const panel = (activePanel: boolean, panelClassName?: string) =>
     localBridge === null ? null : localBridge ? (
-      <HermesChatPanel active={activePanel} sharedDock={sharedDock} className={panelClassName} />
+      <HermesChatPanel active={activePanel} sharedDock={sharedDock} composerDisabled={composerDisabled} className={panelClassName} />
     ) : (
-      <PrivatePuppyInferencePanel className={panelClassName} accessory={sheet} />
+      <PrivatePuppyInferencePanel className={panelClassName} accessory={sheet} composerDisabled={composerDisabled || !activePanel} />
     );
   return (
     <div
@@ -119,12 +121,14 @@ export function PuppyOneSurface({
                   key={conversation.id}
                   active={active && activeConversationId === conversation.id}
                   sharedDock={sharedDock}
+                  composerDisabled={composerDisabled}
                   className={cn(activeConversationId !== conversation.id && "hidden")}
                 />
               ) : (
                 <PrivatePuppyInferencePanel
                   key={conversation.id}
                   conversationId={conversation.id}
+                  composerDisabled={composerDisabled || !active || activeConversationId !== conversation.id}
                   accessory={activeConversationId === conversation.id ? sheet : undefined}
                   className={cn(activeConversationId !== conversation.id && "hidden")}
                 />

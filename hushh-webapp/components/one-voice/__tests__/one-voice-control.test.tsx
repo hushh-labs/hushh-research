@@ -227,10 +227,11 @@ describe("OneVoiceControl", () => {
   });
 
   it("does not cancel a new session when the launch release click retargets its surface", () => {
+    harness.live = true;
     vi.mocked(harness.session!.start).mockImplementation(async () => {
       useVoiceSessionStore.getState().dispatch({ type: "connecting", conversationId: "conv_1" });
     });
-    render(<OneVoiceControl layout="slot" />);
+    render(<AgentDockProvider><AgentDockVoiceBoundary><AgentBar layout="slot" /></AgentDockVoiceBoundary></AgentDockProvider>);
     fireEvent.pointerDown(screen.getByRole("button", { name: "Talk to One" }), { button: 0 });
     const dock = screen.getByTestId("one-voice-agent-bar");
     expect(screen.getByRole("button", { name: /\. Stop voice$/ })).toBeInTheDocument();

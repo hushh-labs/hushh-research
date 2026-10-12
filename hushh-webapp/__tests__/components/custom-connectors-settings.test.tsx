@@ -222,7 +222,7 @@ it("cancels OAuth rather than leave Chat when encrypted draft recovery is busy",
     issuer: "https://auth.example", clientId: "synthetic-client", clientSecret: "synthetic-secret", tokenEndpointAuthMethod: "client_secret_post" as const,
   } };
   vi.mocked(loadCustomConnectorConfigurations).mockResolvedValue([record]);
-  vi.mocked(ExternalConnectorService.privateMcpOAuth).mockResolvedValueOnce({ attemptId: "a".repeat(43), authorizeUrl: "https://auth.example/authorize" }).mockResolvedValueOnce(null);
+  vi.mocked(ExternalConnectorService.privateMcpOAuth).mockResolvedValueOnce({ attemptId: "a".repeat(43), authorizeUrl: "https://auth.example/authorize?redirect_uri=http%3A%2F%2Flocalhost%2Fone%2Fprofile%2Fconnectors%2Foauth%2Freturn" }).mockResolvedValueOnce(null);
   const prepare = vi.fn().mockResolvedValue("busy");
   render(<CustomConnectorsSettings access={access} onPrepareRecovery={prepare} />);
   fireEvent.click(await screen.findByRole("button", { name: "Sign in to Synthetic" }));

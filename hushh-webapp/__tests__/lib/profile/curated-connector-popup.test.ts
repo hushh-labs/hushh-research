@@ -15,7 +15,7 @@ import {
 
 const ATTEMPT_KEY = "one_curated_popup_attempt_v1";
 const SETTLEMENT_KEY = "one_curated_popup_settlement_v1";
-const AUTHORIZE_URL = "https://mcp.notion.com/authorize?state=signed-state";
+const AUTHORIZE_URL = "https://mcp.notion.com/authorize?state=signed-state&redirect_uri=https%3A%2F%2Fuat.one.hushh.ai%2Fone%2Fprofile%2Fconnectors%2Foauth%2Freturn";
 const realLocation = window.location;
 
 describe("curated connector popup boundary", () => {

@@ -91,7 +91,9 @@
           "one_setup"
         ],
         "hidden_navigable": true,
-        "navigation_prerequisites": []
+        "navigation_prerequisites": [
+        "Explicit navigation to the AI settings compatibility route"
+      ]
       },
       "guard_ids": [
         "auth_signed_in"

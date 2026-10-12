@@ -75,6 +75,25 @@ async function ask(question = "A synthetic question") {
 }
 
 describe("private Puppy relay", () => {
+  it("fences new input behind History without discarding the draft", async () => {
+    const { rerender } = render(<PrivatePuppyInferencePanel />);
+    const input = screen.getByRole("textbox", { name: "Message Puppy One" });
+    fireEvent.change(input, { target: { value: "Retain this draft" } });
+
+    rerender(<PrivatePuppyInferencePanel composerDisabled />);
+    expect(input).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send to Puppy One" })).toBeDisabled();
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.click(screen.getByRole("button", { name: "Draft a short thank-you note" }));
+    expect(mocks.streamPuppyPodTurn).not.toHaveBeenCalled();
+    expect(input).toHaveValue("Retain this draft");
+
+    rerender(<PrivatePuppyInferencePanel />);
+    fireEvent.click(screen.getByRole("button", { name: "Send to Puppy One" }));
+    expect(await screen.findByText("Puppy answered")).toBeInTheDocument();
+    expect(mocks.streamPuppyPodTurn).toHaveBeenCalledTimes(1);
+  });
+
   it("lets the approved quiet device wake through the owner pod", async () => {
     mocks.link = null; // The background device poll has not resolved yet.
     render(<PrivatePuppyInferencePanel />);
@@ -105,10 +124,11 @@ describe("private Puppy relay", () => {
         signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
       }),
     );
-    render(<PrivatePuppyInferencePanel />);
+    const { rerender } = render(<PrivatePuppyInferencePanel />);
     await ask();
 
     await waitFor(() => expect(mocks.streamPuppyPodTurn).toHaveBeenCalledTimes(1));
+    rerender(<PrivatePuppyInferencePanel composerDisabled />);
     fireEvent.click(await screen.findByRole("button", { name: "Stop" }));
     expect(await screen.findByText("Stopped.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();

@@ -194,7 +194,7 @@ for (const width of [320, 393, 768]) {
     const errors: string[] = [];
     await open(page, width, false, { name: "public preferences fallback", html: { preferences: "true" } }, errors);
     const trigger = page.getByRole("combobox", { name: "App accent color" });
-    await expect(trigger).toHaveText("iOS Blue");
+    await expect(trigger).toHaveText("Blue");
     const before = await trigger.boundingBox();
     expect(before!.height).toBeGreaterThanOrEqual(44);
     await trigger.click();
@@ -211,7 +211,7 @@ for (const width of [320, 393, 768]) {
   });
 }
 
-test("shared dock retains material and input identity with aligned edges and keyboard clearance", async ({ page }) => {
+test("shared dock retains mode materials and input identity with aligned edges and keyboard clearance", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   for (const width of [320, 393, 768]) {
@@ -262,10 +262,13 @@ test("shared dock retains material and input identity with aligned edges and key
       return Math.max(...(["x", "y", "width", "height"] as const)
         .map(key => Math.abs(emptyTextFrame![key] - frame![key])));
     }, { message: "Route handoff must settle to the identical Agent Bar frame" }).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
-    expect(await material()).toEqual(textMaterial);
+    // Text keeps the reviewed translucent writing surface; voice retains its
+    // existing material while the shared frame and border remain stable.
+    expect(await material()).toMatchObject({ radius: textMaterial.radius, border: textMaterial.border });
     expect(await dock.evaluate((node, original) => node === original, retainedBar)).toBe(true);
     await page.getByTestId("fixture-route").click();
     await expect(input).toBeVisible();
+    expect(await material()).toEqual(textMaterial);
     // Routes retain the outer surface, not an unmounted route's textarea.
     await retainedInput?.dispose();
     const currentInput = await input.elementHandle();
@@ -274,6 +277,20 @@ test("shared dock retains material and input identity with aligned edges and key
     const navFrame = await page.locator(".kai-bottom-nav-pill").boundingBox();
     expect(Math.abs(barFrame!.x - navFrame!.x)).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
     expect(Math.abs(barFrame!.width - navFrame!.width)).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
+    for (const name of ["Start voice mode", "Send message"]) {
+      const action = page.getByRole("button", { name });
+      const target = await action.boundingBox();
+      const icon = await action.locator("svg").boundingBox();
+      expect(target!.width).toBeGreaterThanOrEqual(44);
+      expect(target!.height).toBeGreaterThanOrEqual(44);
+      expect(icon!.width).toBeLessThanOrEqual(16);
+      expect(icon!.height).toBeLessThanOrEqual(16);
+    }
+    const shotDir = process.env.BOTTOM_CHROME_SHOT_DIR;
+    if (shotDir && width === 393) {
+      fs.mkdirSync(shotDir, { recursive: true });
+      await page.screenshot({ path: path.join(shotDir, "shared-chat-dock-393.png"), animations: "disabled" });
+    }
     await page.getByTestId("fixture-mode").click();
     await expect(input).toBeHidden();
     await page.getByTestId("fixture-mode").click();
@@ -297,6 +314,11 @@ test("shared dock retains material and input identity with aligned edges and key
       document.documentElement.classList.remove("native-keyboard-inset", "kb-open");
       document.documentElement.style.removeProperty("--kb-height");
     });
+    await expect.poll(async () => {
+      const frame = await dock.boundingBox();
+      return Math.max(...(["x", "y", "width", "height"] as const)
+        .map(key => Math.abs(barFrame![key] - frame![key])));
+    }, { message: "Keyboard dismissal must restore the retained dock frame" }).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
     await page.getByTestId("fixture-route").click();
     await expect(input).toHaveCount(0);
     expect(await dock.evaluate((node, original) => node === original, retainedBar)).toBe(true);
@@ -314,7 +336,7 @@ test("Messages dock remains above the keyboard when the transcript reserves the 
     const input = page.getByRole("textbox", { name: "Message One" });
     await expect(input).toBeVisible();
     const agentSlot = page.locator("[data-bottom-shell-agent-slot]");
-    expect(await agentSlot.evaluate(node => getComputedStyle(node).translate)).toBe("none");
+    expect(await agentSlot.evaluate(node => getComputedStyle(node).translate)).toBe("0px");
     for (const mode of ["native-inset", "mobile-web", "resized-viewport"]) {
       const resized = mode === "resized-viewport";
       await page.setViewportSize({ width, height: resized ? 564 : 844 });

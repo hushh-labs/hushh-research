@@ -44,7 +44,6 @@ describe("setup catalog voice parity", () => {
     ]);
     const visibleSetupActionIds = new Set([
       "setup.open_cloud",
-      "setup.open_connections",
       ...ONE_SETUP_CAPABILITIES.map((capability) => capability.setupActionId),
     ]);
     expect(
@@ -52,8 +51,7 @@ describe("setup catalog voice parity", () => {
         .filter((action) => visibleSetupActionIds.has(action.action_id))
         .map((action) => mailDisplayLabel(action.label)),
     ).toEqual([
-      "Set up your cloud",
-      "Choose your AI",
+      "Set up your private agent",
       ...CAPABILITY_SETUP_COPY.map((capability) => capability.setupTitle),
     ]);
     expect(
@@ -86,7 +84,6 @@ describe("setup catalog voice parity", () => {
     );
     const orderedHubActionIds = [
       "setup.open_cloud",
-      "setup.open_connections",
       ...orderedActionIds,
     ];
     expect(

@@ -6171,7 +6171,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   border-radius: 50%;
   background: var(--app-accent);
 }
-.agent-chat-composer-actions .shell-action-surface:not([type="submit"]):not([data-testid="agent-chat-stop-turn"])::before {
+.agent-chat-composer-actions .shell-action-surface:not([data-agent-composer-action="send"]):not([data-agent-composer-action="stop"])::before {
   background: transparent;
 }
 .agent-chat-composer-actions .shell-action-surface:disabled::before {
@@ -6203,10 +6203,13 @@ html.kb-open :is([data-agent-dock-chat], [data-messages-dock]) [data-bottom-shel
 /* NativeDockPlacement follows UIKit's keyboard guide. Its DOM reservation
  * stays at the authored resting position; translating it would feed a second
  * keyboard offset back into the next native projection. */
-html:not(.kb-resizes) [data-agent-dock-chat]:not([data-native-agent-dock]) [data-bottom-shell-agent-slot],
-html.kb-open:not(.kb-resizes) [data-messages-dock]:not([data-native-agent-dock]) [data-bottom-shell-agent-slot] {
-  translate: 0 calc(max(0px, var(--kb-height, 0px) - var(--app-bottom-shell-keyboard-reservation, var(--app-bottom-shell-height, 0px)) + 0.5rem) * -1);
+html:not(.kb-resizes) :is([data-agent-dock-chat], [data-messages-dock]):not([data-native-agent-dock]) [data-bottom-shell-agent-slot] {
+  /* A zero navigation reservation is not a keyboard event. */
+  translate: 0 0;
   transition: translate var(--kb-motion-duration) var(--kb-motion-curve);
+}
+html.kb-open:not(.kb-resizes) :is([data-agent-dock-chat], [data-messages-dock]):not([data-native-agent-dock]) [data-bottom-shell-agent-slot] {
+  translate: 0 calc(max(0px, var(--kb-height, 0px) - var(--app-bottom-shell-keyboard-reservation, var(--app-bottom-shell-height, 0px)) + 0.5rem) * -1);
 }
 html.kb-open.kb-resizes :is([data-agent-dock-chat], [data-messages-dock]) {
   padding-bottom: 0.5rem !important;

@@ -41,6 +41,10 @@ vi.mock("@/lib/services/api-service", () => ({
 vi.mock("@/components/connections/byoc-cloud-card", () => ({
   ByocCloudCard: () => <div data-testid="byoc-cloud-card">Google project form</div>,
 }));
+vi.mock("@/components/connections/gemini-runtime-configuration-page", () => ({
+  GeminiRuntimeConfigurationPage: () => <section aria-label="AI access" />,
+}));
+
 vi.mock("@/components/onboarding/setup/setup-completion-footer", () => ({
   SetupCompletionFooter: () => null,
 }));
