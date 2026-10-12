@@ -27,11 +27,18 @@ class PkmAnswerCenterContributor:
                 -- not there instead of being shown a price that cannot exist.
                 (SELECT COUNT(*) FROM pkm_answer_request_scopes s
                    WHERE s.request_id=r.request_id) AS proposed_scope_count,
+                -- Whether the owner's device has actually prepared the answer,
+                -- and whether the approved information yielded anything. A
+                -- proposal count is what the resolver suggested; only this is
+                -- evidence that an answer exists to be bought.
+                d.request_id IS NOT NULL AS answer_staged,
+                d.has_content AS answer_has_content,
                 requester_identity.display_name AS requester_label, owner_identity.display_name AS owner_label,
                 EXISTS(SELECT 1 FROM connections c WHERE c.status='active' AND
                   ((c.user_a_id=r.owner_user_id AND c.user_b_id=r.requester_user_id) OR
                    (c.user_b_id=r.owner_user_id AND c.user_a_id=r.requester_user_id))) AS connected
                 FROM pkm_answer_requests r LEFT JOIN pkm_answer_payment_orders o USING(request_id)
+                LEFT JOIN pkm_answer_deliveries d ON d.request_id=r.request_id
                 LEFT JOIN actor_identity_cache requester_identity ON requester_identity.user_id=r.requester_user_id
                 LEFT JOIN actor_identity_cache owner_identity ON owner_identity.user_id=r.owner_user_id
                 WHERE r.owner_user_id=:user OR r.requester_user_id=:user ORDER BY r.created_at DESC"""),
@@ -92,6 +99,12 @@ class PkmAnswerCenterContributor:
                             "question": row["question"],
                             "amount_cents": row["amount_cents"],
                             "proposed_scope_count": int(row["proposed_scope_count"] or 0),
+                            "answer_staged": bool(row["answer_staged"]),
+                            "answer_has_content": (
+                                None
+                                if row["answer_has_content"] is None
+                                else bool(row["answer_has_content"])
+                            ),
                         },
                     }
                 )

@@ -1518,11 +1518,16 @@ export function useFeedActionables(): UseFeedActionablesResult {
             typeof entry.metadata?.amount_cents === "number"
               ? entry.metadata.amount_cents
               : null;
-          // The resolver proposed nothing, so there is no answer to buy. The
-          // requester used to wait on a price that could never be set.
-          const nothingMatched =
-            entry.metadata?.proposed_scope_count === 0 &&
-            (state === "awaiting_owner" || state === "pending_resolution");
+          // What the resolver suggested is not evidence that an answer
+          // exists. The owner's device prepares the answer at approval and
+          // says whether the approved information yielded anything; only that
+          // decides whether there is something to buy.
+          const staged = entry.metadata?.answer_staged === true;
+          const stagedEmpty = staged && entry.metadata?.answer_has_content === false;
+          // Approved, but the owner's device has not reported yet: it may be
+          // locked, offline or still reading. Saying "not found" here would
+          // be a guess, and offering a price would be one too.
+          const preparing = state === "approved" && !staged;
           const href = buildConsentCenterHref("pending", {
             requestId: entry.id,
             from: "/one/feed",
@@ -1536,23 +1541,31 @@ export function useFeedActionables(): UseFeedActionablesResult {
           const description = owner
             ? state === "answering"
               ? "Write answer"
-              : nothingMatched
-                ? "Nothing of yours matches this question"
+              : stagedEmpty
+                ? "Nothing of yours answers this question"
                 : "Set price"
-            : nothingMatched
+            : stagedEmpty
               ? "Answer not found"
-              : state === "approved"
-                ? // Approved means a price exists. Without the amount in this
-                  // projection the row still has to reach the same card.
-                  (payLabel ?? "Review price and pay")
-                : state === "answered"
-                  ? "Open the answer"
-                  : "Waiting for them to set a price";
+              : preparing
+                ? "Checking their memory for an answer"
+                : state === "approved"
+                  ? // Approved and prepared: a price exists. Without the
+                    // amount in this projection the row still reaches the card.
+                    (payLabel ?? "Review price and pay")
+                  : state === "answered"
+                    ? "Open the answer"
+                    : "Waiting for them to set a price";
           // Deny is inline because a refusal grants nothing. Allow opens the
           // review: approving binds the exact information and the price, and
           // neither can be shown on a row.
-          const ownerDeciding = owner && state === "awaiting_owner" && !nothingMatched;
-          const requesterPaying = !owner && state === "approved" && Boolean(payLabel);
+          const ownerDeciding = owner && state === "awaiting_owner" && !stagedEmpty;
+          // Pay is offered only against a prepared answer that has content.
+          const requesterPaying =
+            !owner &&
+            state === "approved" &&
+            staged &&
+            !stagedEmpty &&
+            Boolean(payLabel);
           const actions: FeedActionButton[] = ownerDeciding
             ? [
                 {
@@ -1596,7 +1609,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
                     },
                   },
                 ]
-              : nothingMatched
+              : stagedEmpty || preparing
                 ? []
                 : [
                     {

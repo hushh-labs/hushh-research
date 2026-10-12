@@ -1172,10 +1172,11 @@ const answerEntry = (
   ...overrides,
 });
 describe("Request scope Needs you", () => {
-  it.each([
-    ["owner", "answering", "Write answer"],
-    ["requester", "approved", "Review price and pay"],
-  ])("routes %s %s through its review card", async (role, state, label) => {
+  // An approved request whose answer has not been prepared yet has its own
+  // case below: it is neither priced nor declared missing.
+  it.each([["owner", "answering", "Write answer"]])(
+    "routes %s %s through its review card",
+    async (role, state, label) => {
     mocks.pendingCount = 1;
     mocks.consentItems = [answerEntry(role, state)];
     const { result } = renderHook(() => useFeedActionables());
@@ -1190,9 +1191,10 @@ describe("Request scope Needs you", () => {
     expect(mocks.push).toHaveBeenCalledWith(
       expect.stringContaining(encodeURIComponent(ANSWER_ID)),
     );
-    expect(mocks.allow).not.toHaveBeenCalled();
-    expect(mocks.decide).not.toHaveBeenCalled();
-  });
+      expect(mocks.allow).not.toHaveBeenCalled();
+      expect(mocks.decide).not.toHaveBeenCalled();
+    },
+  );
   // The owner decides this question the way they decide a document request:
   // Deny on the row, and Allow on the review that shows what it would use and
   // what it costs. Approving binds both, so neither fits on a row.
@@ -1239,6 +1241,8 @@ describe("Request scope Needs you", () => {
           request_status: "approved",
           role: "requester",
           proposed_scope_count: 2,
+          answer_staged: true,
+          answer_has_content: true,
           amount_cents: 100,
           question: "What is your age?",
         },
@@ -1269,6 +1273,8 @@ describe("Request scope Needs you", () => {
           request_status: "approved",
           role: "requester",
           proposed_scope_count: 2,
+          answer_staged: true,
+          answer_has_content: true,
           amount_cents: 100,
           question: "What is your age?",
         },
@@ -1291,16 +1297,20 @@ describe("Request scope Needs you", () => {
   });
 
   it("tells the requester the answer is not there instead of pricing it", () => {
-    // The resolver matched nothing, so no price can ever be set. The row used
-    // to sit in "Needs you" waiting on one.
+    // The owner's device prepared the answer and the approved information
+    // yielded nothing, so no price can ever be honoured. A suggested scope
+    // count would have said the opposite.
     mocks.pendingCount = 1;
     mocks.consentItems = [
-      answerEntry("requester", "awaiting_owner", {
+      answerEntry("requester", "approved", {
         metadata: {
           request_source: "answer_request",
-          request_status: "awaiting_owner",
+          request_status: "approved",
           role: "requester",
-          proposed_scope_count: 0,
+          proposed_scope_count: 3,
+          answer_staged: true,
+          answer_has_content: false,
+          amount_cents: 100,
         },
       }),
     ];
@@ -1309,6 +1319,31 @@ describe("Request scope Needs you", () => {
       (item) => item.id === `consent:${ANSWER_ID}`,
     )!;
     expect(row.description).toBe("Answer not found");
+    expect(row.actions).toEqual([]);
+  });
+
+  it("does not price an answer the owner's device has not reported yet", () => {
+    // Locked, offline or still reading. "Not found" would be a guess and so
+    // would a price, so the row says what is actually happening.
+    mocks.pendingCount = 1;
+    mocks.consentItems = [
+      answerEntry("requester", "approved", {
+        metadata: {
+          request_source: "answer_request",
+          request_status: "approved",
+          role: "requester",
+          proposed_scope_count: 3,
+          answer_staged: false,
+          amount_cents: 100,
+          question: "What is your age?",
+        },
+      }),
+    ];
+    const { result } = renderHook(() => useFeedActionables());
+    const row = result.current.actionables.find(
+      (item) => item.id === `consent:${ANSWER_ID}`,
+    )!;
+    expect(row.description).toBe("Checking their memory for an answer");
     expect(row.actions).toEqual([]);
   });
 

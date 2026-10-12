@@ -575,6 +575,8 @@ async def test_answer_center_role_status_isolation_and_single_row_per_request(an
                 "question",
                 "amount_cents",
                 "proposed_scope_count",
+                "answer_staged",
+                "answer_has_content",
             }
             # The Feed names the price and the question before the tap, so it
             # does not fetch one request per row. Both participants already
