@@ -116,6 +116,7 @@ def test_retained_modes_have_independent_credentials(monkeypatch):
 
 def test_uat_deploy_maps_composer_review_and_optional_retained_credentials():
     from pathlib import Path
+
     import yaml
 
     root = Path(__file__).resolve().parents[2]

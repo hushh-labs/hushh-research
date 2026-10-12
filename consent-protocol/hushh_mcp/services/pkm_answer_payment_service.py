@@ -32,7 +32,11 @@ from hushh_mcp.services.drive_request_payment_service import (
 from hushh_mcp.services.external_connector_lifecycle_store import (
     ExternalConnectorLifecycleStore,
 )
-from hushh_mcp.services.pkm_answer_config import answer_composer_enabled, answer_stripe_mode, available_answer_payment_modes
+from hushh_mcp.services.pkm_answer_config import (
+    answer_composer_enabled,
+    answer_stripe_mode,
+    available_answer_payment_modes,
+)
 from hushh_mcp.services.pkm_answer_config import answer_payment_config as _config
 
 #: Registered in the Stripe webhook dispatcher. An unregistered kind would fall

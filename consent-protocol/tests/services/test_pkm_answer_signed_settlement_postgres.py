@@ -64,8 +64,8 @@ def status(engine, request):
     "event_type", ["checkout.session.completed", "checkout.session.async_payment_succeeded"]
 )
 async def test_signed_dispatch_releases_exact_staged_answer_once(
-    answer_engine, monkeypatch, event_type, stripe_mode, switch_live
-):  # noqa: F811
+    answer_engine, monkeypatch, event_type, stripe_mode, switch_live  # noqa: F811
+):
     if stripe_mode == "live":
         monkeypatch.setenv("PKM_ANSWER_STRIPE_MODE", "live")
         monkeypatch.setenv("PKM_ANSWER_STRIPE_SECRET_KEY", "sk_live_synthetic_only_key")
