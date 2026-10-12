@@ -6,8 +6,8 @@ installed-digest verification. Post-update transfer resume retained one file ide
 byte-exact downloads, folders, inline rename/undo, move/undo and trash/restore passed.
 The download rehearsal used a memory-backed save adapter, not an OS-disk proof.
 Both disposable cloud fixtures completed current-image automatic organization and
-preserved original bytes. Personal semantic organization has dated Dev 15 evidence;
-its current-image repeat remains separate. Normal-owner Google provisioning and
+preserved original bytes. Personal Dev 17 synthetic organization also reached its terminal outcome and
+preserved original bytes. Semantic move/undo has separate dated Dev 15 evidence. Normal-owner Google provisioning and
 production acceptance are not established by isolated fixtures. Read the
 [readiness memo](../quality/adk-orchestration-docs-audit.md#acceptance-matrix)
 and [private-agent north star](../architecture/private-agent-north-star.md) together.
