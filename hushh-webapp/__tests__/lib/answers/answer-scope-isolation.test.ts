@@ -456,3 +456,41 @@ describe("identity facts recorded in Soul.md answer the question they were appro
     expect(hasContent).toBe(false);
   });
 });
+
+describe("a Soul-backed fact is finished work, not a failed read", () => {
+  const SOUL = "## Facts\n\n- Legal name: Smirthika Dharmalingam\n- Date of birth: 1998-03-14\n";
+
+  it("composes and stages when the structured leaf is simply absent", async () => {
+    // Identity facts have no structured leaf at all, so the per-scope export
+    // always fails for them. If that counts as an unreadable scope the request
+    // retries for ever and the answer is never staged, even though the fact
+    // was read successfully from the document.
+    loadMarkdownMemory.mockResolvedValue({ markdown: SOUL, dataVersion: 12 });
+    buildConsentExportForScope.mockRejectedValue(new Error("no structured leaf"));
+    compose.mockResolvedValue({
+      answerMode: "agent",
+      answer: "She is 27.",
+      covers: ["attr.identity.identity_profile.declared_age"],
+      gaps: [],
+    });
+    encrypt.mockResolvedValue({ ciphertext: "sealed" });
+    answerable.mockResolvedValue([
+      work({
+        approvedScopes: ["attr.identity.identity_profile.declared_age"],
+        question: "What is your age?",
+      }),
+    ]);
+
+    const result = await runAnswerDeliverySweep({
+      userId: "owner-A",
+      vaultKey: "key",
+      vaultOwnerToken: "token",
+      firebaseIdToken: "id-token",
+    });
+
+    expect(compose).toHaveBeenCalledTimes(1);
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(deliver.mock.calls[0]![2]).toMatchObject({ hasContent: true });
+    expect(result).toMatchObject({ delivered: 1, retry: 0, empty: 0 });
+  });
+});

@@ -216,10 +216,11 @@ export async function buildAnswerPayload(
         throw new Error("Vault session changed");
       const revision =
         typeof memory?.dataVersion === "number" ? memory.dataVersion : null;
-      for (const fact of projectApprovedSoulFacts({
+      const satisfied = projectApprovedSoulFacts({
         approvedScopes: soulBackedScopes,
         markdown: memory?.markdown,
-      })) {
+      });
+      for (const fact of satisfied) {
         const payload: Record<string, unknown> = {};
         let branch = payload;
         const segments = fact.relativePath.split(".");
@@ -228,6 +229,18 @@ export async function buildAnswerPayload(
         branch[segments[segments.length - 1]!] = fact.value;
         projections.push({ scope: fact.scope, payload, contentRevision: revision });
       }
+      // These facts have no structured leaf at all, so the per-scope export
+      // above always fails for them. That failure is the ABSENCE of a
+      // counterpart, not an unreadable source, and the document read that
+      // replaced it succeeded. Leaving the scope marked unavailable retried
+      // the request for ever and never staged an answer that was ready.
+      //
+      // Only a scope an actual fact was found for is cleared. A locked or
+      // changed vault throws out of this block instead, and a fact that was
+      // never recorded is not here, so both still stay unavailable.
+      const answered = new Set(satisfied.map((fact) => fact.scope));
+      for (let index = unavailableScopes.length - 1; index >= 0; index -= 1)
+        if (answered.has(unavailableScopes[index]!)) unavailableScopes.splice(index, 1);
     } catch {
       // A Soul document that could not be read is not an absent fact. Naming
       // the scopes keeps the caller's rule: this request stays queued rather
