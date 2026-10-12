@@ -153,6 +153,16 @@ its ceiling is unchanged. Exact hashes and parent revisions are retained in
 and every unrelated finding remain unchanged. Source qualification does not
 establish deployed behavior or successful provider-job cleanup.
 
+The continuation at `b12cd078` qualifies one existing capability-graph generator
+module slot, 947 to 960 lines, after independent `ci_registry_review` inspection.
+Bounded committed ancestry now retains both branches' workflow histories when
+they independently integrate the same base, including later and second-parent
+verification merges. The existing 18 graph-gate cases pass; the actual committed
+predecessor function fails the strengthened real-Git regression. Semantic,
+deprecation and revision-policy admission, the eight authored-ref cap and every
+other fitness finding remain unchanged. Exact evidence is recorded in
+`scope_commerce_parallel_history_20261012`; this is source qualification.
+
 ## GCP-only pod deployment correction — 2026-09-25
 
 Historical pointer: Anypoint pod deployment was removed; the CRM connector remains.

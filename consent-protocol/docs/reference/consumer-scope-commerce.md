@@ -34,9 +34,13 @@ are separately verified below; they do not prove a consumer purchase or payout.
   session, including query/event returns and account rotation. All 16 focused
   interface cases and typecheck pass. Main `1056ed5652` integration passes 237
   deployment/runtime, 26 lazy-pod/conversation and 25 real specialist-turn cases,
-  plus 447 Back cases before this final polish. Independent review fixes a shared
+  plus 447 Back cases and complete generated UI parity after final polish.
+  Independent review fixes a shared
   specialist's legacy-client selection while preserving injected owner models.
-  These changes still require final generated parity, complete core, hosted CI
+  Normal merge generation also preserves both independently integrated branch
+  workflow histories without changing semantic admission or authored ref caps;
+  all 18 nearest cases pass and the committed predecessor fails the strengthened
+  regression. These changes still require complete core, hosted CI
   and governed Dev promotion; they are not deployed acceptance.
 - Continuation source simplifies Account into balance/earnings followed by Add
   funds, Payouts, Refund unused balance and History disclosures. Saved/Add stay

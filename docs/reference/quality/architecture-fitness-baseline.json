@@ -15503,7 +15503,7 @@
       "limit": 500,
       "path": "consent-protocol/scripts/generate_capability_graph.py",
       "symbol": null,
-      "value": 947
+      "value": 960
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -31104,6 +31104,25 @@
             "parent"
           ],
           "reason": "Independently qualified per-turn managed project routing, injected owner-model precedence, lazy pod import safety, unfinished-call timing and freshly consented profile reads; real handle_turn and legacy negative controls passed."
+        }
+      ]
+    },
+    "scope_commerce_parallel_history_20261012": {
+      "parent_revision": "b12cd078b8d8ede62ee0c64802a10ede66710d75",
+      "reviewers": [
+        "ci_registry_review",
+        "parent"
+      ],
+      "evidence": "docs/reference/quality/adk-orchestration-docs-audit.md#reviewed-integration-debt",
+      "boundary": "Exactly one existing module-size slot; preserves independently integrated branch workflow histories using bounded committed ancestry and unchanged semantic/deprecation admission. No authored predecessor lists, eight-ref cap, budgets, scanner, exclusions or unrelated findings changed.",
+      "slots": [
+        {
+          "key": "module_size|consent-protocol/scripts/generate_capability_graph.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/scripts/generate_capability_graph.py",
+          "before": 947,
+          "after": 960,
+          "source_sha256": "1b0b705f8c4141600c149248dc017e13c9dab6d69533eca8c4ee51a2a276da6a",
+          "reason": "Existing 18 graph-gate cases pass, including both branches integrating the same base and a second-parent verification merge. The actual committed predecessor function fails that strengthened real-Git case; independent source review qualifies the 13-line correction."
         }
       ]
     }

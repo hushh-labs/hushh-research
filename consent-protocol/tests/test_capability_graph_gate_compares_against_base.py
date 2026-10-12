@@ -210,13 +210,24 @@ def test_merged_branch_history_is_selected_from_the_base_merge(repo: Repo) -> No
 
     assert generator._merged_workflow_predecessor_refs("main") == (feature_tip,)
 
+    # Both concurrent branches independently integrate the same base.
+    repo.git("checkout", "-q", "-b", "parallel", feature_tip)
+    (repo.root / "parallel.txt").write_text("concurrent feature\n", encoding="utf-8")
+    parallel_tip = repo.commit("concurrent feature history")
+    repo.git("merge", "--no-ff", "--no-edit", "main")
+    parallel_integrated = repo.git("rev-parse", "HEAD")
+    repo.git("checkout", "-q", "feature")
+    repo.git("merge", "--no-ff", "--no-edit", "parallel")
+    expected = {parallel_integrated, parallel_tip, feature_tip}
+    assert set(generator._merged_workflow_predecessor_refs("main")) == expected
+
     # A verification merge can carry the main merge through its second parent.
     repo.git("checkout", "-q", "-b", "verification", feature_tip)
     (repo.root / "verification.txt").write_text("isolated verification\n", encoding="utf-8")
     repo.commit("prepare isolated verification")
     repo.git("merge", "--no-ff", "--no-edit", "feature")
 
-    assert generator._merged_workflow_predecessor_refs("main") == (feature_tip,)
+    assert set(generator._merged_workflow_predecessor_refs("main")) == expected
 
 
 def test_base_ref_comparison_names_the_changed_action_and_fails(
