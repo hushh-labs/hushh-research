@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -87,6 +88,15 @@ class _Result:
     def __init__(self, data: list[dict[str, Any]]) -> None:
         self.data = data
 
+    def mappings(self):
+        return self
+
+    def first(self):
+        return self.data[0] if self.data else None
+
+    def scalar(self):
+        return next(iter(self.data[0].values())) if self.data else None
+
 
 class FakeDb:
     """In-memory stand-in for the ``one_wallet_cards`` table.
@@ -101,6 +111,14 @@ class FakeDb:
         self.rows: dict[str, dict[str, Any]] = {}
         self.identities: dict[str, dict[str, Any]] = {}
         self.fail_on: str | None = None
+        self.engine = self
+
+    @contextmanager
+    def begin(self):
+        yield self
+
+    def execute(self, sql, params=None):
+        return self.execute_raw(str(sql), params)
 
     # --- helpers -----------------------------------------------------
 
@@ -179,12 +197,19 @@ class FakeDb:
         compact = " ".join(sql.split())
         returning = "RETURNING" in compact.upper()
 
+        if "pg_advisory_xact_lock" in compact:
+            return _Result([])
+        if "to_regclass" in compact:
+            return _Result([{"installed": False}])
+
         if "FROM actor_identity_cache" in compact:
             row = self.identities.get(str(values.get("user_id")))
             return _Result([dict(row)] if row else [])
 
         if compact.upper().startswith("SELECT"):
             row = self._row_for(values, compact)
+            if compact.startswith("SELECT user_id FROM"):
+                return _Result([{"user_id": row["user_id"]}] if row else [])
             return _Result([dict(row)] if row else [])
 
         if "INSERT INTO one_wallet_cards" in compact:
@@ -811,6 +836,11 @@ def test_no_statement_ever_touches_the_projection_or_marketplace_planes(
 
     assert db.statements, "the lifecycle must actually have hit the database"
     for sql, _ in db.statements:
+        if "to_regclass" in sql:
+            continue
+        if "pg_advisory_xact_lock" in sql:
+            assert _["user_ids"] == [OWNER_ID]
+            continue
         assert "one_wallet_cards" in sql
         for table in FORBIDDEN_TABLES:
             assert table not in sql

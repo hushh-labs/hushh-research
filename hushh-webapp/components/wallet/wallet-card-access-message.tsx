@@ -9,6 +9,7 @@ import { WalletAccessCardDetails } from "./wallet-access-card-details";
 import profileStyles from "@/components/profile/profile-your-account.module.css";
 import { WalletCardAccessService, type CardAccessView } from "@/lib/services/wallet-card-access-service";
 import { AuthService } from "@/lib/services/auth-service";
+import { normalizePublicWalletCard, PublicWalletCardView } from "@/components/wallet-card/public-card-view";
 
 /** A message reference is untrusted. Only the authenticated server response authorizes a view. */
 export function WalletCardAccessMessage({ grantId, senderIsViewer = false }: { grantId: string; senderIsViewer?: boolean }) {
@@ -70,7 +71,7 @@ export function WalletCardAccessMessage({ grantId, senderIsViewer = false }: { g
     const tick = () => {
       const seconds = Math.max(0, Math.ceil((view.deadline - performance.now()) / 1000));
       setRemaining(seconds);
-      if (!seconds) setResult(previous => previous ? { ...previous, data: { ...previous.data, status: "expired", card: undefined } } : null);
+      if (!seconds) setResult(previous => previous ? { ...previous, data: { ...previous.data, status: "expired", card: undefined, profileCard: undefined } } : null);
     };
     tick();
     const timer = window.setInterval(tick, 250);
@@ -95,6 +96,7 @@ export function WalletCardAccessMessage({ grantId, senderIsViewer = false }: { g
     finally { verifying.current = false; if (isCurrent()) { setBusy(false); setRefreshKey(value => value + 1); } }
   };
   const card = open && remaining > 0 && view?.data.status === "active" ? view.data.card : undefined;
+  const profile = open && remaining > 0 && view?.data.status === "active" && view.data.profileCard ? normalizePublicWalletCard({ ...view.data.profileCard, updatedAt: view.data.profileCard.updatedOn }) : null;
   return <div className="space-y-2 print:hidden">
     <p className="text-sm">{senderIsViewer ? "You shared a card." : "A card was shared with you."}</p>
     {!senderIsViewer && !nativeViewerUnavailable ? <Button variant="secondary" size="compact" onClick={() => { setFailed(false); setOpen(true); }}>View card</Button> : null}
@@ -105,6 +107,8 @@ export function WalletCardAccessMessage({ grantId, senderIsViewer = false }: { g
           {failed ? <p role="alert" className="text-xs">Card unavailable. Close and try again.</p> : !view ? <p role="status">Checking access…</p> : null}
           {view?.data.status === "verification_required" ? <div className="space-y-3"><p className="text-xs">Verify your identity to view this card.</p><Button disabled={busy} onClick={() => void verify()}>{busy ? "Verifying…" : "Verify identity"}</Button></div> : null}
           {view?.data.status === "expired" || view?.data.status === "revoked" ? <p role="status">This access has ended.</p> : null}
+          {view?.data.status === "unavailable" ? <p role="status">This card is currently unavailable.</p> : null}
+          {profile ? <PublicWalletCardView embedded card={profile} /> : null}
           {card ? <>
             <p className="text-xs">{view?.data.senderName} shared this card. {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, "0")} remaining.</p>
             <div className="mx-auto mt-4 w-full max-w-md">
