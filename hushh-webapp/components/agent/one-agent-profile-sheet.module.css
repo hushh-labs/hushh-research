@@ -1,30 +1,30 @@
 .sheet {
-  width: 100%;
-  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
   gap: 0;
   padding: 0;
-}
-@media (min-width: 640px) {
-  .sheet {
-    width: 520px;
-    max-width: 520px;
-  }
+  font-family: var(--font-app-body);
 }
 .scroll {
   min-height: 0;
+  min-width: 0;
   flex: 1;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: calc(52px + var(--app-safe-area-top-effective, 0px)) 24px
-    calc(28px + var(--app-safe-area-bottom-effective, 0px));
+  scrollbar-gutter: stable;
+  padding: 12px var(--page-inline-gutter-standard)
+    max(24px, var(--app-safe-area-bottom-effective, 0px));
 }
 .hero {
   display: flex;
+  flex: none;
   flex-direction: column;
   align-items: center;
   gap: 8px;
+  padding: 20px var(--page-inline-gutter-standard) 16px;
   text-align: center;
-  margin-bottom: 32px;
 }
 .avatar {
   display: grid;
@@ -37,29 +37,31 @@
   box-shadow: var(--app-card-shadow-standard);
 }
 .title {
-  margin: 8px 0 0;
-}
-.privateBadge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--app-success-deep);
+  margin: 0;
+  font-family: var(--font-app-display);
 }
 .tabs {
-  gap: 24px;
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  gap: 0;
+  overflow: hidden;
 }
 .tabList {
-  width: 100%;
+  flex: none;
+  width: auto;
+  margin-inline: var(--page-inline-gutter-standard);
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.tabList button {
+  min-height: 44px;
 }
 .feed,
 .profile {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 10px;
 }
 .sectionHeading {
   display: flex;
@@ -68,7 +70,7 @@
   gap: 12px;
 }
 .sectionHeading h3 {
-  font-size: 16px;
+  font-size: var(--app-side-pane-section-size);
   font-weight: 600;
 }
 .sectionHeading button {
@@ -77,12 +79,12 @@
   justify-content: center;
   gap: 4px;
   min-height: 44px;
-  font-size: 12px;
+  font-size: var(--app-side-pane-row-description-size);
   color: var(--app-accent-deep);
 }
 .notice {
   color: var(--muted-foreground);
-  font-size: 14px;
+  font-size: var(--app-side-pane-row-title-size);
   padding: 16px 0;
 }
 .notice button {
@@ -106,7 +108,7 @@
   font-size: 13px;
 }
 .identityNote {
-  padding: 20px;
+  padding: 12px;
   border-radius: var(--app-card-radius-feature);
   background: var(--app-card-surface-compact);
 }
@@ -118,25 +120,26 @@
 }
 .identityNote h3 {
   margin: 8px 0;
-  font-size: 18px;
+  font-size: var(--app-side-pane-row-title-size);
   font-weight: 600;
 }
 .identityNote p {
   color: var(--muted-foreground);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--app-side-pane-row-title-size);
+  line-height: var(--app-side-pane-row-description-line);
 }
 .cards {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: 10px;
 }
 .fileCard {
   min-width: 0;
-  min-height: 206px;
-  padding: 20px;
-  border-radius: 24px;
+  min-height: 172px;
+  padding: 12px;
+  border-radius: 15px;
   color: white;
+  --app-side-pane-row-color: white;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -158,13 +161,13 @@
 }
 .fileCard h4 {
   margin: 12px 0 8px;
-  font-size: 18px;
+  font-size: var(--app-side-pane-row-title-size);
   font-weight: 600;
   overflow-wrap: anywhere;
 }
 .fileCard p {
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: var(--app-side-pane-row-description-size);
+  line-height: var(--app-side-pane-row-description-line);
   opacity: 0.85;
 }
 .cardFooter {
@@ -172,7 +175,7 @@
   justify-content: space-between;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--app-side-pane-row-description-size);
 }
 .memory:hover {
   filter: brightness(1.05);
@@ -181,14 +184,7 @@
   outline: 2px solid var(--app-accent-deep);
   outline-offset: 4px;
 }
-@media (max-width: 359px) {
-  .scroll {
-    padding-inline: 16px;
-  }
-  .fileCard {
-    padding: 16px;
-  }
-  .fileCard h4 {
-    font-size: 18px;
-  }
+@container one-profile-content (max-width: 270px) {
+  .cards { grid-template-columns: 1fr; }
 }
+.scroll { container: one-profile-content / inline-size; }

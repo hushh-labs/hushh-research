@@ -533,6 +533,9 @@ describe("document payout account", () => {
 
   it("reads the wallet once when the owner returns after a minute away", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"], shouldAdvanceTime: true });
+    // A return after 120s leaves the next aligned 45s poll 15s away.
+    // Keep this 2s resume assertion independent of the real wall-clock phase.
+    vi.setSystemTime(new Date("2026-10-11T00:00:00.000Z"));
     let hidden = false;
     Object.defineProperty(document, "hidden", { configurable: true, get: () => hidden });
     Object.defineProperty(document, "visibilityState", { configurable: true, get: () => (hidden ? "hidden" : "visible") });

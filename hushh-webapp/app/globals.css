@@ -2170,7 +2170,21 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
  * their existing presentation.
  */
 .profile-pane-sheet[data-slot="sheet-content"],
+[data-app-side-pane],
 [data-agent-history-drawer] {
+  /* One bounded-pane recipe for Profile and Chats. */
+  --app-side-pane-header-padding: 20px 68px 15px 20px;
+  --app-side-pane-row-inset: 6px;
+  --app-side-pane-row-gap: 5px;
+  --app-side-pane-row-title-size: 13px;
+  --app-side-pane-row-title-line: 1.2;
+  --app-side-pane-row-title-weight: 500;
+  --app-side-pane-row-description-size: 9px;
+  --app-side-pane-row-description-line: 1.2;
+  --app-side-pane-section-size: 10px;
+  --app-side-pane-section-line: 14px;
+  --app-side-pane-section-weight: 600;
+  --app-side-pane-section-tracking: 0.02em;
   --app-side-pane-gutter: clamp(12px, 2.5vw, 18px);
   --app-side-pane-top-inset: max(
     var(--app-side-pane-gutter),
@@ -2262,7 +2276,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 
 html.dark .profile-pane-sheet[data-slot="sheet-content"],
 .dark .profile-pane-sheet[data-slot="sheet-content"],
-.dark [data-agent-history-drawer] {
+.dark [data-agent-history-drawer],
+.dark [data-app-side-pane] {
   --profile-pane-surface: rgba(22, 24, 29, 0.73);
   --profile-pane-surface-strong: rgba(31, 34, 40, 0.86);
   --profile-pane-surface-soft: rgba(255, 255, 255, 0.045);
@@ -2279,6 +2294,23 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
     inset 1px 1px 0 rgba(255, 255, 255, 0.18),
     inset -1px -1px 0 rgba(0, 0, 0, 0.35) !important;
   color-scheme: dark;
+}
+
+/* WKWebView cannot reliably blur a transformed pane's own backdrop. */
+@supports (-webkit-backdrop-filter: blur(1px)) {
+  [data-app-side-pane],
+  .dark [data-app-side-pane] {
+    --profile-pane-surface: var(--background);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+[data-app-side-pane] [data-slot="settings-row-icon"],
+[data-app-side-pane] [data-slot="settings-row-icon"] > *,
+[data-app-side-pane] [data-slot="settings-row-icon"] svg {
+  width: 22px !important;
+  height: 22px !important;
 }
 
 /* Chat mirrors Profile at the leading edge. The card owns its material;
@@ -2319,10 +2351,49 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   border-color: var(--profile-pane-hair);
 }
 
-.profile-pane-header {
+[data-agent-history-drawer] [data-agent-history-sidebar="drawer"] {
+  font-family: var(--font-app-body);
+  color: var(--ios-account-label);
+}
+
+[data-agent-history-drawer] [data-agent-history-close] {
+  right: 20px;
+}
+
+[data-agent-history-drawer] [data-agent-history-controls] {
+  padding-inline: var(--page-inline-gutter-standard);
+}
+
+[data-agent-history-drawer] :is([data-agent-history-row], [data-drive-sharing-row]) {
+  border-radius: 15px;
+}
+
+[data-agent-history-drawer] [data-agent-history-row] > div > button,
+[data-agent-history-drawer] [data-drive-sharing-row],
+[data-agent-history-drawer] [data-agent-history-footer] button,
+[data-agent-history-drawer] [data-chat-new-button] {
+  min-height: 44px;
+  padding: var(--app-side-pane-row-inset);
+  gap: var(--app-side-pane-row-gap);
+}
+
+[data-agent-history-drawer] [data-chat-new-button] > svg,
+[data-agent-history-drawer] [data-drive-sharing-row] > :first-child {
+  height: 22px;
+  width: 22px;
+}
+
+[data-agent-history-drawer] [data-agent-history-section-label] {
+  padding-inline: var(--app-side-pane-row-inset);
+  padding-block: 0;
+  margin-block: 10px 5px;
+}
+
+.profile-pane-header,
+[data-agent-history-drawer] [data-agent-history-header] {
   z-index: 2 !important;
   gap: 4px !important;
-  padding: 20px 68px 15px 20px !important;
+  padding: var(--app-side-pane-header-padding) !important;
   border-color: var(--profile-pane-hair) !important;
   background: linear-gradient(180deg, var(--profile-pane-surface-soft), transparent);
 }
@@ -2336,7 +2407,8 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   line-height: 1.15 !important;
 }
 
-.profile-pane-header [data-slot="sheet-description"] {
+.profile-pane-header [data-slot="sheet-description"],
+[data-agent-history-drawer] [data-agent-history-description] {
   color: var(--ios-account-secondary-label) !important;
   font-family: var(--font-app-body) !important;
   font-size: 12px !important;
@@ -2384,7 +2456,9 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   stroke-width: 1.8;
 }
 
-.profile-pane-close {
+.profile-pane-close,
+.app-side-pane-close,
+[data-agent-history-drawer] [data-agent-history-close] {
   top: 20px !important;
   width: 44px !important;
   height: 44px !important;
@@ -2397,7 +2471,9 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
     transform 280ms cubic-bezier(0.2, 0.9, 0.2, 1) !important;
 }
 
-.profile-pane-close:hover {
+.profile-pane-close:hover,
+.app-side-pane-close:hover,
+[data-agent-history-drawer] [data-agent-history-close]:hover {
   background: var(--profile-pane-surface-strong) !important;
   color: var(--ios-account-label) !important;
   transform: rotate(5deg);
@@ -2482,7 +2558,8 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
 }
 
 /* Every Profile panel shares the pane's material, including nested details. */
-.profile-pane-scroll-root [data-slot="settings-group-shell"] {
+.profile-pane-scroll-root [data-slot="settings-group-shell"],
+[data-app-side-pane] [data-slot="settings-group-shell"] {
   border: 0 !important;
   border-radius: 15px !important;
   background: transparent !important;
@@ -2531,19 +2608,26 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   }
 }
 
-.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"] {
-  --settings-row-px: 6px !important;
-  --settings-row-py: 6px !important;
-  --settings-row-gap: 5px !important;
+.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"],
+[data-app-side-pane] [data-row-layout="settings"] {
+  --settings-row-px: var(--app-side-pane-row-inset) !important;
+  --settings-row-py: var(--app-side-pane-row-inset) !important;
+  --settings-row-gap: var(--app-side-pane-row-gap) !important;
   min-height: 43px !important;
   padding: 0 !important;
   transition: transform 320ms cubic-bezier(0.2, 0.9, 0.2, 1), color 200ms ease;
 }
 
 .profile-pane-scroll-root .profile-home-content [data-row-layout="settings"] > button:not([data-slot="settings-row-action"]),
-.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"] [data-slot="settings-row-content"] {
+.profile-pane-scroll-root .profile-home-content [data-row-layout="settings"] [data-slot="settings-row-content"],
+[data-app-side-pane] [data-row-layout="settings"] [data-slot="settings-row-content"] {
   min-height: 43px !important;
   padding: 6px !important;
+}
+
+[data-app-side-pane] [data-row-layout="settings"],
+[data-app-side-pane] [data-row-layout="settings"] [data-slot="settings-row-content"] {
+  min-height: 44px !important;
 }
 
 .profile-pane-scroll-root .profile-home-content [data-row-layout="settings"]::after {
@@ -2748,6 +2832,8 @@ html.dark .profile-pane-sheet[data-slot="sheet-content"],
   }
 
   .profile-pane-close,
+  .app-side-pane-close,
+  [data-agent-history-drawer] [data-agent-history-close],
   .profile-pane-scroll-root .profile-home-content [data-row-layout="settings"] {
     transition: none !important;
   }
@@ -9054,7 +9140,8 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
    pane's reference scale in that same layer so it survives those locks. */
 @layer base {
   .profile-pane-sheet .profile-pane-header [data-slot="sheet-title"],
-  [data-agent-history-drawer] [data-agent-history-title] {
+  [data-agent-history-drawer] [data-agent-history-title],
+  [data-app-side-pane] [data-slot="sheet-title"] {
     font-size: 20px !important;
     line-height: 1.15 !important;
     font-weight: 700 !important;
@@ -9069,27 +9156,47 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   }
 
   .profile-pane-scroll-root .app-page-shell .profile-home-content
-    [data-slot="settings-group-heading"][role="heading"][aria-level="2"] {
+    [data-slot="settings-group-heading"][role="heading"][aria-level="2"],
+  [data-agent-history-drawer] [data-agent-history-section-label],
+  [data-app-side-pane] [data-app-pane-section-label] {
+    font-family: var(--font-app-body) !important;
     color: var(--ios-account-secondary-label) !important;
-    font-size: 10px !important;
-    line-height: 14px !important;
-    font-weight: 600 !important;
-    letter-spacing: 0.02em !important;
+    font-size: var(--app-side-pane-section-size) !important;
+    line-height: var(--app-side-pane-section-line) !important;
+    font-weight: var(--app-side-pane-section-weight) !important;
+    letter-spacing: var(--app-side-pane-section-tracking) !important;
   }
 
   .profile-pane-scroll-root .app-page-shell .profile-home-content
-    [data-slot="settings-row-title"] {
-    color: var(--ios-account-label) !important;
-    font-size: 13px !important;
-    line-height: 1.2 !important;
-    font-weight: 500 !important;
+    [data-slot="settings-row-title"],
+  [data-agent-history-drawer] [data-agent-history-row-title],
+  [data-app-side-pane] [data-slot="settings-row-title"],
+  [data-app-side-pane] [data-slot="tabs-trigger"],
+  [data-app-side-pane] [data-app-pane-row-title] {
+    font-family: var(--font-app-body) !important;
+    color: var(--app-side-pane-row-color, var(--ios-account-label)) !important;
+    font-size: var(--app-side-pane-row-title-size) !important;
+    line-height: var(--app-side-pane-row-title-line) !important;
+    font-weight: var(--app-side-pane-row-title-weight) !important;
   }
 
   .profile-pane-scroll-root .app-page-shell .profile-home-content
-    [data-slot="settings-row-description"] {
+    [data-slot="settings-row-description"],
+  [data-agent-history-drawer] [data-agent-history-row-description],
+  [data-app-side-pane] [data-slot="settings-row-description"] {
+    font-family: var(--font-app-body) !important;
     color: var(--ios-account-secondary-label) !important;
-    font-size: 9px !important;
-    line-height: 1.2 !important;
+    font-size: var(--app-side-pane-row-description-size) !important;
+    line-height: var(--app-side-pane-row-description-line) !important;
+  }
+
+  [data-app-side-pane] [data-slot="settings-row-title"] span {
+    font-weight: var(--app-side-pane-row-title-weight) !important;
+  }
+
+  [data-app-side-pane] [data-slot="settings-row-description"] :is(time, [data-ui-role]) {
+    font-size: var(--app-side-pane-row-description-size) !important;
+    line-height: var(--app-side-pane-row-description-line) !important;
   }
 
   .profile-pane-scroll-root .app-page-shell [data-profile-stack-content="true"]
@@ -9196,8 +9303,8 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
   text-align: center;
 }
 .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-brand-tile] {
-  width: 64px;
-  height: 64px;
+  width: 72px;
+  height: 72px;
 }
 .agent-chat-header[data-one-centered-header="true"] [data-agent-chat-header-region="identity"] > div:last-child {
   max-width: 100%;

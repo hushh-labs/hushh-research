@@ -997,6 +997,7 @@ export function WalletWorkspace() {
             <div className="mx-auto w-full max-w-[820px] pb-4">
               <SecureCardAddForm
                 backRoute={ROUTES.ONE_WALLET}
+                getNetworkContext={vaultContext}
                 scanInToolbar
                 key={`${renderedOwnerId}:${filing?.secretId ?? "new"}:${offerNickname ?? ""}:${formRevision}`}
                 active={activeTab === "add"}

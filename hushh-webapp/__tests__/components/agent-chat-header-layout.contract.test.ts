@@ -109,9 +109,9 @@ describe("agent chat header layout", () => {
     const header = headerBlock();
     expect(header).toContain("<HushhMark");
     expect(header).toContain(
-      'className="h-16 w-16 items-center justify-center overflow-visible"',
+      'className="size-[72px] items-center justify-center overflow-visible"',
     );
-    expect(header).toContain('imageClassName="!h-14 !w-14"');
+    expect(header).toContain('imageClassName="!size-16"');
     expect(header).not.toContain("🤫");
   });
 });

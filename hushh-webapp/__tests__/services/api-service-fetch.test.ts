@@ -1,12 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const googlePlacement = vi.hoisted(() => vi.fn(async () => false));
 vi.mock('@/lib/services/private-agent-specialist-chat', () => ({ ownerContentIsPrivate: googlePlacement }));
-vi.mock('@/lib/services/owner-pod-endpoint', () => ({
-  loadPinnedEndpoint: async () => null,
-  refreshEndpointFromHub: async () => ({}),
-  currentPodConnection: async () => ({ endpoint: { hushhId: 'ha1_owner', url: 'https://owner.a.run.app' },
-    session: { session: 'synthetic-pod-session' } }),
-}));
 
 
 const capacitorMocks = vi.hoisted(() => ({
@@ -168,34 +162,6 @@ describe("ApiService.apiFetch", () => {
     expect(beforeDispatch).toHaveBeenCalledOnce();
     expect(mockFetch).not.toHaveBeenCalled();
   });
-
-  it.each([["shared", false], ["shared", true], ["pod", false], ["pod", true]] as const)(
-    "keeps %s Stop authority through final HTTP setup (native=%s)", async (source, native) => {
-      vi.stubEnv("NEXT_PUBLIC_BACKEND_URL", "https://dev.example");
-      capacitorMocks.isNativePlatform.mockReturnValue(native);
-      vi.mocked(AuthService.getCurrentUser).mockReturnValue({ uid: "owner" } as ReturnType<typeof AuthService.getCurrentUser>);
-      vi.mocked(AuthService.getIdToken).mockResolvedValue("synthetic-id-token");
-      vi.spyOn(ApiService, "getPersonalAgentStatus").mockResolvedValue({ hostingMode: "shared" } as Awaited<ReturnType<typeof ApiService.getPersonalAgentStatus>>);
-      for (const retired of [true, false]) {
-        let current = true;
-        const options = { method: "POST", beforeDispatch: async () => { queueMicrotask(() => { current = !retired; }); },
-          isEffectCurrent: () => true };
-        mockFetch.mockReset().mockResolvedValue(jsonResponse({ stopped: true }));
-        capacitorMocks.request.mockReset().mockResolvedValue({ status: 200, data: { stopped: true }, headers: {} });
-        const request = source === "shared"
-          ? ApiService.agentChatRequest("/api/one/agent-chat/runs/old/stop", options, false, undefined, () => current)
-          : ApiService.ownerPodRequest("agent-chat/runs/old/stop", options, false, undefined, undefined, () => current);
-        if (retired) {
-          await expect(request).rejects.toMatchObject({ name: "AbortError" });
-          expect(mockFetch).not.toHaveBeenCalled();
-          expect(capacitorMocks.request).not.toHaveBeenCalled();
-        } else {
-          await expect(request).resolves.toHaveProperty("ok", true);
-          expect(native ? capacitorMocks.request : mockFetch).toHaveBeenCalledOnce();
-        }
-      }
-    },
-  );
 
   it.each(["unmount", "owner", "owner-round-trip"])("blocks Google completion at real transport dispatch after %s", async (change) => {
     publishValidatedAuthSessionOwner("synthetic-owner");

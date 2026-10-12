@@ -65,7 +65,9 @@ def status(engine, request):
     "event_type", ["checkout.session.completed", "checkout.session.async_payment_succeeded"]
 )
 async def test_signed_dispatch_releases_exact_staged_answer_once(
-    answer_engine, monkeypatch, event_type
+    answer_engine,
+    monkeypatch,
+    event_type,
 ):
     requests, request, _ = await _approved(answer_engine)
     api = Mock()
@@ -156,7 +158,8 @@ async def test_signed_dispatch_releases_exact_staged_answer_once(
 
 
 async def test_async_pending_then_success_and_expiry_are_signed_lane_events(
-    answer_engine, monkeypatch
+    answer_engine,
+    monkeypatch,
 ):
     requests, request, _ = await _approved(answer_engine, prepared=True)
     api = Mock()
@@ -205,7 +208,9 @@ async def test_async_pending_then_success_and_expiry_are_signed_lane_events(
 
 @pytest.mark.parametrize("cancel_first", [False, True])
 async def test_disconnect_before_delayed_payment_withholds_stage_and_refunds(
-    answer_engine, monkeypatch, cancel_first
+    answer_engine,
+    monkeypatch,
+    cancel_first,
 ):
     requests, request, _ = await _approved(answer_engine, prepared=True)
     api = Mock()

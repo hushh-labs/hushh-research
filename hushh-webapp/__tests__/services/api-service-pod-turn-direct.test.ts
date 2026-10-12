@@ -117,6 +117,34 @@ function json(body: unknown, status = 200) {
 }
 
 describe("ApiService owner-direct pod path", () => {
+  it.each([["shared", false], ["shared", true], ["pod", false], ["pod", true]] as const)(
+    "keeps %s Stop authority through final HTTP setup (native=%s)", async (source, native) => {
+      vi.stubEnv("NEXT_PUBLIC_BACKEND_URL", "https://dev.example");
+      capacitorMocks.isNativePlatform.mockReturnValue(native);
+      vi.useRealTimers();
+      ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(source === "pod" ? PIN : null);
+      ownerPodMocks.currentPodSession.mockResolvedValue(SESSION);
+      for (const retired of [true, false]) {
+        let current = true;
+        const options = { method: "POST", beforeDispatch: async () => { queueMicrotask(() => { current = !retired; }); },
+          isEffectCurrent: () => true };
+        mockFetch.mockReset().mockResolvedValue(json({ stopped: true }));
+        capacitorMocks.request.mockReset().mockResolvedValue({ status: 200, data: { stopped: true }, headers: {} });
+        const request = source === "shared"
+          ? ApiService.agentChatRequest("/api/one/agent-chat/runs/old/stop", options, false, undefined, () => current)
+          : ApiService.ownerPodRequest("agent-chat/runs/old/stop", options, false, undefined, undefined, () => current);
+        if (retired) {
+          await expect(request).rejects.toMatchObject({ name: "AbortError" });
+          expect(mockFetch).not.toHaveBeenCalled();
+          expect(capacitorMocks.request).not.toHaveBeenCalled();
+        } else {
+          await expect(request).resolves.toHaveProperty("ok", true);
+          expect(native ? capacitorMocks.request : mockFetch).toHaveBeenCalledOnce();
+        }
+      }
+    },
+  );
+
   beforeEach(() => {
     vi.spyOn(ApiService, "getPersonalAgentStatus").mockResolvedValue({
       hostingMode: "shared", state: "active", hushhId: "ha1_owner",
@@ -133,6 +161,8 @@ describe("ApiService owner-direct pod path", () => {
   });
 
   afterEach(() => {
+    capacitorMocks.isNativePlatform.mockReturnValue(false);
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
     vi.useRealTimers();
   });

@@ -31,7 +31,7 @@ are separately verified below; they do not prove a consumer purchase or payout.
 The existing `claude/hushh-infrastructure-analysis-7o991c` branch is the integration
 owner; PR #7555 and issue #7587 remain active. The remote pod-release and Android
 corrections are preserved. Main `337c4759e1b2` was merged normally at `9e5e58982b1c`;
-the continuation incorporates main `be71618d99` and the concurrent branch's
+the continuation incorporates main through `bf6ec5d728` and the concurrent branch's
 `e04b76c614` through normal merges. Shared
 history, unrelated workspace edits and the frozen migration preservation receipt
 remain intact. Main's 315–325 registrations retain their existing numbers. This lane's six
@@ -49,6 +49,17 @@ fabricated: private-lane 900–958 records do not prove release-schema absence.
 | Connect | Scope uses individual consumer defaults; document/answer creation preserves historical intent and prepares unconfigured individual profiles before hosted links | Historical accounts retained; cross-source compatibility cannot be inferred from owner identity |
 | Private processing | Cached research and final release recheck current owner placement | Primary owner callback verified; private provisioning awaits provider registration |
 | One Stripe MCP | Separate owner OAuth, current-binding account proof and constrained balance read | Authenticated Dev reads remain pending; host ChatGPT connector is not a prerequisite |
+
+Issue #7587 owns this integration and Sandbox acceptance. Issue
+[#7819](https://github.com/hushh-labs/hushh-research/issues/7819) owns the prepared-answer
+contract; it is related work, not a duplicate timed-access implementation.
+
+| Responsibility | Existing authority |
+| --- | --- |
+| Provider transport and hosted links | Replaceable Stripe adapters and shared onboarding-link validation; retain each caller's credentials and retry intent |
+| Document and prepared-answer sales | Existing PKM settlement, shared webhook and payout service; one purchase delivers one answer |
+| Timed information access | Scope-commerce quotes, journal, staging, access checks and reconciliation; payment never expands consent |
+| Payment interface | Existing Payouts route composes labelled source projections; no merged balance or replacement ledger |
 
 Latest merge checks pass 83 graph/payout cases and 53 profile/Wallet cases;
 the preceding selection passed 187 backend/Postgres cases apart from two graph
@@ -68,6 +79,10 @@ the final web/native HTTP dispatch check. Retirement cannot route an old Stop
 through a successor session; same-owner cancellation and detach behavior remain
 covered. This source boundary does not prove process-loss recovery or an owner
 pod image upgrade.
+The 207 client/HTTP cases pass. Seven retirement cases fail against actual
+incoming source while the ordinary cancellation control passes. Final-dispatch
+coverage lives in the existing direct-pod test owner rather than expanding the
+oversized generic fetch suite.
 
 Latest-main integration preserves prepared-answer payment ownership. Incoming
 profile-review normalization now retains model citations and semantic metadata

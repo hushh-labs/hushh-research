@@ -69,7 +69,7 @@ describe("device guard", () => {
     expect(plan.captures.map((capture) => [capture.patternId, capture.label])).toEqual([
       ["model_provider_key", "openai API key ending 9f2a"],
       ["password_assignment", "Netflix password"],
-      ["card_number", "Visa card ending 1111"],
+      ["card_number", "Card ending 1111"],
       ["passport_number", "Passport ending 4567"],
       ["github_token", "GitHub token ending 4f2a"],
     ]);

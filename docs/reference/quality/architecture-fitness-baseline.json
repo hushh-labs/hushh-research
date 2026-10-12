@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2481,
+  "finding_count": 2482,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -18311,7 +18311,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/wallet-workspace.test.tsx",
       "symbol": null,
-      "value": 691
+      "value": 704
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18932,7 +18932,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/agent-history-sidebar.tsx",
       "symbol": null,
-      "value": 804
+      "value": 805
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20120,7 +20120,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/wallet/wallet-workspace.tsx",
       "symbol": null,
-      "value": 1121
+      "value": 1122
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -20174,7 +20174,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 1374
+      "value": 1436
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22092,7 +22092,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/payouts/hashcoin-payouts.test.tsx",
       "symbol": null,
-      "value": 703
+      "value": 706
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -22332,10 +22332,19 @@
       "kind": "function_size",
       "path": "consent-protocol/tests/services/test_pkm_answer_signed_settlement_postgres.py",
       "detail": "function exceeds the advisory gene budget",
-      "value": 89,
+      "value": 91,
       "limit": 80,
       "symbol": "test_signed_dispatch_releases_exact_staged_answer_once",
       "key": "function_size|consent-protocol/tests/services/test_pkm_answer_signed_settlement_postgres.py|test_signed_dispatch_releases_exact_staged_answer_once|function exceeds the advisory gene budget"
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_hushh_adk_turn.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_hushh_adk_turn.py",
+      "symbol": "",
+      "value": 514
     }
   ],
   "inspected_files": 6625,
@@ -37184,6 +37193,55 @@
         "after": 3381,
         "incoming_main_bound": 3395,
         "source_sha256": "675427d0baca3f573e70fe81a190f84bdec3976f89e0f53627860a9352511767"
+      }
+    ]
+  },
+  "scope_commerce_wallet_network_main_merge_20261012": {
+    "incoming_main": "bf6ec5d7282f5c0b385a94d8ad21ef1c82d7a139",
+    "retained_parent": "a1b0a6ed3b",
+    "review": "Independent ci_registry_review qualifies exactly seven incoming/retained composition spans. Signed-settlement AST is unchanged; the restored ADK progress test retains its positive control and uses the canonical timeout category. Wallet backend classification is composed with existing owner, vault and Back checks. Preserve every other entry, multiplicity, budget, scanner and future-growth gate. Stop HTTP coverage was moved to its existing 488-line test owner instead of accepting growth in the generic fetch suite. Source qualification does not establish deployed acceptance.",
+    "findings": [
+      {
+        "key": "function_size|consent-protocol/tests/services/test_pkm_answer_signed_settlement_postgres.py|test_signed_dispatch_releases_exact_staged_answer_once|function exceeds the advisory gene budget",
+        "before": 89,
+        "after": 91,
+        "source_sha256": "dae7623857f1bb9c74b605ce223606843889fa7188ec2d954dc30eef69faa159"
+      },
+      {
+        "key": "module_size|hushh-webapp/e2e/connections-drawer.layout.spec.ts||module exceeds the advisory operon budget",
+        "before": 1374,
+        "after": 1436,
+        "source_sha256": "a40f87246b5620e66d6a7db8f3304997c943136b9396898c93a47b9a01947980"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/wallet/wallet-workspace.tsx||module exceeds the advisory operon budget",
+        "before": 1121,
+        "after": 1122,
+        "source_sha256": "0fcc733c6896bec82ed952b1dd593c748d200e494be2ddc384607f87c6a123a3"
+      },
+      {
+        "key": "module_size|hushh-webapp/components/agent/agent-history-sidebar.tsx||module exceeds the advisory operon budget",
+        "before": 804,
+        "after": 805,
+        "source_sha256": "52cd657d2e9da6d2c1b8eb2260b9cab2908b4a3c78d599db91aea296000bae6d"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/payouts/hashcoin-payouts.test.tsx||module exceeds the advisory operon budget",
+        "before": 703,
+        "after": 706,
+        "source_sha256": "4600035e5b95d955c4bffa1b31552002068d67c606263e242980bafcc7045530"
+      },
+      {
+        "key": "module_size|hushh-webapp/__tests__/components/wallet-workspace.test.tsx||module exceeds the advisory operon budget",
+        "before": 691,
+        "after": 704,
+        "source_sha256": "6b02c727e098d101747a5526ce9541db25a03380e5cf92e85f8c9fb074050e83"
+      },
+      {
+        "key": "module_size|consent-protocol/tests/test_hushh_adk_turn.py||module exceeds the advisory operon budget",
+        "before": null,
+        "after": 514,
+        "source_sha256": "0a5447ac34b488b4e72969188a00b58547faa993b86bc403b906584f805c0416"
       }
     ]
   }
