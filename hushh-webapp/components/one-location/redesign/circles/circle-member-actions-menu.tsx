@@ -150,8 +150,7 @@ export const MEMBER_ACTIONS_SHEET_ITEM_CLASSNAME =
 export const MEMBER_ACTIONS_SHEET_CTA_CLASSNAME =
   "mx-auto w-full max-w-[244px]";
 
-const MEMBER_REMOVE_CONFIRM_CLASSNAME =
-  "w-full bg-destructive text-[color:var(--destructive-foreground)] hover:bg-destructive/90";
+const MEMBER_REMOVE_CONFIRM_CLASSNAME = "w-full";
 
 /* ------------------------------------------------------------------ */
 /* Confirmation copy                                                  */

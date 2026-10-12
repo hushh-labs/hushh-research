@@ -118,6 +118,8 @@ export default defineConfig({
       // that matters is the WKWebView the app ships in. Its fixture builds its
       // own document.
       testMatch: [
+        /one-location-checkin-card\.layout\.spec\.ts/,
+        /person-profile-actions\.layout\.spec\.ts/,
         /sms-flow\.layout\.spec\.ts/,
         /mobile-overlay-safe-area\.layout\.spec\.ts/,
         // The shared voice/text dock and keyboard clearance ship in WKWebView.
