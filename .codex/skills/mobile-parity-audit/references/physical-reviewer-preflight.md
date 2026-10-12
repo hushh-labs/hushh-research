@@ -77,6 +77,9 @@ another reviewer store or a privileged app-unlock route.
 4. Run one attach-only batch per physical device, serially within that device;
    independent devices may run concurrently. Keep credentials out of subsequent
    warm batches once normal admission is established.
+   When order is part of the proof, verify observed test-start order; an ordered
+   CLI selection does not establish XCTest execution order. Use separate
+   attach-only runs when necessary, without relaunching or resetting the app.
 5. Check destination/admission before content. Finance setup is not a passed
    Finance workspace; missing fixtures are not successful empty states. Keep
    rapid interruption tests, and distinguish tap delivery from later settlement.
