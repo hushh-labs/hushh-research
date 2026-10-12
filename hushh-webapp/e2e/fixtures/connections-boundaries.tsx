@@ -94,3 +94,10 @@ export function useGmailConnectorStatus() {
     },
   };
 }
+
+// Feed-preview layout never reads or persists a native recipient key.
+export const HushhKeychain = {
+  get: async () => ({ value: null }),
+  set: async () => { throw new Error("Not admitted in layout fixture"); },
+  delete: async () => { throw new Error("Not admitted in layout fixture"); },
+};

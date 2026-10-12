@@ -231,7 +231,7 @@ function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, s
         }} title="Hide this update without changing file access">Hide this update</Button>
     </> : null;
     const rows = <section className={page ? "p-4" : "mb-2 border-b border-[color:var(--one-chat-divider)] pb-2"} aria-label="Drive sharing activity">
-      {!page && <h3 className="px-3 pb-1 pt-1.5 text-[13.5px] font-normal text-[color:var(--one-chat-meta)]">Drive sharing</h3>}
+      {!page && <h3 data-agent-history-section-label className="px-3 pb-1 pt-1.5 text-[13.5px] font-normal text-[color:var(--one-chat-meta)]">Drive sharing</h3>}
       {bulkError && !bulkErrorDismissed ? <div className="px-3 py-2 text-xs text-muted-foreground">
         <p>Couldn’t load Drive activity.</p>
         <button type="button" className="min-h-11 font-medium text-foreground underline underline-offset-2"
@@ -252,8 +252,8 @@ function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, s
           aria-label={`${title}. ${summary}. View details`}
           onClick={event => { selectedSidebar.current = event.currentTarget.closest("[data-agent-history-sidebar]"); setSelectedShareId(share.shareId); }}>
           <ConnectorBrandMark brand="drive" />
-          <span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-medium leading-5">{title}</span>
-            <span className="block truncate text-[12px] leading-4 text-[color:var(--one-chat-meta)]">{summary}</span></span>
+          <span className="min-w-0 flex-1"><span data-agent-history-row-title className="block truncate text-[13px] font-medium leading-5">{title}</span>
+            <span data-agent-history-row-description className="block truncate text-[12px] leading-4 text-[color:var(--one-chat-meta)]">{summary}</span></span>
           {active ? <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-accent animate-pulse motion-reduce:animate-none" /> : null}
           <ChevronRight className="size-4 shrink-0 text-[color:var(--one-chat-meta)]" aria-hidden="true" />
         </button></div>;

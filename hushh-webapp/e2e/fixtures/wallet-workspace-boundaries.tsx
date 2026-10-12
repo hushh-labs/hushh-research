@@ -3,7 +3,6 @@
 // card, and nothing leaves the page. The scenario is read from
 // `window.__walletScenario`, set by the spec before the fixture script runs.
 import React from "react";
-import { detectBrand } from "../../lib/wallet/card-validation";
 import { createEncryptedCardFile } from "../../lib/wallet/wallet-card-file";
 import type { CardShareContext } from "../../lib/services/wallet-card-share-service";
 
@@ -76,6 +75,9 @@ function summaryOf(card: FixtureCard) {
 }
 
 export class WalletService {
+  static async supportedCardNetworks() { return ["visa", "mastercard", "amex", "discover", "rupay", "other"]; }
+  static async resolveCardNetwork(_context: unknown, input: { selectedNetwork?: string }) { return { network: input.selectedNetwork || "visa", source: input.selectedNetwork ? "owner_selected" : "prefix", candidates: [] }; }
+
   static async listCardShareReceipts() { return []; }
   static isEnabled() {
     return true;
@@ -112,7 +114,7 @@ export class WalletService {
     const saved: FixtureCard = {
       ...card,
       cardId: `card_saved_${cards().length + 1}`,
-      brand: card.brand || detectBrand(card.pan) || "other",
+      brand: card.brand || "visa",
       last4: card.pan.slice(-4),
       issuingRegion: card.issuingRegion || "",
       pin: card.pin || "",
@@ -135,12 +137,11 @@ export class OneLocationService {
 }
 
 export const findCardShareRecipients = () => OneLocationService.listRecipientsPage();
-export class CardRecipientKeyUnavailableError extends Error {}
-export const prepareTemporaryCardShares = async () => { throw new Error("No delivery from the layout fixture."); };
 export const shareSavedCard = async () => { throw new Error("No delivery from the layout fixture."); };
 export class CardRecipientKeyUnavailableError extends Error {
   constructor() { super("Ask each recipient to unlock Hushh once before sharing card details."); }
 }
+// Keep the production share-service exports available without staging a delivery.
 export const prepareTemporaryCardShares = async (
   _context: CardShareContext,
   _cardId: string,
