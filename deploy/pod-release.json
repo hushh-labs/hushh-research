@@ -1,27 +1,21 @@
 {
-  "version": "2026.10-dev.15",
+  "version": "2026.10-dev.16",
   "channel": "dev",
-  "summary": "Qualified recovery and reliable Puppy controls for existing private agents.",
+  "summary": "Clearer Puppy responses and safer private-agent conversations.",
   "notes": {
     "improvements": [
-      "Conversation loading avoids a repeated storage read.",
-      "Encrypted checkpoints preserve the existing recovery path.",
-      "Private-agent startup skips unrelated shared-service route initialization.",
-      "Existing supported private agents can install this release after exact owner approval."
+      "Puppy keeps the answering device\u2019s model visible after a response.",
+      "Files organization preserves the original filename while allowing reversible display names."
     ],
     "fixes": [
-      "Stopping Puppy confirms cancellation even when the stream closes first.",
-      "Software update offers stay available after app updates.",
-      "Private connector approvals preserve their owner and pod boundaries.",
-      "Memory instructions retain their rules within the existing prompt budget."
+      "Puppy distinguishes device timeouts from private-agent deadlines.",
+      "Conversation refreshes ignore stale owner and vault sessions.",
+      "A failed conversation deletion preserves the unsent draft and attachments."
     ],
     "security": [
-      "Files analysis remains opt-in and uses the approved provider boundary.",
-      "Existing pods require a qualified image transition and exact owner approval before installation.",
-      "Computer Use remains disabled until its cloud isolation gates pass."
+      "Existing private agents require a qualified image transition and exact owner approval.",
+      "Files analysis remains opt-in; Computer Use stays disabled until its cloud gates pass."
     ]
   },
-  "supportedUpgradeDigests": [
-    "sha256:e213acf2468179177371709fb2651eb622439ec8c2a2df3d11394d23867ffa1e"
-  ]
+  "supportedUpgradeDigests": []
 }
