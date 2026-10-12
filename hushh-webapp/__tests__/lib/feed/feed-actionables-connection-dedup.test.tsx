@@ -34,6 +34,23 @@ const mocks = vi.hoisted(() => ({
   review: vi.fn(),
   account: vi.fn(),
   consentMutated: vi.fn(),
+  answerCheckout: vi.fn(),
+  answerDecline: vi.fn(),
+  idToken: vi.fn(),
+}));
+
+vi.mock("@/lib/services/answer-request-service", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@/lib/services/answer-request-service")
+  >()),
+  AnswerRequestService: {
+    checkout: mocks.answerCheckout,
+    decline: mocks.answerDecline,
+  },
+}));
+
+vi.mock("@/lib/services/auth-service", () => ({
+  AuthService: { getIdToken: mocks.idToken },
 }));
 
 vi.mock("next/navigation", () => ({
@@ -1090,7 +1107,6 @@ const answerEntry = (
 });
 describe("Request scope Needs you", () => {
   it.each([
-    ["owner", "awaiting_owner", "Review question"],
     ["owner", "answering", "Write answer"],
     ["requester", "approved", "Review price and pay"],
   ])("routes %s %s through its review card", async (role, state, label) => {
@@ -1111,6 +1127,125 @@ describe("Request scope Needs you", () => {
     expect(mocks.allow).not.toHaveBeenCalled();
     expect(mocks.decide).not.toHaveBeenCalled();
   });
+  // The owner decides this question the way they decide a document request:
+  // Deny on the row, and Allow on the review that shows what it would use and
+  // what it costs. Approving binds both, so neither fits on a row.
+  it("offers the owner Deny inline and Allow on the review", async () => {
+    mocks.pendingCount = 1;
+    mocks.consentItems = [
+      answerEntry("owner", "awaiting_owner", {
+        metadata: {
+          request_source: "answer_request",
+          request_status: "awaiting_owner",
+          role: "owner",
+          proposed_scope_count: 2,
+        },
+      }),
+    ];
+    const { result } = renderHook(() => useFeedActionables());
+    const row = result.current.actionables.find(
+      (item) => item.id === `consent:${ANSWER_ID}`,
+    )!;
+    expect(row.description).toBe("Set price");
+    expect(row.actions.map((action) => action.key)).toEqual([
+      "deny-answer",
+      "allow-answer",
+    ]);
+    // A refusal grants nothing, so it lands from the row.
+    expect(row.actions[0].confirm).toBe(true);
+    await act(async () => {
+      await row.actions[1].run();
+    });
+    expect(mocks.push).toHaveBeenCalledWith(
+      expect.stringContaining(encodeURIComponent(ANSWER_ID)),
+    );
+    // Never the generic consent grant, and never the document decision.
+    expect(mocks.allow).not.toHaveBeenCalled();
+    expect(mocks.decide).not.toHaveBeenCalled();
+  });
+
+  it("names the price the owner set, with the question, before the tap", () => {
+    mocks.pendingCount = 1;
+    mocks.consentItems = [
+      answerEntry("requester", "approved", {
+        metadata: {
+          request_source: "answer_request",
+          request_status: "approved",
+          role: "requester",
+          proposed_scope_count: 2,
+          amount_cents: 100,
+          question: "What is your age?",
+        },
+      }),
+    ];
+    const { result } = renderHook(() => useFeedActionables());
+    const row = result.current.actionables.find(
+      (item) => item.id === `consent:${ANSWER_ID}`,
+    )!;
+    expect(row.title).toBe("Pay $1 · What is your age?");
+    expect(row.description).toBe("Pay $1");
+    expect(row.actions.map((action) => action.label)).toEqual(["Pay $1"]);
+  });
+
+  it("takes the requester straight to Checkout, not to another Pay screen", async () => {
+    mocks.idToken.mockResolvedValue("id-token");
+    mocks.answerCheckout.mockResolvedValue("https://checkout.stripe.com/c/pay/cs_test_1");
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...window.location, assign },
+    });
+    mocks.pendingCount = 1;
+    mocks.consentItems = [
+      answerEntry("requester", "approved", {
+        metadata: {
+          request_source: "answer_request",
+          request_status: "approved",
+          role: "requester",
+          proposed_scope_count: 2,
+          amount_cents: 100,
+          question: "What is your age?",
+        },
+      }),
+    ];
+    const { result } = renderHook(() => useFeedActionables());
+    const row = result.current.actionables.find(
+      (item) => item.id === `consent:${ANSWER_ID}`,
+    )!;
+    await act(async () => {
+      await row.actions[0].run();
+    });
+    expect(mocks.answerCheckout).toHaveBeenCalledWith("id-token", ANSWER_ID);
+    expect(assign).toHaveBeenCalledWith(
+      "https://checkout.stripe.com/c/pay/cs_test_1",
+    );
+    // The price was decided before the tap; a screen whose only control is
+    // Pay again is a step with no decision in it.
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it("tells the requester the answer is not there instead of pricing it", () => {
+    // The resolver matched nothing, so no price can ever be set. The row used
+    // to sit in "Needs you" waiting on one.
+    mocks.pendingCount = 1;
+    mocks.consentItems = [
+      answerEntry("requester", "awaiting_owner", {
+        metadata: {
+          request_source: "answer_request",
+          request_status: "awaiting_owner",
+          role: "requester",
+          proposed_scope_count: 0,
+        },
+      }),
+    ];
+    const { result } = renderHook(() => useFeedActionables());
+    const row = result.current.actionables.find(
+      (item) => item.id === `consent:${ANSWER_ID}`,
+    )!;
+    expect(row.description).toBe("Answer not found");
+    expect(row.actions).toEqual([]);
+  });
+
   it.each([
     { scope: "attr.financial.*", allowed_next_action: "review_request" },
     {

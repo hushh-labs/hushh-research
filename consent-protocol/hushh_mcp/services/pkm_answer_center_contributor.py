@@ -20,7 +20,13 @@ class PkmAnswerCenterContributor:
             rows = (
                 connection.execute(
                     text("""SELECT r.request_id,r.owner_user_id,r.requester_user_id,
-                r.status,r.created_at,o.status AS payment_status,
+                r.status,r.created_at,r.question,o.status AS payment_status,
+                o.amount_cents,
+                -- The resolver's proposal. Zero means nothing of the owner's
+                -- matched the question, so the requester is told the answer is
+                -- not there instead of being shown a price that cannot exist.
+                (SELECT COUNT(*) FROM pkm_answer_request_scopes s
+                   WHERE s.request_id=r.request_id) AS proposed_scope_count,
                 requester_identity.display_name AS requester_label, owner_identity.display_name AS owner_label,
                 EXISTS(SELECT 1 FROM connections c WHERE c.status='active' AND
                   ((c.user_a_id=r.owner_user_id AND c.user_b_id=r.requester_user_id) OR
@@ -79,6 +85,13 @@ class PkmAnswerCenterContributor:
                             "direction": "incoming" if needs else "outgoing",
                             "request_status": status,
                             "payment_status": row["payment_status"],
+                            # Both participants already read these through
+                            # /state and /payment; the row carries them so the
+                            # Feed can name the price and the question without
+                            # one request per row. feed_events stays coarse.
+                            "question": row["question"],
+                            "amount_cents": row["amount_cents"],
+                            "proposed_scope_count": int(row["proposed_scope_count"] or 0),
                         },
                     }
                 )
