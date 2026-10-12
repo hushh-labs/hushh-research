@@ -68,7 +68,10 @@ def answer_engine(connector_postgres_url):  # noqa: F811
             """CREATE TABLE IF NOT EXISTS connections (
                  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                  user_a_id TEXT NOT NULL, user_b_id TEXT NOT NULL,
-                 status TEXT NOT NULL DEFAULT 'active')"""
+                 status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','revoked')),
+                 source TEXT NOT NULL DEFAULT 'request' CHECK (source IN ('request','circle_invite','import')),
+                 CONSTRAINT connections_canonical_order CHECK (user_a_id < user_b_id),
+                 UNIQUE (user_a_id,user_b_id))"""
         )
         # The lane projects milestones into the Feed; migration 117 owns the
         # real table and only these columns are written here.
@@ -133,6 +136,11 @@ def answer_engine(connector_postgres_url):  # noqa: F811
                  scope_label TEXT, visibility_posture TEXT NOT NULL,
                  PRIMARY KEY (user_id, scope_handle))"""
         )
+        # Migration 179's real partial index; duplicate milestones must pass
+        # the same constraint as UAT, not a permissive homemade Feed table.
+        connection.exec_driver_sql("""CREATE UNIQUE INDEX IF NOT EXISTS uq_feed_events_source_projection
+            ON feed_events (user_id, source_domain, event_type, source_row_id)
+            WHERE source_row_id IS NOT NULL""")
     # The migration contains format('... %I ...'), which psycopg2 would try to
     # interpolate. Run it through a raw cursor so the SQL reaches the server
     # byte for byte, exactly as psql applies it.

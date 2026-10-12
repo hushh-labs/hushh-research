@@ -144,7 +144,9 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
             text(
                 """INSERT INTO feed_events
                    (user_id, source_domain, event_type, metadata, source_row_id)
-                   VALUES (:user, 'consent', :event, CAST(:meta AS JSONB), :row)"""
+                   VALUES (:user, 'consent', :event, CAST(:meta AS JSONB), :row)
+                   ON CONFLICT (user_id, source_domain, event_type, source_row_id)
+                   WHERE source_row_id IS NOT NULL DO NOTHING"""
             ),
             {
                 "user": user_id,
@@ -910,15 +912,16 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
         def write(connection):
             request = self._row(
                 connection,
-                """SELECT r.status, r.requester_user_id, d.request_id AS delivered
+                """SELECT r.status, r.requester_user_id
                    FROM pkm_answer_requests r
-                   LEFT JOIN pkm_answer_deliveries d ON d.request_id = r.request_id
                    WHERE r.request_id = :request FOR UPDATE OF r""",
                 {"request": request_id},
             )
             if request is None or request["requester_user_id"] != requester_user_id:
                 raise AnswerRequestError("request_unavailable")
-            if request["delivered"] is not None:
+            # A sealed pre-payment envelope is staged, not delivered. Only
+            # settlement's release transition ends the cancellation window.
+            if request["status"] == "answered":
                 raise AnswerRequestError("answer_already_delivered")
             if request["status"] in {"answered", "cancelled", "expired", "declined"}:
                 raise AnswerRequestError("request_not_cancellable")

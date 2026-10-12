@@ -62,6 +62,7 @@ export interface MemoryDomainFreshness {
 export interface MemoryDocumentSourceDomain {
   domain: string;
   contentRevision: number | null;
+  manifestRevision?: number | null;
   /** Present when the domain could not be read; the section renders as unavailable. */
   unavailableReason?: string;
 }
@@ -121,6 +122,7 @@ export interface MemoryDocument {
    * A truncated section is not a complete record.
    */
   complete: boolean;
+  sourceLinks: { domain: string; path: string; contentRevision: number | null; manifestRevision: number | null }[];
 }
 
 const EXCLUDED_NOTE =
@@ -241,9 +243,9 @@ function renderAccount(account: MemoryAccountIdentity | null | undefined): strin
 /** Every value in the section, in full. */
 function renderCompleteRows(section: DomainRows): string[] {
   if (section.rows.length === 0) return ["_Nothing recorded._"];
-  const lines = ["| Detail | Value |", "| --- | --- |"];
+  const lines = ["| Detail | Value | Source |", "| --- | --- | --- |"];
   for (const row of section.rows) {
-    lines.push(`| ${escapeTableCell(row.label)} | ${escapeTableCell(row.value)} |`);
+    lines.push(`| ${escapeTableCell(row.label)} | ${escapeTableCell(row.value)} | ${escapeTableCell(`${section.domain}.${row.path}`)} |`);
   }
   return lines;
 }
@@ -307,6 +309,10 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
 
   const freshness: MemoryDomainFreshness[] = [];
   const body: string[] = [];
+  const sourceLinks: MemoryDocument["sourceLinks"] = [];
+  for (const [path, value] of Object.entries(account ?? {})) {
+    if (typeof value === "string" && value.trim()) sourceLinks.push({ domain: "account_profile", path, contentRevision: null, manifestRevision: null });
+  }
 
   for (const domain of domains) {
     const source = sourceByDomain.get(domain);
@@ -357,10 +363,8 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
 
     // Prefer the complete walk. `cards` is the browsing projection and is
     // capped and clipped; a record of what One holds must not be either.
-    const complete: DomainRows | null =
-      domainData && domain in domainData
-        ? collectDomainRows({ domain, domainData: domainData[domain], audience })
-        : null;
+    const complete = completeForFreshness;
+    for (const row of complete?.rows ?? []) sourceLinks.push({ domain, path: row.path, contentRevision, manifestRevision: source?.manifestRevision ?? null });
 
     body.push(`## ${title}`, "");
     body.push(
@@ -421,5 +425,6 @@ export function buildMemoryDocument(params: BuildMemoryDocumentParams): MemoryDo
     freshness,
     excludedDomains: [...excludedDomains].sort(),
     complete,
+    sourceLinks,
   };
 }
