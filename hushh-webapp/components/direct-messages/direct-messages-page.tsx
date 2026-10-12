@@ -775,6 +775,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     let cancelled = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let abortController: AbortController | null = null;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
     let reconnectAttempt = 0;
 
     const connect = async () => {
@@ -786,16 +787,18 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
           idToken,
           signal: abortController.signal,
         });
-        if (!response.ok || !response.body) {
+        if (cancelled || !response.ok || !response.body) {
+          await response.body?.cancel().catch(() => undefined);
+          if (cancelled) return;
           throw new Error(`Message updates unavailable (${response.status})`);
         }
         reconnectAttempt = 0;
-        const reader = response.body.getReader();
+        reader = response.body.getReader();
         const decoder = new TextDecoder();
         let remainder = "";
         while (!cancelled) {
           const { done, value } = await reader.read();
-          if (done) break;
+          if (done || cancelled) break;
           remainder += decoder.decode(value, { stream: true });
           const splitAt = Math.max(
             remainder.lastIndexOf("\n\n"),
@@ -820,6 +823,11 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
         // Push, focus refresh and the short reconnect below keep the inbox live
         // when a proxy or network briefly interrupts the stream.
       } finally {
+        if (reader) {
+          await reader.cancel().catch(() => undefined);
+          reader.releaseLock();
+          reader = null;
+        }
         if (!cancelled) {
           reconnectAttempt += 1;
           const delay = Math.min(30_000, 1_000 * 2 ** Math.min(reconnectAttempt, 5));
@@ -832,6 +840,8 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     return () => {
       cancelled = true;
       abortController?.abort();
+      // The transport stops forwarding this signal after headers arrive.
+      void reader?.cancel().catch(() => undefined);
       if (reconnectTimer) clearTimeout(reconnectTimer);
     };
   }, [user]);

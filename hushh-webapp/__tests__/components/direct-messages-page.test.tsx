@@ -267,6 +267,23 @@ describe("DirectMessagesPage", () => {
     vi.unstubAllGlobals();
   });
 
+  it.each(["open", "late"])("releases the %s response stream on route departure", async (phase) => {
+    const cancelled = vi.fn();
+    const body = new ReadableStream<Uint8Array>({ cancel: cancelled });
+    let deliver!: (response: Response) => void;
+    mocks.openEvents.mockImplementation(() => new Promise<Response>((resolve) => { deliver = resolve; }));
+    const view = renderConnectionThread();
+    await waitFor(() => expect(mocks.openEvents).toHaveBeenCalled());
+    if (phase === "open") {
+      await act(async () => { deliver(new Response(body)); });
+      await waitFor(() => expect(body.locked).toBe(true));
+    }
+    view.unmount();
+    if (phase === "late") await act(async () => { deliver(new Response(body)); });
+    await waitFor(() => expect(cancelled).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(body.locked).toBe(false));
+  });
+
   it("uses the shared Chat dock while sending to the selected connection", async () => {
     const view = renderConnectionThread();
 

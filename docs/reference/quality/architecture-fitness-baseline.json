@@ -16736,7 +16736,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_circle_chat.py",
       "symbol": null,
-      "value": 1257
+      "value": 1260
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18041,7 +18041,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/direct-messages-page.test.tsx",
       "symbol": null,
-      "value": 1033
+      "value": 1050
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -33564,6 +33564,28 @@
           "after": 972,
           "source_sha256": "f7cad036c18fff9b5e45c2679991137fd73d88a914a76b97c7bdff3ad413f625",
           "reason": "Cohesive existing owner composition, durable hosting/AI readiness, validated generation fences and canonical internal return navigation."
+        }
+      ]
+    },
+    "dev_request_lifecycle_20261012": {
+      "parent_revision": "3fde0523024d6ea794acc9a7c1c3942ed1fb7756",
+      "reviewer": "adk_authority_review",
+      "evidence": "docs/reference/quality/adk-orchestration-docs-audit.md#source-and-serving-evidence",
+      "scope": "Exactly two existing test-module ceilings. Messages open/late stream regression negative controls fail before the fix; Circle subscription fixture retains exact authority/disconnect assertions and uses distinct queues. No runtime-module allowance, budget, scanner, exclusion or unrelated finding change.",
+      "slots": [
+        {
+          "key": "module_size|consent-protocol/tests/test_circle_chat.py||module exceeds the advisory operon budget",
+          "path": "consent-protocol/tests/test_circle_chat.py",
+          "before": 1257,
+          "after": 1260,
+          "source_sha256": "d1852a810374acb4a15e615e19f2014609c7345e48bf5c9a8d1662b68e7dbadf"
+        },
+        {
+          "key": "module_size|hushh-webapp/__tests__/components/direct-messages-page.test.tsx||module exceeds the advisory operon budget",
+          "path": "hushh-webapp/__tests__/components/direct-messages-page.test.tsx",
+          "before": 1033,
+          "after": 1050,
+          "source_sha256": "6d743b19ad5539a6a6c8ab2f960adb437cfe78ca88797f6359d59b26c5d57af3"
         }
       ]
     }

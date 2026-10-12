@@ -301,7 +301,7 @@ describe("CalendarAgentPage", () => {
 
   it("retains Skip before connection and Finish after verified onboarding connection", async () => {
     mocks.status.mockResolvedValue({ configured: true, connected: false, status: "disconnected", scope_csv: "" });
-    mocks.startConnect.mockResolvedValue({ authorize_url: "https://accounts.google.test" });
+    mocks.startConnect.mockResolvedValue({ authorize_url: `https://accounts.google.com/o/oauth2/v2/auth?redirect_uri=${encodeURIComponent(`${window.location.origin}/api/google-calendar/oauth/callback`)}` });
     const finish = vi.fn();
     const skip = vi.fn();
     render(<CalendarAgentPage journeyVariant="onboarding" onFinishSetup={finish} onSkipSetup={skip} />);
@@ -354,7 +354,7 @@ describe("CalendarAgentPage", () => {
       configured: true, connected: false, status: "disconnected", scope_csv: "",
     });
     mocks.startConnect.mockResolvedValue({
-      authorize_url: "https://accounts.google.test",
+      authorize_url: `https://accounts.google.com/o/oauth2/v2/auth?redirect_uri=${encodeURIComponent(`${window.location.origin}/api/google-calendar/oauth/callback`)}`,
     });
     render(<CalendarAgentPage />);
     fireEvent.click(await waitForConnectButton());
@@ -389,7 +389,7 @@ describe("CalendarAgentPage", () => {
       configured: true, connected: false, status: "disconnected", scope_csv: "",
     });
     mocks.startConnect.mockResolvedValue({
-      authorize_url: "https://accounts.google.test",
+      authorize_url: `https://accounts.google.com/o/oauth2/v2/auth?redirect_uri=${encodeURIComponent(`${window.location.origin}/api/google-calendar/oauth/callback`)}`,
     });
     render(<CalendarAgentPage />);
     fireEvent.click(await waitForConnectButton());
@@ -416,7 +416,7 @@ describe("CalendarAgentPage", () => {
       scope_csv: "",
     });
     mocks.startConnect.mockResolvedValue({
-      authorize_url: "https://accounts.google.test",
+      authorize_url: `https://accounts.google.com/o/oauth2/v2/auth?redirect_uri=${encodeURIComponent(`${window.location.origin}/api/google-calendar/oauth/callback`)}`,
     });
 
     const view = render(<CalendarAgentPage />);
@@ -448,7 +448,7 @@ describe("CalendarAgentPage", () => {
         scope_csv: "",
       });
       mocks.startConnect.mockResolvedValue({
-        authorize_url: "https://accounts.google.test",
+        authorize_url: `https://accounts.google.com/o/oauth2/v2/auth?redirect_uri=${encodeURIComponent(`${window.location.origin}/api/google-calendar/oauth/callback`)}`,
       });
 
       render(<CalendarAgentPage />);
@@ -585,7 +585,7 @@ describe("CalendarAgentPage", () => {
     let finish!: (value: unknown) => void;
     mocks.status.mockResolvedValueOnce({ configured: true, connected: false, status: "disconnected", scope_csv: "" });
     mocks.status.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
-    mocks.startConnect.mockResolvedValue({ authorize_url: "https://accounts.google.com/authorize", redirect_uri: "http://localhost/return", expires_at: "2026-10-09" });
+    mocks.startConnect.mockResolvedValue({ authorize_url: `https://accounts.google.com/o/oauth2/v2/auth?redirect_uri=${encodeURIComponent(`${window.location.origin}/api/google-calendar/oauth/callback`)}`, redirect_uri: `${window.location.origin}/api/google-calendar/oauth/callback`, expires_at: "2026-10-09" });
     const view = render(<CalendarAgentPage />);
     await waitForConnectButton();
     view.rerender(<CalendarAgentPage connectionPending />);

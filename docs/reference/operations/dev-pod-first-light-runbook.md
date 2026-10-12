@@ -29,6 +29,23 @@ owner-cloud pods never receive a Shared fallback (`personal_agent_hosting.py`).
 The [recovery guide](./pod-backup-and-recovery.md) owns the pod's conditional
 first-boot key creation and encrypted recovery contract.
 
+## Shared dev hub request capacity
+
+The shared dev hub's deployment default is 40 concurrent requests per instance,
+with at most three instances, one worker and the existing database pools. This
+does not change any owner pod's selected resources. The October 12 incident
+exhausted 20 request slots while CPU stayed below 3% and memory near 35%; a
+Messages response stream could survive route departure. Close the response
+reader and late response body explicitly: an aborted fetch controller alone
+does not close a stream after headers have arrived.
+
+After deployment, compare account-verification latency, platform “no available
+instance” failures, request concurrency, DB acquisition failures, CPU and memory
+with the recorded incident window. Request headroom is not a database-capacity
+increase. Preserve the canonical DB ceiling before changing instance, worker or
+pool counts; roll back the serving revision if additional concurrency degrades
+admission or database latency.
+
 ## Maintaining an existing owner's software release
 
 This section governs upgrades; the dated first-light checks above and legacy
