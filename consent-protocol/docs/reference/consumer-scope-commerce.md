@@ -58,6 +58,12 @@ are separately verified below; they do not prove a consumer purchase or payout.
   notification size findings; budgets and authority checks are unchanged.
   Complete core, hosted CI, governed Dev promotion and browser acceptance
   remain pending for this combined candidate.
+- Post-merge canonical generation restores incoming Location compatibility
+  history, including `e3a606aa87e944e4`, across all graph mirrors and the native
+  catalog. Final UI validation passes every owner check; architecture reports
+  zero regressions. Main's Compose message/New chat controls and both entrypoint
+  tests remain intact; retained root selectors target the actual bottom dock.
+  These source checks do not establish deployed payment or device acceptance.
 - Read-only Dev observation at `11:55:14Z` still finds two funding records,
   zero purchases and zero withdrawals. Primary private Azure setup is failed
   with no provisioned target; counterpart private Azure remains provisioned.
