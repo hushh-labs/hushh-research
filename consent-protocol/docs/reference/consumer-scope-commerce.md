@@ -60,6 +60,12 @@ are separately verified below; they do not prove a consumer purchase or payout.
   pass, and the same real repository test fails on frozen `02989d1c2fc4` because
   the timing is absent. The architecture ratchet now passes. Fresh complete core, exact-source
   hosted CI and Dev promotion are still required before serving these corrections.
+- The subsequent `f9a4922d5f` core run passed architecture, documentation,
+  topology and skill lint, then stopped on the Puppy routing fixture's removed
+  vault skill name. The fixture now targets the registry's existing
+  `security-audit` owner; all 229 trigger checks pass without changing the gate,
+  descriptions, prompts or ranking rules. The complete corrected candidate
+  must still pass core and hosted CI.
 - Read-only provider and Monitoring observations at `09:42Z` agree on $5.00
   available operating capital, $9.60 pending funding backing, $10.50 requester
   liabilities and $0.90 unallocated processing costs. All 17 required aggregate

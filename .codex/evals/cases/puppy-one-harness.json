@@ -22,7 +22,7 @@
       },
       {
         "prompt": "fix ciphertext-only vault persistence for PKM writes",
-        "owner": "vault-pkm-governance"
+        "owner": "security-audit"
       }
     ]
   }
