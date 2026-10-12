@@ -84,6 +84,11 @@ and the LlmAgent `name="wallet"` were the two the first pass missed and they cra
 
 ## Wallet entry and card collection
 
+The Sharing tab also includes [card sharing history](./wallet-sharing.md): sent and
+received eligible cards, recipients, duration, expiry, verification, revocation
+and activity. This uses the existing temporary-grant authority and preserves
+the distinction between payment storage and the canonical Wallet Profile.
+
 The first visit per account on a device to `/one/wallet` starts with the Wallet illustration and Continue,
 without a duplicate Wallet page heading. Continue saves a cosmetic account-scoped device preference; later visits open
 the workspace directly. This does not complete account setup or unlock the vault.

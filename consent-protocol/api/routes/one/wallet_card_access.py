@@ -89,6 +89,56 @@ class ShareBody(RegistrationBody):
     duration_minutes: Literal[5, 10, 15] = Field(alias="durationMinutes")
 
 
+class SharingActivity(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    event: Literal[
+        "SHARE_CREATED",
+        "SHARE_DELIVERED",
+        "SHARE_OPENED",
+        "SHARE_EXPIRED",
+        "SHARE_REVOKED",
+        "ACCESS_VERIFIED",
+        "ACCESS_DENIED",
+    ]
+    at: str
+    actor: Literal["owner", "recipient"]
+    outcome: Literal["recorded", "denied"]
+
+
+class SharingHistoryItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: UUID
+    cardId: str
+    cardType: Literal["payment", "profile"]
+    source: Literal["owner_manual", "owner_profile"]
+    displayLabel: str
+    last4: str | None
+    senderName: str
+    recipientName: str
+    senderPersonRef: UUID | None
+    recipientPersonRef: UUID | None
+    createdAt: str
+    expiresAt: str
+    durationMinutes: Literal[5, 10, 15]
+    trustedCircle: bool | None
+    method: Literal["trusted_circle", "standard_connection", "legacy_unspecified"]
+    verificationMethod: Literal["identity_reauthentication", "trusted_circle"]
+    verifiedAt: str | None
+    status: Literal["active", "expired", "revoked"]
+    revokedAt: str | None
+    lastAccessedAt: str | None
+    permittedFields: list[str]
+    activity: list[SharingActivity]
+
+
+class SharingHistory(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    items: list[SharingHistoryItem]
+    hasMore: bool
+    nextCursor: str | None
+    serverNow: str
+
+
 async def owner_identity(
     uid: str = Depends(require_firebase_auth), consent: dict = Depends(require_vault_owner_token)
 ):
@@ -128,6 +178,43 @@ async def card_access(
     return await run_in_threadpool(
         service().card_access, owner, card_id, str(cursor) if cursor else None
     )
+
+
+@router.get("/profile")
+async def profile_access(owner: str = Depends(owner_identity)):
+    return await run_in_threadpool(service().profile_access, owner)
+
+
+@router.get("/history", response_model=SharingHistory)
+async def sharing_history(
+    direction: Literal["outgoing", "received"] = "outgoing",
+    card_type: Literal["payment", "profile"] | None = Query(default=None, alias="cardType"),
+    cursor: str | None = Query(default=None, max_length=60),
+    limit: int = Query(default=20, ge=1, le=100),
+    owner: str = Depends(owner_identity),
+):
+    return await run_in_threadpool(
+        service().history,
+        owner,
+        direction=direction,
+        card_type=card_type,
+        cursor=cursor,
+        limit=limit,
+    )
+
+
+@router.get("/history/{grant_id}", response_model=SharingHistoryItem)
+async def sharing_details(grant_id: UUID, viewer: str = Depends(owner_identity)):
+    # One participant-scoped ledger, independent of the card's current eligibility.
+    try:
+        result = await run_in_threadpool(service().history, viewer, grant_id=str(grant_id))
+    except WalletCardAccessError as exc:
+        if exc.status_code != 404:
+            raise
+        result = await run_in_threadpool(
+            service().history, viewer, direction="received", grant_id=str(grant_id)
+        )
+    return result["items"][0]
 
 
 @router.post("/cards/{card_id}/grants")

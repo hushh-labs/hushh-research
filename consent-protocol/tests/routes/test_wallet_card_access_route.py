@@ -19,7 +19,9 @@ def client(owner="owner"):
     return TestClient(app)
 
 
-@pytest.mark.parametrize("path", ["/cards/card_one", "/connections"])
+@pytest.mark.parametrize(
+    "path", ["/cards/card_one", "/connections", "/profile", "/history", "/history/" + ID]
+)
 def test_card_owner_mismatch_is_private_and_does_not_call_service(path):
     with patch("api.routes.one.wallet_card_access.service") as service:
         response = client("other").get(ROOT + path)
@@ -87,3 +89,48 @@ def test_malformed_history_cursor_is_private_and_not_forwarded():
         assert response.status_code == 422
         assert response.headers["cache-control"] == "private, no-store"
         service.assert_not_called()
+
+
+def test_unified_history_filters_and_bounds_use_owner_authority():
+    service = MagicMock()
+    service.history.return_value = {
+        "items": [],
+        "hasMore": False,
+        "nextCursor": None,
+        "serverNow": "2026-10-12T10:00:00Z",
+    }
+    with patch("api.routes.one.wallet_card_access.service", return_value=service):
+        response = client().get(
+            ROOT + "/history",
+            params={
+                "direction": "received",
+                "cardType": "profile",
+                "limit": 5,
+                "cursor": "profile:" + ID,
+            },
+        )
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "private, no-store"
+        service.history.assert_called_once_with(
+            "owner", direction="received", card_type="profile", cursor="profile:" + ID, limit=5
+        )
+        service.reset_mock()
+        for params in (
+            {"limit": 101},
+            {"limit": 0},
+            {"direction": "other"},
+            {"cardType": "system"},
+            {"cursor": "x" * 61},
+        ):
+            assert client().get(ROOT + "/history", params=params).status_code == 422
+        service.history.assert_not_called()
+
+
+def test_history_failure_does_not_disclose_internal_information():
+    service = MagicMock()
+    service.history.side_effect = RuntimeError("internal credential")
+    with patch("api.routes.one.wallet_card_access.service", return_value=service):
+        response = client().get(ROOT + "/history")
+        assert response.status_code == 503
+        assert "internal credential" not in response.text
+        assert response.headers["cache-control"] == "private, no-store"

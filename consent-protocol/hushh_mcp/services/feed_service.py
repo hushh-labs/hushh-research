@@ -804,7 +804,24 @@ class FeedService:
         cte = (
             _WALLET_GROUPED_FEED_CTE if self._wallet_card_access_installed() else _GROUPED_FEED_CTE
         )
+        if cte == _WALLET_GROUPED_FEED_CTE and self._universal_wallet_installed():
+            cte = cte.replace("wallet_card_access_grants", "wallet_all_access_grants")
         return cte + (_GROUPED_FEED_COUNT_SELECT if count else _GROUPED_FEED_PAGE_SELECT)
+
+    def _universal_wallet_installed(self):
+        try:
+            rows = (
+                self._get_db()
+                .execute_raw(
+                    "SELECT to_regclass('public.wallet_all_access_grants') IS NOT NULL AS available",
+                    {},
+                )
+                .data
+                or []
+            )
+            return bool(rows and rows[0].get("available") is True)
+        except Exception:
+            return False
 
     def _with_wallet_card_grants(self, user_id, rows):
         ids = [
@@ -815,12 +832,17 @@ class FeedService:
         ]
         if not ids or not self._wallet_card_access_installed():
             return rows
+        grants_table = (
+            "wallet_all_access_grants"
+            if self._universal_wallet_installed()
+            else "wallet_card_access_grants"
+        )
         try:
             links = (
                 self._get_db()
                 .execute_raw(
-                    """SELECT g.message_id::text AS source_row_id,g.id::text AS grant_id
- FROM wallet_card_access_grants g JOIN messages m ON m.id=g.message_id
+                    f"""SELECT g.message_id::text AS source_row_id,g.id::text AS grant_id
+ FROM {grants_table} g JOIN messages m ON m.id=g.message_id
  JOIN conversations c ON c.id=m.conversation_id
  WHERE g.recipient_user_id=:viewer AND g.owner_user_id=m.sender_user_id
  AND m.deleted_for_everyone_at IS NULL AND m.deleted_for_recipient_at IS NULL

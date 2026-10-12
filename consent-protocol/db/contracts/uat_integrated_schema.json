@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 321,
+  "expected_migration_version": 325,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -2928,13 +2928,17 @@
     "wallet_card_access_audit": [
       "id",
       "grant_id",
-      "event_type"
+      "event_type",
+      "profile_grant_id"
     ],
     "wallet_card_access_grants": [
       "id",
       "recipient_user_id",
       "message_id",
-      "revoked_at"
+      "revoked_at",
+      "last_accessed_at",
+      "trusted_at_creation",
+      "verification_attempts"
     ],
     "wallet_card_registrations": [
       "owner_user_id",
@@ -2948,6 +2952,24 @@
       "owner_user_id",
       "request_id",
       "expires_at"
+    ],
+    "wallet_profile_share_requests": [
+      "owner_user_id",
+      "request_id",
+      "card_id",
+      "expires_at",
+      "duration_minutes"
+    ],
+    "wallet_profile_access_grants": [
+      "id",
+      "owner_user_id",
+      "recipient_user_id",
+      "card_id",
+      "permitted_fields",
+      "trusted_at_creation",
+      "last_accessed_at",
+      "verification_attempts",
+      "revoked_at"
     ]
   }
 }

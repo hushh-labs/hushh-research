@@ -33,6 +33,7 @@ def grant_service(monkeypatch):
     )
     now = datetime.now(timezone.utc)
     row = {
+        "id": "11111111-1111-4111-8111-111111111111",
         "owner_user_id": "owner",
         "card_id": "card",
         "expires_at": now + timedelta(minutes=5),
