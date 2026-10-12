@@ -352,9 +352,9 @@ def test_android_dispatcher_binds_selected_track_without_confirmation_bypass() -
     assert "--track" in dispatcher
     assert 'track: "production"' in dispatcher
     assert '["internal", "production"]' in dispatcher
-    assert 'track: options.track' in dispatcher
+    assert "track: options.track" in dispatcher
     assert "--yes" not in dispatcher
-    assert '`release ${options.track}`' in dispatcher
+    assert "`release ${options.track}`" in dispatcher
     assert '"dry run"' in dispatcher
     assert "workflow_run_id" in dispatcher
 
